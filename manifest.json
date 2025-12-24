@@ -1,0 +1,17 @@
+
+{
+  "short_name": "Backstage",
+  "name": "Backstage Story Sequencer",
+  "icons": [
+    {
+      "src": "https://cdn.lucide.dev/icon/film.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml"
+    }
+  ],
+  "start_url": ".",
+  "display": "standalone",
+  "theme_color": "#1e1e1e",
+  "background_color": "#1e1e1e",
+  "orientation": "landscape"
+}

@@ -1,8 +1,8 @@
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useRef } from 'react';
 import { ViewMode } from '../types';
 import { useProject } from '../context/ProjectContext';
-import { Target, Zap, Clock, LogOut } from 'lucide-react';
+import { Target, Zap, Clock, LogOut, Save, Upload, RotateCcw, RotateCw } from 'lucide-react';
 
 interface AppHeaderProps {
   currentView: ViewMode;
@@ -12,7 +12,8 @@ interface AppHeaderProps {
 }
 
 const AppHeader: React.FC<AppHeaderProps> = ({ currentView, onViewChange, onRefresh }) => {
-  const { isStoryboardFeatureEnabled, writingGoal, dailyStats, beats, currentUser } = useProject();
+  const { isStoryboardFeatureEnabled, writingGoal, dailyStats, beats, currentUser, saveProject, loadProject, hasUnsavedChanges, undo, redo, canUndo, canRedo } = useProject();
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const views = [
     { id: 'board', label: 'Board' },
@@ -21,6 +22,25 @@ const AppHeader: React.FC<AppHeaderProps> = ({ currentView, onViewChange, onRefr
     { id: 'storyboard', label: 'Storyboard', hidden: !isStoryboardFeatureEnabled },
     { id: 'statistics', label: 'Statistics' }
   ].filter(v => !v.hidden);
+
+  const handleFileLoad = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        try {
+          const data = JSON.parse(event.target?.result as string);
+          loadProject(data);
+          alert("Project Loaded Successfully!");
+        } catch (err) {
+          console.error("Failed to load project", err);
+          alert("Invalid project file");
+        }
+      };
+      reader.readAsText(file);
+    }
+    e.target.value = ''; 
+  };
 
   // Live Progress Calculation
   const progressDisplay = useMemo(() => {
@@ -67,7 +87,7 @@ const AppHeader: React.FC<AppHeaderProps> = ({ currentView, onViewChange, onRefr
     <>
       <header className="fixed top-0 left-0 w-full h-[50px] bg-[#111] border-b border-[#3d3d3d] flex items-center justify-between px-5 z-[500] select-none shadow-[0_2px_10px_rgba(0,0,0,0.3)] font-['Helvetica_Neue',Helvetica,Arial,sans-serif]">
         
-        {/* LEFT: Cinematic Logo -> Settings */}
+        {/* LEFT: Cinematic Logo -> Settings + File Ops */}
         <div className="flex items-center gap-5 h-full flex-1">
           <div 
               onClick={() => onViewChange('backstage')}
@@ -85,6 +105,48 @@ const AppHeader: React.FC<AppHeaderProps> = ({ currentView, onViewChange, onRefr
                       Sequencer
                   </span>
               </div>
+          </div>
+
+          <div className="h-6 w-[1px] bg-[#333]"></div>
+
+          <div className="flex items-center gap-1">
+              <button 
+                  onClick={undo}
+                  disabled={!canUndo}
+                  className="w-8 h-8 flex items-center justify-center rounded-sm hover:bg-[#222] text-[#666] hover:text-white transition-colors disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-[#666]"
+                  title="Undo (Ctrl+Z)"
+              >
+                  <RotateCcw size={14} />
+              </button>
+              <button 
+                  onClick={redo}
+                  disabled={!canRedo}
+                  className="w-8 h-8 flex items-center justify-center rounded-sm hover:bg-[#222] text-[#666] hover:text-white transition-colors disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-[#666]"
+                  title="Redo (Ctrl+Y)"
+              >
+                  <RotateCw size={14} />
+              </button>
+
+              <div className="h-6 w-[1px] bg-[#222] mx-2"></div>
+
+              <button 
+                  onClick={() => fileInputRef.current?.click()}
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-sm hover:bg-[#222] text-[#666] hover:text-white transition-colors"
+                  title="Load Project File"
+              >
+                  <Upload size={14} />
+              </button>
+              <input type="file" ref={fileInputRef} className="hidden" accept=".json,.bst" onChange={handleFileLoad} />
+
+              <button 
+                  onClick={saveProject}
+                  className={`flex items-center gap-2 px-3 py-1.5 rounded-sm transition-all duration-300 ${hasUnsavedChanges 
+                      ? 'bg-[#f5a623]/10 text-[#f5a623] border border-[#f5a623]/50 shadow-[0_0_10px_rgba(245,166,35,0.2)] animate-pulse' 
+                      : 'hover:bg-[#222] text-[#666] hover:text-white border border-transparent'}`}
+                  title={hasUnsavedChanges ? "Unsaved Changes!" : "Save Project"}
+              >
+                  <Save size={14} className={hasUnsavedChanges ? "animate-bounce" : ""} />
+              </button>
           </div>
         </div>
 

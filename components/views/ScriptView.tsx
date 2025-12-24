@@ -144,10 +144,9 @@ const runPaginationPass = (
 };
 
 const ScriptView: React.FC = () => {
-  const { beats, updateBeat, addBeat, scriptViewMode } = useProject();
+  const { beats, updateBeat, addBeat, scriptViewMode, scriptConfig, setScriptConfig, characterData } = useProject();
   const [searchTerm, setSearchTerm] = useState('');
   const [zoom, setZoom] = useState(1.0);
-  const [paperTheme, setPaperTheme] = useState<'white' | 'dark' | 'sepia' | 'red'>('white');
   const [activeBeatId, setActiveBeatId] = useState<number | null>(null);
   const [activeFormat, setActiveFormat] = useState('action');
   
@@ -158,7 +157,7 @@ const ScriptView: React.FC = () => {
   
   // Theme Styles
   const getThemeStyles = () => {
-      switch(paperTheme) {
+      switch(scriptConfig.paperTheme) {
           case 'dark': return { 
               bg: '#1a1a1a', text: '#e5e5e5', slug: '#bbbbbb', accent: '#333333', 
               pageNum: '#555', shadow: '0 0 0 1px #333',
@@ -182,6 +181,11 @@ const ScriptView: React.FC = () => {
       }
   };
   const theme = getThemeStyles();
+
+  // Helper to set theme
+  const setPaperTheme = (theme: 'white' | 'dark' | 'sepia' | 'red') => {
+      setScriptConfig({ ...scriptConfig, paperTheme: theme });
+  };
 
   // Sorting
   const sortedBeats = useMemo(() => {
@@ -208,6 +212,15 @@ const ScriptView: React.FC = () => {
   // Unique Characters for Autocomplete
   const uniqueCharacters = useMemo(() => {
       const chars = new Set<string>();
+      
+      // 1. Add from Character Manifest (Created Characters)
+      // This includes any character you've explicitly added via the "Add Character" button
+      Object.values(characterData).forEach((c: any) => {
+          if (c.name) chars.add(c.name.toUpperCase());
+      });
+
+      // 2. Add from existing Script content (Dynamic)
+      // This preserves any ad-hoc characters typed directly into the script
       beats.forEach(b => {
           const div = document.createElement('div');
           div.innerHTML = b.content;
@@ -216,8 +229,9 @@ const ScriptView: React.FC = () => {
               if (name && name.length > 1) chars.add(name);
           });
       });
+
       return Array.from(chars).sort();
-  }, [beats]);
+  }, [beats, characterData]);
 
   // --- LAYOUT ENGINE TRIGGER ---
   useLayoutEffect(() => {
@@ -380,10 +394,10 @@ const ScriptView: React.FC = () => {
                 <div className="flex items-center gap-4">
                     {/* Theme Toggles */}
                     <div className="flex bg-[#1a1a1a] rounded border border-[#333] p-0.5">
-                        <button onClick={() => setPaperTheme('white')} className={`p-1.5 rounded ${paperTheme === 'white' ? 'bg-white text-black' : 'text-gray-500 hover:text-white'}`}><Sun size={12}/></button>
-                        <button onClick={() => setPaperTheme('sepia')} className={`p-1.5 rounded ${paperTheme === 'sepia' ? 'bg-[#fdf6e3] text-[#586e75]' : 'text-gray-500 hover:text-white'}`}><Coffee size={12}/></button>
-                        <button onClick={() => setPaperTheme('dark')} className={`p-1.5 rounded ${paperTheme === 'dark' ? 'bg-[#1a1a1a] text-white' : 'text-gray-500 hover:text-white'}`}><Moon size={12}/></button>
-                        <button onClick={() => setPaperTheme('red')} className={`p-1.5 rounded ${paperTheme === 'red' ? 'bg-[#000] text-red-500' : 'text-gray-500 hover:text-white'}`}><Eye size={12}/></button>
+                        <button onClick={() => setPaperTheme('white')} className={`p-1.5 rounded ${scriptConfig.paperTheme === 'white' ? 'bg-white text-black' : 'text-gray-500 hover:text-white'}`}><Sun size={12}/></button>
+                        <button onClick={() => setPaperTheme('sepia')} className={`p-1.5 rounded ${scriptConfig.paperTheme === 'sepia' ? 'bg-[#fdf6e3] text-[#586e75]' : 'text-gray-500 hover:text-white'}`}><Coffee size={12}/></button>
+                        <button onClick={() => setPaperTheme('dark')} className={`p-1.5 rounded ${scriptConfig.paperTheme === 'dark' ? 'bg-[#1a1a1a] text-white' : 'text-gray-500 hover:text-white'}`}><Moon size={12}/></button>
+                        <button onClick={() => setPaperTheme('red')} className={`p-1.5 rounded ${scriptConfig.paperTheme === 'red' ? 'bg-[#000] text-red-500' : 'text-gray-500 hover:text-white'}`}><Eye size={12}/></button>
                     </div>
                     
                     <div className="w-[1px] h-4 bg-[#333]"></div>

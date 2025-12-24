@@ -31,6 +31,27 @@ export const SHOT_ANGLES = [
   'PROFILE'
 ];
 
+// --- STORYBOARD ADVANCED OPTIONS ---
+
+export const SB_FRAMING = ['Centered', 'Rule of Thirds', 'Golden Spiral', 'Quadrants', 'Symmetry', 'Frame within Frame'];
+export const SB_HEADROOM = ['Standard', 'Tight', 'Extreme Headroom (Negative Space)', 'Cut-off'];
+export const SB_LOOKING = ['Open Right', 'Open Left', 'Short Sighted', 'Center Locked'];
+export const SB_CAM_HEIGHT = ['Eye Level', 'Waist Level', 'Knee Level', 'Ground Level', 'Overhead'];
+export const SB_HORIZON = ['Level', 'Slight Tilt', 'Extreme Dutch Tilt'];
+export const SB_DEPTH = ['Flat', 'Deep Focus', 'Shallow Focus (Bokeh)', 'Layered (Fore/Mid/Back)'];
+
+export const SB_LIGHTING_STYLE = ['Natural', 'High-Key', 'Low-Key', 'Chiaroscuro', 'Silhouette', 'Rembrandt', 'Neon / Practical'];
+export const SB_KEY_LIGHT = ['Soft Left', 'Soft Right', 'Hard Left', 'Hard Right', 'Top Down', 'Under Lighting'];
+export const SB_FILL_RATIO = ['1:1 (Flat)', '1:2 (Standard)', '1:8 (Dramatic)', '1:32 (Silhouette)'];
+export const SB_BACKLIGHT = ['None', 'Rim Light (Separation)', 'Halo', 'Lens Flare'];
+export const SB_COLOR_TEMP = ['Warm (3200K)', 'Neutral (5600K)', 'Cool/Blue (7000K)', 'Mixed'];
+export const SB_SHADOWS = ['Soft/Diffused', 'Hard/Sharp', 'Long', 'No Shadows'];
+
+export const SB_MOVEMENT = ['Static', 'Walks Forward', 'Walks Away', 'Runs', 'Turns Head', 'Falls', 'Stands Up', 'Sits Down'];
+export const SB_EYELINE = ['Direct to Camera', 'Just Off Camera', 'Looking Up', 'Looking Down', 'Looking Left', 'Looking Right'];
+
+// ------------------------------------
+
 export const CHARACTER_GENDERS = ['Male', 'Female', 'Non-Binary', 'Transgender', 'Agender', 'Genderfluid', 'Unknown', 'Android', 'Cyborg', 'Ethereal', 'Beast'];
 export const CHARACTER_HAIR = ['Black', 'Brown', 'Dark Brown', 'Blonde', 'Dirty Blonde', 'Platinum Blonde', 'Red', 'Auburn', 'Grey', 'Silver', 'White', 'Bald', 'Shaved', 'Dyed (Green)', 'Dyed (Blue)', 'Dyed (Pink)', 'Multicolored'];
 export const CHARACTER_EYES = ['Brown', 'Dark Brown', 'Blue', 'Ice Blue', 'Green', 'Emerald', 'Hazel', 'Amber', 'Grey', 'Black', 'Red', 'Violet', 'Heterochromia', 'Cybernetic', 'White (Blind)', 'Glowing'];
@@ -123,6 +144,8 @@ export const INITIAL_STATE: ProjectState = {
   isOsInputMode: false,
   osInputShortcut: 'NumLock',
   scriptConfig: {
+    // Default to Dark Mode as requested
+    paperTheme: 'dark',
     // STANDARD A4 FORMATTING (12pt / 16px base)
     // A4 Width: 8.27in. Margins: Left 1.5, Right 1.0. Printable Width ~ 5.77in.
     // We use percentages relative to that printable area or just standard screenplay CSS rules.

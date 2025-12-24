@@ -5,6 +5,44 @@ export interface Slugline {
   time: string;
 }
 
+export interface ShotComposition {
+  framing?: string; // Centered / Rule of Thirds
+  headroom?: string; // Tight / Loose
+  lookingRoom?: string; // Open Right / Left
+  cameraHeight?: string; // Eye Level / Low
+  horizon?: string; // Tilted / Level
+  depth?: string; // Fore/Mid/Back layers
+}
+
+export interface ShotLighting {
+  style?: string; // Low-key / High-key
+  keyLight?: string; // Source & Side
+  fillRatio?: string; // 1:8, 1:2
+  backlight?: string; // Rim light / None
+  colorTemp?: string; // 3200K / 5600K
+  shadows?: string; // Hard / Soft
+  mood?: string; // Keywords
+}
+
+export interface ShotArt {
+  setDressing?: string;
+  props?: string;
+  costume?: string;
+  palette?: string;
+  texture?: string;
+  weather?: string;
+}
+
+export interface ShotBlocking {
+  characterId?: string; // Name
+  startPos?: string;
+  endPos?: string;
+  movement?: string;
+  eyeLine?: string;
+  gesture?: string;
+  emotion?: string;
+}
+
 export interface Shot {
   id: string; // Unique ID for keying
   shotSize: string;
@@ -12,7 +50,14 @@ export interface Shot {
   description: string;
   subject: string;
   imageUrl?: string | null;
+  imageHistory?: string[]; // Array of base64 strings for previous iterations
   scene?: string | number;
+  
+  // Advanced Attributes
+  composition?: ShotComposition;
+  lighting?: ShotLighting;
+  art?: ShotArt;
+  blocking?: ShotBlocking;
 }
 
 export type BeatStatus = 'not-ready' | 'ready';
@@ -48,7 +93,7 @@ export interface Connection {
 
 export interface Annotation {
   id: number;
-  type: 'pencil' | 'line' | 'arrow' | 'rect' | 'circle' | 'eraser' | 'text';
+  type: 'pencil' | 'line' | 'arrow' | 'rect' | 'circle' | 'eraser' | 'text' | 'image';
   color: string;
   d?: string; // path data
   x?: number;
@@ -60,6 +105,7 @@ export interface Annotation {
   rx?: number;
   text?: string; // Content for text annotations
   fontSize?: number;
+  imageUrl?: string; // Content for image annotations
 }
 
 export interface Group {
@@ -87,12 +133,28 @@ export interface CharacterData {
   relationships: CharacterRelationship[]; // New Field
   age: number;
   gender: string;
+  ethnicity?: string; // Added field
   hair: string;
   eyes: string;
   build: string;
   occupation: string;
   archetype: string;
   images: string[];
+  // Optional container for template ideas (Ghost Text)
+  templateDefaults?: {
+    physiology?: string;
+    sociology?: string;
+    psychology?: string;
+    backstory?: string;
+    occupation?: string;
+    archetype?: string;
+    age?: number;
+    gender?: string;
+    ethnicity?: string;
+    hair?: string;
+    eyes?: string;
+    build?: string;
+  };
 }
 
 export interface TextStyleConfig {
@@ -149,6 +211,7 @@ export interface BlockBoundsConfig {
 }
 
 export interface ScriptConfig {
+  paperTheme: 'white' | 'dark' | 'sepia' | 'red'; // New global theme setting
   action: ScriptElementConfig;
   character: ScriptElementConfig;
   dialogue: ScriptElementConfig;
@@ -271,4 +334,82 @@ export interface ProjectState {
 
   // Board Layers
   boardLayerOrder: BoardLayer[];
+}
+
+export interface ProjectContextType extends ProjectState {
+  // Auth & Project Management
+  currentUser: string | null;
+  currentProjectId: string | null;
+  projectList: ProjectMetadata[];
+  login: (username: string) => void;
+  logout: () => void;
+  selectProject: (id: string) => void;
+  createProject: (name: string) => void;
+  deleteProject: (id: string) => void;
+  closeProject: () => void;
+
+  // Change Tracking
+  hasUnsavedChanges: boolean;
+
+  // State Setters (Operate on the currently loaded project)
+  setBeats: (beats: Beat[] | ((prev: Beat[]) => Beat[])) => void;
+  setGroups: (groups: Group[] | ((prev: Group[]) => Group[])) => void;
+  setConnections: (conns: Connection[] | ((prev: Connection[]) => Connection[])) => void;
+  setAnnotations: (annos: Annotation[] | ((prev: Annotation[]) => Annotation[])) => void;
+  setCharacterData: (data: Record<string, CharacterData> | ((prev: Record<string, CharacterData>) => Record<string, CharacterData>)) => void;
+  setGeneratedShots: (shots: Shot[] | ((prev: Shot[]) => Shot[])) => void;
+  
+  // Shot Management Helpers
+  updateGeneratedShot: (id: string, updates: Partial<Shot>) => void;
+  addGeneratedShot: (index: number) => void;
+  removeGeneratedShot: (id: string) => void;
+  moveGeneratedShot: (fromIndex: number, toIndex: number) => void;
+  
+  setPan: (x: number, y: number) => void;
+  setScale: (s: number) => void;
+  updateBeat: (id: number, updates: Partial<Beat>) => void;
+  addBeat: (x: number, y: number) => number; // Returns new ID
+  
+  // Group Management
+  addGroup: (group: Omit<Group, 'id'>) => void;
+  updateGroup: (id: number, updates: Partial<Group>) => void;
+  removeGroup: (id: number) => void;
+
+  loadProject: (data: ProjectState) => void;
+  saveProject: () => void;
+  // Tamil Utils
+  setTamilMode: (enabled: boolean) => void;
+  setTamilFontScale: (scale: number) => void;
+  setTamilFontFamily: (font: string) => void;
+  learnTamilWord: (english: string, tamil: string) => void;
+  // OS Input Utils
+  setOsInputMode: (enabled: boolean) => void;
+  setOsInputShortcut: (key: string) => void;
+  // Script Layout
+  setScriptConfig: (config: ScriptConfig) => void;
+  setScriptViewMode: (mode: 'continuous' | 'page') => void;
+  // Storyboard Configuration
+  setStoryboardConfig: (config: StoryboardConfig) => void;
+  setStoryboardFeatureEnabled: (enabled: boolean) => void;
+  
+  // Goals
+  setWritingGoal: (goal: WritingGoal) => void;
+
+  // Google Drive
+  setGoogleDriveConfig: (config: GoogleDriveConfig) => void;
+  connectToDrive: (apiKey?: string, clientId?: string) => Promise<void>;
+  disconnectFromDrive: () => void;
+  backupToDrive: (force?: boolean) => Promise<void>;
+  isDriveSyncing: boolean;
+  isDriveConnecting: boolean; 
+
+  // Board Layers
+  setBoardLayerOrder: (order: BoardLayer[]) => void;
+
+  // HISTORY
+  undo: () => void;
+  redo: () => void;
+  canUndo: boolean;
+  canRedo: boolean;
+  captureSnapshot: () => void;
 }

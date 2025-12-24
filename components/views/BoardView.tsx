@@ -1,11 +1,13 @@
 
-import React, { useEffect, useRef, useState, useMemo } from 'react';
+import React, { useEffect, useRef, useState, useMemo, useCallback } from 'react';
 import { useProject } from '../../context/ProjectContext';
-import { BeatStatus, Group, Annotation } from '../../types';
+import { BeatStatus, Group, Annotation, Beat, Connection } from '../../types';
 import { 
     MousePointer2, Square, Circle, Pen, Minus, ArrowRight, Eraser, Trash2, 
-    Type, X, PenTool, GripHorizontal, Heading
+    Type, X, PenTool, GripHorizontal, Heading, ZoomIn, ZoomOut, Maximize
 } from 'lucide-react';
+import BeatCard from '../BeatCard';
+import { STORYLINE_COLORS } from '../../constants';
 
 interface BoardViewProps {
   onEditBeat: (id: number) => void;
@@ -19,11 +21,20 @@ const ANNOTATION_COLORS = [
     '#3b82f6', // Blue
 ];
 
+interface Guideline {
+    x1: number;
+    y1: number;
+    x2: number;
+    y2: number;
+}
+
+const SNAP_THRESHOLD = 10;
+
 const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
   const { 
     beats, groups, connections, panX, panY, scale, annotations,
     setPan, setScale, updateBeat, setConnections, addBeat, setBeats, setGroups, addGroup, updateGroup, removeGroup,
-    setAnnotations
+    setAnnotations, captureSnapshot
   } = useProject();
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -39,16 +50,22 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
   const [strokeWidth, setStrokeWidth] = useState(3);
   const [strokeStyle, setStrokeStyle] = useState<'solid' | 'dashed'>('solid'); // Default solid
   
+  // Context Menu State
+  const [ctxMenu, setCtxMenu] = useState<{x: number, y: number, beatId?: number | null, groupId?: number | null, linkIndex?: number | null, annotationId?: number | null} | null>(null);
+
   // Text Editing State
   const [editingAnnoId, setEditingAnnoId] = useState<number | null>(null);
 
-  // Engine Ref
+  // Snapping Guidelines
+  const [guidelines, setGuidelines] = useState<Guideline[]>([]);
+
+  // Engine Ref (Mutable state for high-perf interactions)
   const engine = useRef({
     // State Mirrors
-    beats: [] as any[],
-    groups: [] as any[],
-    connections: [] as any[],
-    annotations: [] as any[],
+    beats: [] as Beat[],
+    groups: [] as Group[],
+    connections: [] as Connection[],
+    annotations: [] as Annotation[],
     scale: 1,
     panX: 0,
     panY: 0,
@@ -59,6 +76,19 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
     dragGroupTarget: null as number | null, 
     dragGroupChildIds: new Set<number>(),
     groupResizeTarget: null as number | null,
+    
+    // Image Resizing (Enhanced for Corners & Aspect Ratio)
+    imageResizeTarget: null as { 
+        id: number, 
+        corner: 'nw' | 'ne' | 'sw' | 'se',
+        startX: number,
+        startY: number,
+        startW: number,
+        startH: number,
+        startMouseX: number,
+        startMouseY: number,
+        aspectRatio: number
+    } | null,
     
     // Annotation Dragging
     dragAnnotationId: null as number | null,
@@ -89,7 +119,7 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
     currentPoints: [] as {x: number, y: number}[], // Store raw points for smoothing
     currentAnnoId: null as number | null,
 
-    // Graph
+    // Graph Analysis (internal)
     sceneMap: {} as Record<number, number>,
     componentMap: {} as Record<number, string>,
     errorIds: new Set<number>(),
@@ -128,9 +158,10 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
     #annotations-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 15; overflow: visible; }
     #text-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 20; }
     #beats-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 100; }
+    #guidelines-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 200; }
     
     /* Enable pointer events on interactive elements within layers */
-    .group-container, .beat-card, .annotation-hit-area, .handle-hit-area, .connection-line { pointer-events: auto !important; }
+    .group-container, .beat-card, .annotation-hit-area, .handle-hit-area, .connection-line, .image-resize-handle { pointer-events: auto !important; }
     .text-annotation-card { pointer-events: auto !important; }
     
     /* When drawing, Annotations needs full events */
@@ -148,6 +179,20 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
     .annotation-rect { fill: none; pointer-events: none; }
     .annotation-circle { fill: none; pointer-events: none; }
     .annotation-line { fill: none; stroke-linecap: round; pointer-events: none; }
+    .annotation-image { pointer-events: none; }
+    
+    /* Image Resize Handle */
+    .image-resize-handle {
+        fill: #f5a623;
+        stroke: white;
+        stroke-width: 1px;
+        opacity: 0;
+        transition: opacity 0.2s;
+    }
+    g[data-type="annotation"]:hover .image-resize-handle {
+        opacity: 1;
+    }
+    .guideline { stroke: #00ffff; stroke-width: 1px; stroke-dasharray: 4, 2; opacity: 0.8; }
     
     /* Text Annotation Cards */
     .text-annotation-card {
@@ -393,6 +438,71 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
           renderBeats();
       }
   }, [toolMode]);
+
+  // --- HELPER: SNAP CALCULATION ---
+  const calculateSnap = (currentX: number, currentY: number, width: number, height: number, excludeId: number) => {
+      const snapDist = SNAP_THRESHOLD;
+      let newX = currentX;
+      let newY = currentY;
+      const guides: Guideline[] = [];
+
+      // Edges of current item
+      const left = currentX;
+      const right = currentX + width;
+      const centerX = currentX + width / 2;
+      const top = currentY;
+      const bottom = currentY + height;
+      const centerY = currentY + height / 2;
+
+      // Collect potential targets (Beats + Other Images)
+      // For beats, assume width 240, min-height 140 (approx center logic)
+      const targets = [
+          ...engine.current.beats.map(b => ({ id: b.id, x: b.x, y: b.y, w: 240, h: 140, type: 'beat' })),
+          ...engine.current.annotations.filter(a => a.type === 'image' && a.id !== excludeId).map(a => ({ id: a.id, x: a.x || 0, y: a.y || 0, w: a.w || 200, h: a.h || 150, type: 'image' }))
+      ];
+
+      // Vertical Snapping (X-axis)
+      let snappedX = false;
+      for (const t of targets) {
+          if (snappedX) break; // Priority to first snap to avoid jitter
+          const tLeft = t.x;
+          const tRight = t.x + t.w;
+          const tCenterX = t.x + t.w / 2;
+
+          // Left to Left
+          if (Math.abs(left - tLeft) < snapDist) { newX = tLeft; guides.push({ x1: tLeft, y1: Math.min(top, t.y) - 50, x2: tLeft, y2: Math.max(bottom, t.y + t.h) + 50 }); snappedX = true; }
+          // Left to Right
+          else if (Math.abs(left - tRight) < snapDist) { newX = tRight; guides.push({ x1: tRight, y1: Math.min(top, t.y) - 50, x2: tRight, y2: Math.max(bottom, t.y + t.h) + 50 }); snappedX = true; }
+          // Right to Left
+          else if (Math.abs(right - tLeft) < snapDist) { newX = tLeft - width; guides.push({ x1: tLeft, y1: Math.min(top, t.y) - 50, x2: tLeft, y2: Math.max(bottom, t.y + t.h) + 50 }); snappedX = true; }
+          // Right to Right
+          else if (Math.abs(right - tRight) < snapDist) { newX = tRight - width; guides.push({ x1: tRight, y1: Math.min(top, t.y) - 50, x2: tRight, y2: Math.max(bottom, t.y + t.h) + 50 }); snappedX = true; }
+          // Center to Center
+          else if (Math.abs(centerX - tCenterX) < snapDist) { newX = tCenterX - width / 2; guides.push({ x1: tCenterX, y1: Math.min(top, t.y) - 50, x2: tCenterX, y2: Math.max(bottom, t.y + t.h) + 50 }); snappedX = true; }
+      }
+
+      // Horizontal Snapping (Y-axis)
+      let snappedY = false;
+      for (const t of targets) {
+          if (snappedY) break;
+          const tTop = t.y;
+          const tBottom = t.y + t.h;
+          const tCenterY = t.y + t.h / 2;
+
+          // Top to Top
+          if (Math.abs(top - tTop) < snapDist) { newY = tTop; guides.push({ x1: Math.min(left, t.x) - 50, y1: tTop, x2: Math.max(right, t.x + t.w) + 50, y2: tTop }); snappedY = true; }
+          // Top to Bottom
+          else if (Math.abs(top - tBottom) < snapDist) { newY = tBottom; guides.push({ x1: Math.min(left, t.x) - 50, y1: tBottom, x2: Math.max(right, t.x + t.w) + 50, y2: tBottom }); snappedY = true; }
+          // Bottom to Top
+          else if (Math.abs(bottom - tTop) < snapDist) { newY = tTop - height; guides.push({ x1: Math.min(left, t.x) - 50, y1: tTop, x2: Math.max(right, t.x + t.w) + 50, y2: tTop }); snappedY = true; }
+          // Bottom to Bottom
+          else if (Math.abs(bottom - tBottom) < snapDist) { newY = tBottom - height; guides.push({ x1: Math.min(left, t.x) - 50, y1: tBottom, x2: Math.max(right, t.x + t.w) + 50, y2: tBottom }); snappedY = true; }
+          // Center to Center
+          else if (Math.abs(centerY - tCenterY) < snapDist) { newY = tCenterY - height / 2; guides.push({ x1: Math.min(left, t.x) - 50, y1: tCenterY, x2: Math.max(right, t.x + t.w) + 50, y2: tCenterY }); snappedY = true; }
+      }
+
+      return { x: newX, y: newY, guides };
+  };
 
   // --- ENGINE FUNCTIONS ---
 
@@ -785,6 +895,8 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
   };
 
   const deleteAnnotation = (id: number) => {
+      // Capture state before deletion
+      captureSnapshot();
       const newAnnos = engine.current.annotations.filter(a => a.id !== id);
       engine.current.annotations = newAnnos;
       setAnnotations(newAnnos);
@@ -792,9 +904,37 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
   };
 
   const handleClearAll = () => {
+      captureSnapshot();
       engine.current.annotations = [];
       setAnnotations([]);
       renderConnections();
+  };
+
+  const onImageResizeMouseDown = (e: MouseEvent, id: number, corner: 'nw' | 'ne' | 'sw' | 'se') => {
+      if (toolMode !== 'none' && toolMode !== 'eraser') return;
+      if (e.button !== 0) return;
+
+      e.stopPropagation();
+      e.preventDefault();
+      
+      const anno = engine.current.annotations.find(a => a.id === id);
+      if (!anno) return;
+
+      engine.current.imageResizeTarget = {
+          id: id,
+          corner: corner,
+          startX: anno.x || 0,
+          startY: anno.y || 0,
+          startW: anno.w || 200,
+          startH: anno.h || 150,
+          startMouseX: e.clientX,
+          startMouseY: e.clientY,
+          aspectRatio: (anno.w || 200) / (anno.h || 150)
+      };
+
+      engine.current.isDragging = true;
+      engine.current.lastMouseX = e.clientX;
+      engine.current.lastMouseY = e.clientY;
   };
 
   // Smooth path generator with low-pass filter
@@ -861,6 +1001,7 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
           const group = document.createElementNS("http://www.w3.org/2000/svg", "g");
           let el: SVGElement | null = null;
           let hitEl: SVGElement | null = null; // Thick transparent line for eraser
+          let handleEls: SVGElement[] = [];
           
           const width = (anno as any).strokeWidth || 3;
           const style = (anno as any).strokeStyle || 'solid';
@@ -961,6 +1102,62 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
               hitLine.setAttribute("y2", (anno.y! + (anno.h || 0)).toString());
               hitLine.classList.add("annotation-hit-area");
               hitEl = hitLine;
+          } else if (anno.type === 'image' && anno.imageUrl) {
+              const image = document.createElementNS("http://www.w3.org/2000/svg", "image");
+              const ax = anno.x || 0;
+              const ay = anno.y || 0;
+              const aw = anno.w || 200; // Default width
+              const ah = anno.h || 150; // Default height
+              
+              image.setAttribute("x", ax.toString());
+              image.setAttribute("y", ay.toString());
+              image.setAttribute("width", aw.toString());
+              image.setAttribute("height", ah.toString());
+              image.setAttribute("href", anno.imageUrl);
+              image.setAttribute("preserveAspectRatio", "none"); 
+              image.classList.add("annotation-image");
+              el = image;
+
+              // Hit Area (invisible rect behind image for easier selection/erasing)
+              const hitRect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+              hitRect.setAttribute("x", ax.toString());
+              hitRect.setAttribute("y", ay.toString());
+              hitRect.setAttribute("width", aw.toString());
+              hitRect.setAttribute("height", ah.toString());
+              hitRect.setAttribute("fill", "transparent");
+              hitRect.setAttribute("cursor", "move");
+              hitRect.classList.add("annotation-hit-area");
+              // @ts-ignore
+              hitRect.onmousedown = (e) => {
+                  if(toolMode !== 'none' && toolMode !== 'eraser') return;
+                  if(e.button !== 0) return;
+                  e.stopPropagation();
+                  engine.current.dragAnnotationId = anno.id;
+                  engine.current.isDragging = true;
+                  engine.current.lastMouseX = e.clientX;
+                  engine.current.lastMouseY = e.clientY;
+              };
+              hitEl = hitRect;
+
+              // 4 Resize Handles
+              const handleSize = 10;
+              const addHandle = (cx: number, cy: number, cursor: string, corner: 'nw' | 'ne' | 'se' | 'sw') => {
+                  const r = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+                  r.setAttribute("x", (cx - handleSize/2).toString());
+                  r.setAttribute("y", (cy - handleSize/2).toString());
+                  r.setAttribute("width", handleSize.toString());
+                  r.setAttribute("height", handleSize.toString());
+                  r.classList.add("image-resize-handle");
+                  r.style.cursor = cursor;
+                  // @ts-ignore
+                  r.onmousedown = (e) => onImageResizeMouseDown(e, anno.id, corner);
+                  return r;
+              };
+
+              handleEls.push(addHandle(ax, ay, 'nw-resize', 'nw'));
+              handleEls.push(addHandle(ax + aw, ay, 'ne-resize', 'ne'));
+              handleEls.push(addHandle(ax, ay + ah, 'sw-resize', 'sw'));
+              handleEls.push(addHandle(ax + aw, ay + ah, 'se-resize', 'se'));
           }
 
           if (el) {
@@ -972,6 +1169,7 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
                   group.appendChild(hitEl);
               }
               group.appendChild(el);
+              handleEls.forEach(h => group.appendChild(h));
               annotationsLayer.appendChild(group);
           }
       });
@@ -1005,7 +1203,7 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
               path.oncontextmenu = (e) => {
                   e.preventDefault();
                   e.stopPropagation();
-                  showContextMenu(e.clientX, e.clientY, null, index, null);
+                  showContextMenu(e.clientX, e.clientY, null, index, null, null);
               };
 
               group.appendChild(path); 
@@ -1027,6 +1225,8 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
                   const startDrag = (e) => {
                       e.stopPropagation();
                       e.preventDefault();
+                      // Snapshot before linking
+                      captureSnapshot();
                       const newConns = [...engine.current.connections];
                       newConns.splice(index, 1);
                       engine.current.connections = newConns;
@@ -1301,6 +1501,8 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
   const onLinkHandleMouseDown = (e: MouseEvent, sourceId: number) => {
       if (toolMode !== 'none' && toolMode !== 'eraser') return;
       e.stopPropagation();
+      // Snapshot before new link creation
+      captureSnapshot();
       engine.current.isLinking = true;
       engine.current.linkingSourceId = sourceId;
       engine.current.relinkData = null; 
@@ -1339,6 +1541,7 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
   };
 
   const updateTextContent = (id: number, text: string) => {
+      // NOTE: We don't snapshot on every keystroke here, ideally handled on blur or enter
       const newAnnos = engine.current.annotations.map(a => a.id === id ? { ...a, text } : a);
       engine.current.annotations = newAnnos;
       // We don't necessarily need to rerender everything, but context update is good
@@ -1358,6 +1561,8 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
           // If we were editing, stop editing on click outside
           if (editingAnnoId !== null) {
               setEditingAnnoId(null);
+              // Trigger snapshot on finish editing
+              captureSnapshot();
               // Don't return, allow other interactions
           }
 
@@ -1378,6 +1583,8 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
                                     target.closest('.handle-hit-area') || 
                                     target.closest('.group-header') || 
                                     target.closest('.group-resize-handle') ||
+                                    target.closest('.image-resize-handle') || // Add this check
+                                    target.closest('.annotation-hit-area') || // And this for image drag
                                     target.closest('.text-annotation-card') ||
                                     target.tagName === 'INPUT' || target.tagName === 'TEXTAREA';
               if (isInteractive) return;
@@ -1416,6 +1623,8 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
               e.preventDefault();
               const { x, y } = getSvgPoint(e);
               
+              captureSnapshot(); // Save before adding new element
+
               const isBig = toolMode === 'bigtext';
               const newId = Date.now();
               const newAnno: any = {
@@ -1447,6 +1656,8 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
               engine.current.currentPoints = [{x, y}]; // Start collecting points for smoothing
               engine.current.currentAnnoId = Date.now();
               
+              captureSnapshot(); // Save before drawing
+
               // Initial Shape Setup
               const newAnno: any = {
                   id: engine.current.currentAnnoId,
@@ -1495,12 +1706,13 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
               engine.current.lassoStart = { x: e.clientX, y: e.clientY };
               const lasso = document.getElementById('selection-lasso');
               if (lasso) {
+                  lasso.style.display = 'block';
                   lasso.style.left = e.clientX + 'px';
                   lasso.style.top = e.clientY + 'px';
                   lasso.style.width = '0px';
                   lasso.style.height = '0px';
-                  lasso.style.display = 'block';
               }
+              return;
           }
       };
 
@@ -1641,14 +1853,69 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
               engine.current.lastMouseY = e.clientY;
               renderCanvas();
           } else if (engine.current.isDragging) {
+              // Ensure we aren't dragging something tiny by accident without logic start
+              // Check if snapshot needed: If dragging just started, capture now
+              // Note: We check if it's the *first* move event of a drag if we want to be precise, 
+              // but handleMouseUp is where we commit state. 
+              // BUT for undo to work properly, we need the state BEFORE the drag started.
+              // So we should capture snapshot on MouseDown for items that drag.
+              // We added `captureSnapshot()` to the MouseDown handlers for interactive elements.
+              
               const dx = (e.clientX - engine.current.lastMouseX) / engine.current.scale;
               const dy = (e.clientY - engine.current.lastMouseY) / engine.current.scale;
               
-              if (engine.current.dragAnnotationId !== null) {
+              if (engine.current.imageResizeTarget !== null) {
+                  const target = engine.current.imageResizeTarget;
+                  const anno = engine.current.annotations.find(a => a.id === target.id);
+                  if (anno) {
+                      // Total delta from start of drag
+                      const deltaX = (e.clientX - target.startMouseX) / engine.current.scale;
+                      
+                      let newX = target.startX;
+                      let newY = target.startY;
+                      let newW = target.startW;
+                      let newH = target.startH;
+                      const ratio = target.aspectRatio;
+
+                      if (target.corner === 'se') {
+                          newW = Math.max(50, target.startW + deltaX);
+                          newH = newW / ratio;
+                      } else if (target.corner === 'sw') {
+                          newW = Math.max(50, target.startW - deltaX);
+                          newH = newW / ratio; 
+                          newX = target.startX + (target.startW - newW);
+                      } else if (target.corner === 'ne') {
+                          newW = Math.max(50, target.startW + deltaX);
+                          newH = newW / ratio;
+                          newY = target.startY - (newH - target.startH);
+                      } else if (target.corner === 'nw') {
+                          newW = Math.max(50, target.startW - deltaX);
+                          newH = newW / ratio;
+                          newX = target.startX + (target.startW - newW);
+                          newY = target.startY - (newH - target.startH);
+                      }
+
+                      anno.x = newX;
+                      anno.y = newY;
+                      anno.w = newW;
+                      anno.h = newH;
+                      renderConnections(); 
+                  }
+              } else if (engine.current.dragAnnotationId !== null) {
                   const anno = engine.current.annotations.find(a => a.id === engine.current.dragAnnotationId);
                   if (anno) {
-                      anno.x = (anno.x || 0) + dx;
-                      anno.y = (anno.y || 0) + dy;
+                      // SMART SNAPPING
+                      const { x, y, guides } = calculateSnap(
+                          (anno.x || 0) + dx, 
+                          (anno.y || 0) + dy, 
+                          anno.w || 200, 
+                          anno.h || 150, 
+                          anno.id
+                      );
+                      
+                      anno.x = x;
+                      anno.y = y;
+                      setGuidelines(guides);
                       
                       // Directly manipulate DOM for Text Annotations for performance
                       if (anno.type === 'text') {
@@ -1722,6 +1989,9 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
       };
 
       const handleMouseUp = (e: MouseEvent) => {
+          // Clear Guidelines on Release
+          setGuidelines([]);
+
           if (engine.current.isDrawing) {
               engine.current.isDrawing = false;
               engine.current.currentPoints = [];
@@ -1768,6 +2038,7 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
               engine.current.isDragging = false;
               
               if (engine.current.dragGroupTarget) {
+                  // We captured snapshot on Mousedown, now we commit state
                   setGroups(engine.current.groups);
                   setBeats(engine.current.beats);
               }
@@ -1775,16 +2046,26 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
                   setGroups(engine.current.groups);
               }
               
+              if (engine.current.imageResizeTarget !== null) {
+                  setAnnotations([...engine.current.annotations]); // Commit changes
+                  engine.current.imageResizeTarget = null;
+              }
+
               if (engine.current.dragAnnotationId !== null) {
                   setAnnotations([...engine.current.annotations]); // Commit position
                   engine.current.dragAnnotationId = null;
+              }
+
+              if (engine.current.dragTarget !== null) {
+                  // Commit new positions to React State
+                  setBeats(engine.current.beats);
               }
 
               engine.current.dragGroupTarget = null;
               engine.current.dragGroupChildIds.clear();
               engine.current.groupResizeTarget = null;
               engine.current.dragTarget = null;
-              setBeats(engine.current.beats);
+              
               minimapContainerRef.current?.classList.remove('active'); 
           }
       };
@@ -1834,6 +2115,7 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
               const rect = container.getBoundingClientRect();
               const worldX = (e.clientX - rect.left - engine.current.panX) / engine.current.scale;
               const worldY = (e.clientY - rect.top - engine.current.panY) / engine.current.scale;
+              // addBeat snapshots internally
               const newId = addBeat(worldX - 120, worldY - 20);
               engine.current.creationState = { id: newId, step: 'title' };
           }
@@ -1851,6 +2133,8 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
           const groupHeader = e.target.closest('.group-header');
           // @ts-ignore
           const beatCard = e.target.closest('.beat-card');
+          // @ts-ignore
+          const annotationGroup = e.target.closest('g[data-type="annotation"]');
 
           if (beatCard) {
               // @ts-ignore
@@ -1860,13 +2144,17 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
                   engine.current.selectedBeatIds.add(id);
                   renderBeats();
               }
-              showContextMenu(e.clientX, e.clientY, id, null, null);
+              showContextMenu(e.clientX, e.clientY, id, null, null, null);
           } else if (groupHeader) {
               // @ts-ignore
               const groupId = parseInt(groupHeader.parentElement.dataset.id);
-              showContextMenu(e.clientX, e.clientY, null, null, groupId);
+              showContextMenu(e.clientX, e.clientY, null, null, groupId, null);
+          } else if (annotationGroup) {
+              // @ts-ignore
+              const annoId = parseInt(annotationGroup.getAttribute('data-id'));
+              showContextMenu(e.clientX, e.clientY, null, null, null, annoId);
           } else if (engine.current.selectedBeatIds.size > 1) {
-              showContextMenu(e.clientX, e.clientY, null, null, null);
+              showContextMenu(e.clientX, e.clientY, null, null, null, null);
           }
       };
 
@@ -1912,9 +2200,8 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
   }, [setPan, setBeats, addBeat, beats, connections, groups, toolMode, drawColor, strokeWidth, strokeStyle, editingAnnoId]); 
 
   // --- CONTEXT MENU LOGIC ---
-  const [ctxMenu, setCtxMenu] = React.useState<{x: number, y: number, beatId: number | null, linkIndex: number | null, groupId: number | null} | null>(null);
 
-  const showContextMenu = (clientX: number, clientY: number, beatId: number | null, linkIndex: number | null, groupId: number | null) => {
+  const showContextMenu = (clientX: number, clientY: number, beatId: number | null, linkIndex: number | null, groupId: number | null, annotationId: number | null) => {
       if (containerRef.current) {
           const rect = containerRef.current.getBoundingClientRect();
           setCtxMenu({ 
@@ -1922,7 +2209,8 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
               y: clientY - rect.top, 
               beatId, 
               linkIndex,
-              groupId
+              groupId,
+              annotationId
           });
       }
   };
@@ -1930,6 +2218,8 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
   const hideContextMenu = () => setCtxMenu(null);
 
   const handleDelete = () => {
+      // Snapshot before deleting
+      captureSnapshot();
       if (ctxMenu?.beatId !== null && ctxMenu?.beatId !== undefined) {
           const toDelete = engine.current.selectedBeatIds.size > 0 
               ? Array.from(engine.current.selectedBeatIds) 
@@ -1944,11 +2234,14 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
           setConnections(newConns);
       } else if (ctxMenu?.groupId !== null && ctxMenu?.groupId !== undefined) {
           removeGroup(ctxMenu.groupId);
+      } else if (ctxMenu?.annotationId !== null && ctxMenu?.annotationId !== undefined) {
+          deleteAnnotation(ctxMenu.annotationId);
       }
       hideContextMenu();
   };
 
   const handleColor = (color: string, type: 'chain' | 'tint' | 'group') => {
+      captureSnapshot();
       if (type === 'group' && ctxMenu?.groupId) {
           updateGroup(ctxMenu.groupId, { color });
       } else if (ctxMenu?.beatId !== null && ctxMenu?.beatId !== undefined) {
@@ -1968,6 +2261,7 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
   };
 
   const handleStatus = (status: BeatStatus) => {
+      captureSnapshot();
       if (ctxMenu?.beatId !== null && ctxMenu?.beatId !== undefined) {
           const targets = engine.current.selectedBeatIds.size > 0 
               ? Array.from(engine.current.selectedBeatIds)
@@ -1980,6 +2274,7 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
 
   const handleCreateGroup = () => {
       if (engine.current.selectedBeatIds.size < 1) return;
+      captureSnapshot();
       const selectedBeats = beats.filter(b => engine.current.selectedBeatIds.has(b.id));
       
       let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
@@ -2020,9 +2315,34 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
 
   const statusAction = getStatusAction();
 
+  // Added onMouseDown wrappers to capture snapshots for drag start
+  const wrapMouseDown = (handler: (e: MouseEvent, ...args: any[]) => void, ...args: any[]) => (e: any) => {
+      // Capture snapshot on mouse down for things that might move
+      if (e.button === 0 && toolMode === 'none') {
+          captureSnapshot();
+      }
+      handler(e, ...args);
+  };
+
   return (
     <div className={`board-wrapper tool-${toolMode}`} ref={containerRef} onClick={hideContextMenu} tabIndex={-1}>
       <style>{styles}</style>
+      <style>{`
+        .image-resize-handle {
+            fill: #f5a623;
+            stroke: white;
+            stroke-width: 1px;
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+        g[data-type="annotation"]:hover .image-resize-handle {
+            opacity: 1;
+        }
+        .image-resize-handle:hover {
+            fill: white;
+            stroke: #f5a623;
+        }
+      `}</style>
       
       {/* Zoom Controls */}
       <div className="zoom-controls">
@@ -2232,7 +2552,18 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
                   ))}
               </div>
 
-              {/* 5. Beats (Top) */}
+              {/* 5. Smart Snap Guidelines (New Layer) */}
+              <svg id="guidelines-layer">
+                  {guidelines.map((guide, i) => (
+                      <line 
+                          key={i} 
+                          x1={guide.x1} y1={guide.y1} x2={guide.x2} y2={guide.y2} 
+                          className="guideline"
+                      />
+                  ))}
+              </svg>
+
+              {/* 6. Beats (Top) */}
               <div id="beats-layer"></div>
           </div>
       </div>
@@ -2297,6 +2628,12 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
                     <div className="ctx-divider"></div>
                     <div className="ctx-item" style={{color: '#ff6b6b', fontWeight: 'bold'}} onClick={handleDelete}>
                         <Trash2 size={14} /> <span className="ml-2">Delete</span>
+                    </div>
+                  </>
+              ) : ctxMenu.annotationId !== null ? (
+                  <>
+                    <div className="ctx-item" style={{color: '#ff6b6b', fontWeight: 'bold'}} onClick={handleDelete}>
+                        <Trash2 size={14} /> <span className="ml-2">Delete Image</span>
                     </div>
                   </>
               ) : null}

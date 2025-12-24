@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { useProject } from '../../context/ProjectContext';
 import { generateImage } from '../../services/gemini';
@@ -7,7 +6,8 @@ import {
     Fingerprint, Brain, Users, Activity, 
     Mic2, Sparkles, MoreHorizontal, Camera,
     Network, FileText, Link2, X,
-    Bold, Italic
+    Bold, Italic, Upload, Image as ImageIcon,
+    AlertTriangle, BookOpen, Lock
 } from 'lucide-react';
 import { CharacterData, CharacterRelationship } from '../../types';
 import { 
@@ -16,22 +16,70 @@ import {
     RELATIONSHIP_TYPES
 } from '../../constants';
 
-// --- NOTION-LIKE EDITOR ---
-// A robust block-based editor wrapper around contentEditable
-const NotionLikeEditor = ({ value, onChange, placeholder, minHeight = "150px" }: any) => {
-    const editorRef = useRef<HTMLDivElement>(null);
-    const isLocked = useRef(false); // Prevents circular updates during typing
+// --- CINEMATIC TEMPLATES (IDEAS ONLY) ---
+const CINEMATIC_TEMPLATES: Partial<CharacterData>[] = [
+    // GODFATHER
+    { name: 'VITO CORLEONE', age: 60, gender: 'Male', ethnicity: 'Italian', hair: 'Grey', eyes: 'Brown', build: 'Heavy', occupation: 'Don', archetype: 'The Ruler', physiology: 'Raspy voice, slow movements.', sociology: 'Family patriarch, powerful connections.', psychology: 'Ruthless but sentimental. Justice over law.', backstory: 'Escaped Sicily as a child after family murder.' },
+    { name: 'MICHAEL CORLEONE', age: 25, gender: 'Male', ethnicity: 'Italian-American', hair: 'Black', eyes: 'Black', build: 'Average', occupation: 'Marine / Don', archetype: 'Reluctant Hero', physiology: 'Clean shaven, intense stare.', sociology: 'War hero, Dartmouth grad.', psychology: 'Calculating, cold, transforms from idealist.', backstory: 'Youngest son, wanted no part of the business.' },
+    { name: 'SONNY CORLEONE', age: 35, gender: 'Male', ethnicity: 'Italian-American', hair: 'Black, Curly', eyes: 'Brown', build: 'Muscular', occupation: 'Underboss', archetype: 'The Warrior', physiology: 'Impulsive, aggressive physical presence.', sociology: 'Eldest son, heir apparent.', psychology: 'Hot-tempered, fiercely protective, reckless.', backstory: 'Witnessed father\'s violence early on.' },
+    { name: 'TOM HAGEN', age: 35, gender: 'Male', ethnicity: 'German-Irish', hair: 'Blonde', eyes: 'Blue', build: 'Slim', occupation: 'Consigliere', archetype: 'The Sage', physiology: 'Calm demeanor, suit and tie.', sociology: 'Adopted outsider, lawyer.', psychology: 'Rational, loyal, non-violent mediator.', backstory: 'Found living on the street by Sonny.' },
+    { name: 'KAY ADAMS', age: 24, gender: 'Female', ethnicity: 'Caucasian', hair: 'Brown', eyes: 'Hazel', build: 'Average', occupation: 'Teacher', archetype: 'The Innocent', physiology: 'Modest dress, open face.', sociology: 'Outsider to the crime world.', psychology: 'Idealistic, blinded by love, eventually disillusioned.', backstory: 'Met Michael at Dartmouth.' },
 
-    // Initial Sync & External Updates
+    // MEMENTO
+    { name: 'LEONARD SHELBY', age: 35, gender: 'Male', ethnicity: 'Caucasian', hair: 'Bleached Blonde', eyes: 'Blue', build: 'Lean', occupation: 'Investigator', archetype: 'The Seeker', physiology: 'Covered in tattoos.', sociology: 'Isolated by condition.', psychology: 'Anterograde amnesia. Obsessive.', backstory: 'Wife murdered. Cannot form new memories.' },
+    { name: 'TEDDY', age: 45, gender: 'Male', ethnicity: 'Caucasian', hair: 'Balding', eyes: 'Brown', build: 'Stocky', occupation: 'Cop', archetype: 'The Trickster', physiology: 'Moustache, glasses, disarming smile.', sociology: 'Undercover, manipulative.', psychology: 'Uses Leonard\'s condition for gain.', backstory: 'Real name John Edward Gammell.' },
+    { name: 'NATALIE', age: 30, gender: 'Female', ethnicity: 'Caucasian', hair: 'Short Brown', eyes: 'Brown', build: 'Slim', occupation: 'Bartender', archetype: 'Femme Fatale', physiology: 'Bruised face, weary.', sociology: 'Manipulating Leonard to remove rivals.', psychology: 'Vindictive, survivalist.', backstory: 'Boyfriend Jimmy was killed.' },
+
+    // INCEPTION
+    { name: 'DOM COBB', age: 38, gender: 'Male', ethnicity: 'Caucasian', hair: 'Brown', eyes: 'Hazel', build: 'Athletic', occupation: 'Extractor', archetype: 'Tragic Hero', physiology: 'Exhausted, carries spinning top.', sociology: 'Fugitive, estranged father.', psychology: 'Guilt-ridden, haunted by wife.', backstory: 'Accused of killing wife Mal.' },
+    { name: 'MAL COBB', age: 35, gender: 'Female', ethnicity: 'Caucasian', hair: 'Brown', eyes: 'Blue', build: 'Elegant', occupation: 'Architect', archetype: 'The Shadow', physiology: 'Dreamlike, dangerous beauty.', sociology: 'Exists only in Cobb\'s mind.', psychology: 'Manifestation of guilt and sabotage.', backstory: 'Committed suicide believing reality was a dream.' },
+    { name: 'ARTHUR', age: 30, gender: 'Male', ethnicity: 'Caucasian', hair: 'Black', eyes: 'Brown', build: 'Slim', occupation: 'Point Man', archetype: 'The Caregiver', physiology: 'Impeccable suits, precise movement.', sociology: 'Professional, detail-oriented.', psychology: 'Rational, organized, grounded.', backstory: 'Long-time partner of Cobb.' },
+    { name: 'ARIADNE', age: 24, gender: 'Female', ethnicity: 'Caucasian', hair: 'Brown', eyes: 'Brown', build: 'Petite', occupation: 'Architect', archetype: 'The Mentor', physiology: 'Inquisitive look, college student style.', sociology: 'New to the team.', psychology: 'Curious, empathetic, solves the maze.', backstory: 'Recruited by Cobb in Paris.' },
+    { name: 'EAMES', age: 35, gender: 'Male', ethnicity: 'Caucasian', hair: 'Brown', eyes: 'Blue', build: 'Average', occupation: 'Forger', archetype: 'The Shapeshifter', physiology: 'Casual, charming, often changes appearance.', sociology: 'Criminal underworld ties.', psychology: 'Creative, relaxed, gambler.', backstory: 'Master of identity theft in dreams.' },
+    { name: 'SAITO', age: 50, gender: 'Male', ethnicity: 'Japanese', hair: 'Black', eyes: 'Dark Brown', build: 'Slim', occupation: 'Businessman', archetype: 'The Patron', physiology: 'Powerful presence, expensive suits.', sociology: 'Energy magnate.', psychology: 'Honorable, ambitious.', backstory: 'Hires Cobb to perform inception.' },
+
+    // INTERSTELLAR
+    { name: 'JOSEPH COOPER', age: 40, gender: 'Male', ethnicity: 'Caucasian', hair: 'Brown', eyes: 'Blue', build: 'Rugged', occupation: 'Pilot', archetype: 'The Explorer', physiology: 'Dusty clothes, lined face.', sociology: 'Farmer in a dying world.', psychology: 'Love for daughter vs duty to species.', backstory: 'Former NASA pilot grounded by blight.' },
+    { name: 'MURPH COOPER', age: 35, gender: 'Female', ethnicity: 'Caucasian', hair: 'Red', eyes: 'Green', build: 'Slim', occupation: 'Physicist', archetype: 'The Sage', physiology: 'Intense focus, lab coat.', sociology: 'Saving humanity on Earth.', psychology: 'Resentful of father leaving, brilliant.', backstory: 'Solved the gravity equation.' },
+    { name: 'AMELIA BRAND', age: 35, gender: 'Female', ethnicity: 'Caucasian', hair: 'Short Brown', eyes: 'Brown', build: 'Athletic', occupation: 'Biologist', archetype: 'The Lover', physiology: 'Space suit, determined.', sociology: 'Daughter of Professor Brand.', psychology: 'Believes love transcends dimensions.', backstory: 'In love with Edmunds.' },
+    { name: 'DR. MANN', age: 45, gender: 'Male', ethnicity: 'Caucasian', hair: 'Grey', eyes: 'Blue', build: 'Average', occupation: 'Scientist', archetype: 'The Traitor', physiology: 'Desperate, unkempt.', sociology: 'Leader of the Lazarus missions.', psychology: 'Cowardice masked as heroism.', backstory: 'Faked data to be rescued.' },
+
+    // DJANGO UNCHAINED
+    { name: 'DJANGO FREEMAN', age: 30, gender: 'Male', ethnicity: 'African-American', hair: 'Black', eyes: 'Brown', build: 'Strong', occupation: 'Bounty Hunter', archetype: 'The Gunslinger', physiology: 'Scars on back, sunglasses.', sociology: 'Freed slave.', psychology: 'Ruthless to enemies, loyal to wife.', backstory: 'Separated from Broomhilda.' },
+    { name: 'DR. KING SCHULTZ', age: 50, gender: 'Male', ethnicity: 'German', hair: 'Grey, Beard', eyes: 'Blue', build: 'Small', occupation: 'Dentist / Hunter', archetype: 'The Mentor', physiology: 'Dapper suit, articulate.', sociology: 'Bounty hunter.', psychology: 'Detests slavery, pragmatic.', backstory: 'Former dentist turned bounty hunter.' },
+    { name: 'CALVIN CANDIE', age: 35, gender: 'Male', ethnicity: 'Caucasian', hair: 'Brown', eyes: 'Blue', build: 'Slim', occupation: 'Plantation Owner', archetype: 'The Villain', physiology: 'Rotting teeth, flamboyant suits.', sociology: 'Francophile, brutal slave owner.', psychology: 'Narcissistic, cruel, charming.', backstory: 'Owner of Candyland.' },
+    { name: 'BROOMHILDA', age: 25, gender: 'Female', ethnicity: 'African-American', hair: 'Black', eyes: 'Brown', build: 'Slim', occupation: 'Slave', archetype: 'The Damsel', physiology: 'Scars, fearful but resilient.', sociology: 'German speaking.', psychology: 'Enduring hope.', backstory: 'Django\'s wife.' },
+    { name: 'STEPHEN', age: 70, gender: 'Male', ethnicity: 'African-American', hair: 'White', eyes: 'Cloudy', build: 'Frail', occupation: 'House Slave', archetype: 'The Shadow', physiology: 'Limps, uses cane.', sociology: 'Head house slave.', psychology: 'Manipulative, loyal to master.', backstory: 'Lifetime servant at Candyland.' },
+
+    // THE PRESTIGE
+    { name: 'ROBERT ANGIER', age: 35, gender: 'Male', ethnicity: 'Caucasian', hair: 'Brown', eyes: 'Brown', build: 'Tall', occupation: 'Magician', archetype: 'The Showman', physiology: 'Charismatic stage presence.', sociology: 'Aristocrat (Lord Caldlow).', psychology: 'Obsessed with status and revenge.', backstory: 'Blames Borden for wife\'s death.' },
+    { name: 'ALFRED BORDEN', age: 35, gender: 'Male', ethnicity: 'Caucasian', hair: 'Dark Brown', eyes: 'Hazel', build: 'Stocky', occupation: 'Magician', archetype: 'The Magician', physiology: 'Rough hands, missing fingers.', sociology: 'Working class background.', psychology: 'Devoted to the craft above all.', backstory: 'Lives a shared life with twin.' },
+    { name: 'JOHN CUTTER', age: 60, gender: 'Male', ethnicity: 'Caucasian', hair: 'Grey', eyes: 'Blue', build: 'Average', occupation: 'Ingenieur', archetype: 'The Mentor', physiology: 'Practical clothes.', sociology: 'Stage engineer.', psychology: 'Voice of reason.', backstory: 'Designed tricks for Angier.' },
+    { name: 'OLIVIA WENSCOMBE', age: 28, gender: 'Female', ethnicity: 'Caucasian', hair: 'Blonde', eyes: 'Blue', build: 'Slim', occupation: 'Assistant', archetype: 'The Pawn', physiology: 'Beautiful, elegant.', sociology: 'Assistant to both magicians.', psychology: 'Torn between the two rivals.', backstory: 'Sent to spy on Borden.' },
+
+    // DOUBLE INDEMNITY
+    { name: 'WALTER NEFF', age: 35, gender: 'Male', ethnicity: 'Caucasian', hair: 'Brown', eyes: 'Brown', build: 'Average', occupation: 'Salesman', archetype: 'Anti-Hero', physiology: 'Cheap suit, smokes.', sociology: 'Insurance salesman.', psychology: 'Arrogant, thinks he can cheat the system.', backstory: 'Top salesman at Pacific All-Risk.' },
+    { name: 'PHYLLIS DIETRICHSON', age: 30, gender: 'Female', ethnicity: 'Caucasian', hair: 'Blonde', eyes: 'Blue', build: 'Curvy', occupation: 'Housewife', archetype: 'Femme Fatale', physiology: 'Anklet, sunglasses.', sociology: 'Unhappy marriage.', psychology: 'Manipulative, cold.', backstory: 'Wants husband dead.' },
+    { name: 'BARTON KEYES', age: 55, gender: 'Male', ethnicity: 'Caucasian', hair: 'Grey', eyes: 'Brown', build: 'Heavy', occupation: 'Claims Manager', archetype: 'The Detector', physiology: 'Rumpled suit, cigar.', sociology: 'Workaholic.', psychology: 'Intuitive "little man" inside.', backstory: 'Mentor to Walter.' },
+
+    // BARRY LYNDON
+    { name: 'REDMOND BARRY', age: 25, gender: 'Male', ethnicity: 'Irish', hair: 'Blonde', eyes: 'Blue', build: 'Slim', occupation: 'Opportunist', archetype: 'The Rogue', physiology: 'Passive face, elegant.', sociology: 'Social climber.', psychology: 'Fatalistic, drifting.', backstory: 'Fled home after duel.' },
+    { name: 'LADY LYNDON', age: 28, gender: 'Female', ethnicity: 'Caucasian', hair: 'Dark Brown', eyes: 'Brown', build: 'Slim', occupation: 'Aristocrat', archetype: 'The Victim', physiology: 'Melancholy, pale.', sociology: 'Wealthy countess.', psychology: 'Depressed, trapped.', backstory: 'Married Barry for his charm.' },
+    { name: 'LORD BULLINGDON', age: 10, gender: 'Male', ethnicity: 'Caucasian', hair: 'Brown', eyes: 'Brown', build: 'Small', occupation: 'Heir', archetype: 'The Avenger', physiology: 'Proper, sneering.', sociology: 'Lady Lyndon\'s son.', psychology: 'Hates his stepfather Barry.', backstory: 'Refuses to accept Barry.' }
+];
+
+// --- NOTION-LIKE EDITOR ---
+const NotionLikeEditor = ({ value, onChange, placeholder, minHeight = "150px", onFocus, className }: any) => {
+    const editorRef = useRef<HTMLDivElement>(null);
+    const isLocked = useRef(false);
+
     useEffect(() => {
         if (editorRef.current && !isLocked.current) {
-            // Only update if content is significantly different to avoid cursor jumps
             if (editorRef.current.innerHTML !== value) {
                 const isHtml = /<[a-z][\s\S]*>/i.test(value);
                 if (!value) {
                     editorRef.current.innerHTML = `<div class="nl-block"></div>`;
                 } else if (!isHtml) {
-                    // Convert plain text newlines to divs
                     editorRef.current.innerHTML = value.split('\n').map((line: string) => `<div class="nl-block">${line}</div>`).join('');
                 } else {
                     editorRef.current.innerHTML = value;
@@ -44,216 +92,35 @@ const NotionLikeEditor = ({ value, onChange, placeholder, minHeight = "150px" }:
         if (editorRef.current) {
             isLocked.current = true; 
             onChange(editorRef.current.innerHTML);
-            // Release lock after render cycle
             setTimeout(() => isLocked.current = false, 0);
         }
     };
 
-    const handleKeyDown = (e: React.KeyboardEvent) => {
-        if (e.key === 'Enter') {
-            e.preventDefault();
-            
-            const sel = window.getSelection();
-            if (!sel || !sel.rangeCount) return;
-            const range = sel.getRangeAt(0);
-            
-            // Find current block
-            let currentBlock = range.startContainer as HTMLElement;
-            // Traverse up to find the block div
-            while (currentBlock && (!currentBlock.classList || !currentBlock.classList.contains('nl-block'))) {
-                if (currentBlock === editorRef.current) break;
-                currentBlock = currentBlock.parentElement as HTMLElement;
-            }
-            
-            if (currentBlock && currentBlock !== editorRef.current) {
-                // Create new block
-                const newBlock = document.createElement('div');
-                newBlock.className = 'nl-block';
-                
-                // Continue List Logic (but not headers)
-                if (currentBlock.classList.contains('nl-list')) {
-                    newBlock.className = 'nl-block nl-list';
-                } else if (currentBlock.classList.contains('nl-check')) {
-                    newBlock.className = 'nl-block nl-check'; // Continue checkbox
-                }
-                
-                newBlock.innerHTML = '<br>'; // Placeholder for caret
-                currentBlock.after(newBlock);
-                
-                // Move caret
-                const newRange = document.createRange();
-                newRange.setStart(newBlock, 0);
-                newRange.collapse(true);
-                sel.removeAllRanges();
-                sel.addRange(newRange);
-                
-                emitChange();
-            } else {
-                // Fallback if empty
-                document.execCommand('insertHTML', false, '<div class="nl-block"><br></div>');
-            }
-        } else if (e.key === ' ') {
-            const sel = window.getSelection();
-            if (!sel || !sel.rangeCount) return;
-            const range = sel.getRangeAt(0);
-            
-            let node = range.startContainer;
-            let block = (node.nodeType === 3 ? node.parentNode : node) as HTMLElement;
-            
-            while (block && (!block.classList || !block.classList.contains('nl-block'))) {
-                if (block === editorRef.current) break;
-                block = block.parentElement as HTMLElement;
-            }
-
-            if (block && block.classList.contains('nl-block')) {
-                // We only check for triggers if the caret is at the start or text matches exactly
-                // Using .trim() helps catch cases where invisible chars might be present
-                const text = (block.textContent || '').trim();
-                let type = '';
-                
-                if (text === '#') type = 'nl-h1';
-                else if (text === '##') type = 'nl-h2';
-                else if (text === '-') type = 'nl-list';
-                else if (text === '>') type = 'nl-quote';
-                else if (text === '[]') type = 'nl-check';
-                
-                if (type) {
-                    e.preventDefault(); // Consume the space
-                    block.className = `nl-block ${type}`;
-                    block.innerHTML = '<br>'; // Clear trigger char
-                    
-                    // Reset caret to inside the cleared block
-                    const newRange = document.createRange();
-                    newRange.setStart(block, 0);
-                    newRange.collapse(true);
-                    sel.removeAllRanges();
-                    sel.addRange(newRange);
-                    
-                    emitChange();
-                }
-            }
-        } else if (e.key === 'Backspace') {
-            const sel = window.getSelection();
-            if (!sel || !sel.rangeCount) return;
-            const range = sel.getRangeAt(0);
-            
-            if (range.collapsed) {
-                let block = (range.startContainer.nodeType === 3 ? range.startContainer.parentNode : range.startContainer) as HTMLElement;
-                while (block && (!block.classList || !block.classList.contains('nl-block'))) {
-                    if (block === editorRef.current) break;
-                    block = block.parentElement as HTMLElement;
-                }
-
-                if (block && block.classList.contains('nl-block')) {
-                    const text = block.textContent || '';
-                    // If block is empty (or has zero-width space) and has a style, revert style
-                    // Using regex to check for 'empty' content which might include <br> or whitespace
-                    const isEmpty = !text.trim() || text === '\u200B';
-                    
-                    if (isEmpty && block.className !== 'nl-block') {
-                        e.preventDefault();
-                        block.className = 'nl-block';
-                        emitChange();
-                    }
-                }
-            }
-        }
-    };
-
-    const handleClick = (e: React.MouseEvent) => {
-        // Handle Checkbox Toggling
-        const target = e.target as HTMLElement;
-        let block = target;
-        while (block && !block.classList?.contains('nl-block') && block !== editorRef.current) {
-            block = block.parentElement as HTMLElement;
-        }
-
-        if (block && block.classList?.contains('nl-check')) {
-            const rect = block.getBoundingClientRect();
-            // Click within left 30px (where the pseudo-checkbox is)
-            if (e.clientX - rect.left < 30) {
-                e.preventDefault(); // Prevent caret moving there if possible
-                block.classList.toggle('nl-checked');
-                emitChange();
-            }
-        }
-    }
-
-    // --- FORMATTING COMMANDS ---
-    const exec = (cmd: string) => {
-        document.execCommand(cmd, false);
-        editorRef.current?.focus();
+    const handleFocusInternal = (e: React.FocusEvent<HTMLDivElement>) => {
+        if (onFocus) onFocus(e);
     };
 
     return (
-        <div className="w-full bg-[#0a0a0a] rounded border border-[#222] hover:border-[#333] transition-all flex flex-col overflow-hidden group focus-within:border-[#f5a623] focus-within:shadow-[0_0_15px_rgba(245,166,35,0.1)]" style={{ minHeight }}>
-            {/* CSS Injection */}
+        <div className="w-full bg-[#0a0a0a] rounded border border-[#222] hover:border-[#333] transition-all flex flex-col overflow-hidden group focus-within:border-[#f5a623] focus-within:shadow-[0_0_15px_rgba(245,166,35,0.1)] relative" style={{ minHeight }}>
             <style>{`
                 .nl-block { position: relative; min-height: 1.5em; margin-bottom: 0.25em; padding: 2px 4px; border-radius: 2px; line-height: 1.6; }
                 .nl-block:focus { outline: none; }
-                
-                /* H1 - Bold, Larger, Underlined slightly */
-                .nl-h1 { font-size: 1.5em !important; font-weight: 800; color: #fff; margin-top: 0.75em; margin-bottom: 0.5em; border-bottom: 1px solid #333; padding-bottom: 4px; }
-                
-                /* H2 - Orange Accent */
-                .nl-h2 { font-size: 1.25em !important; font-weight: 700; color: #f5a623; margin-top: 0.75em; margin-bottom: 0.25em; }
-                
-                /* List */
-                .nl-list { padding-left: 26px; }
-                .nl-list::before { content: '•'; position: absolute; left: 10px; color: #f5a623; font-weight: bold; top: 0; }
-                
-                /* Quote */
-                .nl-quote { border-left: 3px solid #f5a623; padding-left: 12px; font-style: italic; color: #888; background: rgba(245,166,35,0.05); border-radius: 0 4px 4px 0; }
-                
-                /* Checkbox - Interactive Look */
-                .nl-check { padding-left: 30px; position: relative; }
-                .nl-check::before { 
-                    content: ''; 
-                    position: absolute; left: 6px; top: 6px; 
-                    width: 14px; height: 14px; 
-                    border: 1px solid #555; 
-                    border-radius: 3px; 
-                    background: #111;
-                    cursor: pointer;
-                    transition: all 0.2s;
-                }
-                .nl-check:hover::before { border-color: #888; }
-                
-                /* Checked State */
-                .nl-checked { text-decoration: line-through; color: #555; }
-                .nl-checked::before { 
-                    background: #f5a623; 
-                    border-color: #f5a623; 
-                    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='20 6 9 17 4 12'%3E%3C/polyline%3E%3C/svg%3E");
-                    background-size: 10px;
-                    background-position: center;
-                    background-repeat: no-repeat;
-                }
             `}</style>
             
-            {/* Toolbar */}
-            <div className="flex items-center gap-1 bg-[#111] border-b border-[#222] px-2 py-1.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
-                <button onClick={() => exec('bold')} className="p-1 hover:bg-[#222] rounded text-gray-500 hover:text-white" title="Bold"><Bold size={12}/></button>
-                <button onClick={() => exec('italic')} className="p-1 hover:bg-[#222] rounded text-gray-500 hover:text-white" title="Italic"><Italic size={12}/></button>
-                <div className="w-px h-3 bg-[#333] mx-1"></div>
-                <div className="flex gap-3 text-[9px] text-gray-600 font-mono items-center ml-1">
-                    <span><b>#</b> H1</span>
-                    <span><b>##</b> H2</span>
-                    <span><b>-</b> List</span>
-                    <span><b>{'>'}</b> Quote</span>
-                    <span><b>[]</b> Check</span>
+            {(!value || value === '<div class="nl-block"></div>') && placeholder && (
+                <div className="absolute inset-0 p-4 text-gray-600 font-sans leading-relaxed pointer-events-none italic select-none">
+                    {placeholder}
                 </div>
-            </div>
+            )}
 
             <div 
                 ref={editorRef}
                 contentEditable
                 suppressContentEditableWarning
                 onInput={emitChange}
-                onKeyDown={handleKeyDown}
-                onClick={handleClick}
-                className="flex-1 p-4 outline-none text-base text-gray-300 font-sans leading-relaxed custom-scrollbar"
-                data-placeholder={placeholder}
+                onFocus={handleFocusInternal}
+                className={`flex-1 p-4 outline-none font-sans leading-relaxed custom-scrollbar relative z-10 ${className || 'text-gray-300'}`}
+                style={{ backgroundColor: 'transparent' }}
             />
         </div>
     );
@@ -261,74 +128,161 @@ const NotionLikeEditor = ({ value, onChange, placeholder, minHeight = "150px" }:
 
 const CharacterView: React.FC = () => {
   const { characterData, setCharacterData, beats } = useProject();
-  const [selectedCharId, setSelectedCharId] = useState<string | null>(Object.keys(characterData)[0] || null);
+  
+  // State for active selection and UI
+  const [selectedCharId, setSelectedCharId] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [activeTab, setActiveTab] = useState<'profile' | 'backstory' | 'network'>('profile');
+  const [nameInput, setNameInput] = useState('');
+  const [isDragging, setIsDragging] = useState(false);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null); // Track pending deletions
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // --- AUTO SCAN ON MOUNT ---
-  useEffect(() => {
-      const foundNames = new Set<string>();
-      beats.forEach(beat => {
+  // --- DYNAMIC CAST LIST GENERATION ---
+  // Merges explicit characters (from Data) and implicit characters (from Script)
+  const castList = useMemo(() => {
+      const explicitChars = new Set(Object.keys(characterData));
+      const allNames = new Set(explicitChars);
+      const usedNames = new Set<string>();
+      
+      // Scan Script for Characters AND mark them as used
+      beats.forEach(b => {
           const div = document.createElement('div');
-          div.innerHTML = beat.content;
-          const charElements = div.querySelectorAll('.sc-character');
-          charElements.forEach(el => {
-              const rawName = el.textContent || '';
-              const cleanName = rawName.replace(/\s*\(.*\)$/, '').trim().toUpperCase();
-              if (cleanName && cleanName.length > 1) {
-                  foundNames.add(cleanName);
+          div.innerHTML = b.content;
+          const charBlocks = div.querySelectorAll('.sc-character');
+          charBlocks.forEach(el => {
+              const name = el.textContent?.trim().replace(/\s*\(.*\)$/, '').toUpperCase();
+              if (name && name.length > 1) {
+                  allNames.add(name);
+                  usedNames.add(name); // Mark as actively used in script
               }
           });
       });
 
-      if (foundNames.size > 0) {
-          setCharacterData((prev: Record<string, CharacterData>) => {
-              const newState = { ...prev };
-              let hasChanges = false;
-              foundNames.forEach(name => {
-                  if (!newState[name]) {
-                      newState[name] = {
-                          name,
-                          physiology: '', sociology: '', psychology: '', backstory: '',
-                          age: 30, gender: 'Unknown', hair: 'Dark', eyes: 'Brown', build: 'Average',
-                          occupation: 'Unspecified', archetype: 'The Unknown',
-                          images: [],
-                          relationships: []
-                      };
-                      hasChanges = true;
-                  }
-              });
-              return hasChanges ? newState : prev;
-          });
-      }
-  }, [beats, setCharacterData]);
+      // Filter and Map
+      let list = Array.from(allNames).map(name => {
+          const data = characterData[name] || {
+              name,
+              archetype: 'Script Detected', // Default for implicit
+              images: [],
+              isImplicit: !explicitChars.has(name) // Flag for UI distinction
+          };
+          return { 
+              name, 
+              ...data,
+              isUsed: usedNames.has(name) // Pass usage status to UI
+          };
+      });
 
-  // --- DATA HANDLING ---
-  const characters = useMemo(() => {
-      const all = Object.entries(characterData);
-      if (!searchTerm) return all;
-      return all.filter(([name, data]) => 
-          name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-          (data as CharacterData).archetype.toLowerCase().includes(searchTerm.toLowerCase())
-      );
-  }, [characterData, searchTerm]);
+      if (searchTerm) {
+          const lower = searchTerm.toLowerCase();
+          list = list.filter(c => c.name.toLowerCase().includes(lower) || (c.archetype && c.archetype.toLowerCase().includes(lower)));
+      }
+
+      return list.sort((a, b) => a.name.localeCompare(b.name));
+  }, [characterData, beats, searchTerm]);
+
+  // Select first character on load if none selected
+  useEffect(() => {
+      if (!selectedCharId && castList.length > 0) {
+          setSelectedCharId(castList[0].name);
+      }
+  }, [castList]);
+
+  // Sync Input Name
+  useEffect(() => {
+      if (selectedCharId) {
+          setNameInput(selectedCharId);
+      }
+  }, [selectedCharId]);
+
+  // --- SELECTION HANDLER ---
+  const handleSelectCharacter = (name: string) => {
+      // If selecting an implicit character, materialize it into characterData
+      if (!characterData[name]) {
+          const newChar: CharacterData = {
+              name,
+              physiology: '', sociology: '', psychology: '', backstory: '',
+              age: 30, gender: 'Unknown', ethnicity: 'Unknown', hair: 'Unknown', eyes: 'Unknown', build: 'Average',
+              occupation: 'Unspecified', archetype: 'Script Character',
+              images: [], relationships: []
+          };
+          setCharacterData(prev => ({ ...prev, [name]: newChar }));
+      }
+      setSelectedCharId(name);
+  };
 
   const selectedChar = selectedCharId ? characterData[selectedCharId] : null;
-
-  // Legacy Safety
-  if (selectedChar && !selectedChar.relationships) selectedChar.relationships = [];
-  if (selectedChar && !selectedChar.backstory) selectedChar.backstory = '';
+  
+  // Safe defaults for selected character
+  if (selectedChar) {
+      if (!selectedChar.relationships) selectedChar.relationships = [];
+      if (!selectedChar.backstory) selectedChar.backstory = '';
+  }
 
   const handleAddCharacter = () => {
-    const name = `CHARACTER ${Object.keys(characterData).length + 1}`;
+    // Unique Selection Logic
+    const existingNames = Object.keys(characterData).map(n => n.toUpperCase());
+    const availableTemplates = CINEMATIC_TEMPLATES.filter(t => !existingNames.includes(t.name?.toUpperCase() || ''));
+    
+    // Fallback for empty template pool
+    if (availableTemplates.length === 0) {
+        let i = 1;
+        while (existingNames.includes(`NEW CHARACTER ${i}`)) i++;
+        const name = `NEW CHARACTER ${i}`;
+        const newChar: CharacterData = {
+            name,
+            physiology: '', sociology: '', psychology: '', backstory: '',
+            age: 25, gender: 'Unknown', ethnicity: 'Unknown', hair: 'Unknown', eyes: 'Unknown', build: 'Average',
+            occupation: '', archetype: 'New Arrival',
+            images: [], relationships: []
+        };
+        setCharacterData(prev => ({ ...prev, [name]: newChar }));
+        setSelectedCharId(name);
+        return;
+    }
+
+    const template = availableTemplates[Math.floor(Math.random() * availableTemplates.length)];
+    const name = template.name!; 
+
+    // Create new character with EMPTY bio fields, but save template data as defaults (ideas)
     const newChar: CharacterData = {
       name,
-      physiology: '', sociology: '', psychology: '', backstory: '',
-      age: 30, gender: 'Unknown', hair: 'Dark', eyes: 'Brown', build: 'Average',
-      occupation: 'Unspecified', archetype: 'The Unknown',
+      // Vitals are kept EMPTY to show placeholders
+      age: 0, 
+      gender: '', 
+      ethnicity: '', 
+      hair: '', 
+      eyes: '', 
+      build: '',
+      archetype: '',
+      
+      // Bio fields start empty to show placeholders
+      physiology: '', 
+      sociology: '', 
+      psychology: '', 
+      backstory: '',
+      occupation: '', // Start empty to show suggestion
+      
       images: [],
-      relationships: []
+      relationships: [],
+      
+      // Store the template ideas here
+      templateDefaults: {
+          physiology: template.physiology,
+          sociology: template.sociology,
+          psychology: template.psychology,
+          backstory: template.backstory,
+          occupation: template.occupation,
+          archetype: template.archetype,
+          age: template.age,
+          gender: template.gender,
+          ethnicity: template.ethnicity,
+          hair: template.hair,
+          eyes: template.eyes,
+          build: template.build
+      }
     };
     setCharacterData(prev => ({ ...prev, [name]: newChar }));
     setSelectedCharId(name);
@@ -339,34 +293,63 @@ const CharacterView: React.FC = () => {
   };
 
   const handleDelete = (name: string) => {
-      if(!confirm(`Delete ${name}?`)) return;
-      const newMap = { ...characterData };
-      delete newMap[name];
-      setCharacterData(newMap);
+      // 1. Check if character exists in script (Double check safety)
+      const isUsedInScript = beats.some(beat => {
+          const div = document.createElement('div');
+          div.innerHTML = beat.content;
+          const charBlocks = div.querySelectorAll('.sc-character');
+          return Array.from(charBlocks).some(el => 
+              el.textContent?.trim().replace(/\s*\(.*\)$/, '').toUpperCase() === name.toUpperCase()
+          );
+      });
+
+      if (isUsedInScript) {
+          alert(`Cannot delete ${name}: This character is currently speaking in the script. Remove their dialogue first.`);
+          return;
+      }
+
+      // Update state
+      setCharacterData(prev => {
+          const newMap = { ...prev };
+          delete newMap[name];
+          return newMap;
+      });
+
       if (selectedCharId === name) setSelectedCharId(null);
   };
 
-  const handleRename = (oldName: string, newName: string) => {
-    if (oldName === newName || !newName.trim()) return;
-    const upperNewName = newName.toUpperCase();
-    if (characterData[upperNewName]) { alert("Character name already exists."); return; }
+  const handleRename = () => {
+    if (!selectedChar) return;
+    const oldName = selectedChar.name;
+    const newName = nameInput.trim().toUpperCase();
+
+    if (oldName === newName || !newName) {
+        setNameInput(oldName);
+        return; 
+    }
+    
+    if (characterData[newName]) { 
+        alert("Character name already exists."); 
+        setNameInput(oldName);
+        return; 
+    }
 
     setCharacterData(prev => {
       const data = prev[oldName];
       const newState = { ...prev };
       delete newState[oldName];
-      newState[upperNewName] = { ...data, name: upperNewName };
+      newState[newName] = { ...data, name: newName };
       return newState;
     });
-    setSelectedCharId(upperNewName);
+    setSelectedCharId(newName);
   };
 
   const generatePortrait = async (char: CharacterData) => {
     setIsGenerating(true);
     const prompt = `Cinematic character portrait, close-up, dramatic lighting, shot on 35mm film. 
-      Subject: ${char.name}, ${char.age} years old, ${char.gender}.
-      Appearance: ${char.hair} hair, ${char.eyes} eyes, ${char.build} build.
-      Vibe: ${char.archetype}, ${char.occupation}. 
+      Subject: ${char.name}, ${char.age || '30'} years old, ${char.gender || 'Unknown'}, ${char.ethnicity || 'Unknown'}.
+      Appearance: ${char.hair || 'Dark'} hair, ${char.eyes || 'Brown'} eyes, ${char.build || 'Average'} build.
+      Vibe: ${char.archetype || 'Portrait'}, ${char.occupation || 'Character'}. 
       Style: Hyper-realistic, shallow depth of field, detailed texture.`;
     
     const img = await generateImage(prompt, '1:1'); 
@@ -376,6 +359,26 @@ const CharacterView: React.FC = () => {
     setIsGenerating(false);
   };
 
+  // --- IMAGE MANAGEMENT ---
+  const processFile = (file: File) => {
+      if (!file || !file.type.startsWith('image/')) return;
+      const reader = new FileReader();
+      reader.onload = (e) => {
+          const result = e.target?.result as string;
+          if (result && selectedChar) {
+              updateCharacter(selectedChar.name, { images: [result, ...selectedChar.images] });
+          }
+      };
+      reader.readAsDataURL(file);
+  };
+
+  const handleDragOver = (e: React.DragEvent) => { e.preventDefault(); setIsDragging(true); };
+  const handleDragLeave = (e: React.DragEvent) => { e.preventDefault(); setIsDragging(false); };
+  const handleDrop = (e: React.DragEvent) => { e.preventDefault(); setIsDragging(false); if (e.dataTransfer.files[0]) processFile(e.dataTransfer.files[0]); };
+  const handleManualUpload = (e: React.ChangeEvent<HTMLInputElement>) => { if (e.target.files && e.target.files[0]) processFile(e.target.files[0]); e.target.value = ''; };
+  const handleDeleteImage = (index: number) => { if (!selectedChar) return; const newImages = [...selectedChar.images]; newImages.splice(index, 1); updateCharacter(selectedChar.name, { images: newImages }); };
+  const handlePromoteImage = (index: number) => { if (!selectedChar) return; const newImages = [...selectedChar.images]; const [promoted] = newImages.splice(index, 1); newImages.unshift(promoted); updateCharacter(selectedChar.name, { images: newImages }); };
+
   // --- RELATIONSHIP LOGIC ---
   const addRelationship = (targetName: string, type: string) => {
       if (!selectedChar) return;
@@ -384,13 +387,11 @@ const CharacterView: React.FC = () => {
       const newRel: CharacterRelationship = { target: targetName, type, description: '' };
       updateCharacter(selectedChar.name, { relationships: [...currentRels, newRel] });
   };
-
   const removeRelationship = (targetName: string) => {
       if (!selectedChar) return;
       const currentRels = selectedChar.relationships || [];
       updateCharacter(selectedChar.name, { relationships: currentRels.filter(r => r.target !== targetName) });
   };
-
   const updateRelationship = (targetName: string, field: keyof CharacterRelationship, value: string) => {
       if (!selectedChar) return;
       const currentRels = selectedChar.relationships || [];
@@ -406,7 +407,7 @@ const CharacterView: React.FC = () => {
         <div className="p-4 border-b border-[#222] space-y-3">
             <div className="flex items-center justify-between">
                 <span className="text-xs font-black uppercase tracking-[0.2em] text-[#555]">Cast Manifest</span>
-                <button onClick={handleAddCharacter} className="p-1.5 bg-[#f5a623] hover:bg-[#e09612] text-black rounded transition-all shadow-lg hover:scale-105"><Plus size={14} strokeWidth={3} /></button>
+                <button onClick={handleAddCharacter} className="p-1.5 bg-[#f5a623] hover:bg-[#e09612] text-black rounded transition-all shadow-lg hover:scale-105" title="Add Character"><Plus size={14} strokeWidth={3} /></button>
             </div>
             <div className="relative group">
                 <Search className="absolute left-2.5 top-2 text-[#444] group-focus-within:text-[#f5a623] transition-colors" size={14} />
@@ -415,24 +416,68 @@ const CharacterView: React.FC = () => {
         </div>
 
         <div className="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-1">
-          {characters.map(([name, data]) => (
-            <div key={name} onClick={() => setSelectedCharId(name)} className={`group p-2 flex items-center gap-3 cursor-pointer rounded-lg border border-transparent transition-all ${selectedCharId === name ? 'bg-[#1a1a1a] border-[#333] shadow-md' : 'hover:bg-[#111] hover:border-[#222]'}`}>
-              <div className={`w-10 h-10 rounded-md overflow-hidden flex-shrink-0 flex items-center justify-center border ${selectedCharId === name ? 'border-[#f5a623]' : 'border-[#333]'} bg-[#000] relative`}>
-                {data.images.length > 0 ? (
-                  <img src={data.images[0]} alt={name} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" />
-                ) : (
-                  <User size={18} className="text-[#333]" />
-                )}
-              </div>
-              <div className="flex-1 min-w-0">
-                  <div className={`truncate text-sm font-bold ${selectedCharId === name ? 'text-white' : 'text-gray-400 group-hover:text-gray-200'}`}>{name}</div>
-                  <div className="truncate text-[10px] font-mono text-[#555] uppercase">{data.archetype || 'Archetype'}</div>
-              </div>
-              {selectedCharId === name && (
-                  <button onClick={(e) => { e.stopPropagation(); handleDelete(name); }} className="opacity-0 group-hover:opacity-100 p-1.5 text-[#444] hover:text-red-500 transition-opacity"><Trash2 size={12} /></button>
-              )}
-            </div>
-          ))}
+          {castList.map((data: any) => {
+            const isConfirming = confirmDeleteId === data.name;
+            const isSelected = selectedCharId === data.name;
+            const isExplicit = !data.isImplicit;
+            
+            // Name Styling Logic: Explicit characters are brighter when unselected
+            let nameColorClass = 'text-gray-500 group-hover:text-gray-400';
+            if (isSelected) nameColorClass = 'text-white';
+            else if (isExplicit) nameColorClass = 'text-gray-300 group-hover:text-white';
+
+            return (
+                <div 
+                    key={data.name} 
+                    onClick={() => handleSelectCharacter(data.name)} 
+                    className={`group p-2 flex items-center gap-3 cursor-pointer rounded-lg border border-transparent transition-all relative ${isSelected ? 'bg-[#1a1a1a] border-[#333] shadow-md' : 'hover:bg-[#111] hover:border-[#222]'}`}
+                >
+                <div className={`w-10 h-10 rounded-md overflow-hidden flex-shrink-0 flex items-center justify-center border ${isSelected ? 'border-[#f5a623]' : 'border-[#333]'} bg-[#000] relative`}>
+                    {data.images && data.images.length > 0 ? (
+                    <img src={data.images[0]} alt={data.name} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" />
+                    ) : (
+                    <User size={18} className={data.isImplicit ? "text-[#444]" : "text-[#888]"} />
+                    )}
+                </div>
+                <div className="flex-1 min-w-0">
+                    <div className={`truncate text-sm font-bold flex items-center gap-2 ${nameColorClass}`}>
+                        {data.name}
+                        {data.isImplicit && <span title="Found in Script"><BookOpen size={10} className="text-[#444]" /></span>}
+                    </div>
+                    <div className="truncate text-[10px] font-mono text-[#555] uppercase">{data.archetype || 'Archetype'}</div>
+                </div>
+                
+                {/* STATUS ACTION: Delete if useless, Lock/Link if used */}
+                <div className={`absolute right-2 top-1/2 -translate-y-1/2 transition-opacity z-10 ${isConfirming ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
+                    {data.isUsed ? (
+                        <span title="Active in Script"><Link2 size={12} className="text-blue-500" /></span>
+                    ) : (
+                        <button 
+                            onClick={(e) => { 
+                                e.stopPropagation(); 
+                                if (isConfirming) {
+                                    handleDelete(data.name);
+                                    setConfirmDeleteId(null);
+                                } else {
+                                    setConfirmDeleteId(data.name);
+                                    // Auto reset after 3s
+                                    setTimeout(() => setConfirmDeleteId(prev => prev === data.name ? null : prev), 3000);
+                                }
+                            }} 
+                            className={`p-2 rounded transition-all ${
+                                isConfirming 
+                                ? 'text-red-500 bg-red-900/20 ring-1 ring-red-500 shadow-[0_0_8px_rgba(239,68,68,0.6)]' 
+                                : 'text-[#444] hover:text-red-500 hover:bg-[#222]'
+                            }`}
+                            title={isConfirming ? "Click again to confirm" : "Delete Character"}
+                        >
+                            <Trash2 size={14} className={isConfirming ? "animate-pulse" : ""} />
+                        </button>
+                    )}
+                </div>
+                </div>
+            );
+          })}
         </div>
       </div>
 
@@ -450,12 +495,27 @@ const CharacterView: React.FC = () => {
                         <div className="w-full">
                             <div className="flex items-center gap-2 mb-2">
                                 <span className="px-2 py-0.5 bg-[#f5a623]/10 border border-[#f5a623]/20 text-[#f5a623] text-[9px] font-black uppercase tracking-wider rounded">{selectedChar.gender || 'UNKNOWN'}</span>
-                                <span className="px-2 py-0.5 bg-[#222] border border-[#333] text-gray-400 text-[9px] font-black uppercase tracking-wider rounded">{selectedChar.age} YEARS</span>
+                                <span className="px-2 py-0.5 bg-[#222] border border-[#333] text-gray-400 text-[9px] font-black uppercase tracking-wider rounded">{selectedChar.age || '0'} YEARS</span>
                             </div>
-                            <input className="text-5xl font-black bg-transparent border-none outline-none w-full text-white placeholder-gray-700 focus:ring-0 uppercase tracking-tighter" value={selectedChar.name} onChange={(e) => handleRename(selectedChar.name, e.target.value)} placeholder="NAME" />
+                            <input 
+                                className="text-5xl font-black bg-transparent border-none outline-none w-full text-white placeholder-gray-700 focus:ring-0 uppercase tracking-tighter transition-colors" 
+                                value={nameInput} 
+                                onChange={(e) => setNameInput(e.target.value)}
+                                onFocus={() => setNameInput('')} 
+                                onBlur={handleRename}
+                                onKeyDown={(e) => e.key === 'Enter' && handleRename()}
+                                placeholder="NAME" 
+                            />
                             <div className="flex items-center gap-2 mt-1 w-full max-w-md">
                                 <span className="text-xs font-mono text-[#555] uppercase shrink-0">// ROLE:</span>
-                                <VitalInput className="bg-transparent border-b border-transparent focus:border-[#f5a623] outline-none text-gray-400 text-sm font-mono uppercase tracking-wide w-full px-0 py-0" value={selectedChar.occupation} onChange={(val: string) => updateCharacter(selectedChar.name, { occupation: val })} options={CHARACTER_ROLES} placeholder="OCCUPATION / ROLE" naked={true} />
+                                <VitalInput 
+                                    className="bg-transparent border-b border-transparent focus:border-[#f5a623] outline-none text-gray-200 focus:text-white text-sm font-mono uppercase tracking-wide w-full px-0 py-0 transition-colors placeholder-gray-500 focus:placeholder-gray-700" 
+                                    value={selectedChar.occupation} 
+                                    onChange={(val: string) => updateCharacter(selectedChar.name, { occupation: val })} 
+                                    options={CHARACTER_ROLES} 
+                                    placeholder={selectedChar.templateDefaults?.occupation || "OCCUPATION / ROLE"} 
+                                    naked={true} 
+                                />
                             </div>
                         </div>
                     </div>
@@ -469,54 +529,144 @@ const CharacterView: React.FC = () => {
 
                 {activeTab === 'profile' && (
                     <>
-                        {/* --- LEFT COLUMN --- */}
                         <div className="lg:col-span-4 space-y-6 animate-in slide-in-from-left-2 duration-300">
-                            <div className="group relative w-full aspect-square bg-[#0a0a0a] border border-[#222] rounded-lg overflow-hidden shadow-2xl">
+                            {/* IMAGE CONTAINER */}
+                            <div 
+                                className={`group relative w-full aspect-square bg-[#0a0a0a] border rounded-lg overflow-hidden shadow-2xl transition-all ${isDragging ? 'border-[#f5a623] scale-105 shadow-[0_0_20px_rgba(245,166,35,0.2)]' : 'border-[#222]'}`}
+                                onDragOver={handleDragOver}
+                                onDragLeave={handleDragLeave}
+                                onDrop={handleDrop}
+                            >
                                 {selectedChar.images.length > 0 ? (
-                                    <img src={selectedChar.images[0]} className="w-full h-full object-cover opacity-90 group-hover:opacity-100 transition-opacity" />
+                                    <img src={selectedChar.images[0]} className="w-full h-full object-cover opacity-90 group-hover:opacity-40 transition-opacity duration-300" />
                                 ) : (
                                     <div className="w-full h-full flex flex-col items-center justify-center text-[#222]">
                                         <Fingerprint size={64} strokeWidth={1} />
-                                        <span className="text-[10px] font-mono mt-4 uppercase tracking-widest text-[#444]">No Subject Image</span>
+                                        <span className="text-[10px] font-mono mt-4 uppercase tracking-widest text-[#444]">
+                                            {isDragging ? 'Drop Image Here' : 'No Subject Image'}
+                                        </span>
                                     </div>
                                 )}
-                                <div className="absolute inset-0 bg-black/80 backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-all flex flex-col items-center justify-center gap-3">
-                                    <button onClick={() => generatePortrait(selectedChar)} disabled={isGenerating} className="px-6 py-2 bg-[#f5a623] hover:bg-[#e09612] text-black font-bold uppercase text-xs tracking-wider rounded-full flex items-center gap-2 transform hover:scale-105 transition-all disabled:opacity-50 disabled:grayscale">
-                                        {isGenerating ? <Sparkles className="animate-spin" size={14}/> : <Camera size={14}/>} {isGenerating ? 'Rendering...' : 'Generate ID'}
+                                <div className={`absolute inset-0 flex flex-col items-center justify-center gap-3 transition-opacity duration-300 ${isDragging ? 'opacity-100 bg-black/60' : 'opacity-0 group-hover:opacity-100'}`}>
+                                    <button 
+                                        onClick={() => generatePortrait(selectedChar)} 
+                                        disabled={isGenerating} 
+                                        className="px-6 py-2.5 bg-[#f5a623] hover:bg-[#e09612] text-black font-bold uppercase text-xs tracking-wider rounded-full flex items-center gap-2 transform hover:scale-105 transition-all disabled:opacity-50 disabled:grayscale shadow-lg w-40 justify-center"
+                                    >
+                                        {isGenerating ? <Sparkles className="animate-spin" size={14}/> : <Camera size={14}/>} 
+                                        {isGenerating ? 'Rendering...' : 'Generate AI'}
                                     </button>
+                                    <button onClick={() => fileInputRef.current?.click()} className="px-6 py-2.5 bg-[#222] hover:bg-[#333] border border-[#333] hover:border-[#555] text-white font-bold uppercase text-xs tracking-wider rounded-full flex items-center gap-2 transform hover:scale-105 transition-all shadow-lg w-40 justify-center"><Upload size={14} /> Upload Img</button>
+                                    <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleManualUpload} />
                                 </div>
                             </div>
 
+                            {/* BIOMETRICS */}
                             <div className="bg-[#0a0a0a] border border-[#222] rounded-lg p-5">
                                 <div className="flex items-center gap-2 mb-4 border-b border-[#222] pb-2">
                                     <Activity size={14} className="text-[#f5a623]" />
                                     <h3 className="text-xs font-bold text-white uppercase tracking-widest">Biometrics</h3>
                                 </div>
                                 <div className="grid grid-cols-2 gap-4">
-                                    <VitalInput label="Age" value={selectedChar.age} onChange={(v: string) => updateCharacter(selectedChar.name, { age: parseInt(v) || 0 })} type="number" />
-                                    <VitalInput label="Gender" value={selectedChar.gender} onChange={(v: string) => updateCharacter(selectedChar.name, { gender: v })} options={CHARACTER_GENDERS} />
-                                    <VitalInput label="Hair" value={selectedChar.hair} onChange={(v: string) => updateCharacter(selectedChar.name, { hair: v })} options={CHARACTER_HAIR} />
-                                    <VitalInput label="Eyes" value={selectedChar.eyes} onChange={(v: string) => updateCharacter(selectedChar.name, { eyes: v })} options={CHARACTER_EYES} />
+                                    <VitalInput 
+                                        label="Age" 
+                                        value={selectedChar.age === 0 ? '' : selectedChar.age} 
+                                        onChange={(v: string) => updateCharacter(selectedChar.name, { age: parseInt(v) || 0 })} 
+                                        type="number" 
+                                        placeholder={selectedChar.templateDefaults?.age?.toString() || "-"}
+                                    />
+                                    <VitalInput 
+                                        label="Gender" 
+                                        value={selectedChar.gender} 
+                                        onChange={(v: string) => updateCharacter(selectedChar.name, { gender: v })} 
+                                        options={CHARACTER_GENDERS} 
+                                        placeholder={selectedChar.templateDefaults?.gender || "-"}
+                                    />
                                     <div className="col-span-2">
-                                        <VitalInput label="Build / Physique" value={selectedChar.build} onChange={(v: string) => updateCharacter(selectedChar.name, { build: v })} options={CHARACTER_BUILDS} />
+                                        <VitalInput 
+                                            label="Ethnic Background" 
+                                            value={selectedChar.ethnicity || ''} 
+                                            onChange={(v: string) => updateCharacter(selectedChar.name, { ethnicity: v })} 
+                                            placeholder={selectedChar.templateDefaults?.ethnicity || "Italian"} 
+                                        />
+                                    </div>
+                                    <VitalInput 
+                                        label="Hair" 
+                                        value={selectedChar.hair} 
+                                        onChange={(v: string) => updateCharacter(selectedChar.name, { hair: v })} 
+                                        options={CHARACTER_HAIR} 
+                                        placeholder={selectedChar.templateDefaults?.hair || "-"}
+                                    />
+                                    <VitalInput 
+                                        label="Eyes" 
+                                        value={selectedChar.eyes} 
+                                        onChange={(v: string) => updateCharacter(selectedChar.name, { eyes: v })} 
+                                        options={CHARACTER_EYES} 
+                                        placeholder={selectedChar.templateDefaults?.eyes || "-"}
+                                    />
+                                    <div className="col-span-2">
+                                        <VitalInput 
+                                            label="Build / Physique" 
+                                            value={selectedChar.build} 
+                                            onChange={(v: string) => updateCharacter(selectedChar.name, { build: v })} 
+                                            options={CHARACTER_BUILDS} 
+                                            placeholder={selectedChar.templateDefaults?.build || "-"}
+                                        />
                                     </div>
                                     <div className="col-span-2">
-                                        <VitalInput label="Voice / Tone" value={selectedChar.archetype} onChange={(v: string) => updateCharacter(selectedChar.name, { archetype: v })} icon={Mic2} options={CHARACTER_ARCHETYPES} />
+                                        <VitalInput 
+                                            label="Voice / Tone" 
+                                            value={selectedChar.archetype} 
+                                            onChange={(v: string) => updateCharacter(selectedChar.name, { archetype: v })} 
+                                            icon={Mic2} 
+                                            options={CHARACTER_ARCHETYPES} 
+                                            placeholder={selectedChar.templateDefaults?.archetype || "-"}
+                                        />
                                     </div>
                                 </div>
                             </div>
+                            
+                            {/* IMAGE GALLERY */}
+                            {selectedChar.images.length > 1 && (
+                                <div className="space-y-4">
+                                    <div className="flex items-center justify-between text-[10px] font-bold text-[#555] uppercase tracking-widest px-1"><span className="flex items-center gap-2"><ImageIcon size={10} /> Version History</span><span className="font-mono">{selectedChar.images.length - 1} archived</span></div>
+                                    <div className="flex flex-col gap-6">
+                                        {selectedChar.images.slice(1).map((img, idx) => (
+                                            <div key={idx} className="relative w-full aspect-square group rounded-lg overflow-hidden border border-[#222] hover:border-[#f5a623] transition-colors cursor-pointer bg-[#0a0a0a] shadow-lg">
+                                                <img src={img} className="w-full h-full object-cover opacity-60 group-hover:opacity-100 transition-opacity" onClick={() => handlePromoteImage(idx + 1)} />
+                                                <button onClick={(e) => { e.stopPropagation(); handleDeleteImage(idx + 1); }} className="absolute top-2 right-2 bg-red-600 text-white p-1 rounded opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-700 shadow-md"><X size={14} /></button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
                         </div>
 
-                        {/* --- RIGHT COLUMN --- */}
+                        {/* --- RIGHT COLUMN: EDITORS --- */}
                         <div className="lg:col-span-8 space-y-6 animate-in slide-in-from-right-2 duration-300">
                             <DossierSection title="Physiology" icon={Fingerprint} color="text-red-400" desc="Physical appearance, defects, heredity, health.">
-                                <NotionLikeEditor value={selectedChar.physiology} onChange={(v: string) => updateCharacter(selectedChar.name, { physiology: v })} placeholder="Type here... Use markdown shortcuts (#, -, >)" />
+                                <NotionLikeEditor 
+                                    value={selectedChar.physiology} 
+                                    onChange={(v: string) => updateCharacter(selectedChar.name, { physiology: v })} 
+                                    className="text-gray-200 hover:text-white focus:text-white transition-colors"
+                                    placeholder={selectedChar.templateDefaults?.physiology || "Type here..."}
+                                />
                             </DossierSection>
                             <DossierSection title="Sociology" icon={Users} color="text-blue-400" desc="Class, occupation, education, home life, religion, politics.">
-                                <NotionLikeEditor value={selectedChar.sociology} onChange={(v: string) => updateCharacter(selectedChar.name, { sociology: v })} placeholder="Type here..." />
+                                <NotionLikeEditor 
+                                    value={selectedChar.sociology} 
+                                    onChange={(v: string) => updateCharacter(selectedChar.name, { sociology: v })} 
+                                    className="text-gray-200 hover:text-white focus:text-white transition-colors"
+                                    placeholder={selectedChar.templateDefaults?.sociology || "Type here..."}
+                                />
                             </DossierSection>
                             <DossierSection title="Psychology" icon={Brain} color="text-purple-400" desc="Moral standards, ambitions, frustrations, temperament, complexes.">
-                                <NotionLikeEditor value={selectedChar.psychology} onChange={(v: string) => updateCharacter(selectedChar.name, { psychology: v })} placeholder="Type here..." />
+                                <NotionLikeEditor 
+                                    value={selectedChar.psychology} 
+                                    onChange={(v: string) => updateCharacter(selectedChar.name, { psychology: v })} 
+                                    className="text-gray-200 hover:text-white focus:text-white transition-colors"
+                                    placeholder={selectedChar.templateDefaults?.psychology || "Type here..."}
+                                />
                             </DossierSection>
                         </div>
                     </>
@@ -525,7 +675,13 @@ const CharacterView: React.FC = () => {
                 {activeTab === 'backstory' && (
                     <div className="lg:col-span-12 animate-in fade-in duration-300">
                         <DossierSection title="Character History" icon={FileText} color="text-[#f5a623]" desc="Comprehensive backstory, childhood, and key life events.">
-                            <NotionLikeEditor value={selectedChar.backstory || ''} onChange={(v: string) => updateCharacter(selectedChar.name, { backstory: v })} placeholder="Once upon a time..." minHeight="400px" />
+                            <NotionLikeEditor 
+                                value={selectedChar.backstory || ''} 
+                                onChange={(v: string) => updateCharacter(selectedChar.name, { backstory: v })} 
+                                className="text-gray-200 hover:text-white focus:text-white transition-colors"
+                                placeholder={selectedChar.templateDefaults?.backstory || "Once upon a time..."}
+                                minHeight="400px" 
+                            />
                         </DossierSection>
                     </div>
                 )}
@@ -557,7 +713,7 @@ const CharacterView: React.FC = () => {
                                 <label className="text-[9px] font-mono text-[#555] uppercase mb-1 block">Add Connection</label>
                                 <div className="flex gap-2">
                                     <select id="new-rel-target" className="flex-1 bg-[#151515] border border-[#333] text-xs text-gray-300 px-2 py-1.5 rounded outline-none focus:border-[#f5a623]">
-                                        {characters.map(([name]) => name !== selectedChar.name && <option key={name} value={name}>{name}</option>)}
+                                        {castList.map((c: any) => c.name !== selectedChar.name && <option key={c.name} value={c.name}>{c.name}</option>)}
                                     </select>
                                     <button onClick={() => { const sel = document.getElementById('new-rel-target') as HTMLSelectElement; if (sel && sel.value) addRelationship(sel.value, 'Acquaintance'); }} className="px-3 bg-[#f5a623] hover:bg-[#e09612] text-black rounded text-xs font-bold">Add</button>
                                 </div>
@@ -658,7 +814,7 @@ const NeuralMap = ({ characters, selectedId, onSelect }: { characters: Record<st
     );
 };
 
-const VitalInput = ({ label, value, onChange, type = 'text', icon: Icon, options = [], className, naked, placeholder }: any) => {
+const VitalInput = ({ label, value, onChange, type = 'text', icon: Icon, options = [], className, naked, placeholder, onFocus }: any) => {
     const [isOpen, setIsOpen] = useState(false);
     const containerRef = useRef<HTMLDivElement>(null);
     useEffect(() => {
@@ -668,10 +824,25 @@ const VitalInput = ({ label, value, onChange, type = 'text', icon: Icon, options
     }, []);
     const showDropdown = isOpen && options.length > 0;
     const filteredOptions = options.filter((opt: string) => opt.toLowerCase().includes(String(value).toLowerCase()));
+    
+    // Wrapper to handle internal dropdown logic + optional external clear behavior
+    const handleFocus = (e: React.FocusEvent<HTMLInputElement>) => {
+        setIsOpen(true);
+        if (onFocus) onFocus(e);
+    };
+
     return (
         <div className={`group relative ${naked ? '' : 'mb-0'}`} ref={containerRef}>
             {!naked && <label className="text-[9px] font-mono text-[#555] uppercase mb-1 block flex items-center gap-1.5">{Icon && <Icon size={10} />} {label}</label>}
-            <input type={type} value={value} onChange={(e) => onChange(e.target.value)} onFocus={() => setIsOpen(true)} className={className || "w-full bg-[#111] border-b border-[#333] text-gray-300 text-sm font-medium py-1 px-0 outline-none focus:border-[#f5a623] transition-colors placeholder-gray-700"} placeholder={placeholder || "-"} autoComplete="off" />
+            <input 
+                type={type} 
+                value={value} 
+                onChange={(e) => onChange(e.target.value)} 
+                onFocus={handleFocus}
+                className={className || "w-full bg-[#111] border-b border-[#333] text-gray-200 hover:text-white focus:text-white text-sm font-medium py-1 px-0 outline-none focus:border-[#f5a623] transition-colors placeholder-gray-500 focus:placeholder-gray-700"} 
+                placeholder={placeholder || "-"} 
+                autoComplete="off" 
+            />
             {showDropdown && filteredOptions.length > 0 && (
                 <div className="absolute top-full left-0 w-full bg-[#1a1a1a] border border-[#333] z-[100] max-h-40 overflow-y-auto shadow-xl rounded-b-md mt-1 custom-scrollbar">
                     {filteredOptions.map((opt: string) => (

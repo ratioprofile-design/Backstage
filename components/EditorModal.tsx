@@ -393,15 +393,23 @@ const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScri
 
   const uniqueCharacters = useMemo(() => {
       const chars = new Set<string>();
-      Object.keys(characterData).forEach(k => chars.add(k.toUpperCase()));
+      
+      // 1. Add from Character Manifest (Created Characters)
+      Object.values(characterData).forEach((c: any) => {
+          if (c.name) chars.add(c.name.toUpperCase());
+      });
+
+      // 2. Add from existing Script content (Dynamic)
       beats.forEach(b => {
           const div = document.createElement('div');
           div.innerHTML = b.content;
           div.querySelectorAll('.sc-character').forEach(el => {
-              chars.add(el.textContent?.trim().replace(/\s*\(.*\)$/, '').toUpperCase() || '');
+              const name = el.textContent?.trim().replace(/\s*\(.*\)$/, '').toUpperCase();
+              if (name && name.length > 1) chars.add(name);
           });
       });
-      return Array.from(chars).filter(c => c).sort();
+
+      return Array.from(chars).sort();
   }, [beats, characterData]);
 
   useEffect(() => {

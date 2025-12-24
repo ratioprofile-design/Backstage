@@ -1,4 +1,3 @@
-
 import React, { useState, useRef } from 'react';
 import { useProject } from '../context/ProjectContext';
 import { ScriptConfig } from '../types';
@@ -69,10 +68,13 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
           slugline: { ...scriptConfig.slugline, [prop]: val }
        });
     } else {
-       setScriptConfig({
-          ...scriptConfig,
-          [elm]: { ...scriptConfig[elm as Exclude<keyof ScriptConfig, 'slugline'>], [prop]: val }
-       });
+       const targetConfig = scriptConfig[elm];
+       if (typeof targetConfig === 'object' && targetConfig !== null) {
+           setScriptConfig({
+              ...scriptConfig,
+              [elm]: { ...targetConfig, [prop]: val }
+           });
+       }
     }
   };
 
