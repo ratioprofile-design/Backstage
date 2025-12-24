@@ -1,0 +1,2309 @@
+
+import React, { useEffect, useRef, useState, useMemo } from 'react';
+import { useProject } from '../../context/ProjectContext';
+import { BeatStatus, Group, Annotation } from '../../types';
+import { 
+    MousePointer2, Square, Circle, Pen, Minus, ArrowRight, Eraser, Trash2, 
+    Type, X, PenTool, GripHorizontal, Heading
+} from 'lucide-react';
+
+interface BoardViewProps {
+  onEditBeat: (id: number) => void;
+}
+
+const ANNOTATION_COLORS = [
+    '#f5a623', // Accent Orange
+    '#ffffff', // White
+    '#ef4444', // Red
+    '#22c55e', // Green
+    '#3b82f6', // Blue
+];
+
+const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
+  const { 
+    beats, groups, connections, panX, panY, scale, annotations,
+    setPan, setScale, updateBeat, setConnections, addBeat, setBeats, setGroups, addGroup, updateGroup, removeGroup,
+    setAnnotations
+  } = useProject();
+
+  const containerRef = useRef<HTMLDivElement>(null);
+  const minimapRef = useRef<HTMLCanvasElement>(null);
+  const minimapContainerRef = useRef<HTMLDivElement>(null);
+  const zoomTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const eraserCursorRef = useRef<HTMLDivElement>(null);
+  
+  // Local UI State for Toolbar
+  const [isToolbarOpen, setIsToolbarOpen] = useState(false);
+  const [toolMode, setToolMode] = useState<'none' | 'pencil' | 'rect' | 'circle' | 'line' | 'arrow' | 'eraser' | 'text' | 'bigtext'>('none');
+  const [drawColor, setDrawColor] = useState('#f5a623');
+  const [strokeWidth, setStrokeWidth] = useState(3);
+  const [strokeStyle, setStrokeStyle] = useState<'solid' | 'dashed'>('solid'); // Default solid
+  
+  // Text Editing State
+  const [editingAnnoId, setEditingAnnoId] = useState<number | null>(null);
+
+  // Engine Ref
+  const engine = useRef({
+    // State Mirrors
+    beats: [] as any[],
+    groups: [] as any[],
+    connections: [] as any[],
+    annotations: [] as any[],
+    scale: 1,
+    panX: 0,
+    panY: 0,
+    
+    // Interaction State
+    selectedBeatIds: new Set<number>(),
+    dragTarget: null as number | null,
+    dragGroupTarget: null as number | null, 
+    dragGroupChildIds: new Set<number>(),
+    groupResizeTarget: null as number | null,
+    
+    // Annotation Dragging
+    dragAnnotationId: null as number | null,
+
+    isDragging: false,
+    isPanning: false,
+    lastMouseX: 0,
+    lastMouseY: 0,
+    
+    // Creation Flow
+    creationState: null as { id: number, step: 'title' | 'summary' } | null,
+
+    // Lasso
+    isLassoing: false,
+    hasLassoMoved: false, 
+    lassoStart: { x: 0, y: 0 },
+    
+    // Linking
+    isLinking: false,
+    linkingSourceId: null as number | null,
+    tempLinkEndX: 0,
+    tempLinkEndY: 0,
+    relinkData: null as { type: 'source' | 'target', fixedBeatId: number } | null,
+    
+    // Drawing / Annotations
+    isDrawing: false,
+    drawStart: { x: 0, y: 0 },
+    currentPoints: [] as {x: number, y: number}[], // Store raw points for smoothing
+    currentAnnoId: null as number | null,
+
+    // Graph
+    sceneMap: {} as Record<number, number>,
+    componentMap: {} as Record<number, string>,
+    errorIds: new Set<number>(),
+  });
+
+  // --- STYLES ---
+  const styles = `
+    :root {
+        --bg-canvas: #1e1e1e;
+        --bg-grid: #2a2a2a;
+    }
+    .board-wrapper {
+        width: 100%; height: 100%; overflow: hidden; background-color: #1e1e1e; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #e0e0e0; position: relative; outline: none;
+        -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;
+    }
+    #viewport { width: 100%; height: 100%; cursor: grab; position: absolute; top: 0; left: 0; overflow: hidden; display: block; }
+    #viewport:active { cursor: grabbing; }
+    
+    /* Cursors based on Tool */
+    .tool-pencil #viewport, .tool-rect #viewport, .tool-circle #viewport, .tool-line #viewport, .tool-arrow #viewport, .tool-text #viewport, .tool-bigtext #viewport { cursor: crosshair !important; }
+    
+    /* Custom Eraser Cursor logic is handled via a floating div, so we hide standard cursor */
+    .tool-eraser #viewport { cursor: none !important; }
+
+    #canvas-surface {
+        position: absolute; top: 0; left: 0; width: 50000px; height: 50000px;
+        background-color: #1e1e1e;
+        background-image: linear-gradient(#2a2a2a 1px, transparent 1px), linear-gradient(90deg, #2a2a2a 1px, transparent 1px);
+        background-size: 50px 50px; transform-origin: 0 0;
+        isolation: isolate; /* Creates a new stacking context for children */
+    }
+
+    /* LAYERS - Strict Stacking Order by z-index */
+    #groups-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 5; }
+    #connections-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 10; overflow: visible; }
+    #annotations-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 15; overflow: visible; }
+    #text-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 20; }
+    #beats-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 100; }
+    
+    /* Enable pointer events on interactive elements within layers */
+    .group-container, .beat-card, .annotation-hit-area, .handle-hit-area, .connection-line { pointer-events: auto !important; }
+    .text-annotation-card { pointer-events: auto !important; }
+    
+    /* When drawing, Annotations needs full events */
+    .tool-pencil #annotations-layer, .tool-rect #annotations-layer, .tool-circle #annotations-layer, .tool-line #annotations-layer, .tool-arrow #annotations-layer, .tool-eraser #annotations-layer, .tool-text #annotations-layer, .tool-bigtext #annotations-layer { pointer-events: auto !important; }
+
+    #selection-lasso { position: fixed; border: 1px solid rgba(52, 152, 219, 0.8); background-color: rgba(52, 152, 219, 0.3); display: none; pointer-events: none; z-index: 9999; }
+    
+    .connection-line { fill: none; stroke: #555; stroke-width: 3px; stroke-linecap: round; pointer-events: visibleStroke; cursor: pointer; transition: stroke 0.3s ease, stroke-width 0.1s; }
+    .connection-line:hover { stroke-width: 5px; opacity: 0.8; }
+    .connection-line.selected { stroke: #fff !important; stroke-width: 4px; filter: drop-shadow(0 0 4px rgba(255,255,255,0.5)); }
+    .connection-line.temp { stroke: #f5a623 !important; stroke-dasharray: 5, 5; opacity: 0.8; stroke-width: 2px; pointer-events: none; }
+    
+    /* Annotations */
+    .annotation-path { fill: none; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
+    .annotation-rect { fill: none; pointer-events: none; }
+    .annotation-circle { fill: none; pointer-events: none; }
+    .annotation-line { fill: none; stroke-linecap: round; pointer-events: none; }
+    
+    /* Text Annotation Cards */
+    .text-annotation-card {
+        position: absolute;
+        min-width: 50px;
+        min-height: 1.2em;
+        background: transparent;
+        border: 1px dashed transparent;
+        padding: 4px 8px;
+        cursor: grab;
+        transition: border-color 0.2s, background 0.2s;
+    }
+    .text-annotation-card:hover {
+        border-color: rgba(255,255,255,0.2);
+        background: rgba(0,0,0,0.2);
+    }
+    .text-annotation-card.editing {
+        background: rgba(30,30,30,0.9);
+        border: 1px solid #f5a623;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+        cursor: text;
+        z-index: 1000; /* Must pop above beats when editing */
+        min-width: 200px;
+        border-radius: 4px;
+    }
+    .text-annotation-input {
+        width: 100%;
+        height: 100%;
+        background: transparent;
+        border: none;
+        outline: none;
+        resize: none;
+        font-family: 'Helvetica Neue', sans-serif;
+        line-height: 1.2;
+        overflow: hidden;
+    }
+    .text-annotation-display {
+        white-space: pre-wrap;
+        font-family: 'Helvetica Neue', sans-serif;
+        line-height: 1.2;
+        user-select: none;
+    }
+    
+    /* HIT AREA (Invisible thick stroke for eraser/selection) */
+    .annotation-hit-area {
+        fill: none;
+        stroke: rgba(255,0,0,0.001); /* Almost transparent but painted for events */
+        stroke-width: 20px; /* Fat finger friendly */
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        pointer-events: visibleStroke; /* Ensures events are captured even if fill is none */
+        cursor: default;
+    }
+    .tool-eraser .annotation-hit-area { cursor: none; }
+    
+    /* Custom Eraser Cursor */
+    .eraser-cursor {
+        position: fixed; pointer-events: none; z-index: 9999;
+        width: 20px; height: 20px;
+        border: 2px solid #ef4444;
+        background-color: rgba(239, 68, 68, 0.2);
+        border-radius: 50%;
+        transform: translate(-50%, -50%);
+        display: none;
+        box-shadow: 0 0 10px rgba(239, 68, 68, 0.5);
+    }
+    .tool-eraser .eraser-cursor { display: block; }
+
+    .connection-handle { 
+        fill: #444; stroke: #888; stroke-width: 1px; opacity: 0; pointer-events: none; 
+        transition: transform 0.1s, fill 0.1s, stroke 0.1s, opacity 0.2s; 
+    }
+    .handle-hit-area { fill: transparent; cursor: grab; pointer-events: auto; }
+    .handle-hit-area:hover + .connection-handle { opacity: 1; fill: #f5a623; stroke: #fff; transform: scale(1.5); }
+    .handle-hit-area:active + .connection-handle { opacity: 1; cursor: grabbing; }
+
+    /* --- BEAT CARD --- */
+    .beat-card {
+        position: absolute; width: 240px; min-height: 140px; background: #2d2d2d;
+        border: 1px solid #3d3d3d; border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        display: flex; flex-direction: column; user-select: none; transition: box-shadow 0.1s, border-color 0.1s;
+        cursor: default;
+    }
+    .beat-card:hover { border-color: #666; }
+    .beat-card.selected { border-color: #f5a623; box-shadow: 0 0 0 1px #f5a623, 0 8px 20px rgba(0,0,0,0.5); z-index: 125; }
+    .beat-card.creating { border-color: #f5a623; box-shadow: 0 0 15px rgba(245, 166, 35, 0.5); z-index: 125; }
+    .beat-card.target-mode { border-color: #4caf50; box-shadow: 0 0 0 2px #4caf50, 0 0 20px rgba(76, 175, 80, 0.4); z-index: 115; }
+    .beat-card:active { z-index: 126; } 
+    
+    .beat-header { height: 12px; border-radius: 5px 5px 0 0; background-color: #444; cursor: grab; display: flex; align-items: center; justify-content: space-between; padding: 0 6px; }
+    .beat-header:active { cursor: grabbing; }
+    
+    .seq-badge { 
+        background: rgba(0,0,0,0.5); color: #fff; font-size: 10px; font-weight: 800; 
+        padding: 2px 6px; border-radius: 10px; margin-top: -8px; margin-right: -4px; 
+        box-shadow: 0 2px 4px rgba(0,0,0,0.4); pointer-events: none; z-index: 200; 
+        border: 1px solid rgba(255,255,255,0.2);
+    }
+    
+    .beat-content { padding: 10px 10px 4px 10px; flex-grow: 1; display: flex; flex-direction: column; }
+    .beat-title { font-weight: 700; font-size: 14px; margin-bottom: 8px; padding: 2px 4px; border-radius: 3px; min-height: 24px; }
+    .beat-slug-preview { font-family: 'Courier Prime', monospace; font-size: 11px; font-weight: bold; color: #ccc; text-transform: uppercase; margin-bottom: 4px; border-bottom: 1px solid #444; padding-bottom: 4px; }
+    .beat-preview { font-family: 'Courier Prime', monospace; font-size: 10px; color: #888; line-height: 1.4; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical; pointer-events: none; }
+    .beat-footer { margin-top: auto; border-top: 1px solid #3d3d3d; background: #252525; padding: 6px 10px; display: flex; justify-content: space-between; align-items: center; border-radius: 0 0 6px 6px; height: 28px; }
+    .beat-status { font-size: 9px; font-weight: 800; text-transform: uppercase; display: flex; align-items: center; gap: 4px; letter-spacing: 0.5px; color: #555; }
+    .beat-version { font-size: 9px; font-weight: 700; color: #555; display: flex; align-items: center; gap: 3px; }
+    .title-input { background: #111; color: white; border: 1px solid #f5a623; border-radius: 4px; width: 100%; font-weight: 700; font-size: 14px; padding: 2px 4px; outline: none; margin-bottom: 8px; }
+    .summary-input { background: #111; color: #ddd; border: 1px solid #f5a623; border-radius: 4px; width: 100%; font-family: sans-serif; font-size: 11px; padding: 4px; outline: none; resize: none; height: 80px; line-height: 1.4; }
+    .link-handle { position: absolute; right: -10px; top: 20px; width: 20px; height: 20px; background: #444; border: 2px solid #2a2a2a; border-radius: 50%; cursor: crosshair; z-index: 20; transition: background 0.2s, transform 0.2s; display: flex; align-items: center; justify-content: center; }
+    .link-handle::after { content: ''; width: 6px; height: 6px; background: #999; border-radius: 50%; }
+    .link-handle:hover { background: #f5a623; transform: scale(1.2); border-color: #fff; }
+    .input-handle-visual { position: absolute; left: -10px; top: 20px; width: 20px; height: 20px; background: #2a2a2a; border: 2px solid #555; border-radius: 50%; pointer-events: auto; z-index: 20; display: flex; align-items: center; justify-content: center; transition: all 0.2s ease; }
+    .input-handle-visual::after { content: ''; width: 6px; height: 6px; background: #777; border-radius: 50%; }
+    .target-mode .input-handle-visual { background: #4caf50; border-color: #fff; transform: scale(1.2); box-shadow: 0 0 10px #4caf50; cursor: pointer; }
+
+    /* Group Container */
+    .group-container { position: absolute; border-radius: 8px; border: 2px solid; background: rgba(40,40,40,0.3); backdrop-filter: blur(2px); display: flex; flex-direction: column; transition: border-color 0.2s, box-shadow 0.2s; }
+    .group-container:hover { border-color: #666 !important; box-shadow: 0 0 10px rgba(0,0,0,0.5); }
+    .group-header { height: 24px; background: rgba(0,0,0,0.4); border-radius: 6px 6px 0 0; display: flex; align-items: center; padding: 0 8px; cursor: grab; color: rgba(255,255,255,0.8); font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; }
+    .group-header:active { cursor: grabbing; }
+    .group-resize-handle { position: absolute; bottom: 0; right: 0; width: 15px; height: 15px; cursor: nwse-resize; border-radius: 0 0 6px 0; background: linear-gradient(135deg, transparent 50%, rgba(255,255,255,0.3) 50%); }
+    .group-resize-handle:hover { background: linear-gradient(135deg, transparent 50%, #f5a623 50%); }
+    .group-input { background: transparent; border: none; color: white; font-weight: bold; outline: none; text-transform: uppercase; font-size: 11px; min-width: 50px; transition: width 0.1s; }
+    .group-input:focus { background: rgba(0,0,0,0.2); }
+
+    /* Minimap (Moved to Top Right) */
+    .minimap-container { position: absolute; top: 20px; right: 20px; width: 200px; height: 140px; background: rgba(30, 30, 30, 0.4); backdrop-filter: blur(2px); border: 1px solid rgba(255,255,255,0.05); border-radius: 10px; box-shadow: 0 4px 16px rgba(0,0,0,0.2); z-index: 200; overflow: hidden; pointer-events: none; opacity: 0; transition: opacity 0.3s ease-in-out; transform: translateZ(0); }
+    .minimap-container.active { opacity: 1; }
+    .minimap-canvas { width: 100%; height: 100%; display: block; opacity: 0.8; }
+
+    /* Context Menu */
+    #context-menu { position: absolute; background: #252525; border: 1px solid #333; box-shadow: 0 4px 15px rgba(0,0,0,0.5); border-radius: 4px; padding: 5px 0; width: 200px; display: none; z-index: 1000; }
+    .ctx-item { padding: 8px 15px; font-size: 13px; cursor: pointer; color: #ccc; transition: background 0.1s; display: flex; align-items: center; gap: 8px; }
+    .ctx-item:hover { background: #333; color: white; }
+    .ctx-divider { height: 1px; background: #333; margin: 4px 0; }
+    .ctx-label { padding: 4px 15px 0; font-size: 10px; color: #777; text-transform: uppercase; font-weight: bold; }
+    .color-row { display: flex; padding: 5px 12px; justify-content: space-between; }
+    .color-dot { width: 16px; height: 16px; border-radius: 50%; cursor: pointer; border: 1px solid rgba(255,255,255,0.1); position: relative;}
+    .color-dot:hover { transform: scale(1.2); border-color: #fff; }
+
+    /* Zoom Controls (Moved to Bottom Right) */
+    .zoom-controls { position: absolute; bottom: 20px; right: 20px; display: flex; flex-direction: column; gap: 5px; z-index: 200; pointer-events: auto; }
+    .zoom-controls button { width: 36px; height: 36px; background: #2d2d2d; color: #e0e0e0; border: 1px solid #555; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 14px; transition: all 0.2s; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
+    .zoom-controls button:hover { background: #444; border-color: #f5a623; color: #f5a623; }
+
+    /* ANNOTATION TOOLBAR CONTAINER */
+    .drawing-toolbar-container {
+        position: absolute; bottom: 20px; left: 20px; z-index: 2000;
+        display: flex; flex-direction: column; align-items: flex-start; gap: 10px;
+    }
+
+    /* TOGGLE BUTTON */
+    .toolbar-toggle {
+        width: 44px; height: 44px;
+        background: #2d2d2d;
+        border: 1px solid #555;
+        border-radius: 50%;
+        display: flex; align-items: center; justify-content: center;
+        cursor: pointer;
+        color: #f5a623;
+        box-shadow: 0 4px 10px rgba(0,0,0,0.4);
+        transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    }
+    .toolbar-toggle:hover { background: #333; transform: scale(1.1); color: white; border-color: #f5a623; }
+    .toolbar-toggle.active { background: #f5a623; color: black; border-color: #f5a623; transform: rotate(45deg); }
+
+    /* EXPANDED PANEL */
+    .toolbar-panel {
+        background: #2d2d2d;
+        border: 1px solid #3d3d3d;
+        border-radius: 12px;
+        padding: 8px;
+        display: flex; flex-direction: column; gap: 8px;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        animation: slideUp 0.2s ease-out;
+        transform-origin: bottom left;
+    }
+
+    @keyframes slideUp {
+        from { opacity: 0; transform: translateY(10px) scale(0.95); }
+        to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+
+    .tool-row { display: flex; align-items: center; gap: 4px; }
+    .tool-divider { height: 1px; background: rgba(255,255,255,0.1); margin: 2px 0; width: 100%; }
+
+    /* COMPACT BUTTONS */
+    .tool-btn { 
+        width: 28px; height: 28px; 
+        border-radius: 6px;
+        background: transparent; color: #888;
+        border: 1px solid transparent;
+        display: flex; align-items: center; justify-content: center; 
+        transition: all 0.2s; cursor: pointer;
+        padding: 0; margin: 0;
+    }
+    .tool-btn:hover { background: rgba(255,255,255,0.1); color: #ccc; }
+    .tool-btn.active { background: rgba(245, 166, 35, 0.15); color: #f5a623; border-color: rgba(245, 166, 35, 0.3); }
+    
+    .tool-btn.danger:hover { color: #ef4444; background: rgba(239, 68, 68, 0.1); }
+
+    /* COLOR DOTS */
+    .color-dot-btn {
+        width: 24px; height: 24px;
+        border-radius: 50%;
+        display: flex; align-items: center; justify-content: center;
+        cursor: pointer;
+        transition: transform 0.2s;
+        border: 1px solid transparent;
+    }
+    .color-dot-btn:hover { transform: scale(1.1); }
+    .color-dot-btn.active { border-color: rgba(255,255,255,0.5); transform: scale(1.1); }
+    .color-dot-inner { width: 12px; height: 12px; border-radius: 50%; }
+  `;
+
+  const STORYLINE_COLORS = [
+    '#e67e22', '#3498db', '#9b59b6', '#2ecc71', '#e74c3c', 
+    '#1abc9c', '#f1c40f', '#e84393', '#d35400', '#8e44ad'
+  ];
+
+  // --- INITIALIZATION ---
+  useEffect(() => {
+    // Sync React Context State into mutable Engine State
+    engine.current.beats = JSON.parse(JSON.stringify(beats)); 
+    engine.current.groups = JSON.parse(JSON.stringify(groups || []));
+    engine.current.connections = JSON.parse(JSON.stringify(connections));
+    engine.current.annotations = JSON.parse(JSON.stringify(annotations));
+    engine.current.scale = scale;
+    engine.current.panX = panX;
+    engine.current.panY = panY;
+    
+    // Initial Render
+    renderCanvas();
+    renderGroups(); 
+    renderBeats();
+    renderConnections(); // Connects & Annotations
+  }, [beats, groups, connections, scale, panX, panY, annotations]);
+
+  // --- DESELECT WHEN SWITCHING TO TEXT TOOL ---
+  useEffect(() => {
+      if (toolMode === 'text' || toolMode === 'bigtext') {
+          engine.current.selectedBeatIds.clear();
+          renderBeats();
+      }
+  }, [toolMode]);
+
+  // --- ENGINE FUNCTIONS ---
+
+  const renderCanvas = () => {
+    const surface = containerRef.current?.querySelector('#canvas-surface') as HTMLElement;
+    if (surface) {
+      surface.style.transform = `translate(${engine.current.panX}px, ${engine.current.panY}px) scale(${engine.current.scale})`;
+    }
+    renderMinimap();
+  };
+
+  const renderMinimap = () => {
+      const canvas = minimapRef.current;
+      if (!canvas || !containerRef.current) return;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+
+      const items = engine.current.beats;
+      const groups = engine.current.groups;
+      
+      const viewportW = containerRef.current.clientWidth;
+      const viewportH = containerRef.current.clientHeight;
+      const viewX = -engine.current.panX / engine.current.scale;
+      const viewY = -engine.current.panY / engine.current.scale;
+      const viewW = viewportW / engine.current.scale;
+      const viewH = viewportH / engine.current.scale;
+
+      let minX = viewX, minY = viewY, maxX = viewX + viewW, maxY = viewY + viewH;
+
+      items.forEach(b => {
+          if (b.x < minX) minX = b.x;
+          if (b.y < minY) minY = b.y;
+          if (b.x + 240 > maxX) maxX = b.x + 240;
+          if (b.y + 140 > maxY) maxY = b.y + 140;
+      });
+      groups.forEach(g => {
+          if (g.x < minX) minX = g.x;
+          if (g.y < minY) minY = g.y;
+          if (g.x + g.width > maxX) maxX = g.x + g.width;
+          if (g.y + g.height > maxY) maxY = g.y + g.height;
+      });
+
+      const padding = 1000;
+      minX -= padding; minY -= padding; maxX += padding; maxY += padding;
+      const worldW = maxX - minX;
+      const worldH = maxY - minY;
+
+      canvas.width = canvas.offsetWidth;
+      canvas.height = canvas.offsetHeight;
+      const mapW = canvas.width;
+      const mapH = canvas.height;
+      const scale = Math.min(mapW / worldW, mapH / worldH);
+      
+      const offsetX = (mapW - worldW * scale) / 2;
+      const offsetY = (mapH - worldH * scale) / 2;
+
+      const toMapX = (wx: number) => offsetX + (wx - minX) * scale;
+      const toMapY = (wy: number) => offsetY + (wy - minY) * scale;
+
+      ctx.clearRect(0, 0, mapW, mapH);
+
+      ctx.lineWidth = 1;
+      groups.forEach(g => {
+          ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+          ctx.strokeRect(toMapX(g.x), toMapY(g.y), g.width * scale, g.height * scale);
+          ctx.fillStyle = g.color || '#555';
+          ctx.globalAlpha = 0.05;
+          ctx.fillRect(toMapX(g.x), toMapY(g.y), g.width * scale, g.height * scale);
+          ctx.globalAlpha = 1.0;
+      });
+
+      items.forEach(b => {
+          const bx = toMapX(b.x);
+          const by = toMapY(b.y);
+          const bw = Math.max(2, 240 * scale);
+          const bh = Math.max(2, 140 * scale);
+          
+          if (engine.current.selectedBeatIds.has(b.id)) {
+              ctx.fillStyle = '#f5a623';
+              ctx.globalAlpha = 0.8;
+          } else {
+              ctx.fillStyle = 'rgba(200, 200, 200, 0.3)';
+              ctx.globalAlpha = 0.4;
+          }
+          ctx.fillRect(bx, by, bw, bh);
+          ctx.globalAlpha = 1.0;
+      });
+
+      ctx.strokeStyle = 'rgba(245, 166, 35, 0.4)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(toMapX(viewX), toMapY(viewY), viewW * scale, viewH * scale);
+  };
+
+  const analyzeGraph = () => {
+    const adjDir: Record<number, number[]> = {}; 
+    const adjUndir: Record<number, number[]> = {}; 
+    const inDegree: Record<number, number> = {}; 
+    const isConnected: Record<number, boolean> = {}; 
+    
+    engine.current.beats.forEach(b => { 
+        adjDir[b.id] = []; adjUndir[b.id] = []; inDegree[b.id] = 0; isConnected[b.id] = false; 
+    });
+    
+    engine.current.connections.forEach(c => {
+        if (adjDir[c.from]) adjDir[c.from].push(c.to);
+        if (adjUndir[c.from]) adjUndir[c.from].push(c.to);
+        if (adjUndir[c.to]) adjUndir[c.to].push(c.from);
+        if (inDegree[c.to] !== undefined) inDegree[c.to]++;
+        isConnected[c.from] = true; isConnected[c.to] = true;
+    });
+
+    const visited = new Set<number>();
+    engine.current.componentMap = {};
+    let colorIdx = 0;
+    const sortedBeats = [...engine.current.beats].sort((a,b) => a.id - b.id);
+    
+    sortedBeats.forEach(startNode => {
+        if (isConnected[startNode.id] && !visited.has(startNode.id)) {
+            const componentNodes: number[] = [];
+            const queue = [startNode.id];
+            visited.add(startNode.id);
+            componentNodes.push(startNode.id);
+            while(queue.length > 0) {
+                const u = queue.shift()!;
+                if(adjUndir[u]) {
+                    adjUndir[u].forEach(v => {
+                        if(!visited.has(v)) { visited.add(v); queue.push(v); componentNodes.push(v); }
+                    });
+                }
+            }
+            let chosenColor = null;
+            const coloredBeats = componentNodes.map(id => engine.current.beats.find(b => b.id === id)).filter(b => b && b.color && b.color !== '#444');
+            if (coloredBeats.length > 0 && coloredBeats[0]) chosenColor = coloredBeats[0].color;
+            else { chosenColor = STORYLINE_COLORS[colorIdx % STORYLINE_COLORS.length]; colorIdx++; }
+            componentNodes.forEach(id => { engine.current.componentMap[id] = chosenColor!; });
+        }
+    });
+
+    engine.current.sceneMap = {};
+    const depths: Record<number, number> = {};
+    let queue: number[] = [];
+    const currentInDegree = {...inDegree};
+    sortedBeats.forEach(b => { 
+        if (isConnected[b.id] && currentInDegree[b.id] === 0) { 
+            queue.push(b.id); 
+            depths[b.id] = 1; 
+        } 
+    });
+    
+    while(queue.length > 0) {
+        const u = queue.shift()!;
+        if (adjDir[u]) {
+            adjDir[u].forEach(v => {
+                const newDepth = (depths[u] || 1) + 1;
+                if (!depths[v] || newDepth > depths[v]) depths[v] = newDepth;
+                currentInDegree[v]--;
+                if (currentInDegree[v] <= 0) queue.push(v);
+            });
+        }
+    }
+    
+    sortedBeats.forEach(b => { 
+        if(!depths[b.id]) depths[b.id] = 1; 
+        engine.current.sceneMap[b.id] = depths[b.id]; 
+    });
+
+    engine.current.errorIds = new Set();
+    const chainDepths: any = {}; 
+    sortedBeats.forEach(b => {
+        if (!isConnected[b.id]) return;
+        const color = engine.current.componentMap[b.id];
+        const depth = engine.current.sceneMap[b.id];
+        if (!depth) return; 
+
+        if (!chainDepths[color]) chainDepths[color] = {};
+        if (!chainDepths[color][depth]) chainDepths[color][depth] = [];
+        chainDepths[color][depth].push(b.id);
+    });
+    Object.values(chainDepths).forEach((depthMap: any) => {
+        Object.values(depthMap).forEach((ids: any) => { 
+            const idList = ids as number[];
+            if (idList.length > 1) idList.forEach((id: number) => engine.current.errorIds.add(id)); 
+        });
+    });
+  };
+
+  const renderGroups = () => {
+      if (!containerRef.current) return;
+      const groupsLayer = containerRef.current.querySelector('#groups-layer');
+      if (!groupsLayer) return;
+
+      groupsLayer.innerHTML = ''; // Clear
+
+      const sortedGroups = [...engine.current.groups].sort((a, b) => (b.width * b.height) - (a.width * a.height));
+
+      sortedGroups.forEach(group => {
+          const div = document.createElement('div');
+          div.className = 'group-container';
+          div.style.left = `${group.x}px`;
+          div.style.top = `${group.y}px`;
+          div.style.width = `${group.width}px`;
+          div.style.height = `${group.height}px`;
+          div.style.borderColor = group.color || '#555';
+          div.dataset.id = group.id.toString();
+
+          const header = document.createElement('div');
+          header.className = 'group-header';
+          
+          const input = document.createElement('input');
+          input.className = 'group-input';
+          input.value = group.title;
+          
+          const updateWidth = () => {
+              const width = Math.max(50, (input.value.length * 9) + 15);
+              input.style.width = `${width}px`;
+          };
+          updateWidth();
+
+          input.onmousedown = (e) => e.stopPropagation(); 
+          input.oninput = (e) => {
+              updateWidth();
+          };
+          input.onchange = (e) => {
+              updateGroup(group.id, { title: (e.target as HTMLInputElement).value });
+          };
+          input.onkeydown = (e) => {
+              if(e.key === 'Enter') input.blur();
+          };
+
+          header.appendChild(input);
+          header.onmousedown = (e) => onGroupHeaderMouseDown(e, group.id);
+
+          const resizer = document.createElement('div');
+          resizer.className = 'group-resize-handle';
+          resizer.onmousedown = (e) => onGroupResizeMouseDown(e, group.id);
+
+          div.appendChild(header);
+          div.appendChild(resizer);
+          
+          groupsLayer.appendChild(div);
+      });
+  };
+
+  const renderBeats = () => {
+    if (!containerRef.current) return;
+    analyzeGraph();
+    const beatsLayer = containerRef.current.querySelector('#beats-layer');
+    if (!beatsLayer) return;
+
+    beatsLayer.innerHTML = ''; 
+
+    const { creationState } = engine.current;
+
+    engine.current.beats.forEach(beat => {
+        const isCreating = creationState?.id === beat.id;
+        const card = document.createElement('div');
+        card.className = `beat-card ${engine.current.selectedBeatIds.has(beat.id) ? 'selected' : ''} ${isCreating ? 'creating' : ''}`;
+        if (engine.current.isLinking && beat.id !== engine.current.linkingSourceId) card.classList.add('target-mode');
+        card.style.left = `${beat.x}px`;
+        card.style.top = `${beat.y}px`;
+        if(beat.tint) card.style.backgroundColor = beat.tint;
+        card.dataset.id = beat.id.toString();
+
+        const header = document.createElement('div');
+        header.className = 'beat-header';
+        const compColor = engine.current.componentMap[beat.id] || '#444';
+        header.style.backgroundColor = compColor;
+        
+        const sceneNum = engine.current.sceneMap[beat.id];
+        
+        if (sceneNum) {
+            const badge = document.createElement('span');
+            badge.className = 'seq-badge';
+            badge.innerText = `${sceneNum}`;
+            if (engine.current.errorIds.has(beat.id)) { badge.style.backgroundColor = '#ff4444'; badge.title = "Error: Duplicate sequence number"; }
+            header.appendChild(badge);
+        }
+
+        const content = document.createElement('div');
+        content.className = 'beat-content';
+
+        if (isCreating && creationState.step === 'title') {
+            const input = document.createElement('input');
+            input.className = 'title-input';
+            input.value = beat.title;
+            input.placeholder = "Beat Name...";
+            input.onmousedown = (e) => e.stopPropagation();
+            input.onkeydown = (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    beat.title = input.value;
+                    updateBeat(beat.id, { title: input.value });
+                    engine.current.creationState = { id: beat.id, step: 'summary' };
+                    renderBeats();
+                }
+            };
+            setTimeout(() => input.focus(), 10);
+            content.appendChild(input);
+        } else {
+            const title = document.createElement('div');
+            title.className = 'beat-title';
+            title.innerText = beat.title || 'UNTITLED'; 
+            content.appendChild(title);
+        }
+
+        const slugPreview = document.createElement('div');
+        slugPreview.className = 'beat-slug-preview';
+        const s = beat.slug;
+        if (s && (s.prefix || s.location || s.time)) {
+            slugPreview.innerText = `${s.prefix} ${s.location} - ${s.time}`;
+            slugPreview.style.color = '#ccc';
+        } else {
+            slugPreview.innerText = "INT. LOCATION - DAY";
+            slugPreview.style.color = 'rgba(255,255,255,0.2)'; 
+        }
+        content.appendChild(slugPreview);
+
+        if (isCreating && creationState.step === 'summary') {
+            const textarea = document.createElement('textarea');
+            textarea.className = 'summary-input';
+            textarea.value = beat.summary || '';
+            textarea.placeholder = "Scene summary...";
+            textarea.onmousedown = (e) => e.stopPropagation();
+            textarea.onkeydown = (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    beat.summary = textarea.value;
+                    updateBeat(beat.id, { summary: textarea.value });
+                    engine.current.creationState = null;
+                    engine.current.selectedBeatIds.clear();
+                    engine.current.selectedBeatIds.add(beat.id);
+                    renderBeats();
+                    containerRef.current?.focus(); 
+                }
+            };
+            setTimeout(() => textarea.focus(), 10);
+            content.appendChild(textarea);
+        } else {
+            const preview = document.createElement('div');
+            preview.className = 'beat-preview';
+            if (beat.summary && beat.summary.trim().length > 0) {
+                 preview.innerText = beat.summary;
+                 preview.style.fontStyle = 'normal';
+                 preview.style.color = '#ccc';
+                 preview.style.fontFamily = 'Helvetica Neue, sans-serif';
+            } else {
+                const tempDiv = document.createElement('div');
+                tempDiv.innerHTML = beat.content || ''; 
+                preview.innerText = tempDiv.innerText || '(Empty)';
+            }
+            content.appendChild(preview);
+        }
+
+        const footer = document.createElement('div');
+        footer.className = 'beat-footer';
+        const statusDiv = document.createElement('div');
+        const isReady = beat.status === 'ready';
+        statusDiv.className = `beat-status ${isReady ? 'ready' : 'wip'}`;
+        const checkIcon = `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
+        const clockIcon = `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>`;
+        statusDiv.innerHTML = isReady ? `${checkIcon} READY` : `${clockIcon} WIP`;
+        
+        const versionDiv = document.createElement('div');
+        versionDiv.className = 'beat-version';
+        const vCount = beat.versions ? beat.versions.length : 0;
+        versionDiv.innerHTML = `<svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M3 12h18"/><path d="M3 18h18"/></svg> v${vCount}`;
+        
+        footer.appendChild(statusDiv);
+        footer.appendChild(versionDiv);
+
+        const handle = document.createElement('div');
+        handle.className = 'link-handle';
+        handle.onmousedown = (e) => onLinkHandleMouseDown(e, beat.id);
+        
+        const inputHandle = document.createElement('div');
+        inputHandle.className = 'input-handle-visual';
+
+        card.appendChild(header);
+        card.appendChild(content);
+        card.appendChild(footer);
+        card.appendChild(handle);
+        card.appendChild(inputHandle);
+
+        card.onmousedown = (e) => onBeatMouseDown(e, beat.id);
+        card.ondblclick = (e) => { e.stopPropagation(); onEditBeat(beat.id); };
+        beatsLayer.appendChild(card);
+    });
+  };
+
+  const deleteAnnotation = (id: number) => {
+      const newAnnos = engine.current.annotations.filter(a => a.id !== id);
+      engine.current.annotations = newAnnos;
+      setAnnotations(newAnnos);
+      renderConnections(); 
+  };
+
+  const handleClearAll = () => {
+      engine.current.annotations = [];
+      setAnnotations([]);
+      renderConnections();
+  };
+
+  // Smooth path generator with low-pass filter
+  const getSmoothedPath = (points: {x: number, y: number}[]) => {
+      if (points.length === 0) return '';
+      if (points.length === 1) return `M ${points[0].x} ${points[0].y} L ${points[0].x + 0.1} ${points[0].y + 0.1}`; // Dot for single click
+      
+      const start = points[0];
+      let d = `M ${start.x} ${start.y}`;
+      
+      // Catmull-Rom or simple Quadratic B-spline approximation for smoothness
+      for (let i = 1; i < points.length - 1; i++) {
+          const p0 = points[i];
+          const p1 = points[i+1];
+          // Use midpoint as end of quadratic curve, previous point as control
+          const midX = (p0.x + p1.x) / 2;
+          const midY = (p0.y + p1.y) / 2;
+          d += ` Q ${p0.x} ${p0.y} ${midX} ${midY}`;
+      }
+      
+      // Connect last segment
+      if (points.length > 1) {
+          const last = points[points.length - 1];
+          d += ` L ${last.x} ${last.y}`;
+      }
+      return d;
+  };
+
+  const renderConnections = () => {
+      if (!containerRef.current) return;
+      const connectionsLayer = containerRef.current.querySelector('#connections-layer');
+      const annotationsLayer = containerRef.current.querySelector('#annotations-layer');
+      if (!connectionsLayer || !annotationsLayer) return;
+      
+      connectionsLayer.innerHTML = ''; 
+      annotationsLayer.innerHTML = '';
+
+      // Define Arrow Markers in Connections Layer (shared or duplicated as needed)
+      const defs = document.createElementNS("http://www.w3.org/2000/svg", "defs");
+      ANNOTATION_COLORS.forEach(color => {
+          const hex = color.replace('#', '');
+          const marker = document.createElementNS("http://www.w3.org/2000/svg", "marker");
+          marker.setAttribute("id", `arrow-${hex}`);
+          marker.setAttribute("markerWidth", "10");
+          marker.setAttribute("markerHeight", "10");
+          marker.setAttribute("refX", "9");
+          marker.setAttribute("refY", "3");
+          marker.setAttribute("orient", "auto");
+          marker.setAttribute("markerUnits", "strokeWidth");
+          
+          const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+          path.setAttribute("d", "M0,0 L0,6 L9,3 z");
+          path.setAttribute("fill", color);
+          marker.appendChild(path);
+          defs.appendChild(marker);
+      });
+      annotationsLayer.appendChild(defs); // Annotations layer needs arrows too
+
+      // --- RENDER ANNOTATIONS (TOP LAYER) ---
+      // NOTE: Text annotations are now rendered via React Components in the main View Loop
+      engine.current.annotations.forEach(anno => {
+          if (anno.type === 'text') return; // Skip text rendering in SVG
+
+          const group = document.createElementNS("http://www.w3.org/2000/svg", "g");
+          let el: SVGElement | null = null;
+          let hitEl: SVGElement | null = null; // Thick transparent line for eraser
+          
+          const width = (anno as any).strokeWidth || 3;
+          const style = (anno as any).strokeStyle || 'solid';
+          const dash = style === 'dashed' ? '10,10' : '';
+
+          if (anno.type === 'pencil' && anno.d) {
+              // Visible
+              const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+              path.setAttribute("d", anno.d);
+              path.setAttribute("stroke", anno.color);
+              path.setAttribute("stroke-width", width.toString());
+              if(dash) path.setAttribute("stroke-dasharray", dash);
+              path.setAttribute("fill", "none");
+              path.classList.add("annotation-path");
+              el = path;
+
+              // Hit Area
+              const hitPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
+              hitPath.setAttribute("d", anno.d);
+              hitPath.classList.add("annotation-hit-area");
+              hitEl = hitPath;
+
+          } else if (anno.type === 'rect' && anno.x !== undefined) {
+              const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+              rect.setAttribute("x", anno.x.toString());
+              rect.setAttribute("y", anno.y!.toString());
+              rect.setAttribute("width", anno.w!.toString());
+              rect.setAttribute("height", anno.h!.toString());
+              rect.setAttribute("stroke", anno.color);
+              rect.setAttribute("stroke-width", width.toString());
+              if(dash) rect.setAttribute("stroke-dasharray", dash);
+              rect.classList.add("annotation-rect");
+              el = rect;
+
+              const hitRect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+              hitRect.setAttribute("x", anno.x.toString());
+              hitRect.setAttribute("y", anno.y!.toString());
+              hitRect.setAttribute("width", anno.w!.toString());
+              hitRect.setAttribute("height", anno.h!.toString());
+              hitRect.classList.add("annotation-hit-area");
+              hitEl = hitRect;
+
+          } else if (anno.type === 'circle' && anno.cx !== undefined && anno.rx !== undefined) {
+              const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+              circle.setAttribute("cx", anno.cx.toString());
+              circle.setAttribute("cy", anno.cy.toString());
+              circle.setAttribute("r", anno.rx.toString());
+              circle.setAttribute("stroke", anno.color);
+              circle.setAttribute("stroke-width", width.toString());
+              if(dash) circle.setAttribute("stroke-dasharray", dash);
+              circle.classList.add("annotation-circle");
+              el = circle;
+
+              const hitCircle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+              hitCircle.setAttribute("cx", anno.cx.toString());
+              hitCircle.setAttribute("cy", anno.cy.toString());
+              hitCircle.setAttribute("r", anno.rx.toString());
+              hitCircle.classList.add("annotation-hit-area");
+              hitEl = hitCircle;
+
+          } else if (anno.type === 'line' && anno.x !== undefined) {
+              const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+              line.setAttribute("x1", anno.x.toString());
+              line.setAttribute("y1", anno.y!.toString());
+              line.setAttribute("x2", (anno.x + (anno.w || 0)).toString());
+              line.setAttribute("y2", (anno.y! + (anno.h || 0)).toString());
+              line.setAttribute("stroke", anno.color);
+              line.setAttribute("stroke-width", width.toString());
+              if(dash) line.setAttribute("stroke-dasharray", dash);
+              line.classList.add("annotation-line");
+              el = line;
+
+              const hitLine = document.createElementNS("http://www.w3.org/2000/svg", "line");
+              hitLine.setAttribute("x1", anno.x.toString());
+              hitLine.setAttribute("y1", anno.y!.toString());
+              hitLine.setAttribute("x2", (anno.x + (anno.w || 0)).toString());
+              hitLine.setAttribute("y2", (anno.y! + (anno.h || 0)).toString());
+              hitLine.classList.add("annotation-hit-area");
+              hitEl = hitLine;
+
+          } else if (anno.type === 'arrow' && anno.x !== undefined) {
+              const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+              line.setAttribute("x1", anno.x.toString());
+              line.setAttribute("y1", anno.y!.toString());
+              line.setAttribute("x2", (anno.x + (anno.w || 0)).toString());
+              line.setAttribute("y2", (anno.y! + (anno.h || 0)).toString());
+              line.setAttribute("stroke", anno.color);
+              line.setAttribute("stroke-width", width.toString());
+              if(dash) line.setAttribute("stroke-dasharray", dash);
+              line.setAttribute("marker-end", `url(#arrow-${anno.color.replace('#', '')})`);
+              line.classList.add("annotation-line");
+              el = line;
+
+              const hitLine = document.createElementNS("http://www.w3.org/2000/svg", "line");
+              hitLine.setAttribute("x1", anno.x.toString());
+              hitLine.setAttribute("y1", anno.y!.toString());
+              hitLine.setAttribute("x2", (anno.x + (anno.w || 0)).toString());
+              hitLine.setAttribute("y2", (anno.y! + (anno.h || 0)).toString());
+              hitLine.classList.add("annotation-hit-area");
+              hitEl = hitLine;
+          }
+
+          if (el) {
+              group.setAttribute("data-type", "annotation");
+              group.setAttribute("data-id", anno.id.toString());
+              
+              // Add Hit Element First (Behind visual)
+              if (hitEl) {
+                  group.appendChild(hitEl);
+              }
+              group.appendChild(el);
+              annotationsLayer.appendChild(group);
+          }
+      });
+
+      // --- RENDER CONNECTIONS (BOTTOM LAYER) ---
+      engine.current.connections.forEach((conn, index) => {
+          const fromBeat = engine.current.beats.find(b => b.id === conn.from);
+          const toBeat = engine.current.beats.find(b => b.id === conn.to);
+          if (fromBeat && toBeat) {
+              const fromX = fromBeat.x + 240; const fromY = fromBeat.y + 30; const toX = toBeat.x; const toY = toBeat.y + 30; 
+              const dist = Math.abs(toX - fromX) * 0.6; const cp1x = fromX + dist; const cp1y = fromY; const cp2x = toX - dist; const cp2y = toY;
+              const compColor = engine.current.componentMap[fromBeat.id] || '#555';
+              
+              const group = document.createElementNS("http://www.w3.org/2000/svg", "g");
+              const hitPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
+              hitPath.setAttribute("d", `M ${fromX} ${fromY} C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${toX} ${toY}`);
+              hitPath.setAttribute("stroke", "transparent"); hitPath.setAttribute("stroke-width", "15"); hitPath.setAttribute("fill", "none");
+              // @ts-ignore
+              hitPath.classList.add("connection-hit-path"); hitPath.dataset.index = index; hitPath.style.cursor = "pointer";
+              // @ts-ignore
+              hitPath.onmousedown = (e) => {
+                  if(toolMode !== 'none') return; if(e.button !== 0) return; 
+                  e.stopPropagation(); 
+              };
+              group.appendChild(hitPath);
+              
+              const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+              path.setAttribute("d", `M ${fromX} ${fromY} C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${toX} ${toY}`);
+              path.classList.add("connection-line"); path.style.stroke = compColor; 
+              
+              path.oncontextmenu = (e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  showContextMenu(e.clientX, e.clientY, null, index, null);
+              };
+
+              group.appendChild(path); 
+
+              const addHandle = (cx: number, cy: number, type: 'source' | 'target') => {
+                  const handleGroup = document.createElementNS("http://www.w3.org/2000/svg", "g");
+                  const hitCircle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+                  hitCircle.setAttribute("cx", cx.toString());
+                  hitCircle.setAttribute("cy", cy.toString());
+                  hitCircle.setAttribute("r", "12"); 
+                  hitCircle.classList.add("handle-hit-area");
+                  const handle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+                  handle.setAttribute("cx", cx.toString());
+                  handle.setAttribute("cy", cy.toString());
+                  handle.setAttribute("r", "6"); 
+                  handle.classList.add("connection-handle");
+                  
+                  // @ts-ignore
+                  const startDrag = (e) => {
+                      e.stopPropagation();
+                      e.preventDefault();
+                      const newConns = [...engine.current.connections];
+                      newConns.splice(index, 1);
+                      engine.current.connections = newConns;
+                      setConnections(newConns);
+                      engine.current.isLinking = true;
+                      if (type === 'source') {
+                          engine.current.relinkData = { type: 'source', fixedBeatId: toBeat.id };
+                          engine.current.linkingSourceId = null; 
+                      } else {
+                          engine.current.relinkData = { type: 'target', fixedBeatId: fromBeat.id };
+                          engine.current.linkingSourceId = fromBeat.id; 
+                      }
+                      updateTempLinkPos(e);
+                      containerRef.current?.querySelector('#connections-layer')?.classList.add('linking-mode');
+                      renderConnections(); 
+                  };
+                  hitCircle.onmousedown = startDrag;
+                  handleGroup.appendChild(hitCircle);
+                  handleGroup.appendChild(handle);
+                  group.appendChild(handleGroup);
+              };
+              addHandle(fromX + 10, fromY, 'source');
+              addHandle(toX - 10, toY, 'target');
+              connectionsLayer.appendChild(group);
+          }
+      });
+
+      // Temp Link
+      if (engine.current.isLinking && (engine.current.linkingSourceId !== null || engine.current.relinkData !== null)) {
+          let startX, startY, endX, endY;
+          if (engine.current.relinkData && engine.current.relinkData.type === 'source') {
+              const targetBeat = engine.current.beats.find(b => b.id === engine.current.relinkData!.fixedBeatId);
+              if (targetBeat) {
+                  endX = targetBeat.x; endY = targetBeat.y + 30; startX = engine.current.tempLinkEndX; startY = engine.current.tempLinkEndY; 
+                  const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+                  path.setAttribute("d", `M ${startX} ${startY} L ${endX} ${endY}`);
+                  path.classList.add("connection-line", "temp");
+                  connectionsLayer.appendChild(path);
+              }
+          } else {
+              const sourceBeat = engine.current.beats.find(b => b.id === engine.current.linkingSourceId);
+              if (sourceBeat) {
+                  startX = sourceBeat.x + 240; startY = sourceBeat.y + 30; endX = engine.current.tempLinkEndX; endY = engine.current.tempLinkEndY; 
+                  const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+                  path.setAttribute("d", `M ${startX} ${startY} L ${endX} ${endY}`);
+                  path.classList.add("connection-line", "temp");
+                  connectionsLayer.appendChild(path);
+              }
+          }
+      }
+  };
+
+  const updateTempLinkPos = (e: MouseEvent) => {
+      if (!containerRef.current) return;
+      const rect = containerRef.current.getBoundingClientRect(); 
+      engine.current.tempLinkEndX = (e.clientX - rect.left - engine.current.panX) / engine.current.scale;
+      engine.current.tempLinkEndY = (e.clientY - rect.top - engine.current.panY) / engine.current.scale;
+      renderConnections();
+  };
+
+  const completeDragLink = (e: MouseEvent) => {
+      if (!engine.current.isLinking) return;
+      const targetEl = (e.target as HTMLElement).closest('.beat-card') as HTMLElement;
+      
+      if (engine.current.relinkData?.type === 'source') {
+          if (targetEl) {
+              const newSourceId = parseInt(targetEl.dataset.id || '-1');
+              const fixedTargetId = engine.current.relinkData.fixedBeatId;
+              if (newSourceId >= 0 && fixedTargetId !== undefined && newSourceId !== fixedTargetId) {
+                  const exists = engine.current.connections.find(c => c.from === newSourceId && c.to === fixedTargetId);
+                  if (!exists) {
+                      engine.current.connections.push({ from: newSourceId, to: fixedTargetId });
+                      setConnections(engine.current.connections);
+                  }
+              }
+          }
+      } else {
+          if (engine.current.linkingSourceId !== null) {
+              if (targetEl) {
+                  const targetId = parseInt(targetEl.dataset.id || '-1');
+                  if (targetId >= 0 && targetId !== engine.current.linkingSourceId) {
+                      const exists = engine.current.connections.find(c => c.from === engine.current.linkingSourceId && c.to === targetId);
+                      if (!exists) {
+                          engine.current.connections.push({ from: engine.current.linkingSourceId!, to: targetId });
+                          setConnections(engine.current.connections);
+                      }
+                  }
+              }
+          }
+      }
+      
+      engine.current.isLinking = false;
+      engine.current.linkingSourceId = null;
+      engine.current.relinkData = null;
+      containerRef.current?.querySelector('#connections-layer')?.classList.remove('linking-mode');
+      renderBeats();
+      renderConnections();
+  };
+
+  // --- TOOL MODE WRAPPER ---
+  const setToolModeSafe = (mode: any) => {
+      setToolMode(mode);
+  };
+
+  const handleZoom = (direction: 'in' | 'out') => {
+      const container = containerRef.current;
+      if (!container) return;
+      
+      const rect = container.getBoundingClientRect();
+      const centerX = rect.width / 2;
+      const centerY = rect.height / 2;
+      
+      const oldScale = engine.current.scale;
+      const newScale = direction === 'in' ? Math.min(3, oldScale + 0.2) : Math.max(0.1, oldScale - 0.2);
+      
+      if (oldScale === newScale) return;
+
+      const worldX = (centerX - engine.current.panX) / oldScale;
+      const worldY = (centerY - engine.current.panY) / oldScale;
+
+      const newPanX = centerX - (worldX * newScale);
+      const newPanY = centerY - (worldY * newScale);
+
+      setScale(newScale);
+      setPan(newPanX, newPanY);
+  };
+
+  const handleFitView = () => {
+      const container = containerRef.current;
+      if (!container) return;
+      
+      const items = engine.current.beats;
+      const groups = engine.current.groups;
+
+      if (items.length === 0 && groups.length === 0) {
+          const defaultPanX = (container.clientWidth / 2) - 120;
+          const defaultPanY = (container.clientHeight / 2) - 80;
+          setScale(1);
+          setPan(defaultPanX, defaultPanY);
+          return;
+      }
+
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+
+      items.forEach(b => {
+          if (b.x < minX) minX = b.x;
+          if (b.y < minY) minY = b.y;
+          if (b.x + 240 > maxX) maxX = b.x + 240;
+          if (b.y + 140 > maxY) maxY = b.y + 140;
+      });
+      groups.forEach(g => {
+          if (g.x < minX) minX = g.x;
+          if (g.y < minY) minY = g.y;
+          if (g.x + g.width > maxX) maxX = g.x + g.width;
+          if (g.y + g.height > maxY) maxY = g.y + g.height;
+      });
+
+      const PADDING = 100;
+      const contentW = (maxX - minX) + (PADDING * 2);
+      const contentH = (maxY - minY) + (PADDING * 2);
+      
+      const containerW = container.clientWidth;
+      const containerH = container.clientHeight;
+
+      let newScale = Math.min(containerW / contentW, containerH / contentH);
+      newScale = Math.min(Math.max(newScale, 0.1), 1.0); 
+
+      const cx = minX - PADDING + contentW / 2;
+      const cy = minY - PADDING + contentH / 2;
+
+      const newPanX = (containerW / 2) - (cx * newScale);
+      const newPanY = (containerH / 2) - (cy * newScale);
+
+      setScale(newScale);
+      setPan(newPanX, newPanY);
+      
+      engine.current.scale = newScale;
+      engine.current.panX = newPanX;
+      engine.current.panY = newPanY;
+      renderCanvas();
+      renderMinimap();
+  };
+
+  // --- EVENTS ---
+
+  const getSvgPoint = (e: MouseEvent) => {
+      if (!containerRef.current) return { x: 0, y: 0 };
+      const rect = containerRef.current.getBoundingClientRect();
+      const x = (e.clientX - rect.left - engine.current.panX) / engine.current.scale;
+      const y = (e.clientY - rect.top - engine.current.panY) / engine.current.scale;
+      return { x, y };
+  };
+
+  const onBeatMouseDown = (e: MouseEvent, id: number) => {
+      // If drawing, beat interaction is blocked
+      if (toolMode !== 'none' && toolMode !== 'eraser') return;
+      
+      if (e.button !== 0) return;
+
+      // @ts-ignore
+      if(e.target.classList.contains('beat-title') || e.target.classList.contains('link-handle') || e.target.classList.contains('input-handle-visual') || e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+      e.stopPropagation();
+      
+      if (e.ctrlKey || e.metaKey) {
+          if (engine.current.selectedBeatIds.has(id)) engine.current.selectedBeatIds.delete(id);
+          else engine.current.selectedBeatIds.add(id);
+          renderBeats();
+          return;
+      } else {
+          if (!engine.current.selectedBeatIds.has(id)) {
+              engine.current.selectedBeatIds.clear();
+              engine.current.selectedBeatIds.add(id);
+              renderBeats();
+          }
+      }
+      engine.current.dragTarget = id;
+      engine.current.isDragging = true;
+      engine.current.lastMouseX = e.clientX;
+      engine.current.lastMouseY = e.clientY;
+      minimapContainerRef.current?.classList.add('active');
+  };
+
+  const onGroupHeaderMouseDown = (e: MouseEvent, id: number) => {
+      if (toolMode !== 'none' && toolMode !== 'eraser') return;
+      if (e.button !== 0) return;
+
+      e.stopPropagation();
+      e.preventDefault();
+      const group = engine.current.groups.find(g => g.id === id);
+      if (!group) return;
+
+      engine.current.dragGroupTarget = id;
+      engine.current.isDragging = true;
+      engine.current.lastMouseX = e.clientX;
+      engine.current.lastMouseY = e.clientY;
+      minimapContainerRef.current?.classList.add('active'); 
+
+      engine.current.selectedBeatIds.clear();
+      engine.current.dragGroupChildIds.clear();
+
+      engine.current.beats.forEach(b => {
+          const bx = b.x + 120;
+          const by = b.y + 70;
+          if (bx >= group.x && bx <= group.x + group.width && by >= group.y && by <= group.y + group.height) {
+              engine.current.selectedBeatIds.add(b.id);
+          }
+      });
+
+      engine.current.groups.forEach(g => {
+          if (g.id === id) return;
+          if (g.x >= group.x && g.y >= group.y && g.x + g.width <= group.x + group.width && g.y + g.height <= group.y + group.height) {
+              engine.current.dragGroupChildIds.add(g.id);
+          }
+      });
+      
+      renderBeats();
+  };
+
+  const onGroupResizeMouseDown = (e: MouseEvent, id: number) => {
+      if (toolMode !== 'none' && toolMode !== 'eraser') return;
+      if (e.button !== 0) return;
+
+      e.stopPropagation();
+      e.preventDefault();
+      engine.current.groupResizeTarget = id;
+      engine.current.isDragging = true;
+      engine.current.lastMouseX = e.clientX;
+      engine.current.lastMouseY = e.clientY;
+      minimapContainerRef.current?.classList.add('active');
+  };
+
+  const onLinkHandleMouseDown = (e: MouseEvent, sourceId: number) => {
+      if (toolMode !== 'none' && toolMode !== 'eraser') return;
+      e.stopPropagation();
+      engine.current.isLinking = true;
+      engine.current.linkingSourceId = sourceId;
+      engine.current.relinkData = null; 
+      containerRef.current?.querySelector('#connections-layer')?.classList.add('linking-mode');
+      updateTempLinkPos(e);
+      renderBeats(); 
+  };
+
+  // --- TEXT ANNOTATION HANDLERS ---
+  const handleTextMouseDown = (e: React.MouseEvent, id: number) => {
+      // Prevent drag if editing
+      if (editingAnnoId === id) return;
+      
+      if (toolMode === 'text' || toolMode === 'bigtext') {
+          e.stopPropagation();
+          setEditingAnnoId(id);
+          // Set tool mode to none to allow typing/interaction
+          setToolMode('none'); 
+          return;
+      }
+
+      if (toolMode !== 'none') return;
+
+      // Start Dragging
+      e.stopPropagation();
+      engine.current.dragAnnotationId = id;
+      engine.current.isDragging = true;
+      engine.current.lastMouseX = e.clientX;
+      engine.current.lastMouseY = e.clientY;
+  };
+
+  const handleTextDoubleClick = (e: React.MouseEvent, id: number) => {
+      if (toolMode !== 'none') return;
+      e.stopPropagation();
+      setEditingAnnoId(id);
+  };
+
+  const updateTextContent = (id: number, text: string) => {
+      const newAnnos = engine.current.annotations.map(a => a.id === id ? { ...a, text } : a);
+      engine.current.annotations = newAnnos;
+      // We don't necessarily need to rerender everything, but context update is good
+      setAnnotations(newAnnos);
+  };
+
+  // --- GLOBAL MOUSE HANDLERS (Attached to Window/Container) ---
+  useEffect(() => {
+      const container = containerRef.current;
+      if (!container) return;
+
+      const handleMouseDown = (e: MouseEvent) => {
+          // Check if we are clicking inside a text input currently being edited
+          // @ts-ignore
+          if (e.target.classList.contains('text-annotation-input')) return;
+
+          // If we were editing, stop editing on click outside
+          if (editingAnnoId !== null) {
+              setEditingAnnoId(null);
+              // Don't return, allow other interactions
+          }
+
+          // @ts-ignore
+          const target = e.target as HTMLElement;
+          const isTool = target.closest('.zoom-controls') || 
+                         target.closest('.drawing-toolbar-container') || 
+                         target.closest('#context-menu');
+          
+          if (isTool) return;
+
+          // If clicking cards or handles (and NOT using an annotation tool), ignore
+          // We allow clicking cards if toolMode is active to draw over them
+          if (toolMode === 'none') {
+              const isInteractive = target.closest('.beat-card') || 
+                                    target.closest('.link-handle') || 
+                                    target.closest('.connection-handle') || 
+                                    target.closest('.handle-hit-area') || 
+                                    target.closest('.group-header') || 
+                                    target.closest('.group-resize-handle') ||
+                                    target.closest('.text-annotation-card') ||
+                                    target.tagName === 'INPUT' || target.tagName === 'TEXTAREA';
+              if (isInteractive) return;
+          }
+
+          hideContextMenu();
+
+          // --- ERASER CLICK LOGIC (Single Click Delete) ---
+          if (toolMode === 'eraser' && e.button === 0) {
+              e.preventDefault();
+              if (eraserCursorRef.current) eraserCursorRef.current.style.display = 'none'; // Hide cursor to click through
+              const hitTarget = document.elementFromPoint(e.clientX, e.clientY);
+              if (eraserCursorRef.current) eraserCursorRef.current.style.display = ''; // Restore to default (CSS controlled)
+              
+              if (hitTarget) {
+                  // @ts-ignore
+                  const group = hitTarget.closest('g[data-type="annotation"]');
+                  // @ts-ignore
+                  const textCard = hitTarget.closest('.text-annotation-card');
+                  
+                  if (group) {
+                      // @ts-ignore
+                      const id = parseInt(group.getAttribute('data-id'));
+                      if (id) deleteAnnotation(id);
+                  } else if (textCard) {
+                      // @ts-ignore
+                      const id = parseInt(textCard.dataset.id);
+                      if (id) deleteAnnotation(id);
+                  }
+              }
+              return;
+          }
+
+          // --- TEXT / BIG TEXT TOOL CLICK (CREATE) ---
+          if ((toolMode === 'text' || toolMode === 'bigtext') && e.button === 0) {
+              e.preventDefault();
+              const { x, y } = getSvgPoint(e);
+              
+              const isBig = toolMode === 'bigtext';
+              const newId = Date.now();
+              const newAnno: any = {
+                  id: newId,
+                  type: 'text',
+                  x, y,
+                  text: '',
+                  color: drawColor,
+                  fontSize: isBig ? 72 : 16
+              };
+              
+              // Add to state
+              engine.current.annotations.push(newAnno);
+              setAnnotations([...engine.current.annotations]);
+              
+              // Enter edit mode immediately
+              setEditingAnnoId(newId);
+              setToolMode('none'); // Switch to select mode to allow typing/interaction immediately
+              return;
+          }
+
+          // --- DRAWING LOGIC ---
+          if (toolMode !== 'none' && toolMode !== 'eraser' && e.button === 0) {
+              e.preventDefault();
+              const { x, y } = getSvgPoint(e);
+
+              engine.current.isDrawing = true;
+              engine.current.drawStart = { x, y };
+              engine.current.currentPoints = [{x, y}]; // Start collecting points for smoothing
+              engine.current.currentAnnoId = Date.now();
+              
+              // Initial Shape Setup
+              const newAnno: any = {
+                  id: engine.current.currentAnnoId,
+                  type: toolMode,
+                  color: drawColor,
+                  x: x, y: y, 
+                  w: 0, h: 0,
+                  d: toolMode === 'pencil' ? `M ${x} ${y} L ${x+0.1} ${y+0.1}` : undefined, // Start with a dot
+                  strokeWidth: strokeWidth,
+                  strokeStyle: strokeStyle
+              };
+
+              if (toolMode === 'circle') {
+                  newAnno.cx = x;
+                  newAnno.cy = y;
+                  newAnno.rx = 0; // radius starts at 0
+              }
+              
+              engine.current.annotations.push(newAnno);
+              renderConnections(); // Refresh SVG to show new shape
+              return;
+          }
+
+          // LEFT CLICK (0) -> START PANNING
+          if (e.button === 0 || e.button === 1) {
+              if (toolMode === 'eraser') return; // Prevent panning while erasing
+
+              engine.current.isPanning = true;
+              engine.current.lastMouseX = e.clientX;
+              engine.current.lastMouseY = e.clientY;
+              container.style.cursor = 'grabbing';
+              minimapContainerRef.current?.classList.add('active'); // Show minimap on pan
+              
+              if (!e.ctrlKey && !e.metaKey && !e.shiftKey) {
+                  engine.current.selectedBeatIds.clear();
+                  if (engine.current.creationState) {
+                      engine.current.creationState = null;
+                  }
+                  renderBeats();
+              }
+          } 
+          // RIGHT CLICK (2) -> START LASSO SELECTION
+          else if (e.button === 2) {
+              engine.current.isLassoing = true;
+              engine.current.hasLassoMoved = false;
+              engine.current.lassoStart = { x: e.clientX, y: e.clientY };
+              const lasso = document.getElementById('selection-lasso');
+              if (lasso) {
+                  lasso.style.left = e.clientX + 'px';
+                  lasso.style.top = e.clientY + 'px';
+                  lasso.style.width = '0px';
+                  lasso.style.height = '0px';
+                  lasso.style.display = 'block';
+              }
+          }
+      };
+
+      const handleMouseMove = (e: MouseEvent) => {
+          // Custom Eraser Cursor Tracking
+          if (toolMode === 'eraser' && eraserCursorRef.current) {
+              eraserCursorRef.current.style.left = e.clientX + 'px';
+              eraserCursorRef.current.style.top = e.clientY + 'px';
+              
+              // Eraser Logic (Drag Deletion)
+              if (e.buttons === 1) {
+                  // Hide cursor so we can pick the element below it
+                  eraserCursorRef.current.style.display = 'none';
+                  const target = document.elementFromPoint(e.clientX, e.clientY);
+                  eraserCursorRef.current.style.display = ''; // Restore
+
+                  if (target) {
+                      // @ts-ignore
+                      const group = target.closest('g[data-type="annotation"]');
+                      // @ts-ignore
+                      const textCard = target.closest('.text-annotation-card');
+
+                      if (group) {
+                          // @ts-ignore
+                          const id = parseInt(group.getAttribute('data-id'));
+                          if (id) deleteAnnotation(id);
+                      } else if (textCard) {
+                          // @ts-ignore
+                          const id = parseInt(textCard.dataset.id);
+                          if (id) deleteAnnotation(id);
+                      }
+                  }
+              }
+          }
+
+          if (engine.current.isDrawing && engine.current.currentAnnoId) {
+              const { x, y } = getSvgPoint(e);
+              const anno = engine.current.annotations.find(a => a.id === engine.current.currentAnnoId);
+              
+              if (anno) {
+                  if (toolMode === 'pencil') {
+                      // Low-pass filter: Only add points if moved > 3 units
+                      const lastP = engine.current.currentPoints[engine.current.currentPoints.length - 1];
+                      if (lastP) {
+                          const dist = Math.hypot(x - lastP.x, y - lastP.y);
+                          if (dist > 3) {
+                              engine.current.currentPoints.push({x, y});
+                              anno.d = getSmoothedPath(engine.current.currentPoints);
+                              
+                              const pathEl = container.querySelector(`[data-id="${anno.id}"] .annotation-path`) as SVGPathElement;
+                              if(pathEl) pathEl.setAttribute('d', anno.d);
+                              const hitEl = container.querySelector(`[data-id="${anno.id}"] .annotation-hit-area`) as SVGPathElement;
+                              if(hitEl) hitEl.setAttribute('d', anno.d);
+                          }
+                      }
+                  
+                  } else if (toolMode === 'rect') {
+                      const startX = engine.current.drawStart.x;
+                      const startY = engine.current.drawStart.y;
+                      const newX = Math.min(startX, x);
+                      const newY = Math.min(startY, y);
+                      const w = Math.abs(x - startX);
+                      const h = Math.abs(y - startY);
+                      
+                      anno.x = newX; anno.y = newY; anno.w = w; anno.h = h;
+                      
+                      const group = container.querySelector(`[data-id="${anno.id}"]`) as SVGGElement;
+                      if(group) {
+                          group.querySelectorAll('rect').forEach(rectEl => {
+                              rectEl.setAttribute('x', newX.toString());
+                              rectEl.setAttribute('y', newY.toString());
+                              rectEl.setAttribute('width', w.toString());
+                              rectEl.setAttribute('height', h.toString());
+                          });
+                      }
+
+                  } else if (toolMode === 'circle') {
+                      const startX = engine.current.drawStart.x;
+                      const startY = engine.current.drawStart.y;
+                      // Calculate radius based on distance from start point
+                      const r = Math.sqrt(Math.pow(x - startX, 2) + Math.pow(y - startY, 2));
+                      anno.rx = r;
+                      
+                      const group = container.querySelector(`[data-id="${anno.id}"]`) as SVGGElement;
+                      if (group) {
+                          group.querySelectorAll('circle').forEach(circleEl => {
+                              circleEl.setAttribute('r', r.toString());
+                          });
+                      }
+
+                  } else if (toolMode === 'line' || toolMode === 'arrow') {
+                      const startX = engine.current.drawStart.x;
+                      const startY = engine.current.drawStart.y;
+                      anno.w = x - startX;
+                      anno.h = y - startY;
+                      
+                      const group = container.querySelector(`[data-id="${anno.id}"]`) as SVGGElement;
+                      if(group) {
+                          group.querySelectorAll('line').forEach(lineEl => {
+                              lineEl.setAttribute('x2', x.toString());
+                              lineEl.setAttribute('y2', y.toString());
+                          });
+                      }
+                  }
+              }
+              return;
+          }
+
+          if (engine.current.isLinking) {
+              updateTempLinkPos(e);
+              return;
+          }
+
+          if (engine.current.isLassoing) {
+              engine.current.hasLassoMoved = true;
+              const currentX = e.clientX;
+              const currentY = e.clientY;
+              const width = Math.abs(currentX - engine.current.lassoStart.x);
+              const height = Math.abs(currentY - engine.current.lassoStart.y);
+              const left = Math.min(currentX, engine.current.lassoStart.x);
+              const top = Math.min(currentY, engine.current.lassoStart.y);
+              const lasso = document.getElementById('selection-lasso');
+              if (lasso) {
+                  lasso.style.left = left + 'px';
+                  lasso.style.top = top + 'px';
+                  lasso.style.width = width + 'px';
+                  lasso.style.height = height + 'px';
+              }
+              return;
+          }
+
+          if (engine.current.isPanning) {
+              const dx = e.clientX - engine.current.lastMouseX;
+              const dy = e.clientY - engine.current.lastMouseY;
+              engine.current.panX += dx;
+              engine.current.panY += dy;
+              engine.current.lastMouseX = e.clientX;
+              engine.current.lastMouseY = e.clientY;
+              renderCanvas();
+          } else if (engine.current.isDragging) {
+              const dx = (e.clientX - engine.current.lastMouseX) / engine.current.scale;
+              const dy = (e.clientY - engine.current.lastMouseY) / engine.current.scale;
+              
+              if (engine.current.dragAnnotationId !== null) {
+                  const anno = engine.current.annotations.find(a => a.id === engine.current.dragAnnotationId);
+                  if (anno) {
+                      anno.x = (anno.x || 0) + dx;
+                      anno.y = (anno.y || 0) + dy;
+                      
+                      // Directly manipulate DOM for Text Annotations for performance
+                      if (anno.type === 'text') {
+                          const el = document.querySelector(`.text-annotation-card[data-id="${anno.id}"]`) as HTMLElement;
+                          if (el) {
+                              el.style.left = `${anno.x}px`;
+                              el.style.top = `${anno.y}px`;
+                          }
+                      } else {
+                          // Re-render connections/annotations for SVG types
+                          renderConnections();
+                      }
+                  }
+              } else if (engine.current.dragGroupTarget !== null) {
+                  const group = engine.current.groups.find(g => g.id === engine.current.dragGroupTarget);
+                  if (group) {
+                      group.x += dx;
+                      group.y += dy;
+                  }
+                  
+                  engine.current.dragGroupChildIds.forEach(childId => {
+                      const g = engine.current.groups.find(x => x.id === childId);
+                      if(g) { g.x += dx; g.y += dy; }
+                  });
+
+                  engine.current.selectedBeatIds.forEach(bid => {
+                      const b = engine.current.beats.find(x => x.id === bid);
+                      if(b) { 
+                          b.x += dx; 
+                          b.y += dy; 
+                          const card = container.querySelector(`.beat-card[data-id="${b.id}"]`) as HTMLElement;
+                          if (card) {
+                              card.style.left = `${b.x}px`;
+                              card.style.top = `${b.y}px`;
+                          }
+                      }
+                  });
+                  
+                  renderGroups();
+                  renderConnections(); 
+                  renderMinimap(); 
+                  
+              } else if (engine.current.groupResizeTarget !== null) {
+                  const group = engine.current.groups.find(g => g.id === engine.current.groupResizeTarget);
+                  if (group) {
+                      group.width = Math.max(100, group.width + dx);
+                      group.height = Math.max(50, group.height + dy);
+                      renderGroups();
+                      renderMinimap();
+                  }
+              } else if (engine.current.dragTarget !== null) {
+                  engine.current.selectedBeatIds.forEach(id => {
+                      const beat = engine.current.beats.find(b => b.id === id);
+                      if (beat) {
+                          beat.x += dx;
+                          beat.y += dy;
+                          const card = container.querySelector(`.beat-card[data-id="${beat.id}"]`) as HTMLElement;
+                          if (card) {
+                              card.style.left = `${beat.x}px`;
+                              card.style.top = `${beat.y}px`;
+                          }
+                      }
+                  });
+                  
+                  renderConnections();
+                  renderMinimap(); 
+              }
+              engine.current.lastMouseX = e.clientX;
+              engine.current.lastMouseY = e.clientY;
+          }
+      };
+
+      const handleMouseUp = (e: MouseEvent) => {
+          if (engine.current.isDrawing) {
+              engine.current.isDrawing = false;
+              engine.current.currentPoints = [];
+              // Commit to React State (Important: create a new array ref)
+              setAnnotations([...engine.current.annotations]);
+              return;
+          }
+
+          if (engine.current.isLinking) completeDragLink(e);
+          
+          if (engine.current.isLassoing) {
+              const lasso = document.getElementById('selection-lasso');
+              if (lasso) {
+                  lasso.style.display = 'none';
+                  const rect = { 
+                      left: parseInt(lasso.style.left), top: parseInt(lasso.style.top), 
+                      width: parseInt(lasso.style.width), height: parseInt(lasso.style.height) 
+                  };
+                  if (rect.width > 5 || rect.height > 5) {
+                      if (!e.ctrlKey && !e.shiftKey) engine.current.selectedBeatIds.clear();
+                      const cards = container.querySelectorAll('.beat-card');
+                      cards.forEach(card => {
+                          const cRect = card.getBoundingClientRect();
+                          if (cRect.left < rect.left + rect.width && cRect.left + cRect.width > rect.left &&
+                              cRect.top < rect.top + rect.height && cRect.top + cRect.height > rect.top) {
+                              // @ts-ignore
+                              engine.current.selectedBeatIds.add(parseInt(card.dataset.id));
+                          }
+                      });
+                      renderBeats();
+                  }
+              }
+              engine.current.isLassoing = false;
+          }
+
+          if (engine.current.isPanning) {
+              engine.current.isPanning = false;
+              container.style.cursor = toolMode !== 'none' ? (toolMode === 'eraser' ? 'none' : 'crosshair') : 'grab';
+              setPan(engine.current.panX, engine.current.panY);
+              minimapContainerRef.current?.classList.remove('active'); 
+          }
+
+          if (engine.current.isDragging) {
+              engine.current.isDragging = false;
+              
+              if (engine.current.dragGroupTarget) {
+                  setGroups(engine.current.groups);
+                  setBeats(engine.current.beats);
+              }
+              if (engine.current.groupResizeTarget) {
+                  setGroups(engine.current.groups);
+              }
+              
+              if (engine.current.dragAnnotationId !== null) {
+                  setAnnotations([...engine.current.annotations]); // Commit position
+                  engine.current.dragAnnotationId = null;
+              }
+
+              engine.current.dragGroupTarget = null;
+              engine.current.dragGroupChildIds.clear();
+              engine.current.groupResizeTarget = null;
+              engine.current.dragTarget = null;
+              setBeats(engine.current.beats);
+              minimapContainerRef.current?.classList.remove('active'); 
+          }
+      };
+
+      const handleWheel = (e: WheelEvent) => {
+          if (e.ctrlKey || e.metaKey) {
+              e.preventDefault();
+              
+              const zoomSensitivity = 0.001;
+              const delta = -e.deltaY * zoomSensitivity;
+              const oldScale = engine.current.scale;
+              let newScale = oldScale + delta;
+              
+              newScale = Math.max(0.1, Math.min(3, newScale));
+              
+              if (newScale === oldScale) return;
+
+              const rect = container.getBoundingClientRect();
+              const mouseX = e.clientX - rect.left;
+              const mouseY = e.clientY - rect.top;
+
+              const worldX = (mouseX - engine.current.panX) / oldScale;
+              const worldY = (mouseY - engine.current.panY) / oldScale;
+
+              const newPanX = mouseX - (worldX * newScale);
+              const newPanY = mouseY - (worldY * newScale);
+
+              engine.current.scale = newScale;
+              engine.current.panX = newPanX;
+              engine.current.panY = newPanY;
+              
+              renderCanvas();
+              renderMinimap();
+              
+              if (zoomTimeoutRef.current) clearTimeout(zoomTimeoutRef.current);
+              zoomTimeoutRef.current = setTimeout(() => {
+                  setScale(newScale);
+                  setPan(newPanX, newPanY);
+              }, 100);
+          }
+      };
+
+      const handleDblClick = (e: MouseEvent) => {
+          if (toolMode !== 'none') return;
+          // @ts-ignore
+          if (e.target === container.querySelector('#viewport') || e.target === container.querySelector('#canvas-surface')) {
+              const rect = container.getBoundingClientRect();
+              const worldX = (e.clientX - rect.left - engine.current.panX) / engine.current.scale;
+              const worldY = (e.clientY - rect.top - engine.current.panY) / engine.current.scale;
+              const newId = addBeat(worldX - 120, worldY - 20);
+              engine.current.creationState = { id: newId, step: 'title' };
+          }
+      };
+
+      const handleContextMenu = (e: MouseEvent) => {
+          e.preventDefault();
+
+          if (engine.current.hasLassoMoved) {
+              engine.current.hasLassoMoved = false; 
+              return;
+          }
+
+          // @ts-ignore
+          const groupHeader = e.target.closest('.group-header');
+          // @ts-ignore
+          const beatCard = e.target.closest('.beat-card');
+
+          if (beatCard) {
+              // @ts-ignore
+              const id = parseInt(beatCard.dataset.id);
+              if (!engine.current.selectedBeatIds.has(id)) {
+                  engine.current.selectedBeatIds.clear();
+                  engine.current.selectedBeatIds.add(id);
+                  renderBeats();
+              }
+              showContextMenu(e.clientX, e.clientY, id, null, null);
+          } else if (groupHeader) {
+              // @ts-ignore
+              const groupId = parseInt(groupHeader.parentElement.dataset.id);
+              showContextMenu(e.clientX, e.clientY, null, null, groupId);
+          } else if (engine.current.selectedBeatIds.size > 1) {
+              showContextMenu(e.clientX, e.clientY, null, null, null);
+          }
+      };
+
+      const handleGlobalKeyDown = (e: KeyboardEvent) => {
+          const activeTag = document.activeElement?.tagName;
+          const isTyping = activeTag === 'INPUT' || activeTag === 'TEXTAREA' || (document.activeElement as HTMLElement)?.isContentEditable;
+          
+          if (!engine.current.creationState && !isTyping) {
+              if (e.key === 'Enter' && engine.current.selectedBeatIds.size === 1) {
+                  // IF TEXT MODE IS ACTIVE, DO NOT INTERCEPT ENTER
+                  if (toolMode === 'text') return;
+
+                  e.preventDefault();
+                  const id = Array.from(engine.current.selectedBeatIds)[0];
+                  onEditBeat(id);
+              }
+              if (e.key === 'Delete' || e.key === 'Backspace') {
+                  if (engine.current.selectedBeatIds.size > 0) {
+                      e.preventDefault();
+                      handleDelete();
+                  }
+              }
+          }
+      };
+
+      container.addEventListener('mousedown', handleMouseDown);
+      window.addEventListener('mousemove', handleMouseMove);
+      window.addEventListener('mouseup', handleMouseUp);
+      container.addEventListener('dblclick', handleDblClick);
+      container.addEventListener('contextmenu', handleContextMenu);
+      window.addEventListener('keydown', handleGlobalKeyDown);
+      container.addEventListener('wheel', handleWheel, { passive: false });
+
+      return () => {
+          container.removeEventListener('mousedown', handleMouseDown);
+          window.removeEventListener('mousemove', handleMouseMove);
+          window.removeEventListener('mouseup', handleMouseUp);
+          container.removeEventListener('dblclick', handleDblClick);
+          container.removeEventListener('contextmenu', handleContextMenu);
+          window.removeEventListener('keydown', handleGlobalKeyDown);
+          container.removeEventListener('wheel', handleWheel);
+      };
+  }, [setPan, setBeats, addBeat, beats, connections, groups, toolMode, drawColor, strokeWidth, strokeStyle, editingAnnoId]); 
+
+  // --- CONTEXT MENU LOGIC ---
+  const [ctxMenu, setCtxMenu] = React.useState<{x: number, y: number, beatId: number | null, linkIndex: number | null, groupId: number | null} | null>(null);
+
+  const showContextMenu = (clientX: number, clientY: number, beatId: number | null, linkIndex: number | null, groupId: number | null) => {
+      if (containerRef.current) {
+          const rect = containerRef.current.getBoundingClientRect();
+          setCtxMenu({ 
+              x: clientX - rect.left, 
+              y: clientY - rect.top, 
+              beatId, 
+              linkIndex,
+              groupId
+          });
+      }
+  };
+
+  const hideContextMenu = () => setCtxMenu(null);
+
+  const handleDelete = () => {
+      if (ctxMenu?.beatId !== null && ctxMenu?.beatId !== undefined) {
+          const toDelete = engine.current.selectedBeatIds.size > 0 
+              ? Array.from(engine.current.selectedBeatIds) 
+              : [ctxMenu.beatId!];
+          const newBeats = beats.filter(b => !toDelete.includes(b.id));
+          const newConns = connections.filter(c => !toDelete.includes(c.from) && !toDelete.includes(c.to));
+          setBeats(newBeats);
+          setConnections(newConns);
+      } else if (ctxMenu?.linkIndex !== null && ctxMenu?.linkIndex !== undefined) {
+          const newConns = [...connections];
+          newConns.splice(ctxMenu.linkIndex, 1);
+          setConnections(newConns);
+      } else if (ctxMenu?.groupId !== null && ctxMenu?.groupId !== undefined) {
+          removeGroup(ctxMenu.groupId);
+      }
+      hideContextMenu();
+  };
+
+  const handleColor = (color: string, type: 'chain' | 'tint' | 'group') => {
+      if (type === 'group' && ctxMenu?.groupId) {
+          updateGroup(ctxMenu.groupId, { color });
+      } else if (ctxMenu?.beatId !== null && ctxMenu?.beatId !== undefined) {
+          const targets = engine.current.selectedBeatIds.size > 0 
+              ? Array.from(engine.current.selectedBeatIds)
+              : [ctxMenu.beatId!];
+          
+          if (type === 'tint') {
+              const newBeats = beats.map(b => targets.includes(b.id) ? { ...b, tint: color } : b);
+              setBeats(newBeats);
+          } else {
+              const newBeats = beats.map(b => targets.includes(b.id) ? { ...b, color: color } : b);
+              setBeats(newBeats);
+          }
+      }
+      hideContextMenu();
+  };
+
+  const handleStatus = (status: BeatStatus) => {
+      if (ctxMenu?.beatId !== null && ctxMenu?.beatId !== undefined) {
+          const targets = engine.current.selectedBeatIds.size > 0 
+              ? Array.from(engine.current.selectedBeatIds)
+              : [ctxMenu.beatId!];
+          const newBeats = beats.map(b => targets.includes(b.id) ? { ...b, status: status } : b);
+          setBeats(newBeats);
+      }
+      hideContextMenu();
+  };
+
+  const handleCreateGroup = () => {
+      if (engine.current.selectedBeatIds.size < 1) return;
+      const selectedBeats = beats.filter(b => engine.current.selectedBeatIds.has(b.id));
+      
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      selectedBeats.forEach(b => {
+          if(b.x < minX) minX = b.x;
+          if(b.y < minY) minY = b.y;
+          if(b.x + 240 > maxX) maxX = b.x + 240; // card width
+          if(b.y + 140 > maxY) maxY = b.y + 140; // min card height
+      });
+
+      const padding = 40;
+      addGroup({
+          title: 'New Sequence',
+          x: minX - padding,
+          y: minY - padding - 24, // extra for header
+          width: (maxX - minX) + (padding * 2),
+          height: (maxY - minY) + (padding * 2) + 24,
+          color: '#f5a623'
+      });
+      engine.current.selectedBeatIds.clear();
+      hideContextMenu();
+  };
+
+  // Helper to determine single merged status action
+  const getStatusAction = () => {
+      if (ctxMenu?.beatId === null && engine.current.selectedBeatIds.size === 0) return null;
+      
+      const targets = engine.current.selectedBeatIds.size > 0 
+          ? Array.from(engine.current.selectedBeatIds)
+          : (ctxMenu?.beatId ? [ctxMenu.beatId] : []);
+      
+      const allReady = targets.every(tid => beats.find(b => b.id === tid)?.status === 'ready');
+      
+      return allReady 
+          ? { label: 'Mark W.I.P.', status: 'not-ready' as BeatStatus, color: '#f5a623' }
+          : { label: 'Mark Ready', status: 'ready' as BeatStatus, color: '#4caf50' };
+  };
+
+  const statusAction = getStatusAction();
+
+  return (
+    <div className={`board-wrapper tool-${toolMode}`} ref={containerRef} onClick={hideContextMenu} tabIndex={-1}>
+      <style>{styles}</style>
+      
+      {/* Zoom Controls */}
+      <div className="zoom-controls">
+          <button onClick={() => handleZoom('in')}>+</button>
+          <button onClick={handleFitView}>Fit</button>
+          <button onClick={() => handleZoom('out')}>−</button>
+      </div>
+
+      {/* Eraser Cursor (Custom) */}
+      <div ref={eraserCursorRef} className="eraser-cursor"></div>
+
+      {/* NEW COMPACT FLOATING TOOLBAR */}
+      <div className="drawing-toolbar-container">
+          
+          {/* Expanded Panel */}
+          {isToolbarOpen && (
+              <div className="toolbar-panel">
+                  
+                  {/* Row 1: Tools */}
+                  <div className="tool-row">
+                      <button 
+                          className={`tool-btn ${toolMode === 'none' ? 'active' : ''}`} 
+                          onClick={() => setToolModeSafe('none')} 
+                          title="Select (V)"
+                      >
+                          <MousePointer2 size={16} />
+                      </button>
+                      <button 
+                          className={`tool-btn ${toolMode === 'text' ? 'active' : ''}`} 
+                          onClick={() => setToolModeSafe('text')} 
+                          title="Label (T)"
+                      >
+                          <Type size={16} />
+                      </button>
+                      <button 
+                          className={`tool-btn ${toolMode === 'bigtext' ? 'active' : ''}`} 
+                          onClick={() => setToolModeSafe('bigtext')} 
+                          title="Big Heading"
+                      >
+                          <Heading size={16} />
+                      </button>
+                      <button 
+                          className={`tool-btn danger ${toolMode === 'eraser' ? 'active' : ''}`} 
+                          onClick={() => setToolModeSafe('eraser')} 
+                          title="Eraser (E)"
+                      >
+                          <Eraser size={16} />
+                      </button>
+                  </div>
+
+                  <div className="tool-divider" />
+
+                  {/* Row 2: Shapes */}
+                  <div className="tool-row">
+                      <button 
+                          className={`tool-btn ${toolMode === 'pencil' ? 'active' : ''}`} 
+                          onClick={() => setToolModeSafe('pencil')} 
+                          title="Freehand (P)"
+                      >
+                          <Pen size={16} />
+                      </button>
+                      <button 
+                          className={`tool-btn ${toolMode === 'line' ? 'active' : ''}`} 
+                          onClick={() => setToolModeSafe('line')} 
+                          title="Line (L)"
+                      >
+                          <Minus size={16} />
+                      </button>
+                      <button 
+                          className={`tool-btn ${toolMode === 'arrow' ? 'active' : ''}`} 
+                          onClick={() => setToolModeSafe('arrow')} 
+                          title="Arrow (A)"
+                      >
+                          <ArrowRight size={16} />
+                      </button>
+                      <button 
+                          className={`tool-btn ${toolMode === 'rect' ? 'active' : ''}`} 
+                          onClick={() => setToolModeSafe('rect')} 
+                          title="Rectangle (R)"
+                      >
+                          <Square size={16} />
+                      </button>
+                      <button 
+                          className={`tool-btn ${toolMode === 'circle' ? 'active' : ''}`} 
+                          onClick={() => setToolModeSafe('circle')} 
+                          title="Circle (C)"
+                      >
+                          <Circle size={16} />
+                      </button>
+                  </div>
+
+                  <div className="tool-divider" />
+
+                  {/* Row 3: Styles (Width & Dash) */}
+                  <div className="tool-row" style={{ padding: '0 4px', gap: '8px' }}>
+                      <input 
+                          type="range" 
+                          min="1" max="20" 
+                          value={strokeWidth} 
+                          onChange={(e) => setStrokeWidth(parseInt(e.target.value))}
+                          className="w-16 h-1 bg-[#333] rounded-lg appearance-none cursor-pointer accent-[#f5a623]"
+                          title={`Width: ${strokeWidth}px`}
+                      />
+                      <div className="flex bg-[#111] rounded border border-[#333] p-0.5">
+                          <button 
+                              onClick={() => setStrokeStyle('solid')}
+                              className={`w-6 h-6 rounded flex items-center justify-center ${strokeStyle === 'solid' ? 'bg-[#f5a623] text-black' : 'text-[#666] hover:text-white'}`}
+                              title="Solid Line"
+                          >
+                              <Minus size={14} />
+                          </button>
+                          <button 
+                              onClick={() => setStrokeStyle('dashed')}
+                              className={`w-6 h-6 rounded flex items-center justify-center ${strokeStyle === 'dashed' ? 'bg-[#f5a623] text-black' : 'text-[#666] hover:text-white'}`}
+                              title="Dashed Line"
+                          >
+                              <GripHorizontal size={14} />
+                          </button>
+                      </div>
+                  </div>
+
+                  <div className="tool-divider" />
+
+                  {/* Row 4: Colors */}
+                  <div className="tool-row" style={{justifyContent: 'space-between'}}>
+                      {ANNOTATION_COLORS.map(c => (
+                          <div
+                            key={c}
+                            className={`color-dot-btn ${drawColor === c ? 'active' : ''}`}
+                            onClick={() => setDrawColor(c)}
+                            title={c}
+                          >
+                              <div className="color-dot-inner" style={{backgroundColor: c}}></div>
+                          </div>
+                      ))}
+                  </div>
+                  
+                  {/* Actions */}
+                  <div className="tool-divider" />
+                  <button 
+                      className="tool-btn danger w-full" 
+                      onClick={handleClearAll}
+                      title="Clear All Annotations"
+                  >
+                      <Trash2 size={16} />
+                  </button>
+
+              </div>
+          )}
+
+          {/* Toggle Button */}
+          <button 
+              className={`toolbar-toggle ${isToolbarOpen ? 'active' : ''}`} 
+              onClick={() => setIsToolbarOpen(!isToolbarOpen)}
+              title="Annotation Tools"
+          >
+              {isToolbarOpen ? <X size={20} /> : <PenTool size={20} />}
+          </button>
+
+      </div>
+
+      <div id="viewport">
+          <div id="canvas-surface">
+              {/* LAYERS - ORDER MATTERS FOR Z-INDEX */}
+              {/* 1. Groups (Background) */}
+              <div id="groups-layer"></div>
+              
+              {/* 2. Connections (Below Beats) */}
+              <svg id="connections-layer"></svg>
+              
+              {/* 3. Annotations (Drawings - Behind text and beats) */}
+              <svg id="annotations-layer"></svg>
+
+              {/* 4. Text Annotations (React Layer - Behind beats) */}
+              <div id="text-layer">
+                  {annotations.filter(a => a.type === 'text').map(anno => (
+                      <div 
+                          key={anno.id}
+                          className={`text-annotation-card ${editingAnnoId === anno.id ? 'editing' : ''}`}
+                          data-id={anno.id}
+                          style={{ 
+                              left: anno.x, 
+                              top: anno.y, 
+                              color: anno.color,
+                              fontSize: `${anno.fontSize || 16}px`,
+                              fontWeight: (anno.fontSize && anno.fontSize > 40) ? '900' : 'bold'
+                          }}
+                          onMouseDown={(e) => handleTextMouseDown(e, anno.id)}
+                          onDoubleClick={(e) => handleTextDoubleClick(e, anno.id)}
+                      >
+                          {editingAnnoId === anno.id ? (
+                              <textarea
+                                  className="text-annotation-input"
+                                  value={anno.text || ''}
+                                  onChange={(e) => updateTextContent(anno.id, e.target.value)}
+                                  onBlur={() => setEditingAnnoId(null)}
+                                  autoFocus
+                                  style={{ color: anno.color }}
+                                  onMouseDown={(e) => e.stopPropagation()} // Allow selecting text
+                              />
+                          ) : (
+                              <div className="text-annotation-display">
+                                  {anno.text || 'Double click to edit'}
+                              </div>
+                          )}
+                      </div>
+                  ))}
+              </div>
+
+              {/* 5. Beats (Top) */}
+              <div id="beats-layer"></div>
+          </div>
+      </div>
+
+      {/* MINIMAP */}
+      <div ref={minimapContainerRef} className="minimap-container">
+          <canvas ref={minimapRef} className="minimap-canvas" />
+      </div>
+
+      <div id="selection-lasso"></div>
+
+      {ctxMenu && (
+          <div 
+            id="context-menu" 
+            style={{ display: 'block', left: ctxMenu.x, top: ctxMenu.y }}
+            onMouseDown={(e) => e.stopPropagation()} 
+          >
+              {/* Context menu content remains same */}
+              {ctxMenu.groupId !== null ? (
+                  <>
+                    <div className="ctx-label">Sequence Color</div>
+                    <div className="color-row">
+                        {STORYLINE_COLORS.slice(0,5).map(c => (
+                            <div key={c} className="color-dot" style={{background: c}} onClick={() => handleColor(c, 'group')}></div>
+                        ))}
+                    </div>
+                    <div className="ctx-divider"></div>
+                    <div className="ctx-item" style={{color: '#ff6b6b'}} onClick={handleDelete}>Ungroup Sequence</div>
+                  </>
+              ) : ctxMenu.beatId !== null ? (
+                  <>
+                    <div className="ctx-label">Status</div>
+                    {statusAction && (
+                        <div className="ctx-item" onClick={() => handleStatus(statusAction.status)}>
+                            <span style={{color: statusAction.color, fontWeight: 'bold'}}>●</span> {statusAction.label}
+                        </div>
+                    )}
+                    
+                    {engine.current.selectedBeatIds.size > 1 && (
+                        <>
+                            <div className="ctx-divider"></div>
+                            <div className="ctx-item" onClick={handleCreateGroup}>Create Sequence</div>
+                        </>
+                    )}
+
+                    <div className="ctx-divider"></div>
+                    
+                    <div className="ctx-label">Chain Color</div>
+                    <div className="color-row">
+                        {STORYLINE_COLORS.slice(0,5).map(c => (
+                            <div key={c} className="color-dot" style={{background: c}} onClick={() => handleColor(c, 'chain')}></div>
+                        ))}
+                    </div>
+                    <div className="ctx-divider"></div>
+                    <div className="ctx-label">Card Tint</div>
+                    <div className="color-row">
+                        {['#2d2d2d', '#2c3e50', '#3e2723', '#1b5e20', '#4a148c'].map(c => (
+                            <div key={c} className="color-dot" style={{background: c}} onClick={() => handleColor(c, 'tint')}></div>
+                        ))}
+                    </div>
+                    
+                    <div className="ctx-divider"></div>
+                    <div className="ctx-item" style={{color: '#ff6b6b', fontWeight: 'bold'}} onClick={handleDelete}>
+                        <Trash2 size={14} /> <span className="ml-2">Delete</span>
+                    </div>
+                  </>
+              ) : null}
+          </div>
+      )}
+    </div>
+  );
+};
+
+export default BoardView;

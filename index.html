@@ -1,0 +1,222 @@
+
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Backstage Story Sequencer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              canvas: '#1e1e1e',
+              grid: '#2a2a2a',
+              card: '#2d2d2d',
+              accent: '#f5a623',
+              border: '#3d3d3d',
+              muted: '#888',
+            },
+            fontFamily: {
+              screenplay: ['"Courier Prime"', '"Courier New"', 'Courier', 'monospace'],
+              ui: ['"Helvetica Neue"', 'Helvetica', 'Arial', 'sans-serif'],
+            }
+          }
+        }
+      }
+    </script>
+    <link href="https://fonts.googleapis.com/css2?family=Courier+Prime:ital,wght@0,400;0,700;1,400;1,700&display=swap" rel="stylesheet">
+    <style>
+      /* Define a balanced version of Vijaya that is scaled down to match Courier Prime's x-height */
+      @font-face {
+        font-family: 'VijayaBalanced';
+        src: local('Vijaya');
+        size-adjust: 120%; /* SCALED: Vijaya is naturally small. 120% brings it to optical parity with Courier 12pt. */
+        unicode-range: U+0B80-0BFF; /* Tamil Unicode Range */
+      }
+
+      :root {
+        /* Default Screenplay Settings (Overridden by JS) */
+        --margin-action: 0%; --width-action: 100%; --mt-action: 0rem; --mb-action: 0rem; --size-action: 13px; --font-action: 'Courier Prime', 'VijayaBalanced', monospace; --align-action: left; --lh-action: 1.15; --ls-action: 0px; --weight-action: normal; --style-action: italic; --dec-action: none; --color-action: black; --bg-action: transparent;
+        --margin-character: 37%; --width-character: 50%; --mt-character: 0rem; --mb-character: 0rem; --size-character: 13px; --font-character: 'Courier Prime', 'VijayaBalanced', monospace; --align-character: left; --lh-character: 1.15; --ls-character: 0px; --weight-character: normal; --style-character: normal; --dec-character: none; --color-character: black; --bg-character: transparent;
+        --margin-dialogue: 25%; --width-dialogue: 50%; --mt-dialogue: 0rem; --mb-dialogue: 0rem; --size-dialogue: 13px; --font-dialogue: 'Courier Prime', 'VijayaBalanced', monospace; --align-dialogue: left; --lh-dialogue: 1.15; --ls-dialogue: 0px; --weight-dialogue: normal; --style-dialogue: normal; --dec-dialogue: none; --color-dialogue: black; --bg-dialogue: transparent;
+        --margin-parenthetical: 31%; --width-parenthetical: 35%; --mt-parenthetical: 0rem; --mb-parenthetical: 0rem; --size-parenthetical: 13px; --font-parenthetical: 'Courier Prime', 'VijayaBalanced', monospace; --align-parenthetical: left; --lh-parenthetical: 1.15; --ls-parenthetical: 0px; --weight-parenthetical: normal; --style-parenthetical: italic; --dec-parenthetical: none; --color-parenthetical: black; --bg-parenthetical: transparent;
+        --margin-transition: 60%; --width-transition: 40%; --mt-transition: 0rem; --mb-transition: 0rem; --size-transition: 13px; --font-transition: 'Courier Prime', 'VijayaBalanced', monospace; --align-transition: right; --lh-transition: 1.15; --ls-transition: 0px; --weight-transition: normal; --style-transition: normal; --dec-transition: none; --color-transition: black; --bg-transition: transparent;
+        --margin-shot: 0%; --width-shot: 100%; --mt-shot: 0rem; --mb-shot: 0rem; --size-shot: 13px; --font-shot: 'Courier Prime', 'VijayaBalanced', monospace; --align-shot: left; --lh-shot: 1.15; --ls-shot: 0px; --weight-shot: normal; --style-shot: normal; --dec-shot: none; --color-shot: black; --bg-shot: transparent;
+        --margin-lyrics: 25%; --width-lyrics: 50%; --mt-lyrics: 0rem; --mb-lyrics: 0rem; --size-lyrics: 13px; --font-lyrics: 'Courier Prime', 'VijayaBalanced', monospace; --align-lyrics: center; --lh-lyrics: 1.15; --ls-lyrics: 0px; --weight-lyrics: normal; --style-lyrics: normal; --dec-lyrics: none; --color-lyrics: black; --bg-lyrics: transparent;
+        --prefix-lyrics: "";
+        --suffix-lyrics: "";
+      }
+
+      body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background-color: #1e1e1e; color: #e0e0e0; }
+      .no-scrollbar::-webkit-scrollbar { display: none; }
+      .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+      /* Screenplay Formatting Logic (Screen View) */
+      /* Use !important to ensure settings panel overrides browser defaults or tailwind resets */
+      .sc-line { 
+        display: block; 
+        min-height: 1.2em; 
+        /* Rich Text Rendering: Improves clarity on high-DPI screens and print */
+        text-rendering: optimizeLegibility; 
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+        /* Subtle text shadow mimics ink spread for "richer" look */
+        text-shadow: 0 0 0.5px rgba(0,0,0,0.2);
+        transform: translateZ(0); /* Force GPU rendering for text */
+      }
+      
+      .sc-action { 
+        width: var(--width-action); margin-left: var(--margin-action);
+        margin-top: var(--mt-action); margin-bottom: var(--mb-action);
+        font-size: var(--size-action) !important;
+        font-family: var(--font-action) !important;
+        text-align: var(--align-action) !important;
+        line-height: var(--lh-action) !important;
+        letter-spacing: var(--ls-action) !important;
+        font-weight: var(--weight-action) !important; 
+        font-style: var(--style-action) !important; 
+        text-decoration: var(--dec-action) !important; 
+        color: var(--color-action) !important;
+        background-color: var(--bg-action) !important;
+      }
+      
+      .sc-character { 
+        width: var(--width-character); margin-left: var(--margin-character); 
+        margin-top: var(--mt-character); margin-bottom: var(--mb-character);
+        text-transform: uppercase; 
+        font-size: var(--size-character) !important;
+        font-family: var(--font-character) !important;
+        text-align: var(--align-character) !important;
+        line-height: var(--lh-character) !important;
+        letter-spacing: var(--ls-character) !important;
+        font-weight: var(--weight-character) !important; 
+        font-style: var(--style-character) !important; 
+        text-decoration: var(--dec-character) !important; 
+        color: var(--color-character) !important;
+        background-color: var(--bg-character) !important;
+      }
+      
+      .sc-dialogue { 
+        width: var(--width-dialogue); margin-left: var(--margin-dialogue); 
+        margin-top: var(--mt-dialogue); margin-bottom: var(--mb-dialogue);
+        font-size: var(--size-dialogue) !important;
+        font-family: var(--font-dialogue) !important;
+        text-align: var(--align-dialogue) !important;
+        line-height: var(--lh-dialogue) !important;
+        letter-spacing: var(--ls-dialogue) !important;
+        font-weight: var(--weight-dialogue) !important; 
+        font-style: var(--style-dialogue) !important; 
+        text-decoration: var(--dec-dialogue) !important; 
+        color: var(--color-dialogue) !important;
+        background-color: var(--bg-dialogue) !important;
+      }
+      
+      .sc-parenthetical { 
+        width: var(--width-parenthetical); margin-left: var(--margin-parenthetical); 
+        margin-top: var(--mt-parenthetical); margin-bottom: var(--mb-parenthetical);
+        font-size: var(--size-parenthetical) !important;
+        font-family: var(--font-parenthetical) !important;
+        text-align: var(--align-parenthetical) !important;
+        line-height: var(--lh-parenthetical) !important;
+        letter-spacing: var(--ls-parenthetical) !important;
+        font-weight: var(--weight-parenthetical) !important; 
+        font-style: var(--style-parenthetical) !important; 
+        text-decoration: var(--dec-parenthetical) !important; 
+        color: var(--color-parenthetical) !important;
+        background-color: var(--bg-parenthetical) !important;
+      }
+      
+      .sc-transition { 
+        width: var(--width-transition); margin-left: var(--margin-transition);
+        margin-top: var(--mt-transition); margin-bottom: var(--mb-transition);
+        text-transform: uppercase; 
+        font-size: var(--size-transition) !important;
+        font-family: var(--font-transition) !important;
+        text-align: var(--align-transition) !important;
+        line-height: var(--lh-transition) !important;
+        letter-spacing: var(--ls-transition) !important;
+        font-weight: var(--weight-transition) !important; 
+        font-style: var(--style-transition) !important; 
+        text-decoration: var(--dec-transition) !important; 
+        color: var(--color-transition) !important;
+        background-color: var(--bg-transition) !important;
+      }
+
+      .sc-shot { 
+        width: var(--width-shot); margin-left: var(--margin-shot);
+        margin-top: var(--mt-shot); margin-bottom: var(--mb-shot);
+        text-transform: uppercase; 
+        font-size: var(--size-shot) !important;
+        font-family: var(--font-shot) !important;
+        text-align: var(--align-shot) !important;
+        line-height: var(--lh-shot) !important;
+        letter-spacing: var(--ls-shot) !important;
+        font-weight: var(--weight-shot) !important; 
+        font-style: var(--style-shot) !important; 
+        text-decoration: var(--dec-shot) !important; 
+        color: var(--color-shot) !important;
+        background-color: var(--bg-shot) !important;
+      }
+
+      .sc-lyrics { 
+        width: var(--width-lyrics); margin-left: var(--margin-lyrics);
+        margin-top: var(--mt-lyrics); margin-bottom: var(--mb-lyrics);
+        font-size: var(--size-lyrics) !important;
+        font-family: var(--font-lyrics) !important;
+        text-align: var(--align-lyrics) !important;
+        line-height: var(--lh-lyrics) !important;
+        letter-spacing: var(--ls-lyrics) !important;
+        font-weight: var(--weight-lyrics) !important; 
+        font-style: var(--style-lyrics) !important; 
+        text-decoration: var(--dec-lyrics) !important; 
+        color: var(--color-lyrics) !important;
+        background-color: var(--bg-lyrics) !important;
+      }
+
+      .sc-lyrics::before {
+        content: var(--prefix-lyrics);
+      }
+      .sc-lyrics::after {
+        content: var(--suffix-lyrics);
+      }
+
+      /* --- PRINT STYLES --- */
+      @media print {
+        @page { margin: 1in; }
+        html, body, #root, main { width: 100% !important; height: auto !important; overflow: visible !important; position: static !important; display: block !important; margin: 0 !important; padding: 0 !important; background-color: white !important; color: black !important; visibility: visible !important; }
+        header, .print\:hidden, .zoom-controls, .ui-layer, .no-print, #printable-script-area { display: none !important; }
+        #print-content-root { display: block !important; visibility: visible !important; }
+        .sc-line, .script-body, .sc-action, .sc-character, .sc-dialogue, .sc-parenthetical, .sc-transition, .sc-shot, .sc-lyrics, .script-content-block * {
+          font-family: 'Courier Prime', 'VijayaBalanced', monospace !important; font-size: 13pt !important; line-height: 1.15 !important; margin-bottom: 1em !important; page-break-inside: avoid; visibility: visible !important;
+          text-shadow: none !important; /* Remove shadow for print to keep it crisp */
+        }
+        body { counter-reset: page; }
+        .print-page-number::after { content: counter(page) "."; counter-increment: page; }
+      }
+    </style>
+  <script type="importmap">
+{
+  "imports": {
+    "react": "https://esm.sh/react@^19.2.3",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
+    "react/": "https://esm.sh/react@^19.2.3/",
+    "@google/genai": "https://esm.sh/@google/genai@^1.34.0",
+    "lucide-react": "https://esm.sh/lucide-react@^0.562.0",
+    "recharts": "https://esm.sh/recharts@^3.6.0",
+    "html2canvas": "https://esm.sh/html2canvas@^1.4.1",
+    "jspdf": "https://esm.sh/jspdf@^2.5.1",
+    "react-dom": "https://esm.sh/react-dom@^19.2.3"
+  }
+}
+</script>
+<!-- Google Identity Services -->
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<!-- Google API Client -->
+<script src="https://apis.google.com/js/api.js" async defer></script>
+</head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>
