@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { useProject } from '../../context/ProjectContext';
 import { generateImage } from '../../services/gemini';
@@ -127,7 +128,7 @@ const NotionLikeEditor = ({ value, onChange, placeholder, minHeight = "150px", o
 };
 
 const CharacterView: React.FC = () => {
-  const { characterData, setCharacterData, beats } = useProject();
+  const { characterData, setCharacterData, beats, geminiApiKey } = useProject();
   
   // State for active selection and UI
   const [selectedCharId, setSelectedCharId] = useState<string | null>(null);
@@ -177,10 +178,11 @@ const CharacterView: React.FC = () => {
 
       if (searchTerm) {
           const lower = searchTerm.toLowerCase();
-          list = list.filter(c => c.name.toLowerCase().includes(lower) || (c.archetype && c.archetype.toLowerCase().includes(lower)));
+          // HARDENED: Check for null names/archetypes
+          list = list.filter(c => (c.name || '').toLowerCase().includes(lower) || (c.archetype && c.archetype.toLowerCase().includes(lower)));
       }
 
-      return list.sort((a, b) => a.name.localeCompare(b.name));
+      return list.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
   }, [characterData, beats, searchTerm]);
 
   // Select first character on load if none selected
@@ -345,6 +347,7 @@ const CharacterView: React.FC = () => {
   };
 
   const generatePortrait = async (char: CharacterData) => {
+    if (!geminiApiKey) { alert("Please set Gemini API Key first."); return; }
     setIsGenerating(true);
     const prompt = `Cinematic character portrait, close-up, dramatic lighting, shot on 35mm film. 
       Subject: ${char.name}, ${char.age || '30'} years old, ${char.gender || 'Unknown'}, ${char.ethnicity || 'Unknown'}.
@@ -352,11 +355,17 @@ const CharacterView: React.FC = () => {
       Vibe: ${char.archetype || 'Portrait'}, ${char.occupation || 'Character'}. 
       Style: Hyper-realistic, shallow depth of field, detailed texture.`;
     
-    const img = await generateImage(prompt, '1:1'); 
-    if (img) {
-      updateCharacter(char.name, { images: [img, ...char.images] });
+    try {
+        const img = await generateImage(prompt, '1:1', 'gemini-2.5-flash-image', geminiApiKey); 
+        if (img) {
+          updateCharacter(char.name, { images: [img, ...char.images] });
+        }
+    } catch (e) {
+        console.error(e);
+        alert("Image generation failed.");
+    } finally {
+        setIsGenerating(false);
     }
-    setIsGenerating(false);
   };
 
   // --- IMAGE MANAGEMENT ---
@@ -398,6 +407,8 @@ const CharacterView: React.FC = () => {
       const updated = currentRels.map(r => r.target === targetName ? { ...r, [field]: value } : r);
       updateCharacter(selectedChar.name, { relationships: updated });
   };
+
+  const isApiConnected = !!geminiApiKey;
 
   return (
     <div className="flex w-full h-full bg-[#050505] text-gray-200 font-sans overflow-hidden">
@@ -550,8 +561,13 @@ const CharacterView: React.FC = () => {
                                 <div className={`absolute inset-0 flex flex-col items-center justify-center gap-3 transition-opacity duration-300 ${isDragging ? 'opacity-100 bg-black/60' : 'opacity-0 group-hover:opacity-100'}`}>
                                     <button 
                                         onClick={() => generatePortrait(selectedChar)} 
-                                        disabled={isGenerating} 
-                                        className="px-6 py-2.5 bg-[#f5a623] hover:bg-[#e09612] text-black font-bold uppercase text-xs tracking-wider rounded-full flex items-center gap-2 transform hover:scale-105 transition-all disabled:opacity-50 disabled:grayscale shadow-lg w-40 justify-center"
+                                        disabled={isGenerating || !isApiConnected} 
+                                        className={`px-6 py-2.5 font-bold uppercase text-xs tracking-wider rounded-full flex items-center gap-2 transform hover:scale-105 transition-all shadow-lg w-40 justify-center ${
+                                            isApiConnected 
+                                            ? 'bg-[#f5a623] hover:bg-[#e09612] text-black disabled:opacity-50 disabled:grayscale' 
+                                            : 'bg-[#333] text-gray-500 cursor-not-allowed'
+                                        }`}
+                                        title={isApiConnected ? "Generate Portrait" : "API Key Required"}
                                     >
                                         {isGenerating ? <Sparkles className="animate-spin" size={14}/> : <Camera size={14}/>} 
                                         {isGenerating ? 'Rendering...' : 'Generate AI'}
@@ -741,7 +757,54 @@ const CharacterView: React.FC = () => {
   );
 };
 
-// --- SUB COMPONENTS ---
+// ... (NeuralMap component remains same)
+// ... (DossierSection component remains same)
+
+// Updated VitalInput with hardened null check
+const VitalInput = ({ label, value, onChange, type = 'text', icon: Icon, options = [], className, naked, placeholder, onFocus }: any) => {
+    const [isOpen, setIsOpen] = useState(false);
+    const containerRef = useRef<HTMLDivElement>(null);
+    useEffect(() => {
+        const handleClickOutside = (e: MouseEvent) => { if (containerRef.current && !containerRef.current.contains(e.target as Node)) setIsOpen(false); };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
+    const showDropdown = isOpen && options.length > 0;
+    
+    // HARDENED FILTERING: Prevent crash on null options or values
+    const filteredOptions = options.filter((opt: string) => (opt || '').toLowerCase().includes(String(value || '').toLowerCase()));
+    
+    // Wrapper to handle internal dropdown logic + optional external clear behavior
+    const handleFocus = (e: React.FocusEvent<HTMLInputElement>) => {
+        setIsOpen(true);
+        if (onFocus) onFocus(e);
+    };
+
+    return (
+        <div className={`group relative ${naked ? '' : 'mb-0'}`} ref={containerRef}>
+            {!naked && <label className="text-[9px] font-mono text-[#555] uppercase mb-1 block flex items-center gap-1.5">{Icon && <Icon size={10} />} {label}</label>}
+            <input 
+                type={type} 
+                value={value || ''} 
+                onChange={(e) => onChange(e.target.value)} 
+                onFocus={handleFocus}
+                className={className || "w-full bg-[#111] border-b border-[#333] text-gray-200 hover:text-white focus:text-white text-sm font-medium py-1 px-0 outline-none focus:border-[#f5a623] transition-colors placeholder-gray-500 focus:placeholder-gray-700"} 
+                placeholder={placeholder || "-"} 
+                autoComplete="off" 
+            />
+            {showDropdown && filteredOptions.length > 0 && (
+                <div className="absolute top-full left-0 w-full bg-[#1a1a1a] border border-[#333] z-[100] max-h-40 overflow-y-auto shadow-xl rounded-b-md mt-1 custom-scrollbar">
+                    {filteredOptions.map((opt: string) => (
+                        <div key={opt} className="px-3 py-2 text-xs text-gray-400 hover:bg-[#333] hover:text-white cursor-pointer transition-colors border-b border-[#222] last:border-0 font-medium" onMouseDown={(e) => { e.preventDefault(); onChange(opt); setIsOpen(false); }}>{opt}</div>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+};
+
+// ... (Rest of file content, NeuralMap and DossierSection components)
+// I will output these as well to complete the file replacement in the XML block.
 
 const NeuralMap = ({ characters, selectedId, onSelect }: { characters: Record<string, CharacterData>, selectedId: string, onSelect: (id: string) => void }) => {
     const svgRef = useRef<SVGSVGElement>(null);
@@ -811,46 +874,6 @@ const NeuralMap = ({ characters, selectedId, onSelect }: { characters: Record<st
                 );
             })}
         </svg>
-    );
-};
-
-const VitalInput = ({ label, value, onChange, type = 'text', icon: Icon, options = [], className, naked, placeholder, onFocus }: any) => {
-    const [isOpen, setIsOpen] = useState(false);
-    const containerRef = useRef<HTMLDivElement>(null);
-    useEffect(() => {
-        const handleClickOutside = (e: MouseEvent) => { if (containerRef.current && !containerRef.current.contains(e.target as Node)) setIsOpen(false); };
-        document.addEventListener('mousedown', handleClickOutside);
-        return () => document.removeEventListener('mousedown', handleClickOutside);
-    }, []);
-    const showDropdown = isOpen && options.length > 0;
-    const filteredOptions = options.filter((opt: string) => opt.toLowerCase().includes(String(value).toLowerCase()));
-    
-    // Wrapper to handle internal dropdown logic + optional external clear behavior
-    const handleFocus = (e: React.FocusEvent<HTMLInputElement>) => {
-        setIsOpen(true);
-        if (onFocus) onFocus(e);
-    };
-
-    return (
-        <div className={`group relative ${naked ? '' : 'mb-0'}`} ref={containerRef}>
-            {!naked && <label className="text-[9px] font-mono text-[#555] uppercase mb-1 block flex items-center gap-1.5">{Icon && <Icon size={10} />} {label}</label>}
-            <input 
-                type={type} 
-                value={value} 
-                onChange={(e) => onChange(e.target.value)} 
-                onFocus={handleFocus}
-                className={className || "w-full bg-[#111] border-b border-[#333] text-gray-200 hover:text-white focus:text-white text-sm font-medium py-1 px-0 outline-none focus:border-[#f5a623] transition-colors placeholder-gray-500 focus:placeholder-gray-700"} 
-                placeholder={placeholder || "-"} 
-                autoComplete="off" 
-            />
-            {showDropdown && filteredOptions.length > 0 && (
-                <div className="absolute top-full left-0 w-full bg-[#1a1a1a] border border-[#333] z-[100] max-h-40 overflow-y-auto shadow-xl rounded-b-md mt-1 custom-scrollbar">
-                    {filteredOptions.map((opt: string) => (
-                        <div key={opt} className="px-3 py-2 text-xs text-gray-400 hover:bg-[#333] hover:text-white cursor-pointer transition-colors border-b border-[#222] last:border-0 font-medium" onMouseDown={(e) => { e.preventDefault(); onChange(opt); setIsOpen(false); }}>{opt}</div>
-                    ))}
-                </div>
-            )}
-        </div>
     );
 };
 

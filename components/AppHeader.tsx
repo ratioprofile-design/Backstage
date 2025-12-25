@@ -2,7 +2,7 @@
 import React, { useMemo, useRef } from 'react';
 import { ViewMode } from '../types';
 import { useProject } from '../context/ProjectContext';
-import { Target, Zap, Clock, LogOut, Save, Upload, RotateCcw, RotateCw } from 'lucide-react';
+import { Target, Zap, Clock, LogOut, Save, Upload, RotateCcw, RotateCw, Film } from 'lucide-react';
 
 interface AppHeaderProps {
   currentView: ViewMode;
@@ -19,6 +19,7 @@ const AppHeader: React.FC<AppHeaderProps> = ({ currentView, onViewChange, onRefr
     { id: 'board', label: 'Board' },
     { id: 'script', label: 'Script' },
     { id: 'characters', label: 'Characters' },
+    { id: 'breakdown', label: 'Breakdown' },
     { id: 'storyboard', label: 'Storyboard', hidden: !isStoryboardFeatureEnabled },
     { id: 'statistics', label: 'Statistics' }
   ].filter(v => !v.hidden);
@@ -95,7 +96,7 @@ const AppHeader: React.FC<AppHeaderProps> = ({ currentView, onViewChange, onRefr
               title="Open Backstage (Settings)"
           >
               <div className="w-8 h-8 rounded bg-gradient-to-br from-[#222] to-[#111] border border-[#333] flex items-center justify-center group-hover:border-[#f5a623] transition-all shadow-sm">
-                  <div className="w-3 h-3 bg-[#f5a623] rounded-[1px] transform rotate-45 group-hover:rotate-[225deg] transition-transform duration-500 ease-out"></div>
+                  <Film size={16} className="text-[#f5a623] group-hover:scale-110 transition-transform duration-300" />
               </div>
               <div className="flex flex-col justify-center pt-0.5">
                   <span className="text-[13px] font-black tracking-tight text-white uppercase leading-none group-hover:text-[#f5a623] transition-colors duration-300">

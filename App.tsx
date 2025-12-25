@@ -9,6 +9,7 @@ import StoryboardView from './components/views/StoryboardView';
 import StatisticsView from './components/views/StatisticsView';
 import BackstageView from './components/views/SettingsView';
 import GoalView from './components/views/GoalView';
+import BreakdownView from './components/views/BreakdownView';
 import EditorModal from './components/EditorModal';
 import PrintPreviewModal from './components/PrintPreviewModal';
 import WelcomeScreen from './components/WelcomeScreen';
@@ -67,6 +68,7 @@ const AppContent: React.FC = () => {
         {currentView === 'board' && <div className="w-full h-full"><BoardView key={`board-${refreshKey}`} onEditBeat={handleEditBeat} /></div>}
         {currentView === 'script' && <ScriptView key={`script-${refreshKey}`} />}
         {currentView === 'characters' && <div className="w-full h-full"><CharacterView key={`chars-${refreshKey}`} /></div>}
+        {currentView === 'breakdown' && <div className="w-full h-full"><BreakdownView key={`breakdown-${refreshKey}`} /></div>}
         {currentView === 'storyboard' && <div className="w-full h-full"><StoryboardView key={`story-${refreshKey}`} /></div>}
         {currentView === 'statistics' && <div className="w-full h-full"><StatisticsView key={`stats-${refreshKey}`} /></div>}
         {currentView === 'backstage' && <div className="w-full h-full"><BackstageView key={`backstage-${refreshKey}`} onNavigateToBoard={() => setCurrentView('board')} /></div>}

@@ -13,8 +13,6 @@ declare global {
 const SCOPES = 'https://www.googleapis.com/auth/drive.file';
 
 let tokenClient: any;
-let gapiInited = false;
-let gisInited = false;
 
 // Helper to ensure scripts are loaded
 const waitForScript = (globalVar: string): Promise<void> => {
@@ -39,38 +37,39 @@ const waitForScript = (globalVar: string): Promise<void> => {
     });
 };
 
-// Initialize the Google API Client
+// Initialize or Re-Initialize the Google API Client
 export const initializeGapi = async (apiKey: string, clientId: string) => {
-  if (gapiInited && gisInited) {
-      console.log("GAPI/GIS already initialized.");
-      return; 
-  }
-
-  console.log("Initializing GAPI...");
+  console.log("Initializing GAPI with provided credentials...");
+  
   await waitForScript('gapi');
   await waitForScript('google');
 
   return new Promise<void>((resolve, reject) => {
     window.gapi.load('client', async () => {
       try {
-        console.log("GAPI client loaded. Initializing...");
+        // 1. Initialize or Update GAPI Client (API Key & Discovery)
+        if (!window.gapi.client.drive) {
+            // First time init
+            console.log("Loading Discovery Docs...");
+            await window.gapi.client.init({
+                apiKey: apiKey,
+                discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest'],
+            });
+        } else {
+            // Already initialized, just update the key in case it changed
+            console.log("Updating API Key...");
+            window.gapi.client.setApiKey(apiKey);
+        }
         
-        await window.gapi.client.init({
-          apiKey: apiKey,
-          discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest'],
-        });
-        
-        gapiInited = true;
-        console.log("GAPI initialized.");
-        
+        // 2. Initialize or Update Token Client (Client ID)
         if (window.google) {
+          // Always init/re-init to ensure we use the latest Client ID provided by the user
+          console.log("Initializing Token Client...");
           tokenClient = window.google.accounts.oauth2.initTokenClient({
             client_id: clientId,
             scope: SCOPES,
             callback: () => {}, // Defined at request time
           });
-          gisInited = true;
-          console.log("GIS initialized.");
           resolve();
         } else {
           reject("Google Identity Services script not loaded");
@@ -87,7 +86,7 @@ export const initializeGapi = async (apiKey: string, clientId: string) => {
 // Request Access Token
 export const requestAccessToken = (): Promise<void> => {
   return new Promise((resolve, reject) => {
-    if (!tokenClient) return reject("Token client not initialized");
+    if (!tokenClient) return reject("Token client not initialized. Please click 'Connect' again.");
     
     tokenClient.callback = (resp: any) => {
       if (resp.error) {
@@ -95,7 +94,6 @@ export const requestAccessToken = (): Promise<void> => {
         return;
       }
       // Explicitly set the token for gapi.client
-      // console.log("Access Token Received:", resp.access_token);
       if (window.gapi && window.gapi.client) {
           window.gapi.client.setToken(resp); // Handles expiry internally for the session
       }
@@ -103,8 +101,6 @@ export const requestAccessToken = (): Promise<void> => {
     };
 
     // Use 'prompt: ""' to try silent auth if possible, otherwise consent
-    // For first run, might need 'consent', but the library handles 'prompt' logic well usually.
-    // If token is null, we might need a popup.
     const currentToken = window.gapi.client.getToken();
     if (!currentToken) {
         tokenClient.requestAccessToken({ prompt: 'consent' });
@@ -201,11 +197,4 @@ export const findDriveFile = async (fileName: string): Promise<string | null> =>
     });
     const files = response.result.files;
     if (files && files.length > 0) {
-      return files[0].id;
-    }
-    return null;
-  } catch (err) {
-    console.error("Error finding file", err);
-    throw err; // Re-throw to handle 401s in context
-  }
-};
+      return files

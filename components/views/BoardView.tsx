@@ -4,10 +4,13 @@ import { useProject } from '../../context/ProjectContext';
 import { BeatStatus, Group, Annotation, Beat, Connection } from '../../types';
 import { 
     MousePointer2, Square, Circle, Pen, Minus, ArrowRight, Eraser, Trash2, 
-    Type, X, PenTool, GripHorizontal, Heading, ZoomIn, ZoomOut, Maximize
+    Type, X, PenTool, GripHorizontal, Heading, ZoomIn, ZoomOut, Maximize, FileText, Loader2, Sparkles,
+    Music, Play, Pause, AlertTriangle
 } from 'lucide-react';
 import BeatCard from '../BeatCard';
 import { STORYLINE_COLORS } from '../../constants';
+import { extractRawTextFromPdf } from '../../services/pdfImport';
+import { analyzeScriptBatch, convertTextToScript } from '../../services/gemini';
 
 interface BoardViewProps {
   onEditBeat: (id: number) => void;
@@ -30,11 +33,111 @@ interface Guideline {
 
 const SNAP_THRESHOLD = 10;
 
+// Audio Node Component
+const AudioAnnotation = ({ anno, isEditing, setEditingId, updateAnnotation }: any) => {
+    const audioRef = useRef<HTMLAudioElement>(null);
+    const [isPlaying, setIsPlaying] = useState(false);
+    const [duration, setDuration] = useState(0);
+    const [currentTime, setCurrentTime] = useState(0);
+
+    useEffect(() => {
+        const audio = audioRef.current;
+        if (!audio) return;
+
+        const onTimeUpdate = () => setCurrentTime(audio.currentTime);
+        const onLoadedMetadata = () => setDuration(audio.duration);
+        const onEnded = () => setIsPlaying(false);
+
+        audio.addEventListener('timeupdate', onTimeUpdate);
+        audio.addEventListener('loadedmetadata', onLoadedMetadata);
+        audio.addEventListener('ended', onEnded);
+
+        return () => {
+            audio.removeEventListener('timeupdate', onTimeUpdate);
+            audio.removeEventListener('loadedmetadata', onLoadedMetadata);
+            audio.removeEventListener('ended', onEnded);
+        };
+    }, [anno.audioUrl]);
+
+    const togglePlay = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        if (audioRef.current) {
+            if (isPlaying) {
+                audioRef.current.pause();
+                setIsPlaying(false);
+            } else {
+                audioRef.current.play();
+                setIsPlaying(true);
+            }
+        }
+    };
+
+    const formatTime = (t: number) => {
+        const mins = Math.floor(t / 60);
+        const secs = Math.floor(t % 60);
+        return `${mins}:${secs.toString().padStart(2, '0')}`;
+    };
+
+    return (
+        <div 
+            className={`absolute rounded-lg overflow-hidden flex flex-col shadow-xl backdrop-blur-md transition-all border ${isEditing ? 'border-[#f5a623] bg-[#222]' : 'border-[#333] bg-[#1a1a1a]/90'}`}
+            style={{ 
+                left: anno.x, 
+                top: anno.y, 
+                width: 240, 
+                height: 100,
+                zIndex: isEditing ? 100 : 1
+            }}
+            onDoubleClick={(e) => { e.stopPropagation(); setEditingId(anno.id); }}
+        >
+            <div className="h-1 bg-[#f5a623] w-full"></div>
+            <div className="flex-1 p-3 flex flex-col justify-between">
+                <div className="flex items-center gap-3">
+                    <button 
+                        onClick={togglePlay}
+                        className="w-10 h-10 rounded-full bg-[#f5a623] hover:bg-[#ffb74d] text-black flex items-center justify-center transition-colors shadow-lg"
+                    >
+                        {isPlaying ? <Pause size={16} fill="black" /> : <Play size={16} fill="black" className="ml-0.5" />}
+                    </button>
+                    <div className="flex-1 min-w-0">
+                        {isEditing ? (
+                            <input 
+                                className="bg-transparent border-b border-[#f5a623] text-xs font-bold text-white w-full outline-none"
+                                value={anno.text || ''}
+                                onChange={(e) => updateAnnotation(anno.id, { text: e.target.value })}
+                                onBlur={() => setEditingId(null)}
+                                autoFocus
+                                placeholder="Audio Title"
+                            />
+                        ) : (
+                            <div className="text-xs font-bold text-white truncate" title={anno.text}>{anno.text || 'Audio File'}</div>
+                        )}
+                        <div className="text-[10px] text-gray-500 font-mono mt-0.5">{formatTime(currentTime)} / {formatTime(duration)}</div>
+                    </div>
+                </div>
+                
+                {/* Fake Waveform */}
+                <div className="flex items-center gap-[2px] h-6 mt-2 opacity-50">
+                    {Array.from({ length: 30 }).map((_, i) => (
+                        <div 
+                            key={i} 
+                            className={`w-1.5 rounded-full transition-all duration-300 ${currentTime / duration > i / 30 ? 'bg-[#f5a623]' : 'bg-[#444]'}`}
+                            style={{ height: `${Math.max(20, Math.random() * 100)}%` }}
+                        ></div>
+                    ))}
+                </div>
+            </div>
+            
+            <audio ref={audioRef} src={anno.audioUrl} className="hidden" />
+        </div>
+    );
+};
+
 const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
   const { 
     beats, groups, connections, panX, panY, scale, annotations,
     setPan, setScale, updateBeat, setConnections, addBeat, setBeats, setGroups, addGroup, updateGroup, removeGroup,
-    setAnnotations, captureSnapshot
+    setAnnotations, captureSnapshot, geminiApiKey, isPdfDropEnabled
   } = useProject();
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -58,6 +161,11 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
 
   // Snapping Guidelines
   const [guidelines, setGuidelines] = useState<Guideline[]>([]);
+
+  // Import State
+  const [isImporting, setIsImporting] = useState(false);
+  const [isEnhancing, setIsEnhancing] = useState(false); // Used for "AI Parsing" message now
+  const [isDragOver, setIsDragOver] = useState(false);
 
   // Engine Ref (Mutable state for high-perf interactions)
   const engine = useRef({
@@ -408,10 +516,42 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
     .color-dot-inner { width: 12px; height: 12px; border-radius: 50%; }
   `;
 
-  const STORYLINE_COLORS = [
-    '#e67e22', '#3498db', '#9b59b6', '#2ecc71', '#e74c3c', 
-    '#1abc9c', '#f1c40f', '#e84393', '#d35400', '#8e44ad'
-  ];
+  // --- HELPER: IMAGE COMPRESSION ---
+  // Large images crash local storage. We resize them before saving.
+  const compressImage = async (file: File): Promise<string> => {
+      return new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.readAsDataURL(file);
+          reader.onload = (event) => {
+              const img = new Image();
+              img.src = event.target?.result as string;
+              img.onload = () => {
+                  const canvas = document.createElement('canvas');
+                  const MAX_WIDTH = 800;
+                  const MAX_HEIGHT = 800;
+                  let width = img.width;
+                  let height = img.height;
+
+                  if (width > height) {
+                      if (width > MAX_WIDTH) {
+                          height *= MAX_WIDTH / width;
+                          width = MAX_WIDTH;
+                      }
+                  } else {
+                      if (height > MAX_HEIGHT) {
+                          width *= MAX_HEIGHT / height;
+                          height = MAX_HEIGHT;
+                      }
+                  }
+                  canvas.width = width;
+                  canvas.height = height;
+                  const ctx = canvas.getContext('2d');
+                  ctx?.drawImage(img, 0, 0, width, height);
+                  resolve(canvas.toDataURL('image/jpeg', 0.7)); // Moderate compression
+              };
+          };
+      });
+  };
 
   // --- INITIALIZATION ---
   useEffect(() => {
@@ -439,6 +579,162 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
       }
   }, [toolMode]);
 
+  const updateAnnotation = (id: number, updates: Partial<Annotation>) => {
+      const newAnnos = annotations.map(a => a.id === id ? { ...a, ...updates } : a);
+      setAnnotations(newAnnos);
+  };
+
+  // --- PDF & FILE DROP HANDLER ---
+  const handleDragEnter = useCallback((e: DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setIsDragOver(true);
+  }, []);
+
+  const handleDragLeave = useCallback((e: DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setIsDragOver(false);
+  }, []);
+
+  const handleDrop = useCallback(async (e: DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setIsDragOver(false);
+
+      if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+          const files = Array.from(e.dataTransfer.files);
+          
+          // Calculate drop position in world coordinates
+          const rect = containerRef.current?.getBoundingClientRect();
+          const dropX = e.clientX - (rect?.left || 0);
+          const dropY = e.clientY - (rect?.top || 0);
+          const worldX = (dropX - engine.current.panX) / engine.current.scale;
+          const worldY = (dropY - engine.current.panY) / engine.current.scale;
+
+          for (const file of files) {
+              
+              // --- 1. PDF IMPORT ---
+              if (file.type === 'application/pdf') {
+                  if (!isPdfDropEnabled) {
+                      alert("PDF Import is disabled. Enable it in Backstage > System Features.");
+                      continue;
+                  }
+                  if (!geminiApiKey) {
+                      alert("Please enter your Gemini API Key in Backstage settings to import scripts.");
+                      continue;
+                  }
+
+                  setIsImporting(true);
+                  setIsEnhancing(true);
+
+                  try {
+                      const rawText = await extractRawTextFromPdf(file);
+                      const newBeats = await convertTextToScript(rawText, 'gemini-3-flash-preview', geminiApiKey);
+                      
+                      let maxX = -Infinity;
+                      let maxY = -Infinity;
+                      if (engine.current.beats.length > 0) {
+                          engine.current.beats.forEach(b => {
+                              if (b.x > maxX) maxX = b.x;
+                              if (b.y > maxY) maxY = b.y;
+                          });
+                      } else {
+                          maxX = 25000;
+                          maxY = 25000;
+                      }
+
+                      const startX = maxX + 400; 
+                      const startY = 25000;
+                      
+                      const COLS = 5;
+                      const CARD_W = 240;
+                      const CARD_H = 200;
+                      const GAP_X = 50;
+                      const GAP_Y = 50;
+
+                      const positionedBeats = newBeats.map((b, i) => {
+                          const col = i % COLS;
+                          const row = Math.floor(i / COLS);
+                          return {
+                              ...b,
+                              x: startX + (col * (CARD_W + GAP_X)),
+                              y: startY + (row * (CARD_H + GAP_Y))
+                          };
+                      });
+
+                      const newConnections: Connection[] = [];
+                      for (let i = 0; i < positionedBeats.length - 1; i++) {
+                          newConnections.push({
+                              from: positionedBeats[i].id,
+                              to: positionedBeats[i+1].id
+                          });
+                      }
+
+                      captureSnapshot();
+                      setBeats((prev: Beat[]) => [...prev, ...positionedBeats]);
+                      setConnections((prev: Connection[]) => [...prev, ...newConnections]);
+                      setPan(-startX * scale + 100, -startY * scale + 100);
+
+                  } catch (err) {
+                      console.error("PDF Import Failed:", err);
+                      alert("Failed to parse PDF. Please check the console for details.");
+                  } finally {
+                      setIsImporting(false);
+                      setIsEnhancing(false);
+                  }
+              }
+              // --- 2. IMAGE IMPORT ---
+              else if (file.type.startsWith('image/')) {
+                  try {
+                      const compressedDataUrl = await compressImage(file);
+                      captureSnapshot();
+                      const newAnno: Annotation = {
+                          id: Date.now() + Math.random(),
+                          type: 'image',
+                          x: worldX - 100,
+                          y: worldY - 75,
+                          w: 200,
+                          h: 150,
+                          color: '#ffffff',
+                          imageUrl: compressedDataUrl
+                      };
+                      setAnnotations(prev => [...prev, newAnno]);
+                  } catch (err) {
+                      console.error("Image load failed", err);
+                  }
+              }
+              // --- 3. AUDIO IMPORT ---
+              else if (file.type.startsWith('audio/')) {
+                  if (file.size > 2 * 1024 * 1024) { // 2MB Limit Warning
+                      if(!confirm(`File "${file.name}" is ${Math.round(file.size/1024/1024)}MB. Large files may prevent saving to LocalStorage. Import anyway?`)) {
+                          continue;
+                      }
+                  }
+                  
+                  const reader = new FileReader();
+                  reader.onload = (e) => {
+                      const audioUrl = e.target?.result as string;
+                      captureSnapshot();
+                      const newAnno: Annotation = {
+                          id: Date.now() + Math.random(),
+                          type: 'audio',
+                          x: worldX - 120,
+                          y: worldY - 50,
+                          w: 240,
+                          h: 100,
+                          color: '#f5a623',
+                          audioUrl: audioUrl,
+                          text: file.name
+                      };
+                      setAnnotations(prev => [...prev, newAnno]);
+                  };
+                  reader.readAsDataURL(file);
+              }
+          }
+      }
+  }, [setBeats, setConnections, setPan, scale, captureSnapshot, geminiApiKey, isPdfDropEnabled, setAnnotations]);
+
   // --- HELPER: SNAP CALCULATION ---
   const calculateSnap = (currentX: number, currentY: number, width: number, height: number, excludeId: number) => {
       const snapDist = SNAP_THRESHOLD;
@@ -458,7 +754,7 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
       // For beats, assume width 240, min-height 140 (approx center logic)
       const targets = [
           ...engine.current.beats.map(b => ({ id: b.id, x: b.x, y: b.y, w: 240, h: 140, type: 'beat' })),
-          ...engine.current.annotations.filter(a => a.type === 'image' && a.id !== excludeId).map(a => ({ id: a.id, x: a.x || 0, y: a.y || 0, w: a.w || 200, h: a.h || 150, type: 'image' }))
+          ...engine.current.annotations.filter(a => (a.type === 'image' || a.type === 'audio') && a.id !== excludeId).map(a => ({ id: a.id, x: a.x || 0, y: a.y || 0, w: a.w || 200, h: a.h || 150, type: 'media' }))
       ];
 
       // Vertical Snapping (X-axis)
@@ -504,6 +800,8 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
       return { x: newX, y: newY, guides };
   };
 
+  // ... (rest of the file content like renderCanvas, renderMinimap, renderBeats, etc. remains the same, just including the full file for completeness)
+  
   // --- ENGINE FUNCTIONS ---
 
   const renderCanvas = () => {
@@ -963,6 +1261,10 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
       return d;
   };
 
+  // ... (renderConnections, updateTempLinkPos, completeDragLink, handleZoom, handleFitView, events logic remain unchanged)
+  // ... omitting to fit within response limit, assuming they are preserved if not changed ...
+  
+  // Re-including renderConnections as it was missing from the snippet
   const renderConnections = () => {
       if (!containerRef.current) return;
       const connectionsLayer = containerRef.current.querySelector('#connections-layer');
@@ -994,9 +1296,9 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
       annotationsLayer.appendChild(defs); // Annotations layer needs arrows too
 
       // --- RENDER ANNOTATIONS (TOP LAYER) ---
-      // NOTE: Text annotations are now rendered via React Components in the main View Loop
+      // NOTE: Text and Audio annotations are now rendered via React Components in the main View Loop
       engine.current.annotations.forEach(anno => {
-          if (anno.type === 'text') return; // Skip text rendering in SVG
+          if (anno.type === 'text' || anno.type === 'audio') return; 
 
           const group = document.createElementNS("http://www.w3.org/2000/svg", "g");
           let el: SVGElement | null = null;
@@ -1734,7 +2036,7 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
                       const group = target.closest('g[data-type="annotation"]');
                       // @ts-ignore
                       const textCard = target.closest('.text-annotation-card');
-
+                      
                       if (group) {
                           // @ts-ignore
                           const id = parseInt(group.getAttribute('data-id'));
@@ -2187,6 +2489,13 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
       container.addEventListener('contextmenu', handleContextMenu);
       window.addEventListener('keydown', handleGlobalKeyDown);
       container.addEventListener('wheel', handleWheel, { passive: false });
+      
+      // PDF Drop Events (Native DnD)
+      // We attach these to the container to detect drop anywhere on the board
+      container.addEventListener('dragenter', handleDragEnter);
+      container.addEventListener('dragover', handleDragEnter); // Required for Drop to fire
+      container.addEventListener('dragleave', handleDragLeave);
+      container.addEventListener('drop', handleDrop);
 
       return () => {
           container.removeEventListener('mousedown', handleMouseDown);
@@ -2196,8 +2505,13 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
           container.removeEventListener('contextmenu', handleContextMenu);
           window.removeEventListener('keydown', handleGlobalKeyDown);
           container.removeEventListener('wheel', handleWheel);
+          
+          container.removeEventListener('dragenter', handleDragEnter);
+          container.removeEventListener('dragover', handleDragEnter);
+          container.removeEventListener('dragleave', handleDragLeave);
+          container.removeEventListener('drop', handleDrop);
       };
-  }, [setPan, setBeats, addBeat, beats, connections, groups, toolMode, drawColor, strokeWidth, strokeStyle, editingAnnoId]); 
+  }, [setPan, setBeats, addBeat, beats, connections, groups, toolMode, drawColor, strokeWidth, strokeStyle, editingAnnoId, handleDragEnter, handleDragLeave, handleDrop]); 
 
   // --- CONTEXT MENU LOGIC ---
 
@@ -2343,6 +2657,27 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
             stroke: #f5a623;
         }
       `}</style>
+      
+      {/* Import Overlay */}
+      {(isDragOver || isImporting || isEnhancing) && (
+          <div className="absolute inset-0 z-[3000] bg-black/80 flex items-center justify-center pointer-events-none">
+              <div className="bg-[#111] border-2 border-[#f5a623] p-10 rounded-2xl flex flex-col items-center animate-in fade-in zoom-in duration-300">
+                  {isImporting ? (
+                      <>
+                          <Loader2 size={48} className="text-[#f5a623] animate-spin mb-4" />
+                          <h2 className="text-xl font-black text-white uppercase tracking-wider">AI Parsing Script...</h2>
+                          <p className="text-sm text-gray-500 mt-2 font-mono">Identifying scenes, actions, and dialogue</p>
+                      </>
+                  ) : (
+                      <>
+                          <FileText size={48} className="text-[#f5a623] mb-4 animate-bounce" />
+                          <h2 className="text-xl font-black text-white uppercase tracking-wider">Drop PDF to Import</h2>
+                          <p className="text-sm text-gray-500 mt-2 font-mono">Will be converted to beats via AI</p>
+                      </>
+                  )}
+              </div>
+          </div>
+      )}
       
       {/* Zoom Controls */}
       <div className="zoom-controls">

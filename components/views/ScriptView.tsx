@@ -1,9 +1,12 @@
 
 import React, { useEffect, useRef, useState, useMemo, useLayoutEffect } from 'react';
 import { useProject } from '../../context/ProjectContext';
-import { Search, Plus, Sun, Moon, Coffee, Eye, ZoomIn, ZoomOut, Lock, AlignLeft, User, MessageSquare, Parentheses, ArrowRightLeft, Camera, Music, Type } from 'lucide-react';
+import { Search, Plus, Sun, Moon, Coffee, Eye, ZoomIn, ZoomOut, Lock, AlignLeft, User, MessageSquare, Parentheses, ArrowRightLeft, Camera, Music, Type, ListChecks, Sparkles, X, Package, Mic2, Shirt, Wand2, Users, Flame, Map, EyeOff, LayoutTemplate } from 'lucide-react';
 import { ScriptEditor, ScriptEditorHandle } from '../ScriptEditor';
 import { SlugInput } from '../SlugInput';
+import { generateBreakdown } from '../../services/gemini';
+import { BreakdownData, BreakdownItem } from '../../types';
+import BoardView from './BoardView'; // Import BoardView for the sidebar
 
 // --- CONSTANTS ---
 // Standard A4 Dimensions at 96 DPI
@@ -144,11 +147,19 @@ const runPaginationPass = (
 };
 
 const ScriptView: React.FC = () => {
-  const { beats, updateBeat, addBeat, scriptViewMode, scriptConfig, setScriptConfig, characterData } = useProject();
+  const { beats, updateBeat, addBeat, scriptViewMode, scriptConfig, setScriptConfig, characterData, geminiApiKey, breakdownLanguage, setBreakdownLanguage } = useProject();
   const [searchTerm, setSearchTerm] = useState('');
   const [zoom, setZoom] = useState(1.0);
   const [activeBeatId, setActiveBeatId] = useState<number | null>(null);
   const [activeFormat, setActiveFormat] = useState('action');
+  
+  // Sidebar State
+  const [activeSidebar, setActiveSidebar] = useState<'none' | 'breakdown' | 'board'>('none');
+  
+  // Breakdown Analysis State
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [dragOverCategory, setDragOverCategory] = useState<string | null>(null);
+  const [showSourceHighlights, setShowSourceHighlights] = useState(false);
   
   const scrollerRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -196,6 +207,8 @@ const ScriptView: React.FC = () => {
     });
   }, [beats]);
 
+  const activeBeat = useMemo(() => beats.find(b => b.id === activeBeatId), [beats, activeBeatId]);
+
   // Unique Locations for Autocomplete
   const uniqueLocations = useMemo(() => {
       const locs = new Set<string>();
@@ -214,13 +227,11 @@ const ScriptView: React.FC = () => {
       const chars = new Set<string>();
       
       // 1. Add from Character Manifest (Created Characters)
-      // This includes any character you've explicitly added via the "Add Character" button
       Object.values(characterData).forEach((c: any) => {
           if (c.name) chars.add(c.name.toUpperCase());
       });
 
       // 2. Add from existing Script content (Dynamic)
-      // This preserves any ad-hoc characters typed directly into the script
       beats.forEach(b => {
           const div = document.createElement('div');
           div.innerHTML = b.content;
@@ -250,6 +261,11 @@ const ScriptView: React.FC = () => {
 
   // Auto Fit Zoom on Mount
   useEffect(() => { handleFitZoom(); }, []);
+
+  // Update zoom when sidebar toggles
+  useEffect(() => {
+      handleFitZoom();
+  }, [activeSidebar]);
 
   const handleFitZoom = () => {
       if (scrollerRef.current) {
@@ -296,13 +312,54 @@ const ScriptView: React.FC = () => {
       }
   };
 
+  const handleAnalyzeBreakdown = async () => {
+      if (!activeBeat || !geminiApiKey) return;
+      setIsAnalyzing(true);
+      
+      const div = document.createElement('div');
+      div.innerHTML = activeBeat.content;
+      const text = div.innerText;
+      
+      const result = await generateBreakdown(text, 'gemini-3-flash-preview', geminiApiKey, breakdownLanguage);
+      if (result) {
+          updateBeat(activeBeat.id, { breakdown: result });
+      } else {
+          alert("Failed to analyze breakdown. Check API key.");
+      }
+      setIsAnalyzing(false);
+  };
+
+  const addTag = (category: keyof BreakdownData, tag: string) => {
+      if (!activeBeat) return;
+      const current = activeBeat.breakdown || { props: [], sound: [], costume: [], vfx: [], practical: [], cast: [], location: [] };
+      const list = current[category] || [];
+      
+      // Store as Item
+      const newItem: BreakdownItem = { name: tag, source: '' };
+      
+      // Check for duplicates
+      const exists = list.some(i => (typeof i === 'string' ? i : i.name) === tag);
+      
+      if (!exists) {
+          updateBeat(activeBeat.id, { breakdown: { ...current, [category]: [...list, newItem] } });
+      }
+  };
+
+  const removeTag = (category: keyof BreakdownData, tag: string) => {
+      if (!activeBeat) return;
+      const current = activeBeat.breakdown || { props: [], sound: [], costume: [], vfx: [], practical: [], cast: [], location: [] };
+      const list = current[category] || [];
+      const newList = list.filter(i => (typeof i === 'string' ? i : i.name) !== tag);
+      updateBeat(activeBeat.id, { breakdown: { ...current, [category]: newList } });
+  };
+
   const filteredBeats = useMemo(() => {
       if (!searchTerm) return sortedBeats;
       const lower = searchTerm.toLowerCase();
       return sortedBeats.filter(b => 
-          b.slug.location.toLowerCase().includes(lower) || 
-          b.content.toLowerCase().includes(lower) ||
-          b.title.toLowerCase().includes(lower)
+          (b.slug.location || '').toLowerCase().includes(lower) || 
+          (b.content || '').toLowerCase().includes(lower) ||
+          (b.title || '').toLowerCase().includes(lower)
       );
   }, [sortedBeats, searchTerm]);
 
@@ -324,10 +381,170 @@ const ScriptView: React.FC = () => {
       { id: 'lyrics', label: '7. Lyrics', short: 'Opt+7', icon: Music },
   ];
 
+  // --- SOURCE HIGHLIGHTING ---
+  const highlightSourceText = (text: string) => {
+      if (!text || !activeBeatId || !showSourceHighlights) return;
+      
+      const editorEl = document.getElementById(`editor-${activeBeatId}`);
+      if (!editorEl) return;
+
+      const normalize = (s: string) => (s || '').trim().replace(/\s+/g, ' ').toLowerCase();
+      const search = normalize(text);
+      if (!search) return;
+
+      const walker = document.createTreeWalker(editorEl, NodeFilter.SHOW_TEXT, null);
+      let node;
+      while (node = walker.nextNode()) {
+          const content = normalize(node.textContent || '');
+          const index = content.indexOf(search);
+          if (index !== -1) {
+              const rawContent = node.textContent || '';
+              const rawIndex = rawContent.toLowerCase().indexOf(search);
+              
+              if (rawIndex !== -1) {
+                  const range = document.createRange();
+                  range.setStart(node, rawIndex);
+                  range.setEnd(node, rawIndex + search.length);
+                  
+                  const sel = window.getSelection();
+                  sel?.removeAllRanges();
+                  sel?.addRange(range);
+                  
+                  const element = node.parentElement;
+                  element?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                  return; // Stop after first match
+              }
+          }
+      }
+  };
+
+  const clearHighlight = () => {
+      if (showSourceHighlights) {
+          window.getSelection()?.removeAllRanges();
+      }
+  };
+
+  // --- DRAG AND DROP HANDLERS ---
+  const handleDragStart = (e: React.DragEvent, category: keyof BreakdownData, item: string) => {
+      e.dataTransfer.setData('text/plain', JSON.stringify({ category, item }));
+      e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleDragOver = (e: React.DragEvent, category: keyof BreakdownData) => {
+      e.preventDefault(); 
+      e.dataTransfer.dropEffect = 'move';
+      setDragOverCategory(category);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+      setDragOverCategory(null);
+  };
+
+  const handleDrop = (e: React.DragEvent, targetCategory: keyof BreakdownData) => {
+      e.preventDefault();
+      setDragOverCategory(null);
+      const data = e.dataTransfer.getData('text/plain');
+      if (!data) return;
+      
+      try {
+          const { category: sourceCategory, item: itemName } = JSON.parse(data);
+          if (sourceCategory === targetCategory) return; 
+
+          if (activeBeat) {
+              const current = activeBeat.breakdown || { props: [], sound: [], costume: [], vfx: [], practical: [], cast: [], location: [] };
+              
+              const getName = (i: string | BreakdownItem) => typeof i === 'string' ? i : i.name;
+
+              const sourceArray = current[sourceCategory as keyof BreakdownData] || [];
+              const itemObj = sourceArray.find(i => getName(i) === itemName);
+              const newSourceList = sourceArray.filter(i => getName(i) !== itemName);
+              
+              const targetList = current[targetCategory] || [];
+              const newTargetList = targetList.some(i => getName(i) === itemName) 
+                  ? targetList 
+                  : [...targetList, itemObj || { name: itemName, source: '' }];
+
+              updateBeat(activeBeat.id, {
+                  breakdown: {
+                      ...current,
+                      [sourceCategory]: newSourceList,
+                      [targetCategory]: newTargetList
+                  }
+              });
+          }
+      } catch (err) {
+          console.error("Drop failed", err);
+      }
+  };
+
+  const TagInput = ({ category }: { category: keyof BreakdownData }) => {
+      const [val, setVal] = useState('');
+      return (
+          <div className="flex gap-1 mt-2">
+              <input 
+                  value={val}
+                  onChange={e => setVal(e.target.value)}
+                  onKeyDown={e => {
+                      if (e.key === 'Enter' && val.trim()) {
+                          addTag(category, val.trim());
+                          setVal('');
+                      }
+                  }}
+                  className="flex-1 bg-[#111] border border-[#333] rounded px-2 py-1 text-[10px] text-white focus:border-[#f5a623] outline-none"
+                  placeholder="Add..."
+              />
+              <button onClick={() => { if(val.trim()) { addTag(category, val.trim()); setVal(''); } }} className="px-2 bg-[#222] hover:bg-[#333] text-gray-400 rounded"><Plus size={10}/></button>
+          </div>
+      );
+  };
+
+  const BreakdownSection = ({ title, category, icon: Icon, color }: any) => {
+      const items = activeBeat?.breakdown?.[category as keyof BreakdownData] || [];
+      const isDragOver = dragOverCategory === category;
+
+      return (
+          <div 
+            className={`mb-4 rounded-md transition-all ${isDragOver ? 'ring-2 ring-dashed ring-[#f5a623] bg-[#222]' : ''}`}
+            onDragOver={(e) => handleDragOver(e, category)}
+            onDragLeave={handleDragLeave}
+            onDrop={(e) => handleDrop(e, category)}
+          >
+              <div className={`text-[10px] font-bold uppercase tracking-wider mb-2 flex items-center gap-2 ${color}`}>
+                  <Icon size={12} /> {title}
+              </div>
+              <div className="flex flex-wrap gap-1.5 min-h-[30px]">
+                  {items.length === 0 && <span className="text-[10px] text-gray-700 italic select-none">None</span>}
+                  {items.map((item, i) => {
+                      const name = typeof item === 'string' ? item : item.name;
+                      const source = typeof item === 'string' ? undefined : item.source;
+                      
+                      return (
+                          <div 
+                            key={i} 
+                            draggable
+                            onDragStart={(e) => handleDragStart(e, category, name)}
+                            onMouseEnter={() => source && highlightSourceText(source)}
+                            onMouseLeave={clearHighlight}
+                            className={`flex items-center gap-1 bg-[#222] px-2 py-1 rounded text-[10px] text-gray-300 border border-[#333] group cursor-move hover:border-[#f5a623] transition-colors ${showSourceHighlights && source ? 'hover:bg-[#f5a623] hover:text-black' : ''}`}
+                            title={source ? `Source: "${source}"` : "No source info"}
+                          >
+                              {name}
+                              <button onClick={() => removeTag(category as keyof BreakdownData, name)} className="text-gray-600 hover:text-red-500 opacity-0 group-hover:opacity-100"><X size={10}/></button>
+                          </div>
+                      );
+                  })}
+              </div>
+              <TagInput category={category as keyof BreakdownData} />
+          </div>
+      );
+  };
+
+  const isApiConnected = !!geminiApiKey;
+
   return (
     <div className="flex w-full h-full bg-[#0c0c0c] overflow-hidden font-sans">
       
-      {/* SIDEBAR */}
+      {/* SIDEBAR: SCENE NAVIGATOR */}
       <div className="w-64 bg-[#0a0a0a] border-r border-[#222] flex flex-col shrink-0 z-20 shadow-2xl">
          <div className="p-4 border-b border-[#222]">
             <div className="relative">
@@ -346,8 +563,9 @@ const ScriptView: React.FC = () => {
                     onClick={() => {
                         const el = document.getElementById(`beat-${beat.id}`);
                         el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        setActiveBeatId(beat.id);
                     }}
-                    className="w-full text-left p-2.5 rounded hover:bg-[#1a1a1a] group transition-all flex items-center gap-3 border-l-2 border-transparent hover:border-[#f5a623]"
+                    className={`w-full text-left p-2.5 rounded group transition-all flex items-center gap-3 border-l-2 ${activeBeatId === beat.id ? 'bg-[#1a1a1a] border-[#f5a623]' : 'border-transparent hover:bg-[#151515] hover:border-[#333]'}`}
                 >
                     <span className="text-[10px] font-bold font-mono w-5 shrink-0 text-right text-[#444] group-hover:text-[#f5a623]">{beat.sceneNumber || i + 1}</span>
                     <div className="flex-1 min-w-0">
@@ -390,8 +608,28 @@ const ScriptView: React.FC = () => {
                     </div>
                 </div>
                 
-                {/* RIGHT: Theme & Zoom */}
+                {/* RIGHT: Theme, Zoom, Breakdown Toggle */}
                 <div className="flex items-center gap-4">
+                    {/* Sidebar Toggles */}
+                    <div className="flex bg-[#1a1a1a] rounded border border-[#333] p-0.5">
+                        <button 
+                            onClick={() => setActiveSidebar(activeSidebar === 'breakdown' ? 'none' : 'breakdown')}
+                            className={`p-1.5 rounded flex items-center gap-2 text-[10px] font-bold uppercase transition-all ${activeSidebar === 'breakdown' ? 'bg-[#222] text-[#f5a623] shadow-sm' : 'text-gray-400 hover:text-white'}`}
+                            title="Toggle Breakdown Panel"
+                        >
+                            <ListChecks size={14} /> Breakdown
+                        </button>
+                        <button 
+                            onClick={() => setActiveSidebar(activeSidebar === 'board' ? 'none' : 'board')}
+                            className={`p-1.5 rounded flex items-center gap-2 text-[10px] font-bold uppercase transition-all ${activeSidebar === 'board' ? 'bg-[#222] text-[#f5a623] shadow-sm' : 'text-gray-400 hover:text-white'}`}
+                            title="Toggle Beat Board Panel"
+                        >
+                            <LayoutTemplate size={14} /> Board
+                        </button>
+                    </div>
+
+                    <div className="w-[1px] h-4 bg-[#333]"></div>
+
                     {/* Theme Toggles */}
                     <div className="flex bg-[#1a1a1a] rounded border border-[#333] p-0.5">
                         <button onClick={() => setPaperTheme('white')} className={`p-1.5 rounded ${scriptConfig.paperTheme === 'white' ? 'bg-white text-black' : 'text-gray-500 hover:text-white'}`}><Sun size={12}/></button>
@@ -416,122 +654,221 @@ const ScriptView: React.FC = () => {
             </div>
         </div>
 
-        <div ref={scrollerRef} className="flex-1 overflow-y-auto bg-[#121212] relative flex flex-col items-center pb-96 custom-scrollbar">
-            <div 
-                className="transition-transform duration-200 origin-top py-10"
-                style={{ transform: `scale(${zoom})` }}
-            >
-                <div style={{ position: 'relative', width: `${A4_WIDTH}px`, minHeight: `${A4_HEIGHT}px` }}>
-                    
-                    {/* BACKGROUND LAYER */}
-                    <div ref={paperLayerRef} className="absolute top-0 left-0 w-full flex flex-col pointer-events-none z-0"></div>
+        <div className="flex-1 flex overflow-hidden">
+            {/* SCROLLER (SCRIPT) */}
+            <div ref={scrollerRef} className="flex-1 overflow-y-auto bg-[#121212] relative flex flex-col items-center pb-96 custom-scrollbar">
+                <div 
+                    className="transition-transform duration-200 origin-top py-10"
+                    style={{ transform: `scale(${zoom})` }}
+                >
+                    <div style={{ position: 'relative', width: `${A4_WIDTH}px`, minHeight: `${A4_HEIGHT}px` }}>
+                        
+                        {/* BACKGROUND LAYER */}
+                        <div ref={paperLayerRef} className="absolute top-0 left-0 w-full flex flex-col pointer-events-none z-0"></div>
 
-                    {/* CONTENT LAYER */}
-                    <div 
-                        ref={contentRef}
-                        className="relative z-10 w-full h-full"
-                        style={{
-                            ...editorStyle,
-                            paddingTop: `${MARGIN_TOP}px`, 
-                            paddingBottom: `${MARGIN_BOTTOM}px`,
-                            paddingLeft: `${MARGIN_LEFT}px`,
-                            paddingRight: `${MARGIN_RIGHT}px`,
-                        }}
-                    >
-                        <style>{`
-                            .sc-line { color: ${theme.text}; }
-                            .sc-slug { color: ${theme.slug}; }
-                        `}</style>
+                        {/* CONTENT LAYER */}
+                        <div 
+                            ref={contentRef}
+                            className="relative z-10 w-full h-full"
+                            style={{
+                                ...editorStyle,
+                                paddingTop: `${MARGIN_TOP}px`, 
+                                paddingBottom: `${MARGIN_BOTTOM}px`,
+                                paddingLeft: `${MARGIN_LEFT}px`,
+                                paddingRight: `${MARGIN_RIGHT}px`,
+                            }}
+                        >
+                            <style>{`
+                                .sc-line { color: ${theme.text}; }
+                                .sc-slug { color: ${theme.slug}; }
+                            `}</style>
 
-                        {sortedBeats.map((beat, i) => {
-                            const isReady = beat.status === 'ready';
-                            return (
-                                <div 
-                                    key={beat.id} 
-                                    id={`beat-${beat.id}`}
-                                    className="beat-block group relative"
-                                >
-                                    {/* SCENE NUMBER (OUTSIDE SLUGLINE) */}
+                            {sortedBeats.map((beat, i) => {
+                                const isReady = beat.status === 'ready';
+                                return (
                                     <div 
-                                        className="absolute -left-16 top-0.5 w-12 text-right font-mono text-xs font-bold select-none opacity-50 group-hover:opacity-100 transition-opacity"
-                                        style={{ color: theme.pageNum }}
+                                        key={beat.id} 
+                                        id={`beat-${beat.id}`}
+                                        className={`beat-block group relative ${activeBeatId === beat.id ? 'z-20' : 'z-10'}`}
+                                        onFocusCapture={() => setActiveBeatId(beat.id)}
+                                        onClick={() => setActiveBeatId(beat.id)}
                                     >
-                                        {beat.sceneNumber || i + 1}
-                                    </div>
+                                        {/* SCENE NUMBER (OUTSIDE SLUGLINE) */}
+                                        <div 
+                                            className="absolute -left-16 top-0.5 w-12 text-right font-mono text-xs font-bold select-none opacity-50 group-hover:opacity-100 transition-opacity"
+                                            style={{ color: theme.pageNum }}
+                                        >
+                                            {beat.sceneNumber || i + 1}
+                                        </div>
 
-                                    {/* SLUGLINE BAR */}
-                                    <div 
-                                        className="flex items-center gap-2 mb-2 px-2 py-0.5 transition-colors -ml-2 -mr-2"
-                                        style={{ backgroundColor: theme.slugBg }}
-                                    >
-                                        <div className="flex-1 flex items-center gap-2 font-bold uppercase font-screenplay text-sm">
-                                            <SlugInput 
-                                                id={`beat-prefix-${beat.id}`}
-                                                value={beat.slug.prefix} 
-                                                onChange={v => handleSlugChange(beat.id, 'prefix', v)}
-                                                onNext={() => document.getElementById(`beat-location-${beat.id}`)?.focus()}
-                                                suggestions={SLUG_PREFIXES}
-                                                className="w-12 shrink-0"
-                                                style={{ color: theme.slug }}
-                                                placeholder="INT."
-                                            />
-                                            <SlugInput 
-                                                id={`beat-location-${beat.id}`}
-                                                value={beat.slug.location} 
-                                                onChange={v => handleSlugChange(beat.id, 'location', v)}
-                                                onNext={() => document.getElementById(`beat-time-${beat.id}`)?.focus()}
-                                                suggestions={uniqueLocations}
-                                                className="flex-1"
-                                                style={{ color: theme.slug }}
-                                                placeholder="LOCATION"
-                                            />
-                                            <span style={{ color: theme.slug }}>-</span>
-                                            <SlugInput 
-                                                id={`beat-time-${beat.id}`}
-                                                value={beat.slug.time} 
-                                                onChange={v => handleSlugChange(beat.id, 'time', v)}
-                                                onNext={() => editorRefs.current[beat.id]?.focus()}
-                                                suggestions={SLUG_TIMES}
-                                                className="w-24 shrink-0"
-                                                style={{ color: theme.slug }}
-                                                placeholder="TIME"
+                                        {/* SLUGLINE BAR */}
+                                        <div 
+                                            className="flex items-center gap-2 mb-2 px-2 py-0.5 transition-colors -ml-2 -mr-2"
+                                            style={{ backgroundColor: activeBeatId === beat.id ? '#f5a623' : theme.slugBg }}
+                                        >
+                                            <div className="flex-1 flex items-center gap-2 font-bold uppercase font-screenplay text-sm">
+                                                <SlugInput 
+                                                    id={`beat-prefix-${beat.id}`}
+                                                    value={beat.slug.prefix} 
+                                                    onChange={v => handleSlugChange(beat.id, 'prefix', v)}
+                                                    onNext={() => document.getElementById(`beat-location-${beat.id}`)?.focus()}
+                                                    suggestions={SLUG_PREFIXES}
+                                                    className="w-12 shrink-0"
+                                                    style={{ color: activeBeatId === beat.id ? '#000' : theme.slug }}
+                                                    placeholder="INT."
+                                                />
+                                                <SlugInput 
+                                                    id={`beat-location-${beat.id}`}
+                                                    value={beat.slug.location} 
+                                                    onChange={v => handleSlugChange(beat.id, 'location', v)}
+                                                    onNext={() => document.getElementById(`beat-time-${beat.id}`)?.focus()}
+                                                    suggestions={uniqueLocations}
+                                                    className="flex-1"
+                                                    style={{ color: activeBeatId === beat.id ? '#000' : theme.slug }}
+                                                    placeholder="LOCATION"
+                                                />
+                                                <span style={{ color: activeBeatId === beat.id ? '#000' : theme.slug }}>-</span>
+                                                <SlugInput 
+                                                    id={`beat-time-${beat.id}`}
+                                                    value={beat.slug.time} 
+                                                    onChange={v => handleSlugChange(beat.id, 'time', v)}
+                                                    onNext={() => editorRefs.current[beat.id]?.focus()}
+                                                    suggestions={SLUG_TIMES}
+                                                    className="w-24 shrink-0"
+                                                    style={{ color: activeBeatId === beat.id ? '#000' : theme.slug }}
+                                                    placeholder="TIME"
+                                                />
+                                            </div>
+                                            {isReady && <Lock size={12} className={activeBeatId === beat.id ? "text-black" : "text-green-500 ml-2"} />}
+                                        </div>
+
+                                        {/* EDITOR */}
+                                        <div>
+                                            <ScriptEditor 
+                                                ref={(el) => { editorRefs.current[beat.id] = el; }}
+                                                id={`editor-${beat.id}`}
+                                                initialHtml={beat.content}
+                                                onSave={(html) => updateBeat(beat.id, { content: html })}
+                                                suggestions={uniqueCharacters}
+                                                readOnly={isReady}
+                                                onFocus={() => setActiveBeatId(beat.id)}
+                                                onActiveFormatChange={setActiveFormat}
+                                                className="script-body min-h-[1.5em] outline-none"
+                                                isActive={activeBeatId === beat.id}
                                             />
                                         </div>
-                                        {isReady && <Lock size={12} className="text-green-500 ml-2" />}
                                     </div>
+                                );
+                            })}
 
-                                    {/* EDITOR */}
-                                    <div>
-                                        <ScriptEditor 
-                                            ref={(el) => { editorRefs.current[beat.id] = el; }}
-                                            id={`editor-${beat.id}`}
-                                            initialHtml={beat.content}
-                                            onSave={(html) => updateBeat(beat.id, { content: html })}
-                                            suggestions={uniqueCharacters}
-                                            readOnly={isReady}
-                                            onFocus={() => setActiveBeatId(beat.id)}
-                                            onActiveFormatChange={setActiveFormat}
-                                            className="script-body min-h-[1.5em] outline-none"
-                                            isActive={activeBeatId === beat.id}
-                                        />
-                                    </div>
-                                </div>
-                            );
-                        })}
+                            {/* EXTREMELY SUBTLE ADD SCENE BUTTON */}
+                            <div 
+                                onClick={handleAddScene}
+                                className="mt-8 mx-auto w-full max-w-xl h-6 border-b border-transparent hover:border-[#f5a623]/30 flex items-center justify-center cursor-pointer transition-all duration-300 group opacity-20 hover:opacity-100"
+                            >
+                                <span className="text-[9px] font-bold text-[#666] group-hover:text-[#f5a623] uppercase tracking-[0.2em] flex items-center gap-2 transition-colors">
+                                    <Plus size={8} /> Add Scene
+                                </span>
+                            </div>
 
-                        {/* EXTREMELY SUBTLE ADD SCENE BUTTON */}
-                        <div 
-                            onClick={handleAddScene}
-                            className="mt-8 mx-auto w-full max-w-xl h-6 border-b border-transparent hover:border-[#f5a623]/30 flex items-center justify-center cursor-pointer transition-all duration-300 group opacity-20 hover:opacity-100"
-                        >
-                            <span className="text-[9px] font-bold text-[#666] group-hover:text-[#f5a623] uppercase tracking-[0.2em] flex items-center gap-2 transition-colors">
-                                <Plus size={8} /> Add Scene
-                            </span>
                         </div>
-
                     </div>
                 </div>
             </div>
+
+            {/* RIGHT SIDEBAR (CONDITIONAL) */}
+            {activeSidebar !== 'none' && (
+                <div className="w-[400px] bg-[#161616] border-l border-[#333] flex flex-col animate-in slide-in-from-right-10 duration-200 z-30 shadow-2xl relative overflow-hidden">
+                    
+                    {/* Header */}
+                    <div className="h-12 border-b border-[#333] flex items-center justify-between px-4 bg-[#1a1a1a] shrink-0">
+                        <h3 className="text-xs font-black text-[#f5a623] uppercase tracking-widest flex items-center gap-2">
+                            {activeSidebar === 'breakdown' ? <ListChecks size={14} /> : <LayoutTemplate size={14} />}
+                            {activeSidebar === 'breakdown' ? 'Scene Breakdown' : 'Beat Board'}
+                        </h3>
+                        <div className="flex gap-2">
+                            {activeSidebar === 'breakdown' && (
+                                <button 
+                                    onClick={() => { setShowSourceHighlights(!showSourceHighlights); clearHighlight(); }} 
+                                    className={`p-1.5 rounded transition-colors ${showSourceHighlights ? 'bg-[#f5a623] text-black' : 'text-gray-500 hover:text-white'}`}
+                                    title="Highlight source text in script on hover"
+                                >
+                                    {showSourceHighlights ? <Eye size={14}/> : <EyeOff size={14}/>}
+                                </button>
+                            )}
+                            <button onClick={() => { setActiveSidebar('none'); clearHighlight(); }} className="text-gray-500 hover:text-white"><X size={14}/></button>
+                        </div>
+                    </div>
+                    
+                    {/* Content Area */}
+                    <div className="flex-1 relative overflow-hidden">
+                        
+                        {/* BREAKDOWN MODE */}
+                        {activeSidebar === 'breakdown' && (
+                            <div className="absolute inset-0 overflow-y-auto custom-scrollbar p-4">
+                                {activeBeat ? (
+                                    <>
+                                        <div className="mb-6 pb-4 border-b border-[#333]">
+                                            <h4 className="text-sm font-bold text-white uppercase mb-4">{activeBeat.slug.location || 'Untitled Scene'}</h4>
+                                            
+                                            <div className="flex items-center justify-between mb-2">
+                                                <span className="text-[10px] font-bold text-gray-500 uppercase">Output Language</span>
+                                                <div className="flex bg-[#111] rounded border border-[#333] p-0.5">
+                                                    <button 
+                                                        onClick={() => setBreakdownLanguage('english')}
+                                                        className={`px-2 py-0.5 text-[9px] font-bold uppercase rounded ${breakdownLanguage === 'english' ? 'bg-[#f5a623] text-black' : 'text-gray-500 hover:text-white'}`}
+                                                    >ENG</button>
+                                                    <button 
+                                                        onClick={() => setBreakdownLanguage('tamil')}
+                                                        className={`px-2 py-0.5 text-[9px] font-bold uppercase rounded ${breakdownLanguage === 'tamil' ? 'bg-[#f5a623] text-black' : 'text-gray-500 hover:text-white'}`}
+                                                    >TAM</button>
+                                                </div>
+                                            </div>
+
+                                            <button 
+                                                onClick={handleAnalyzeBreakdown}
+                                                disabled={isAnalyzing || !geminiApiKey}
+                                                className={`w-full py-2 font-bold text-xs uppercase rounded flex items-center justify-center gap-2 transition-all ${!geminiApiKey ? 'bg-[#222] text-gray-600 cursor-not-allowed' : 'bg-[#f5a623] hover:bg-[#e09612] text-black disabled:opacity-50'}`}
+                                            >
+                                                {isAnalyzing ? <Sparkles size={14} className="animate-spin" /> : <Sparkles size={14} />} 
+                                                {isAnalyzing ? 'Analyzing...' : (geminiApiKey ? 'Auto-Analyze' : 'API Key Missing')}
+                                            </button>
+                                        </div>
+
+                                        <BreakdownSection title="Location Scenario" category="location" icon={Map} color="text-orange-400" />
+                                        <BreakdownSection title="Visual Effects" category="vfx" icon={Wand2} color="text-green-400" />
+                                        <BreakdownSection title="Practical Effects" category="practical" icon={Flame} color="text-red-500" />
+                                        <BreakdownSection title="Props" category="props" icon={Package} color="text-red-400" />
+                                        <BreakdownSection title="Sound / SFX" category="sound" icon={Mic2} color="text-blue-400" />
+                                        <BreakdownSection title="Wardrobe" category="costume" icon={Shirt} color="text-pink-400" />
+                                        <BreakdownSection title="Cast / Extras" category="cast" icon={Users} color="text-yellow-400" />
+                                    </>
+                                ) : (
+                                    <div className="flex flex-col items-center justify-center h-full text-gray-500 gap-2">
+                                        <ListChecks size={32} opacity={0.2} />
+                                        <span className="text-xs text-center px-4">Select a scene to view or create breakdown items.</span>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {/* BOARD MODE */}
+                        {activeSidebar === 'board' && (
+                            <div className="absolute inset-0">
+                                <BoardView onEditBeat={(id) => { 
+                                    // Scroll script to beat when clicked in sidebar board
+                                    const el = document.getElementById(`beat-${id}`);
+                                    if (el) {
+                                        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                        setActiveBeatId(id);
+                                    }
+                                }} />
+                            </div>
+                        )}
+
+                    </div>
+                </div>
+            )}
         </div>
       </div>
     </div>

@@ -211,7 +211,8 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
     googleDriveConfig, setGoogleDriveConfig, connectToDrive, disconnectFromDrive, backupToDrive, isDriveSyncing, isDriveConnecting,
     geminiApiKey, setGeminiApiKey,
     stabilityApiKey, setStabilityApiKey,
-    breakdownLanguage, setBreakdownLanguage
+    breakdownLanguage, setBreakdownLanguage,
+    isPdfDropEnabled, setPdfDropEnabled
   } = useProject();
 
   const [activeCategory, setActiveCategory] = useState<'project' | 'formatting' | 'board' | 'storyboard' | 'features'>('formatting');
@@ -1281,18 +1282,12 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
                             isActive={isStoryboardFeatureEnabled}
                             onToggle={setStoryboardFeatureEnabled}
                         />
-                        {/* PDF Import Feature Toggle */}
                         <FeatureCard 
                             title="PDF Drag-and-Drop Import" 
                             desc="Enable experimental PDF parsing. Drag a PDF onto the board to convert to beats."
                             icon={FileText}
-                            isActive={googleDriveConfig.isPdfDropEnabled} // Assuming isPdfDropEnabled is exposed in googleDriveConfig or similar, checking context. 
-                            // Wait, looking at context, it's a separate field. Let's fix the prop usage below.
-                            // FIX: Using context value directly as FeatureCard prop is cleaner.
-                            // Re-checking context... "setPdfDropEnabled" and "isPdfDropEnabled" are available.
-                            // I need to make sure "isPdfDropEnabled" is destructured from useProject at the top.
-                            // It is NOT currently destructured in this file. I need to add it.
-                            onToggle={() => {}} // Placeholder, logic fixed in next block
+                            isActive={isPdfDropEnabled}
+                            onToggle={setPdfDropEnabled}
                         />
                         
                         <div className="md:col-span-2 bg-[#111] p-6 rounded-sm border border-[#222]">

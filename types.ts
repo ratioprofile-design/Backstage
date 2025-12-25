@@ -60,6 +60,21 @@ export interface Shot {
   blocking?: ShotBlocking;
 }
 
+export interface BreakdownItem {
+  name: string;
+  source?: string; // The exact text in the script this was derived from
+}
+
+export interface BreakdownData {
+  sound: (string | BreakdownItem)[];
+  props: (string | BreakdownItem)[];
+  costume: (string | BreakdownItem)[];
+  vfx: (string | BreakdownItem)[];
+  practical: (string | BreakdownItem)[]; // Physical effects (Smoke, Squibs, Stunts)
+  cast: (string | BreakdownItem)[]; // Extras/Non-speaking
+  location: (string | BreakdownItem)[]; // Location notes/Optimal Scenario
+}
+
 export type BeatStatus = 'not-ready' | 'ready';
 
 export interface BeatVersion {
@@ -82,6 +97,7 @@ export interface Beat {
   color?: string; // Grouping/Chain color
   tint?: string; // Card background tint
   shots?: Shot[]; // Array of storyboard shots for this scene
+  breakdown?: BreakdownData; // Pre-production breakdown tags
   status?: BeatStatus; // Readiness status
   versions?: BeatVersion[]; // History of changes
 }
@@ -93,7 +109,7 @@ export interface Connection {
 
 export interface Annotation {
   id: number;
-  type: 'pencil' | 'line' | 'arrow' | 'rect' | 'circle' | 'eraser' | 'text' | 'image';
+  type: 'pencil' | 'line' | 'arrow' | 'rect' | 'circle' | 'eraser' | 'text' | 'image' | 'audio';
   color: string;
   d?: string; // path data
   x?: number;
@@ -106,6 +122,7 @@ export interface Annotation {
   text?: string; // Content for text annotations
   fontSize?: number;
   imageUrl?: string; // Content for image annotations
+  audioUrl?: string; // Content for audio annotations
 }
 
 export interface Group {
@@ -224,6 +241,7 @@ export interface ScriptConfig {
 }
 
 export interface StoryboardConfig {
+  provider: 'google' | 'stability'; // New provider toggle
   style: string; // e.g. "Charcoal Sketch", "Photorealistic"
   aspectRatio: string; // e.g. "16:9", "4:3"
   imageModel?: string; // Model ID for image generation
@@ -288,7 +306,7 @@ export interface ProjectMetadata {
   created: number;
 }
 
-export type ViewMode = 'board' | 'script' | 'characters' | 'storyboard' | 'statistics' | 'backstage' | 'goals';
+export type ViewMode = 'board' | 'script' | 'characters' | 'breakdown' | 'storyboard' | 'statistics' | 'backstage' | 'goals';
 
 export type BoardLayer = 'beats' | 'groups' | 'connections' | 'annotations' | 'text';
 
@@ -320,12 +338,22 @@ export interface ProjectState {
   // Storyboard Configuration
   storyboardConfig: StoryboardConfig;
   isStoryboardFeatureEnabled: boolean;
+  
+  // Breakdown Configuration
+  breakdownLanguage: 'english' | 'tamil';
+
+  // Feature Flags
+  isPdfDropEnabled: boolean; // New Flag
 
   // Writing Goals
   writingGoal: WritingGoal;
   
   // Google Drive
   googleDriveConfig: GoogleDriveConfig;
+  
+  // AI Keys
+  geminiApiKey: string;
+  stabilityApiKey: string;
 
   // Analytics
   dailyStats: Record<string, number>; // YYYY-MM-DD -> Word Count
@@ -392,6 +420,12 @@ export interface ProjectContextType extends ProjectState {
   setStoryboardConfig: (config: StoryboardConfig) => void;
   setStoryboardFeatureEnabled: (enabled: boolean) => void;
   
+  // Breakdown Configuration
+  setBreakdownLanguage: (lang: 'english' | 'tamil') => void;
+
+  // Features
+  setPdfDropEnabled: (enabled: boolean) => void;
+  
   // Goals
   setWritingGoal: (goal: WritingGoal) => void;
 
@@ -402,6 +436,10 @@ export interface ProjectContextType extends ProjectState {
   backupToDrive: (force?: boolean) => Promise<void>;
   isDriveSyncing: boolean;
   isDriveConnecting: boolean; 
+  
+  // AI Keys
+  setGeminiApiKey: (key: string) => void;
+  setStabilityApiKey: (key: string) => void;
 
   // Board Layers
   setBoardLayerOrder: (order: BoardLayer[]) => void;

@@ -3,6 +3,7 @@ import React, { createContext, useContext, useEffect, useState, useCallback, use
 import { ProjectState, Beat, Connection, Annotation, Shot, CharacterData, ScriptConfig, StoryboardConfig, Group, WritingGoal, ProjectMetadata, BoardLayer, GoogleDriveConfig, ProjectContextType } from '../types';
 import { INITIAL_STATE } from '../constants';
 import { initializeGapi, requestAccessToken, findDriveFile, createDriveFile, updateDriveFile } from '../services/googleDrive';
+import { updateGeminiConfig } from '../services/gemini';
 
 const ProjectContext = createContext<ProjectContextType | null>(null);
 
@@ -147,7 +148,9 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
                   userDictionary: parsed.userDictionary || {},
                   isOsInputMode: parsed.isOsInputMode || false,
                   osInputShortcut: parsed.osInputShortcut || 'NumLock',
-                  isStoryboardFeatureEnabled: parsed.isStoryboardFeatureEnabled || true, 
+                  isStoryboardFeatureEnabled: parsed.isStoryboardFeatureEnabled || true,
+                  breakdownLanguage: parsed.breakdownLanguage || 'english',
+                  isPdfDropEnabled: parsed.isPdfDropEnabled || false,
                   writingGoal: { ...INITIAL_STATE.writingGoal, ...(parsed.writingGoal || {}) },
                   dailyStats: parsed.dailyStats || {},
                   sessionStartCount: parsed.sessionStartCount || 0,
@@ -172,7 +175,9 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
                       : INITIAL_STATE.boardLayerOrder,
                   tamilFontScale: parsed.tamilFontScale || INITIAL_STATE.tamilFontScale,
                   tamilFontFamily: parsed.tamilFontFamily || INITIAL_STATE.tamilFontFamily,
-                  googleDriveConfig: { ...INITIAL_STATE.googleDriveConfig, ...(parsed.googleDriveConfig || {}) }
+                  googleDriveConfig: { ...INITIAL_STATE.googleDriveConfig, ...(parsed.googleDriveConfig || {}) },
+                  geminiApiKey: parsed.geminiApiKey || '',
+                  stabilityApiKey: parsed.stabilityApiKey || ''
               };
               
               isJustLoaded.current = true;
@@ -230,6 +235,11 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
         }
     }
   }, []);
+
+  // Update Gemini Service whenever key changes in state
+  useEffect(() => {
+      updateGeminiConfig(state.geminiApiKey);
+  }, [state.geminiApiKey]);
 
   const login = (username: string) => {
       localStorage.setItem('causality_user', username);
@@ -572,6 +582,22 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   }, [state.scriptConfig, state.tamilFontScale, state.tamilFontFamily]);
 
+  const setGeminiApiKey = useCallback((key: string) => {
+      setState(prev => ({ ...prev, geminiApiKey: key }));
+  }, []);
+
+  const setStabilityApiKey = useCallback((key: string) => {
+      setState(prev => ({ ...prev, stabilityApiKey: key }));
+  }, []);
+  
+  const setBreakdownLanguage = useCallback((lang: 'english' | 'tamil') => {
+      setState(prev => ({ ...prev, breakdownLanguage: lang }));
+  }, []);
+
+  const setPdfDropEnabled = useCallback((enabled: boolean) => {
+      setState(prev => ({ ...prev, isPdfDropEnabled: enabled }));
+  }, []);
+
   // --- WRAPPED SETTERS (WITH HISTORY SNAPSHOT) ---
   
   const setBeats = useCallback((beatsOrFn: any) => {
@@ -689,7 +715,9 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
         userDictionary: data.userDictionary || {}, 
         isOsInputMode: data.isOsInputMode || false, 
         osInputShortcut: data.osInputShortcut || 'NumLock', 
-        isStoryboardFeatureEnabled: data.isStoryboardFeatureEnabled || false, 
+        isStoryboardFeatureEnabled: data.isStoryboardFeatureEnabled || false,
+        breakdownLanguage: data.breakdownLanguage || 'english',
+        isPdfDropEnabled: data.isPdfDropEnabled || false,
         writingGoal: { ...INITIAL_STATE.writingGoal, ...data.writingGoal }, 
         dailyStats: data.dailyStats || {}, 
         sessionStartCount: data.sessionStartCount || 0, 
@@ -714,7 +742,9 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
             : INITIAL_STATE.boardLayerOrder,
         tamilFontScale: data.tamilFontScale || INITIAL_STATE.tamilFontScale,
         tamilFontFamily: data.tamilFontFamily || INITIAL_STATE.tamilFontFamily,
-        googleDriveConfig: { ...INITIAL_STATE.googleDriveConfig, ...(data.googleDriveConfig || {}) }
+        googleDriveConfig: { ...INITIAL_STATE.googleDriveConfig, ...(data.googleDriveConfig || {}) },
+        geminiApiKey: data.geminiApiKey || '',
+        stabilityApiKey: data.stabilityApiKey || ''
     };
     
     isJustLoaded.current = true;
@@ -778,6 +808,14 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       setBoardLayerOrder,
       setGoogleDriveConfig, connectToDrive, disconnectFromDrive, backupToDrive, isDriveSyncing, isDriveConnecting,
       
+      // AI Keys
+      setGeminiApiKey,
+      setStabilityApiKey,
+      setBreakdownLanguage,
+      
+      // Features
+      setPdfDropEnabled,
+
       // History Exports
       undo, redo, canUndo: history.past.length > 0, canRedo: history.future.length > 0, captureSnapshot
     }}>

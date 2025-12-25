@@ -79,7 +79,9 @@ export const AVAILABLE_TAMIL_FONTS = [
 export const AVAILABLE_IMAGE_MODELS = [
     { label: 'Gemini 2.5 Flash Image (Fast & Cheap)', value: 'gemini-2.5-flash-image' },
     { label: 'Gemini 3 Pro Image (High Quality)', value: 'gemini-3-pro-image-preview' },
-    { label: 'Imagen 3 (Premium)', value: 'imagen-3.0-generate-002' }
+    { label: 'Imagen 3 (Premium)', value: 'imagen-3.0-generate-002' },
+    { label: 'Stable Diffusion XL (Stability AI)', value: 'stable-diffusion-xl-1024-v1-0' },
+    { label: 'SD 1.6 (Stability AI)', value: 'stable-diffusion-v1-6' }
 ];
 
 export const AVAILABLE_TEXT_MODELS = [
@@ -170,12 +172,15 @@ export const INITIAL_STATE: ProjectState = {
   },
   scriptViewMode: 'continuous', // Default to Continuous
   storyboardConfig: {
+    provider: 'google',
     style: 'Charcoal Sketch',
     aspectRatio: '16:9',
-    imageModel: 'gemini-2.5-flash-image', // Default to fast
-    textModel: 'gemini-3-flash-preview' // Default to fast
+    imageModel: 'gemini-2.5-flash-image', 
+    textModel: 'gemini-3-flash-preview'
   },
   isStoryboardFeatureEnabled: true,
+  breakdownLanguage: 'english',
+  isPdfDropEnabled: false, // Default OFF
   writingGoal: {
     isActive: false,
     mode: 'deadline', // 'deadline' or 'habit'
@@ -194,6 +199,8 @@ export const INITIAL_STATE: ProjectState = {
     autoBackup: false,
     lastBackup: null
   },
+  geminiApiKey: '',
+  stabilityApiKey: '',
   dailyStats: {},
   sessionStartCount: 0,
   lastSessionDate: new Date().toISOString().split('T')[0],
