@@ -228,6 +228,10 @@ export async function analyzeScriptBatch(
        - location: The location name.
        - time: "DAY", "NIGHT", "பகல்", "இரவு" etc.
 
+    CONSISTENCY RULE:
+    - If transliterating Tamil names/places to English, use standard and consistent spelling across all scenes.
+    - Example: 'அற்புதம்' -> 'Arputham', 'ரோசாப்பூ' -> 'Rosappoo'. Do not alternate spellings.
+
     INPUT DATA:
     ${JSON.stringify(simplifiedInput)}
 
@@ -260,6 +264,10 @@ export async function generateShotList(scriptSegment: string, model: string = 'g
     Analyze the following screenplay text.
     Break down the action and dialogue into a visual shot list (Shot Division).
     
+    NAMING CONSISTENCY:
+    - If proper nouns (names/places) are in Tamil, transliterate them to English consistently.
+    - Use 'Arputham' for 'அற்புதம்', 'Rosappoo' for 'ரோசாப்பூ'. Stick to one spelling.
+
     Return ONLY a raw JSON array of objects. Do not wrap in markdown or code blocks.
     Structure:
     [
@@ -301,9 +309,17 @@ export async function generateBreakdown(scriptText: string, model: string = 'gem
     Analyze the following scene text.
     ${langInstruction}
     
+    NAMING CONVENTION (CRITICAL):
+    - Consistency is paramount.
+    - If transliterating Tamil names/places to English, use standard, consistent spelling.
+    - STRICT RULES:
+      - 'அற்புதம்' -> 'Arputham' (Not Arpudham)
+      - 'ரோசாப்பூ' -> 'Rosappoo' (Not Rosapoo or Rosappu)
+    - If a name is repeated, ensure identical spelling.
+    
     Extract items for the following categories.
     For EACH item, provide:
-    1. 'name': The derived list item name (e.g. "Revolver", "Raincoat").
+    1. 'name': The derived list item name (e.g. "Revolver", "Rosappoo").
     2. 'source': The EXACT text snippet from the script that justifies this item.
 
     Categories:

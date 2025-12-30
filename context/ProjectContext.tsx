@@ -26,6 +26,14 @@ const hexToRgba = (hex: string, opacity: number): string => {
     return `rgba(0,0,0,${opacity/100})`;
 };
 
+// Helper to count words in HTML string (Robust)
+const countWords = (html: string) => {
+    // Strip HTML tags, replace &nbsp; and other whitespace chars with standard space
+    const text = html.replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').trim();
+    if (text.length === 0) return 0;
+    return text.split(/\s+/).filter(w => w.length > 0).length;
+};
+
 export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   // Auth State
   const [currentUser, setCurrentUser] = useState<string | null>(localStorage.getItem('currentUser'));
@@ -243,6 +251,43 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       dailyStats, sessionStartCount, lastSessionDate, boardLayerOrder
   ]);
 
+  const downloadProject = useCallback(() => {
+      if (!currentProjectId) return;
+      
+      const projectData: ProjectState = {
+          beats, groups, connections, annotations, characterData, generatedShots, 
+          scratchpad, globalNotes, panX, panY, scale, nextId, nextAnnoId,
+          isTamilMode, tamilFontScale, tamilFontFamily, userDictionary,
+          isOsInputMode, osInputShortcut, scriptConfig, scriptViewMode,
+          scratchpadConfig, storyboardConfig, isStoryboardFeatureEnabled,
+          breakdownLanguage, breakdownLockedOnly, isPdfDropEnabled, isRedoEnabled, 
+          writingGoal, googleDriveConfig, geminiApiKey, stabilityApiKey, 
+          dailyStats, sessionStartCount, lastSessionDate, boardLayerOrder
+      };
+
+      const dataStr = JSON.stringify(projectData, null, 2);
+      const blob = new Blob([dataStr], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      const projectName = projectList.find(p => p.id === currentProjectId)?.name || "Untitled";
+      const safeName = projectName.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+      link.href = url;
+      link.download = `${safeName}_backup_${new Date().toISOString().slice(0,10)}.bst`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      
+      saveProject(); // Ensure state is saved to local storage as well
+  }, [
+      currentProjectId, projectList, beats, groups, connections, annotations, characterData, 
+      generatedShots, scratchpad, globalNotes, panX, panY, scale, nextId, nextAnnoId,
+      isTamilMode, tamilFontScale, tamilFontFamily, userDictionary, isOsInputMode, osInputShortcut,
+      scriptConfig, scriptViewMode, scratchpadConfig, storyboardConfig, isStoryboardFeatureEnabled,
+      breakdownLanguage, breakdownLockedOnly, isPdfDropEnabled, isRedoEnabled, writingGoal, googleDriveConfig, geminiApiKey, stabilityApiKey,
+      dailyStats, sessionStartCount, lastSessionDate, boardLayerOrder, saveProject
+  ]);
+
   const loadProject = (data: ProjectState) => {
       const merged = { ...INITIAL_STATE, ...data };
       
@@ -365,7 +410,30 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   const updateBeat = (id: number, updates: Partial<Beat>) => {
-      setBeats(prev => prev.map(b => b.id === id ? { ...b, ...updates } : b));
+      setBeats(prev => {
+          // Calculate stats update if content changed
+          const target = prev.find(b => b.id === id);
+          let delta = 0;
+          
+          if (target && updates.content !== undefined && updates.content !== target.content) {
+              const oldWords = countWords(target.content);
+              const newWords = countWords(updates.content);
+              delta = newWords - oldWords;
+          }
+          
+          if (delta !== 0) {
+              // Scheduling stats update to avoid side-effect inside reducer
+              setTimeout(() => {
+                  const today = new Date().toISOString().split('T')[0];
+                  setDailyStats(curr => ({
+                      ...curr,
+                      [today]: (curr[today] || 0) + delta
+                  }));
+              }, 0);
+          }
+          
+          return prev.map(b => b.id === id ? { ...b, ...updates } : b);
+      });
       captureSnapshot();
   };
 
@@ -535,6 +603,10 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       :root {
         --sp-h1-color: ${sp.h1Color || '#ffffff'};
         --sp-h2-color: ${sp.h2Color || '#f5a623'};
+        --sp-h1-size: ${sp.h1FontSize}px;
+        --sp-h2-size: ${sp.h2FontSize}px;
+        --sp-bold-color: ${sp.boldColor};
+        --sp-italic-color: ${sp.italicColor};
         --sp-h1-deco: ${sp.h1Underline ? 'underline' : 'none'};
         --sp-h2-deco: ${sp.h2Underline ? 'underline' : 'none'};
         --sp-h1-style: ${sp.h1Italic ? 'italic' : 'normal'};
@@ -547,6 +619,10 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
         --sp-block-margin: ${sp.blockSpacing || 2}px;
         --sp-bullet-char: ${bulletChar};
       }
+      .nl-block strong { color: var(--sp-bold-color); }
+      .nl-block em { color: var(--sp-italic-color); }
+      .nl-h1 { font-size: var(--sp-h1-size) !important; }
+      .nl-h2 { font-size: var(--sp-h2-size) !important; }
     `;
 
     styleTag.innerHTML = `
@@ -612,7 +688,8 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       setPdfDropEnabled, setRedoEnabled,
       setWritingGoal, setGoogleDriveConfig, connectToDrive, disconnectFromDrive, 
       backupToDrive, setGeminiApiKey, setStabilityApiKey, setBoardLayerOrder,
-      undo, redo, canUndo: historyIndexRef.current > 0, canRedo: historyIndexRef.current < historyRef.current.length - 1, captureSnapshot
+      undo, redo, canUndo: historyIndexRef.current > 0, canRedo: historyIndexRef.current < historyRef.current.length - 1, captureSnapshot,
+      downloadProject: downloadProject // Export function
   };
 
   return (

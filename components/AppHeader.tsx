@@ -2,7 +2,7 @@
 import React, { useMemo, useRef } from 'react';
 import { ViewMode } from '../types';
 import { useProject } from '../context/ProjectContext';
-import { Target, Zap, Clock, LogOut, Save, Upload, RotateCcw, RotateCw, Film } from 'lucide-react';
+import { Target, Zap, Clock, LogOut, Save, Upload, RotateCcw, RotateCw, Film, Download } from 'lucide-react';
 
 interface AppHeaderProps {
   currentView: ViewMode;
@@ -12,8 +12,18 @@ interface AppHeaderProps {
 }
 
 const AppHeader: React.FC<AppHeaderProps> = ({ currentView, onViewChange, onRefresh }) => {
-  const { isStoryboardFeatureEnabled, writingGoal, dailyStats, beats, currentUser, saveProject, loadProject, hasUnsavedChanges, undo, redo, canUndo, canRedo, isRedoEnabled } = useProject();
+  const { 
+      isStoryboardFeatureEnabled, writingGoal, dailyStats, beats, currentUser, 
+      saveProject, loadProject, downloadProject, 
+      hasUnsavedChanges, undo, redo, canUndo, canRedo, isRedoEnabled,
+      projectList, currentProjectId
+  } = useProject();
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const activeProjectName = useMemo(() => {
+      const proj = projectList.find(p => p.id === currentProjectId);
+      return proj ? proj.name : 'SEQUENCER';
+  }, [projectList, currentProjectId]);
 
   const views = [
     { id: 'board', label: 'Board' },
@@ -62,12 +72,14 @@ const AppHeader: React.FC<AppHeaderProps> = ({ currentView, onViewChange, onRefr
               icon: Zap
           };
       } else {
-          // Deadline Mode
+          // Deadline Mode - Calculate Total Words from Script
           let totalWords = 0;
           beats.forEach(b => {
-              const div = document.createElement('div');
-              div.innerHTML = b.content;
-              totalWords += (div.textContent || '').trim().split(/\s+/).length;
+              // Strip tags and replace with space to ensure word separation
+              const text = b.content.replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').trim();
+              if (text.length > 0) {
+                  totalWords += text.split(/\s+/).filter(w => w.length > 0).length;
+              }
           });
           
           const current = writingGoal.type === 'pages' ? Math.ceil(totalWords / 250) : totalWords;
@@ -102,8 +114,8 @@ const AppHeader: React.FC<AppHeaderProps> = ({ currentView, onViewChange, onRefr
                   <span className="text-[13px] font-black tracking-tight text-white uppercase leading-none group-hover:text-[#f5a623] transition-colors duration-300">
                       Backstage
                   </span>
-                  <span className="text-[7px] font-bold tracking-[0.35em] text-[#555] uppercase leading-none mt-0.5 group-hover:text-white transition-colors duration-300 ml-[1px]">
-                      Sequencer
+                  <span className="text-[7px] font-bold tracking-[0.2em] text-[#555] uppercase leading-none mt-0.5 group-hover:text-white transition-colors duration-300 ml-[1px] truncate max-w-[120px]">
+                      {activeProjectName}
                   </span>
               </div>
           </div>
@@ -143,11 +155,19 @@ const AppHeader: React.FC<AppHeaderProps> = ({ currentView, onViewChange, onRefr
               <input type="file" ref={fileInputRef} className="hidden" accept=".json,.bst" onChange={handleFileLoad} />
 
               <button 
+                  onClick={downloadProject}
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-sm hover:bg-[#222] text-[#666] hover:text-white transition-colors"
+                  title="Download Project File (.bst)"
+              >
+                  <Download size={14} />
+              </button>
+
+              <button 
                   onClick={saveProject}
                   className={`flex items-center gap-2 px-3 py-1.5 rounded-sm transition-all duration-300 ${hasUnsavedChanges 
                       ? 'bg-[#f5a623]/10 text-[#f5a623] border border-[#f5a623]/50 shadow-[0_0_10px_rgba(245,166,35,0.2)] animate-pulse' 
                       : 'hover:bg-[#222] text-[#666] hover:text-white border border-transparent'}`}
-                  title={hasUnsavedChanges ? "Unsaved Changes!" : "Save Project"}
+                  title={hasUnsavedChanges ? "Unsaved Changes!" : "Quick Save (Local)"}
               >
                   <Save size={14} className={hasUnsavedChanges ? "animate-bounce" : ""} />
               </button>
@@ -218,8 +238,8 @@ const AppHeader: React.FC<AppHeaderProps> = ({ currentView, onViewChange, onRefr
                  </>
              ) : (
                  <>
-                    <Target size={14} />
-                    <span className="text-[11px] font-bold uppercase tracking-wide">Set Goal</span>
+                    <Clock size={14} />
+                    <span className="text-[11px] font-bold uppercase tracking-wide">Set Deadline</span>
                  </>
              )}
           </button>

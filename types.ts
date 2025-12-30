@@ -1,4 +1,5 @@
 
+
 export interface Slugline {
   prefix: string;
   location: string;
@@ -152,6 +153,7 @@ export interface CharacterRelationship {
 
 export interface CharacterData {
   name: string;
+  aliases: string[]; // Alternate names for detection (e.g. Tamil spelling, Nicknames)
   physiology: string;
   sociology: string;
   psychology: string;
@@ -269,6 +271,12 @@ export interface ScratchpadConfig {
   h2Underline: boolean;
   h1Italic: boolean;
   h2Italic: boolean;
+  
+  // New Sizing & Style
+  h1FontSize: number; // px
+  h2FontSize: number; // px
+  boldColor: string;
+  italicColor: string;
   
   // Bullets & Lists
   listMarkerColor: string; 
@@ -458,6 +466,8 @@ export interface ProjectContextType extends ProjectState {
 
   loadProject: (data: ProjectState) => void;
   saveProject: () => void;
+  downloadProject: () => void;
+  
   // Tamil Utils
   setTamilMode: (enabled: boolean) => void;
   setTamilFontScale: (scale: number) => void;

@@ -152,6 +152,48 @@ export const createDriveFile = async (fileName: string, content: string): Promis
   }
 };
 
+// Create a new Google Sheet from CSV content
+export const createGoogleSheet = async (fileName: string, csvContent: string): Promise<string> => {
+  try {
+    const fileMetadata = {
+      'name': fileName,
+      'mimeType': 'application/vnd.google-apps.spreadsheet' // Convert to Sheets
+    };
+    
+    const boundary = '-------314159265358979323846';
+    const delimiter = "\r\n--" + boundary + "\r\n";
+    const close_delim = "\r\n--" + boundary + "--";
+
+    const contentType = 'text/csv';
+    
+    // Multipart body: Metadata + CSV Payload
+    const multipartRequestBody =
+        delimiter +
+        'Content-Type: application/json\r\n\r\n' +
+        JSON.stringify(fileMetadata) +
+        delimiter +
+        'Content-Type: ' + contentType + '\r\n\r\n' +
+        csvContent +
+        close_delim;
+
+    const request = window.gapi.client.request({
+        'path': '/upload/drive/v3/files',
+        'method': 'POST',
+        'params': {'uploadType': 'multipart'},
+        'headers': {
+          'Content-Type': 'multipart/related; boundary="' + boundary + '"'
+        },
+        'body': multipartRequestBody
+    });
+
+    const response = await request;
+    return response.result.id;
+  } catch (error) {
+    console.error("Error creating sheet", error);
+    throw error;
+  }
+};
+
 // Update existing file on Drive
 export const updateDriveFile = async (fileId: string, content: string) => {
   try {
@@ -197,4 +239,11 @@ export const findDriveFile = async (fileName: string): Promise<string | null> =>
     });
     const files = response.result.files;
     if (files && files.length > 0) {
-      return files
+      return files[0].id;
+    }
+    return null;
+  } catch (error) {
+    console.error("Error finding file", error);
+    return null; // Don't throw, just assume not found or auth error handling elsewhere
+  }
+};

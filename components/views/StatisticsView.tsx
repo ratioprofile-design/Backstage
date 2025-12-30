@@ -8,15 +8,15 @@ import {
 import { 
     Activity, TrendingUp, Flame, Calendar, Clock, 
     Layers, MousePointer2, FileText,
-    LayoutGrid, PenTool, Lock, BookOpen, CheckCircle2
+    LayoutGrid, PenTool, Lock, BookOpen,
+    ToggleLeft, ToggleRight
 } from 'lucide-react';
 
 // --- CONSTANTS ---
 const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 // --- TYPES ---
-type MetricType = 'writing' | 'features' | 'combined';
+type MetricType = 'writing' | 'features';
 
 // --- COMPONENTS ---
 
@@ -38,7 +38,7 @@ const StatCard = ({ label, value, sub, icon: Icon, colorClass, borderClass }: an
     </div>
 );
 
-// GitHub-Style Continuous Heatmap
+// Standard Block Heatmap (GitHub/Zerodha Style)
 const ContributionGraph = ({ data, type }: { data: any[], type: MetricType }) => {
     const { weeks } = useMemo(() => {
         const today = new Date();
@@ -46,6 +46,7 @@ const ContributionGraph = ({ data, type }: { data: any[], type: MetricType }) =>
         const startDate = new Date(today);
         startDate.setDate(today.getDate() - 365);
         
+        // Align start date to the previous Sunday for proper column alignment
         const dayOfWeek = startDate.getDay(); 
         startDate.setDate(startDate.getDate() - dayOfWeek);
 
@@ -53,128 +54,173 @@ const ContributionGraph = ({ data, type }: { data: any[], type: MetricType }) =>
         let currentWeek: any[] = [];
         let currentDate = new Date(startDate);
 
-        while (currentDate <= endDate || currentWeek.length > 0) {
+        while (currentDate <= endDate) {
             const dateStr = currentDate.toISOString().split('T')[0];
             const entry = data.find(d => d.date === dateStr);
-            
-            let val = 0;
-            if (type === 'writing') val = entry?.words || 0;
-            else if (type === 'features') val = entry?.features || 0;
-            else val = (entry?.words || 0) + ((entry?.features || 0) * 10); 
+            const val = type === 'writing' ? (entry?.words || 0) : (entry?.features || 0);
+
+            // Level 0-4 Intensity
+            let level = 0;
+            if (val > 0) {
+                const max = type === 'writing' ? 1500 : 30;
+                level = Math.min(4, Math.ceil((val / max) * 4));
+            }
 
             currentWeek.push({
                 date: dateStr,
                 value: val,
-                month: currentDate.getMonth(),
+                level,
                 dayOfMonth: currentDate.getDate(),
-                year: currentDate.getFullYear()
+                monthIndex: currentDate.getMonth()
             });
 
             if (currentWeek.length === 7) {
                 weeksArr.push(currentWeek);
                 currentWeek = [];
-                if (currentDate > endDate) break; 
             }
             currentDate.setDate(currentDate.getDate() + 1);
+        }
+        
+        // Push trailing partial week if exists
+        if (currentWeek.length > 0) {
+            weeksArr.push(currentWeek);
         }
         
         return { weeks: weeksArr };
     }, [data, type]);
 
-    const getColor = (val: number) => {
-        if (val === 0) return 'bg-zinc-800/50'; 
-        const limit = type === 'features' ? 50 : 2000;
-        const ratio = Math.min(1, val / limit);
-        
+    const getBgColor = (level: number) => {
         if (type === 'writing') {
-            if (ratio < 0.25) return 'bg-orange-900/60';
-            if (ratio < 0.5) return 'bg-orange-700';
-            if (ratio < 0.75) return 'bg-orange-600';
-            return 'bg-[#f5a623]';
-        } else if (type === 'features') {
-            if (ratio < 0.25) return 'bg-blue-900/60';
-            if (ratio < 0.5) return 'bg-blue-700';
-            if (ratio < 0.75) return 'bg-blue-600';
-            return 'bg-blue-500';
+            switch(level) {
+                case 0: return 'bg-zinc-800/40';
+                case 1: return 'bg-orange-900/60';
+                case 2: return 'bg-orange-700/80';
+                case 3: return 'bg-orange-600';
+                case 4: return 'bg-[#f5a623]';
+                default: return 'bg-zinc-800/40';
+            }
         } else {
-            if (ratio < 0.25) return 'bg-purple-900/60';
-            if (ratio < 0.5) return 'bg-purple-700';
-            if (ratio < 0.75) return 'bg-purple-600';
-            return 'bg-purple-500';
+            switch(level) {
+                case 0: return 'bg-zinc-800/40';
+                case 1: return 'bg-blue-900/60';
+                case 2: return 'bg-blue-800/80';
+                case 3: return 'bg-blue-600';
+                case 4: return 'bg-[#3b82f6]';
+                default: return 'bg-zinc-800/40';
+            }
         }
     };
 
     return (
-        <div className="w-full overflow-x-auto custom-scrollbar pb-1">
-            <div className="flex gap-[2px] min-w-max">
-                <div className="flex flex-col gap-[2px] mr-2 pt-4 pb-0 justify-between h-[86px]">
-                    <div className="text-[8px] font-mono text-zinc-600 h-[10px] leading-[10px]">Mon</div>
-                    <div className="text-[8px] font-mono text-zinc-600 h-[10px] leading-[10px]">Wed</div>
-                    <div className="text-[8px] font-mono text-zinc-600 h-[10px] leading-[10px]">Fri</div>
-                </div>
-                {weeks.map((week, wIdx) => {
-                    const firstDay = week[0];
-                    const showLabel = firstDay.dayOfMonth <= 7;
-                    return (
-                        <div key={wIdx} className="flex flex-col gap-[2px]">
-                            <div className="h-3 relative">
-                                {showLabel && (
-                                    <span className="absolute top-0 left-0 text-[8px] font-bold text-zinc-500 uppercase">
-                                        {MONTH_NAMES[firstDay.month]}
-                                    </span>
-                                )}
-                            </div>
-                            {week.map((day: any, dIdx: number) => (
-                                <div 
-                                    key={dIdx}
-                                    className={`w-[10px] h-[10px] rounded-[1px] transition-colors ${getColor(day.value)}`}
-                                    title={`${new Date(day.date).toDateString()}: ${day.value}`}
-                                />
-                            ))}
+        <div className="w-full flex justify-center custom-scrollbar pb-4 overflow-x-auto">
+            <div className="flex min-w-max pt-6">
+                
+                {/* Y-Axis Labels (Sun, Tue, Thu, Sat) aligned with grid rows */}
+                <div className="flex flex-col gap-1 mr-3 mt-5"> 
+                    {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day, i) => (
+                        <div key={i} className="h-2.5 flex items-center justify-end text-[9px] text-zinc-600 font-mono leading-none">
+                            {(i === 0 || i === 2 || i === 4 || i === 6) ? day : ''}
                         </div>
-                    );
-                })}
+                    ))}
+                </div>
+                
+                {/* Heatmap Grid */}
+                <div className="flex">
+                    {weeks.map((week, wIdx) => {
+                        // Determine if this week starts a new month visually
+                        // We check if the 1st of the month falls within this week
+                        const firstOfMonthDay = week.find(d => d.dayOfMonth === 1);
+                        const monthLabel = firstOfMonthDay ? MONTH_NAMES[firstOfMonthDay.monthIndex] : null;
+                        
+                        // Add separation gap if it's a new month (unless it's the very first column)
+                        const separationClass = (monthLabel && wIdx > 0) ? 'ml-4' : 'ml-1';
+
+                        return (
+                            <div key={wIdx} className={`flex flex-col gap-1 relative ${separationClass}`}>
+                                {/* Floating Month Label */}
+                                <div className="h-4 relative mb-1">
+                                    {monthLabel && (
+                                        <span className="absolute bottom-0 left-0 text-[10px] font-bold text-zinc-500 uppercase tracking-wider z-10">
+                                            {monthLabel}
+                                        </span>
+                                    )}
+                                </div>
+                                
+                                {/* Day Squares */}
+                                {week.map((day: any, dIdx: number) => (
+                                    <div 
+                                        key={dIdx}
+                                        className={`w-2.5 h-2.5 rounded-[2px] transition-all hover:scale-125 hover:z-20 hover:ring-1 hover:ring-white/50 relative cursor-pointer ${getBgColor(day.level)}`}
+                                        title={`${day.date}: ${day.value} ${type === 'writing' ? 'words' : 'actions'}`}
+                                    />
+                                ))}
+                            </div>
+                        );
+                    })}
+                </div>
             </div>
         </div>
     );
 };
 
+// Hourly Block Grid (Expanded)
 const CircadianHeatmap = ({ grid, type }: { grid: number[][], type: MetricType }) => {
     const maxVal = Math.max(...grid.flat());
+    const DAYS = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
     
     return (
-        <div className="flex flex-col gap-[2px] w-full h-full">
-            <div className="flex pl-8 mb-1">
-                {[0, 6, 12, 18, 23].map(h => (
-                    <div key={h} className="flex-1 text-[8px] text-zinc-600 font-mono text-center" style={{ flexGrow: h === 23 ? 0 : 1 }}>
-                        {h}:00
+        <div className="w-full h-full flex flex-col pt-2">
+            {/* Header (Hours) */}
+            <div className="flex mb-2 pl-10 border-b border-zinc-800 pb-2">
+                {Array.from({length: 12}).map((_, i) => {
+                    const hour = i * 2;
+                    return (
+                        <div key={i} className="flex-1 text-[9px] text-zinc-500 font-mono text-center border-l border-zinc-800/50 first:border-l-0">
+                            {hour === 0 ? '12A' : hour === 12 ? '12P' : hour > 12 ? (hour-12) + 'P' : hour + 'A'}
+                        </div>
+                    );
+                })}
+            </div>
+
+            {/* Rows */}
+            <div className="flex-1 flex flex-col justify-between gap-1">
+                {grid.map((row, dayIdx) => (
+                    <div key={dayIdx} className="flex items-center gap-3 h-full">
+                        <span className="w-8 text-[9px] font-bold text-zinc-500 uppercase text-right shrink-0 tracking-wider">
+                            {DAYS[dayIdx]}
+                        </span>
+                        <div className="flex-1 flex gap-1 h-full">
+                            {row.map((val, hourIdx) => {
+                                // Intensity 0-1
+                                const ratio = maxVal > 0 ? val / maxVal : 0;
+                                let bgClass = 'bg-zinc-800/30';
+                                
+                                if (ratio > 0) {
+                                    if (type === 'writing') {
+                                        if (ratio < 0.25) bgClass = 'bg-orange-900/30';
+                                        else if (ratio < 0.5) bgClass = 'bg-orange-800/60';
+                                        else if (ratio < 0.75) bgClass = 'bg-orange-600';
+                                        else bgClass = 'bg-[#f5a623]';
+                                    } else {
+                                        if (ratio < 0.25) bgClass = 'bg-blue-900/30';
+                                        else if (ratio < 0.5) bgClass = 'bg-blue-800/60';
+                                        else if (ratio < 0.75) bgClass = 'bg-blue-600';
+                                        else bgClass = 'bg-[#3b82f6]';
+                                    }
+                                }
+
+                                return (
+                                    <div 
+                                        key={hourIdx} 
+                                        className={`flex-1 min-h-[24px] rounded-[2px] transition-all hover:scale-x-110 hover:z-10 ${bgClass} ${val > 0 ? 'hover:brightness-125 cursor-help' : ''}`}
+                                        title={val > 0 ? `${hourIdx}:00 - Activity: ${Math.round(ratio * 100)}%` : undefined}
+                                    />
+                                );
+                            })}
+                        </div>
                     </div>
                 ))}
             </div>
-            {grid.map((row, dayIdx) => (
-                <div key={dayIdx} className="flex items-center gap-2 h-5">
-                    <span className="w-6 text-[8px] font-bold text-zinc-500 uppercase text-right">{DAY_LABELS[dayIdx].substring(0,3)}</span>
-                    <div className="flex-1 flex gap-[1px] h-full">
-                        {row.map((val, hourIdx) => {
-                            const intensity = maxVal > 0 ? val / maxVal : 0;
-                            let bg = 'bg-zinc-800/30';
-                            if (val > 0) {
-                                if (type === 'writing') bg = `bg-orange-500`;
-                                else if (type === 'features') bg = `bg-blue-500`;
-                                else bg = `bg-purple-500`;
-                            }
-                            return (
-                                <div 
-                                    key={hourIdx} 
-                                    className={`flex-1 rounded-[1px] ${bg}`}
-                                    style={{ opacity: val > 0 ? 0.3 + (intensity * 0.7) : 1 }}
-                                    title={`${DAY_LABELS[dayIdx]} @ ${hourIdx}:00 - ${val} activity`}
-                                />
-                            );
-                        })}
-                    </div>
-                </div>
-            ))}
         </div>
     );
 };
@@ -182,6 +228,7 @@ const CircadianHeatmap = ({ grid, type }: { grid: number[][], type: MetricType }
 const StatisticsView: React.FC = () => {
   const { dailyStats, beats } = useProject();
   const [metricScope, setMetricScope] = useState<MetricType>('writing');
+  const [showDemoData, setShowDemoData] = useState(false);
 
   // --- ANALYTICS ENGINE ---
   const analytics = useMemo(() => {
@@ -197,58 +244,92 @@ const StatisticsView: React.FC = () => {
           if (b.status === 'ready') lockedSceneCount++;
       });
 
-      const currentTotalPages = Math.ceil(currentTotalWords / 250); // Standard Industry Est.
+      const currentTotalPages = Math.ceil(currentTotalWords / 250);
 
-      // 2. Historical Data (From DailyStats - Velocity)
-      const dates = Object.keys(dailyStats).sort();
+      // 2. Data Source (Real vs Demo)
+      const dataToUse = showDemoData 
+        ? generateHumanLikeData() 
+        : Object.entries(dailyStats).map(([date, words]) => ({ date, words }));
+
+      // Sort Date
+      dataToUse.sort((a,b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+      // 3. Historical Data Processing
       const today = new Date();
-      let startDate = new Date(today);
-      if (dates.length > 0) {
-          const firstLog = new Date(dates[0]);
-          const yearAgo = new Date(today);
-          yearAgo.setDate(today.getDate() - 365);
-          startDate = firstLog < yearAgo ? firstLog : yearAgo;
-      } else {
-          startDate.setDate(today.getDate() - 365);
-      }
+      const endDate = new Date(today);
+      const startDate = new Date(today);
+      startDate.setDate(today.getDate() - 365);
 
       const fullHistory = [];
-      const circadianWriting = Array(7).fill(null).map(() => Array(24).fill(0));
-      const circadianFeatures = Array(7).fill(null).map(() => Array(24).fill(0));
+      // 7 days x 24 hours grid
+      const circadianData = Array(7).fill(null).map(() => Array(24).fill(0));
       
       let historicalTotalWords = 0;
       let totalFeatures = 0;
 
-      for (let d = new Date(startDate); d <= today; d.setDate(d.getDate() + 1)) {
+      // Map existing data for O(1) lookup
+      const dataMap = new Map(dataToUse.map(d => [d.date, d.words]));
+
+      // Iterate last 365 days
+      for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
           const dateStr = d.toISOString().split('T')[0];
-          const words = dailyStats[dateStr] || 0;
-          const dayOfWeek = d.getDay();
+          const dayOfWeek = d.getDay(); // 0 = Sun
           
+          let words = dataMap.get(dateStr) || 0;
           let features = 0;
+
+          // If Demo Mode, generate feature noise linked to words
+          if (showDemoData && words > 0) {
+              features = Math.floor(words / 50) + Math.floor(Math.random() * 10);
+          }
+
+          // Generate Circadian Distribution
           if (words > 0) {
-              features = Math.ceil(words / 100) + Math.floor(Math.random() * 5);
-              const peakHour = 20; 
-              circadianWriting[dayOfWeek][peakHour] += words * 0.4;
-              circadianWriting[dayOfWeek][(peakHour - 1) % 24] += words * 0.3;
-              circadianWriting[dayOfWeek][(peakHour + 1) % 24] += words * 0.3;
-          } else if (Math.random() > 0.8) {
-              features = Math.floor(Math.random() * 10);
-              const randomHour = Math.floor(Math.random() * 12) + 10;
-              circadianFeatures[dayOfWeek][randomHour] += features;
+              // Simulate "Evening Writer" vs "Weekend Warrior"
+              // Weekdays: 7PM - 11PM heavy
+              // Weekends: 10AM - 4PM heavy
+              const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+              
+              for (let h = 0; h < 24; h++) {
+                  let prob = 0;
+                  if (isWeekend) {
+                      // Weekend Bell Curve around 1 PM (13:00)
+                      if (h >= 9 && h <= 17) prob = 0.8;
+                      else if (h >= 18 && h <= 23) prob = 0.3;
+                  } else {
+                      // Weekday Evening Burst
+                      if (h >= 19 && h <= 23) prob = 0.9;
+                      else if (h >= 7 && h <= 8) prob = 0.4; // Quick morning session
+                  }
+                  
+                  // Add randomness
+                  if (Math.random() < prob) {
+                      circadianData[dayOfWeek][h] += (words / 10); // Distribute value
+                  }
+              }
           }
 
           fullHistory.push({
               date: dateStr,
-              words,
-              features,
-              combined: words + (features * 10)
+              words: words,
+              features: features
           });
 
           historicalTotalWords += words;
           totalFeatures += features;
       }
 
-      // 3. Velocity Logic
+      // 4. Velocity (Moving Average)
+      // Calculate 7-day moving average for smoother chart
+      const smoothedHistory = fullHistory.map((day, idx, arr) => {
+          const start = Math.max(0, idx - 6);
+          const subset = arr.slice(start, idx + 1);
+          const avgWords = subset.reduce((acc, curr) => acc + curr.words, 0) / subset.length;
+          const avgFeat = subset.reduce((acc, curr) => acc + curr.features, 0) / subset.length;
+          return { ...day, words: Math.round(avgWords), features: Math.round(avgFeat), rawWords: day.words };
+      });
+
+      // 5. Velocity KPI
       const last30 = fullHistory.slice(-30);
       const avgVelocity = Math.round(last30.reduce((acc, curr) => acc + curr.words, 0) / 30);
 
@@ -257,19 +338,18 @@ const StatisticsView: React.FC = () => {
           currentTotalPages,
           lockedSceneCount,
           totalScenes: beats.length,
-          fullHistory,
-          circadianWriting,
-          circadianFeatures,
+          fullHistory: smoothedHistory,
+          circadianData,
           avgVelocity,
           totalFeatures
       };
-  }, [dailyStats, beats]);
+  }, [dailyStats, beats, showDemoData]);
 
   return (
-    <div className="w-full h-full bg-zinc-950 text-zinc-300 font-sans overflow-y-auto custom-scrollbar">
+    <div className="w-full h-full bg-[#050505] text-zinc-300 font-sans overflow-y-auto custom-scrollbar">
         
         {/* --- HEADER --- */}
-        <div className="px-8 py-6 flex flex-col md:flex-row md:items-end justify-between gap-4 border-b border-zinc-900 bg-zinc-950/90 backdrop-blur-sm sticky top-0 z-20">
+        <div className="px-8 py-6 flex flex-col md:flex-row md:items-end justify-between gap-4 border-b border-zinc-900 bg-[#050505]/90 backdrop-blur-sm sticky top-0 z-20">
             <div>
                 <h1 className="text-2xl font-black text-zinc-100 uppercase tracking-tight flex items-center gap-3">
                     <Activity className="text-[#f5a623]" size={24} />
@@ -280,21 +360,28 @@ const StatisticsView: React.FC = () => {
                 </p>
             </div>
             
-            {/* Toggles */}
-            <div className="bg-zinc-900 p-0.5 rounded-lg flex items-center border border-zinc-800">
-                <button onClick={() => setMetricScope('writing')} className={`px-3 py-1.5 rounded-md text-[10px] font-bold uppercase transition-all flex items-center gap-2 ${metricScope === 'writing' ? 'bg-[#f5a623] text-black shadow-lg' : 'text-zinc-500 hover:text-white'}`}>
-                    <PenTool size={12} /> Writing
-                </button>
-                <button onClick={() => setMetricScope('features')} className={`px-3 py-1.5 rounded-md text-[10px] font-bold uppercase transition-all flex items-center gap-2 ${metricScope === 'features' ? 'bg-blue-500 text-white shadow-lg' : 'text-zinc-500 hover:text-white'}`}>
-                    <LayoutGrid size={12} /> System
-                </button>
-                <button onClick={() => setMetricScope('combined')} className={`px-3 py-1.5 rounded-md text-[10px] font-bold uppercase transition-all flex items-center gap-2 ${metricScope === 'combined' ? 'bg-purple-500 text-white shadow-lg' : 'text-zinc-500 hover:text-white'}`}>
-                    <Layers size={12} /> All
-                </button>
+            <div className="flex items-center gap-4">
+                {/* Demo Data Toggle */}
+                <div className="flex items-center gap-2 mr-4 bg-zinc-900 rounded-full px-3 py-1 border border-zinc-800">
+                    <span className="text-[10px] font-bold text-zinc-500 uppercase">Demo Data</span>
+                    <button onClick={() => setShowDemoData(!showDemoData)} className={`transition-colors ${showDemoData ? 'text-[#f5a623]' : 'text-zinc-600'}`}>
+                        {showDemoData ? <ToggleRight size={20} /> : <ToggleLeft size={20} />}
+                    </button>
+                </div>
+
+                {/* Scope Toggles */}
+                <div className="bg-zinc-900 p-0.5 rounded-lg flex items-center border border-zinc-800">
+                    <button onClick={() => setMetricScope('writing')} className={`px-3 py-1.5 rounded-md text-[10px] font-bold uppercase transition-all flex items-center gap-2 ${metricScope === 'writing' ? 'bg-[#f5a623] text-black shadow-lg' : 'text-zinc-500 hover:text-white'}`}>
+                        <PenTool size={12} /> Writing
+                    </button>
+                    <button onClick={() => setMetricScope('features')} className={`px-3 py-1.5 rounded-md text-[10px] font-bold uppercase transition-all flex items-center gap-2 ${metricScope === 'features' ? 'bg-blue-500 text-white shadow-lg' : 'text-zinc-500 hover:text-white'}`}>
+                        <LayoutGrid size={12} /> System
+                    </button>
+                </div>
             </div>
         </div>
 
-        <div className="px-8 py-8 space-y-6 max-w-[1920px] mx-auto">
+        <div className="px-8 py-8 space-y-6 max-w-[1920px] mx-auto pb-24">
             
             {/* --- 1. COMPACT KPI GRID --- */}
             <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
@@ -337,38 +424,44 @@ const StatisticsView: React.FC = () => {
                 />
                 <StatCard 
                     label="Active Days" 
-                    value={Object.keys(dailyStats).length} 
+                    value={Object.keys(dailyStats).length + (showDemoData ? 142 : 0)} 
                     sub="Sessions Logged"
                     icon={Flame} 
                     colorClass="text-red-500"
                 />
             </div>
 
-            {/* --- 2. ANNUAL HEATMAP --- */}
-            <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-5 shadow-sm">
-                <div className="flex items-center justify-between mb-4">
+            {/* --- 2. ANNUAL HEATMAP (FULL WIDTH) --- */}
+            <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-6 shadow-sm flex flex-col relative overflow-hidden min-h-[240px]">
+                <div className="flex items-center justify-between mb-4 z-10 relative">
                     <h2 className="text-xs font-bold text-zinc-400 uppercase tracking-widest flex items-center gap-2">
                         <Calendar size={14} className="text-zinc-500" /> 
-                        Activity Matrix (365 Days)
+                        Annual Contribution (365 Days)
                     </h2>
-                    <div className="text-[10px] text-zinc-600 font-mono flex items-center gap-2">
-                        <span className={`w-2 h-2 rounded-full ${metricScope === 'writing' ? 'bg-[#f5a623]' : (metricScope === 'features' ? 'bg-blue-500' : 'bg-purple-500')}`}></span>
-                        {metricScope === 'writing' ? 'Words' : (metricScope === 'features' ? 'Actions' : 'Combined')}
+                    <div className="text-[10px] text-zinc-600 font-mono flex items-center gap-2 ml-2">
+                        <span className={`w-2 h-2 rounded-full ${metricScope === 'writing' ? 'bg-[#f5a623]' : 'bg-blue-500'}`}></span>
+                        {metricScope === 'writing' ? 'Words' : 'Actions'}
                     </div>
                 </div>
-                <ContributionGraph data={analytics.fullHistory} type={metricScope} />
+                <div className="flex-1 flex items-center justify-center bg-black/20 rounded-md border border-zinc-800/50 p-4 relative z-10">
+                    <ContributionGraph data={analytics.fullHistory} type={metricScope} />
+                </div>
             </div>
 
-            {/* --- 3. CHARTS GRID (Optimized Height) --- */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* --- 3. BOTTOM GRID: VELOCITY + CIRCADIAN --- */}
+            <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 h-[400px]">
                 
-                {/* LINE CHART */}
-                <div className="lg:col-span-2 bg-zinc-900 border border-zinc-800 rounded-lg p-5 shadow-sm flex flex-col h-80">
+                {/* HISTORICAL VELOCITY (2/3 Width) */}
+                <div className="xl:col-span-2 bg-zinc-900 border border-zinc-800 rounded-lg p-5 shadow-sm flex flex-col h-full">
                     <div className="flex items-center justify-between mb-2">
                         <h2 className="text-xs font-bold text-zinc-400 uppercase tracking-widest flex items-center gap-2">
                             <Activity size={14} className="text-zinc-500" /> 
-                            Historical Velocity
+                            Production Velocity (7-Day Avg)
                         </h2>
+                        <div className="flex gap-4 text-[10px] uppercase font-bold text-zinc-500">
+                            <div className="flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-[#f5a623]"></div> Words</div>
+                            <div className="flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-blue-500"></div> Actions</div>
+                        </div>
                     </div>
                     <div className="flex-1 w-full min-h-0 text-[10px]">
                         <ResponsiveContainer width="100%" height="100%">
@@ -383,10 +476,10 @@ const StatisticsView: React.FC = () => {
                                         <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
                                     </linearGradient>
                                 </defs>
-                                <CartesianGrid strokeDasharray="3 3" stroke="#333" vertical={false} />
+                                <CartesianGrid strokeDasharray="3 3" stroke="#222" vertical={false} />
                                 <XAxis 
                                     dataKey="date" 
-                                    stroke="#555" 
+                                    stroke="#444" 
                                     tick={{fontSize: 9, fill: '#71717a'}} 
                                     axisLine={false} 
                                     tickLine={false} 
@@ -397,37 +490,33 @@ const StatisticsView: React.FC = () => {
                                         return `${d.getMonth()+1}/${d.getDate()}`;
                                     }}
                                 />
-                                <YAxis yAxisId="left" stroke="#555" tick={{fontSize: 9, fill: '#71717a'}} axisLine={false} tickLine={false} />
-                                <YAxis yAxisId="right" orientation="right" stroke="#555" tick={{fontSize: 9, fill: '#71717a'}} axisLine={false} tickLine={false} />
+                                <YAxis yAxisId="left" stroke="#444" tick={{fontSize: 9, fill: '#71717a'}} axisLine={false} tickLine={false} />
+                                <YAxis yAxisId="right" orientation="right" stroke="#444" tick={{fontSize: 9, fill: '#71717a'}} axisLine={false} tickLine={false} />
                                 <Tooltip 
                                     contentStyle={{backgroundColor: '#18181b', borderColor: '#333', borderRadius: '4px', color: '#fff', fontSize: '11px'}}
                                     itemStyle={{fontWeight: 'bold'}}
                                     labelStyle={{color: '#a1a1aa', marginBottom: '2px'}}
                                 />
-                                <Area yAxisId="left" type="monotone" dataKey="words" stroke="#f5a623" strokeWidth={1.5} fill="url(#colorWords)" activeDot={{r: 4, strokeWidth: 0}} />
-                                <Area yAxisId="right" type="monotone" dataKey="features" stroke="#3b82f6" strokeWidth={1.5} fill="url(#colorFeat)" activeDot={{r: 4, strokeWidth: 0}} />
+                                <Area yAxisId="left" type="monotone" dataKey="words" stroke="#f5a623" strokeWidth={2} fill="url(#colorWords)" activeDot={{r: 4, strokeWidth: 0, fill:'#fff'}} />
+                                <Area yAxisId="right" type="monotone" dataKey="features" stroke="#3b82f6" strokeWidth={2} fill="url(#colorFeat)" activeDot={{r: 4, strokeWidth: 0, fill:'#fff'}} />
                             </ComposedChart>
                         </ResponsiveContainer>
                     </div>
                 </div>
 
-                {/* CIRCADIAN RHYTHM */}
-                <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-5 shadow-sm flex flex-col h-80">
-                    <div className="flex items-center justify-between mb-4">
+                {/* CIRCADIAN RHYTHM (Larger, 1/3 Width) */}
+                <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-5 shadow-sm flex flex-col h-full overflow-hidden">
+                    <div className="flex items-center justify-between mb-4 shrink-0">
                         <h2 className="text-xs font-bold text-zinc-400 uppercase tracking-widest flex items-center gap-2">
                             <Clock size={14} className="text-zinc-500" /> 
-                            Peak Hours
+                            Session Pattern
                         </h2>
                     </div>
-                    <div className="flex-1">
+                    <div className="flex-1 flex flex-col bg-black/20 rounded-md border border-zinc-800/50 p-2 relative overflow-hidden">
                         <CircadianHeatmap 
-                            grid={metricScope === 'features' ? analytics.circadianFeatures : analytics.circadianWriting} 
+                            grid={analytics.circadianData} 
                             type={metricScope}
                         />
-                    </div>
-                    <div className="mt-2 pt-2 border-t border-zinc-800 text-[9px] text-zinc-600 font-mono flex justify-between">
-                        <span>High Activity</span>
-                        <span>Low Activity</span>
                     </div>
                 </div>
 
@@ -437,5 +526,63 @@ const StatisticsView: React.FC = () => {
     </div>
   );
 };
+
+// --- DEMO DATA GENERATOR ---
+function generateHumanLikeData() {
+    const data = [];
+    const now = new Date();
+    // 365 days ago
+    const start = new Date(now);
+    start.setDate(now.getDate() - 365);
+
+    let projectPhase = 'dormant'; 
+    let momentum = 0;
+
+    for (let d = new Date(start); d <= now; d.setDate(d.getDate() + 1)) {
+        const dateStr = d.toISOString().split('T')[0];
+        
+        // Randomly switch phases occasionally
+        if (Math.random() < 0.05) {
+            const r = Math.random();
+            if (r < 0.3) projectPhase = 'dormant';
+            else if (r < 0.7) projectPhase = 'steady';
+            else projectPhase = 'crunch';
+        }
+
+        let baseWords = 0;
+        if (projectPhase === 'steady') baseWords = 500;
+        if (projectPhase === 'crunch') baseWords = 2000;
+
+        // Apply Momentum (Streaks)
+        if (baseWords > 0) {
+            momentum += Math.random() * 0.2;
+            if (momentum > 1.5) momentum = 1.5;
+        } else {
+            momentum *= 0.8;
+        }
+
+        // Calculate Daily Output
+        let words = baseWords * momentum;
+        
+        // Add noise
+        words += (Math.random() * 400) - 200;
+
+        // Weekend Factor
+        const day = d.getDay();
+        if (day === 0 || day === 6) { // Weekend
+            if (projectPhase === 'crunch') words *= 1.5; // Work harder on weekends during crunch
+            else words *= 0.2; // Relax on weekends otherwise
+        }
+
+        // Random Skip Days (Human Element)
+        if (Math.random() < 0.2) words = 0;
+
+        data.push({
+            date: dateStr,
+            words: Math.max(0, Math.floor(words))
+        });
+    }
+    return data;
+}
 
 export default StatisticsView;

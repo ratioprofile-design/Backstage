@@ -1,8 +1,8 @@
 
-// ... existing imports
+
 import React, { useState, useRef, useEffect } from 'react';
 import { useProject } from '../../context/ProjectContext';
-import { ScriptConfig } from '../../types';
+import { ScriptConfig, ProjectState } from '../../types';
 import { 
   Save, Upload, Printer, 
   Bold, Italic, Underline, Type, 
@@ -14,17 +14,16 @@ import {
   MousePointer2, ALargeSmall, Globe, Video, Music,
   BoxSelect, Scan, Grid, Zap, Cloud, AlertTriangle, RefreshCw, Wand2,
   Moon, Sun, Coffee, Download, XCircle, Sparkles, Wifi, ShieldCheck, ShieldAlert,
-  Key, Cpu, ListChecks, StickyNote, Hash, List, GripHorizontal, RotateCw, Lock
+  Key, Cpu, ListChecks, StickyNote, Hash, List, GripHorizontal, RotateCw, Lock,
+  LayoutTemplate
 } from 'lucide-react';
-// ... rest of imports (same as before)
 import PrintPreviewModal from '../PrintPreviewModal';
 import { 
     AVAILABLE_IMAGE_MODELS, AVAILABLE_TEXT_MODELS,
-    VISUAL_STYLES, NOTE_FONTS
+    VISUAL_STYLES, NOTE_FONTS, AVAILABLE_ENGLISH_FONTS
 } from '../../constants';
 import { updateGeminiConfig, generateText } from '../../services/gemini';
 
-// ... (Constants TEXT_COLORS, HIGHLIGHT_COLORS, BOUND_COLORS, AVAILABLE_ENGLISH_FONTS remain same)
 const TEXT_COLORS = [
   { name: 'Black', value: '#000000', class: 'bg-black' },
   { name: 'Charcoal', value: '#333333', class: 'bg-[#333]' },
@@ -61,17 +60,8 @@ const BOUND_COLORS = [
     { name: 'Purple', value: '#a855f7' },
 ];
 
-const AVAILABLE_ENGLISH_FONTS = [
-    { label: 'Courier Prime', value: 'Courier Prime' },
-    { label: 'Vijaya', value: 'Vijaya' },
-    { label: 'Courier New', value: 'Courier New' },
-    { label: 'Helvetica Neue', value: 'Helvetica Neue' },
-    { label: 'Arial', value: 'Arial' },
-    { label: 'Times New Roman', value: 'Times New Roman' },
-    { label: 'Georgia', value: 'Georgia' },
-];
+// --- HELPER COMPONENTS ---
 
-// ... (Helper Components SidebarItem, ViewContainer, LargeActionCard, Label, Section, ToggleBtn, NumberControl, Switch, FeatureCard, ColorPicker, getStyle remain same)
 const SidebarItem = ({ active, onClick, icon: Icon, label, desc }: any) => (
   <button
     onClick={onClick}
@@ -223,6 +213,15 @@ const getStyle = (config: any, isSelected: boolean, showBounds: boolean) => ({
     zIndex: isSelected ? 10 : 1,
 });
 
+const getPreviewThemeStyle = (theme: string) => {
+    switch (theme) {
+        case 'dark': return { backgroundColor: '#1a1a1a', color: '#e5e5e5', borderColor: '#333' };
+        case 'sepia': return { backgroundColor: '#fdf6e3', color: '#586e75', borderColor: '#eee8d5' };
+        case 'red': return { backgroundColor: '#000000', color: '#ff5555', borderColor: '#330000' };
+        default: return { backgroundColor: '#ffffff', color: '#000000', borderColor: '#e5e7eb' };
+    }
+};
+
 interface BackstageViewProps {
   onNavigateToBoard?: () => void;
 }
@@ -235,8 +234,14 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
     storyboardConfig, setStoryboardConfig, isStoryboardFeatureEnabled, setStoryboardFeatureEnabled,
     scratchpadConfig, setScratchpadConfig,
     boardLayerOrder = ['annotations', 'text', 'connections', 'groups', 'beats'], setBoardLayerOrder,
-    saveProject, loadProject, closeProject,
-    beats,
+    saveProject, loadProject, closeProject, downloadProject,
+    beats, groups, connections, annotations, characterData, generatedShots, 
+    scratchpad, globalNotes, panX, panY, scale, nextId, nextAnnoId,
+    tamilFontScale, tamilFontFamily, userDictionary,
+    writingGoal, 
+    dailyStats, sessionStartCount, lastSessionDate,
+    projectList, currentUser, currentProjectId,
+    
     googleDriveConfig, setGoogleDriveConfig, connectToDrive, disconnectFromDrive, backupToDrive, isDriveSyncing, isDriveConnecting,
     geminiApiKey, setGeminiApiKey,
     stabilityApiKey, setStabilityApiKey,
@@ -252,7 +257,6 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
   // Preview States
   const [previewMode, setPreviewMode] = useState<'example' | 'real'>('example');
   const [showPrintPreview, setShowPrintPreview] = useState(false);
-  const [isPreviewDragging, setIsPreviewDragging] = useState(false); 
   
   // Install & API 
   const [installPrompt, setInstallPrompt] = useState<any>(null);
@@ -297,23 +301,22 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
       connectToDrive(tempApiKey, tempClientId);
   };
 
-  const handleTestConnection = async () => {
-      setStatusMsg('');
-      const key = tempGeminiKey.trim();
+  const performTestConnection = async (key: string) => {
+      const trimmedKey = key.trim();
 
-      if (!key) {
+      if (!trimmedKey) {
           setTestStatus('invalid');
           setStatusMsg("Please enter a key.");
           return;
       }
 
-      if (key.includes(".apps.googleusercontent.com") || key.includes(".com")) {
+      if (trimmedKey.includes(".apps.googleusercontent.com") || trimmedKey.includes(".com")) {
           setTestStatus('invalid');
           setStatusMsg("❌ You entered a Client ID. Use an API Key (starts with 'AIza').");
           return;
       }
 
-      if (!key.startsWith("AIza")) {
+      if (!trimmedKey.startsWith("AIza")) {
           setTestStatus('invalid');
           setStatusMsg("❌ Invalid Format. Google API Keys start with 'AIza'.");
           return;
@@ -321,13 +324,13 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
       
       setTestStatus('testing');
       try {
-          const result = await generateText("Reply with the specific word: OK", 'gemini-3-flash-preview', key);
+          const result = await generateText("Reply with the specific word: OK", 'gemini-3-flash-preview', trimmedKey);
           
           if (result && result.trim().toUpperCase().includes("OK")) {
               setTestStatus('success');
               setStatusMsg("✅ Connection Successful!");
-              setGeminiApiKey(key);
-              updateGeminiConfig(key); 
+              setGeminiApiKey(trimmedKey);
+              updateGeminiConfig(trimmedKey); 
           } else {
               setTestStatus('failed');
               setStatusMsg("Connection Failed. Key may be expired.");
@@ -338,20 +341,25 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
           setStatusMsg("Connection Failed. Check internet or key validity.");
       }
   };
+
+  const handleTestConnection = () => {
+      performTestConnection(tempGeminiKey);
+  };
   
-  const handleUpdateKey = () => {
+  const handleUpdateKey = async () => {
       setKeyUpdateStatus('saving');
       setGeminiApiKey(tempGeminiKey);
       updateGeminiConfig(tempGeminiKey);
+      
+      // Auto-Test the key immediately after update
+      await performTestConnection(tempGeminiKey);
+
+      setKeyUpdateStatus('saved');
       setTimeout(() => {
-          setKeyUpdateStatus('saved');
-          setTimeout(() => {
-              setKeyUpdateStatus('idle');
-          }, 2000); 
-      }, 500);
+          setKeyUpdateStatus('idle');
+      }, 2000); 
   };
 
-  // ... (rest of helper functions: handleFileLoad, updateFormat, setPaperTheme, moveLayer, getLayerLabel, getLayerIcon)
   const handleFileLoad = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -372,6 +380,10 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
       reader.readAsText(file);
     }
     e.target.value = ''; 
+  };
+
+  const handleDownloadBackup = () => {
+      downloadProject();
   };
 
   const updateFormat = (elm: keyof ScriptConfig, prop: string, val: any) => {
@@ -409,11 +421,11 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
 
   const getLayerLabel = (id: string) => {
       switch(id) {
-          case 'beats': return 'Beat Cards';
+          case 'beats': return 'Beats (Cards)';
           case 'text': return 'Text Labels';
-          case 'annotations': return 'Drawings';
-          case 'connections': return 'Connections';
-          case 'groups': return 'Scene Groups';
+          case 'annotations': return 'Drawings & Pictures';
+          case 'connections': return 'Lines (Connections)';
+          case 'groups': return 'Sequence (Groups)';
           default: return id;
       }
   };
@@ -433,7 +445,6 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
     return <PrintPreviewModal onClose={() => setShowPrintPreview(false)} />;
   }
 
-  // ... (formatTabs, currentConfig, currentAlign, currentHighlight, slugContainerStyle, slugFontStyle, firstBeat logic)
   const formatTabs: { id: keyof ScriptConfig; label: string; icon?: any }[] = [
     { id: 'slugline', label: 'Slugline', icon: Box },
     { id: 'action', label: 'Action', icon: AlignLeft },
@@ -451,6 +462,8 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
   const currentAlign = currentConfig?.textAlign || 'left';
   const currentHighlight = currentConfig?.highlightColor;
 
+  const themeStyles = getPreviewThemeStyle(scriptConfig.paperTheme);
+
   const slugContainerStyle = {
     paddingTop: scriptConfig.slugline.paddingEnabled ? `${scriptConfig.slugline.paddingVertical}px` : '0px',
     paddingBottom: scriptConfig.slugline.paddingEnabled ? `${scriptConfig.slugline.paddingVertical}px` : '0px',
@@ -458,7 +471,7 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
     paddingRight: scriptConfig.slugline.paddingEnabled ? `${scriptConfig.slugline.paddingHorizontal}px` : '0px',
     marginTop: `${scriptConfig.slugline.marginTop}rem`,
     marginBottom: `${scriptConfig.slugline.marginBottom}rem`,
-    backgroundColor: scriptConfig.slugline.paddingEnabled ? (scriptConfig.slugline.highlightColor || '#e5e7eb') : 'transparent',
+    backgroundColor: scriptConfig.slugline.paddingEnabled ? (scriptConfig.slugline.highlightColor || themeStyles.borderColor) : 'transparent',
   };
   
   const slugFontStyle = {
@@ -470,7 +483,7 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
       fontWeight: scriptConfig.slugline.bold ? 'bold' : 'normal',
       fontStyle: scriptConfig.slugline.italic ? 'italic' : 'normal',
       textDecoration: scriptConfig.slugline.underline ? 'underline' : 'none',
-      color: scriptConfig.slugline.color || '#000000'
+      color: scriptConfig.slugline.color || themeStyles.color
   };
 
   const firstBeat = beats.length > 0 ? beats[0] : null;
@@ -480,7 +493,6 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
         
         {/* --- SIDEBAR --- */}
         <div className="w-60 bg-[#0a0a0a] border-r border-[#222] flex flex-col shrink-0 z-20 shadow-2xl">
-           {/* ... existing sidebar code ... */}
            <div className="p-6">
               <h2 className="text-xs font-black text-[#f5a623] uppercase tracking-[0.2em] flex items-center gap-2 mb-1">
                   <SettingsIcon size={14} /> Backstage
@@ -548,9 +560,8 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
             {activeCategory === 'project' && (
                 <ViewContainer title="Project Management" subtitle="Manage local data and export options.">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-4xl">
-                        {/* ... existing project cards ... */}
                         <LargeActionCard 
-                            onClick={saveProject}
+                            onClick={handleDownloadBackup}
                             icon={Save}
                             title="Save Project"
                             desc="Download a .bst (Backstage Story File) backup."
@@ -575,8 +586,9 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
                             />
                         </div>
 
-                        {/* GOOGLE DRIVE CONFIG (SAME AS BEFORE) */}
+                        {/* GOOGLE DRIVE CONFIG */}
                         <div className="md:col-span-2 bg-[#111] p-6 rounded-sm border border-[#222] mt-4">
+                            {/* ... Drive Config Content ... */}
                             <div className="flex items-center gap-3 mb-6">
                                 <div className={`p-2 rounded ${googleDriveConfig.enabled ? 'bg-green-500/10 text-green-500' : 'bg-[#222] text-gray-500'}`}>
                                     <Cloud size={20} />
@@ -658,8 +670,6 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
             {/* 2. FORMATTING SETTINGS */}
             {activeCategory === 'formatting' && (
                 <div className="flex flex-col h-full animate-in fade-in duration-300">
-                    {/* ... existing formatting UI code ... */}
-                    {/* Header */}
                     <div className="px-8 py-6 shrink-0 z-10 bg-[#0c0c0c]/90 backdrop-blur-sm border-b border-[#222] flex items-center justify-between">
                         <div>
                             <h2 className="text-xl font-black text-white uppercase tracking-tight flex items-center gap-2">
@@ -682,8 +692,8 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
                     </div>
 
                     <div className="flex-1 overflow-hidden flex flex-col md:flex-row bg-[#0c0c0c]">
-                        {/* LEFT: Controls */}
                         <div className="w-80 overflow-y-auto border-r border-[#222] bg-[#0f0f0f]">
+                            {/* ... Formatting Controls ... */}
                             <div className="p-4 border-b border-[#222]">
                                 <Label>Select Element to Style</Label>
                                 <div className="grid grid-cols-2 gap-2 mt-2 mb-4">
@@ -706,7 +716,6 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
                                         );
                                     })}
                                 </div>
-                                {/* ... Rest of formatting sidebar ... */}
                                 <div className="h-px bg-[#222] mb-4"></div>
                                 <div className="space-y-2">
                                     <button
@@ -727,57 +736,190 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
                                 </div>
                             </div>
                             
-                            {/* Detailed Config Render ... omitted for brevity as it's unchanged */}
                             <div className="p-6 space-y-8">
-                                {/* ... (Same as original file) ... */}
                                 {selectedFormatElement === 'visualization' ? (
-                                    /* ... */
-                                    <Section title="Appearance" icon={Eye}>
-                                        <div className="space-y-4">
-                                            <Label>Paper Theme</Label>
-                                            <div className="flex bg-[#111] rounded border border-[#333] p-0.5">
-                                                <button onClick={() => setPaperTheme('white')} className={`flex-1 py-1.5 rounded flex items-center justify-center gap-2 ${scriptConfig.paperTheme === 'white' ? 'bg-white text-black' : 'text-gray-500 hover:text-white'}`}><Sun size={12}/> Light</button>
-                                                <button onClick={() => setPaperTheme('sepia')} className={`flex-1 py-1.5 rounded flex items-center justify-center gap-2 ${scriptConfig.paperTheme === 'sepia' ? 'bg-[#fdf6e3] text-[#586e75]' : 'text-gray-500 hover:text-white'}`}><Coffee size={12}/> Sepia</button>
-                                                <button onClick={() => setPaperTheme('dark')} className={`flex-1 py-1.5 rounded flex items-center justify-center gap-2 ${scriptConfig.paperTheme === 'dark' ? 'bg-[#1a1a1a] text-white' : 'text-gray-500 hover:text-white'}`}><Moon size={12}/> Dark</button>
+                                    <>
+                                        <Section title="Appearance" icon={Eye}>
+                                            <div className="space-y-4">
+                                                <Label>Paper Theme</Label>
+                                                <div className="flex bg-[#111] rounded border border-[#333] p-0.5">
+                                                    <button onClick={() => setPaperTheme('white')} className={`flex-1 py-1.5 rounded flex items-center justify-center gap-2 ${scriptConfig.paperTheme === 'white' ? 'bg-white text-black' : 'text-gray-500 hover:text-white'}`}><Sun size={12}/> Light</button>
+                                                    <button onClick={() => setPaperTheme('sepia')} className={`flex-1 py-1.5 rounded flex items-center justify-center gap-2 ${scriptConfig.paperTheme === 'sepia' ? 'bg-[#fdf6e3] text-[#586e75]' : 'text-gray-500 hover:text-white'}`}><Coffee size={12}/> Sepia</button>
+                                                    <button onClick={() => setPaperTheme('dark')} className={`flex-1 py-1.5 rounded flex items-center justify-center gap-2 ${scriptConfig.paperTheme === 'dark' ? 'bg-[#1a1a1a] text-white' : 'text-gray-500 hover:text-white'}`}><Moon size={12}/> Dark</button>
+                                                </div>
                                             </div>
-                                        </div>
-                                    </Section>
+                                        </Section>
+                                        
+                                        <Section title="Bounds Control" icon={BoxSelect}>
+                                            <div className="flex items-center justify-between mb-4">
+                                                <Label>Show Bounds</Label>
+                                                <Switch checked={blockBounds.enabled} onChange={(v: boolean) => updateBlockBounds({ enabled: v })} />
+                                            </div>
+                                            <div className={`space-y-6 ${!blockBounds.enabled ? 'opacity-30 pointer-events-none' : ''}`}>
+                                                <div className="space-y-2">
+                                                    <Label>Scope</Label>
+                                                    <div className="flex bg-[#111] rounded p-0.5 border border-[#333]">
+                                                        <button onClick={() => updateBlockBounds({ mode: 'active' })} className={`flex-1 py-1.5 text-[10px] font-bold uppercase rounded ${blockBounds.mode === 'active' ? 'bg-[#f5a623] text-black' : 'text-gray-500'}`}>Active Focus</button>
+                                                        <button onClick={() => updateBlockBounds({ mode: 'all' })} className={`flex-1 py-1.5 text-[10px] font-bold uppercase rounded ${blockBounds.mode === 'all' ? 'bg-[#f5a623] text-black' : 'text-gray-500'}`}>X-Ray All</button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </Section>
+                                    </>
                                 ) : (
-                                    /* ... */
-                                    <Section title="Typography" icon={ALargeSmall}>
-                                        {/* ... */}
-                                        <div className="space-y-4">
-                                            <div className="space-y-1">
-                                                <Label>Font Family</Label>
-                                                <select 
-                                                    value={currentConfig?.fontFamily || 'Courier Prime'}
-                                                    onChange={e => updateFormat(selectedFormatElement as any, 'fontFamily', e.target.value)}
-                                                    className="w-full bg-[#111] border border-[#333] rounded-sm px-2 py-1.5 text-xs text-white focus:border-[#f5a623] outline-none"
-                                                >
-                                                    {AVAILABLE_ENGLISH_FONTS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
-                                                </select>
+                                    <>
+                                        <Section title="Typography" icon={ALargeSmall}>
+                                            <div className="space-y-4">
+                                                <div className="space-y-1">
+                                                    <Label>Font Family</Label>
+                                                    <select 
+                                                        value={currentConfig?.fontFamily || 'Courier Prime'}
+                                                        onChange={e => updateFormat(selectedFormatElement as any, 'fontFamily', e.target.value)}
+                                                        className="w-full bg-[#111] border border-[#333] rounded-sm px-2 py-1.5 text-xs text-white focus:border-[#f5a623] outline-none"
+                                                    >
+                                                        {AVAILABLE_ENGLISH_FONTS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
+                                                    </select>
+                                                </div>
+                                                <div className="flex items-center justify-between">
+                                                    <div className="flex bg-[#111] rounded-sm border border-[#333] p-0.5">
+                                                        <ToggleBtn active={currentConfig?.bold} onClick={() => updateFormat(selectedFormatElement as any, 'bold', !currentConfig?.bold)} icon={Bold} title="Bold" />
+                                                        <ToggleBtn active={currentConfig?.italic} onClick={() => updateFormat(selectedFormatElement as any, 'italic', !currentConfig?.italic)} icon={Italic} title="Italic" />
+                                                        <ToggleBtn active={currentConfig?.underline} onClick={() => updateFormat(selectedFormatElement as any, 'underline', !currentConfig?.underline)} icon={Underline} title="Underline" />
+                                                    </div>
+                                                    
+                                                    <div className="flex gap-1.5">
+                                                        {TEXT_COLORS.map(c => (
+                                                            <button 
+                                                                key={c.name} 
+                                                                onClick={() => updateFormat(selectedFormatElement as any, 'color', c.value)}
+                                                                className={`w-5 h-5 rounded-full border ${c.class} flex items-center justify-center ${currentConfig?.color === c.value ? 'border-white ring-1 ring-white/50' : 'border-transparent opacity-60 hover:opacity-100'}`}
+                                                            />
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                                <div className="space-y-1 pt-2">
+                                                    <NumberControl label="Size (px)" value={currentConfig?.fontSize} min={10} max={32} onChange={(v: number) => updateFormat(selectedFormatElement as any, 'fontSize', v)} />
+                                                    <NumberControl label="Line Height" value={currentConfig?.lineHeight} step={0.1} min={0.8} max={2.5} onChange={(v: number) => updateFormat(selectedFormatElement as any, 'lineHeight', v)} />
+                                                    <NumberControl label="Letter Spacing" value={currentConfig?.letterSpacing || 0} step={0.5} min={-2} max={10} suffix="px" onChange={(v: number) => updateFormat(selectedFormatElement as any, 'letterSpacing', v)} />
+                                                </div>
                                             </div>
-                                            {/* ... */}
-                                        </div>
-                                    </Section>
+                                        </Section>
+                                        
+                                        <Section title="Layout & Spacing" icon={MoveVertical}>
+                                            <div className="space-y-4">
+                                                <div className="flex items-center justify-between">
+                                                    <Label>Alignment</Label>
+                                                    <div className="flex bg-[#111] border border-[#333] rounded-sm p-0.5">
+                                                        {['left', 'center', 'right', 'justify'].map(align => (
+                                                            <button 
+                                                                key={align}
+                                                                onClick={() => updateFormat(selectedFormatElement as any, 'textAlign', align)}
+                                                                className={`p-1.5 rounded-sm ${currentAlign === align ? 'bg-[#f5a623] text-black' : 'text-gray-500 hover:text-white'}`}
+                                                            >
+                                                                {align === 'left' && <AlignLeft size={12} />}
+                                                                {align === 'center' && <AlignCenter size={12} />}
+                                                                {align === 'right' && <AlignRight size={12} />}
+                                                                {align === 'justify' && <AlignJustify size={12} />}
+                                                            </button>
+                                                        ))}
+                                                    </div>
+                                                </div>
+
+                                                <div className="space-y-1">
+                                                    <NumberControl label="Margin Top" value={currentConfig?.marginTop} suffix="rem" step={0.1} min={0} max={5} onChange={(v: number) => updateFormat(selectedFormatElement as any, 'marginTop', v)} />
+                                                    <NumberControl label="Margin Bottom" value={currentConfig?.marginBottom} suffix="rem" step={0.1} min={0} max={5} onChange={(v: number) => updateFormat(selectedFormatElement as any, 'marginBottom', v)} />
+                                                    
+                                                    {selectedFormatElement !== 'slugline' && (
+                                                        <>
+                                                            <div className="h-px bg-[#222] my-2"></div>
+                                                            <NumberControl label="Indent (Left)" value={currentConfig?.marginLeft} suffix="%" min={0} max={100} onChange={(v: number) => updateFormat(selectedFormatElement as any, 'marginLeft', v)} />
+                                                            <NumberControl label="Width" value={currentConfig?.width} suffix="%" min={10} max={100} onChange={(v: number) => updateFormat(selectedFormatElement as any, 'width', v)} />
+                                                        </>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </Section>
+                                    </>
                                 )}
                             </div>
                         </div>
 
-                        {/* RIGHT: Live Preview (Same as original) */}
+                        {/* RIGHT: Live Preview */}
                         <div className="flex-1 overflow-auto bg-[#0c0c0c] bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] relative">
-                            {/* ... Preview content ... */}
+                            {/* Toolbar for Preview */}
+                            <div className="absolute top-6 right-6 z-20 flex bg-[#1a1a1a] rounded-full p-1 border border-[#333] shadow-xl">
+                                <button 
+                                    onClick={() => updateBlockBounds({ enabled: !blockBounds.enabled })}
+                                    className={`px-3 py-1.5 rounded-full flex items-center gap-2 text-[10px] font-bold uppercase transition-all ${blockBounds.enabled ? 'bg-[#333] text-white' : 'text-gray-500 hover:text-white'}`}
+                                    title="Toggle Visual Bounds Overlay"
+                                >
+                                    <BoxSelect size={12} className={blockBounds.enabled ? "text-[#f5a623]" : ""} /> Bounds
+                                </button>
+                                <div className="w-px h-4 bg-[#333] mx-1"></div>
+                                <button 
+                                    onClick={() => setPreviewMode('example')}
+                                    className={`px-4 py-1.5 text-[10px] font-bold uppercase rounded-full transition-all flex items-center gap-2 ${previewMode === 'example' ? 'bg-[#f5a623] text-black shadow-sm' : 'text-gray-500 hover:text-white'}`}
+                                >
+                                    <Monitor size={12} /> Blueprint
+                                </button>
+                                <button 
+                                    onClick={() => setPreviewMode('real')}
+                                    className={`px-4 py-1.5 text-[10px] font-bold uppercase rounded-full transition-all flex items-center gap-2 ${previewMode === 'real' ? 'bg-[#f5a623] text-black shadow-sm' : 'text-gray-500 hover:text-white'}`}
+                                >
+                                    <Eye size={12} /> Live Data
+                                </button>
+                            </div>
+
                             <div className="min-h-full flex items-center justify-center p-12">
-                                <div className="bg-white w-full max-w-[210mm] aspect-[210/297] shadow-2xl rounded-sm p-16 overflow-hidden relative transition-all duration-500 shrink-0">
-                                    <div className="absolute top-8 right-8 text-black/40 font-screenplay text-xs">1.</div>
-                                    <div className="font-screenplay text-black text-[12pt] leading-tight w-full h-full relative">
+                                <div 
+                                    className="w-full max-w-[210mm] aspect-[210/297] shadow-2xl rounded-sm p-16 overflow-hidden relative transition-all duration-500 shrink-0"
+                                    style={{
+                                        backgroundColor: themeStyles.backgroundColor,
+                                        color: themeStyles.color
+                                    }}
+                                >
+                                    <div className="absolute top-8 right-8 font-screenplay text-xs opacity-40">1.</div>
+                                    <div className="font-screenplay text-[12pt] leading-tight w-full h-full relative">
                                         <div className="animate-in fade-in zoom-in duration-300">
-                                            <div style={slugContainerStyle} className={`flex items-center rounded transition-all duration-200 sc-line ${selectedFormatElement === 'slugline' ? 'sc-active-block' : ''}`}>
-                                                <span className="text-gray-400 mr-2 text-xs select-none">1.</span>
-                                                <span style={slugFontStyle}>INT. COFFEE SHOP - DAY</span>
-                                            </div>
-                                            <div className={`sc-line sc-action ${selectedFormatElement === 'action' ? 'sc-active-block' : ''}`} style={getStyle(scriptConfig.action, false, false)}>The steam rises from a porcelain cup. JOHN (30s) sits nervously.</div>
-                                            {/* ... more preview items ... */}
+                                            {previewMode === 'example' ? (
+                                                <>
+                                                    <div style={slugContainerStyle} className={`flex items-center rounded transition-all duration-200 sc-line ${selectedFormatElement === 'slugline' ? 'sc-active-block' : ''}`}>
+                                                        <span className="opacity-40 mr-2 text-xs select-none">1.</span>
+                                                        <span style={slugFontStyle}>INT. COFFEE SHOP - DAY</span>
+                                                    </div>
+                                                    <div className={`sc-line sc-action ${selectedFormatElement === 'action' ? 'sc-active-block' : ''}`} style={getStyle(scriptConfig.action, false, false)}>The steam rises from a porcelain cup. JOHN (30s) sits nervously.</div>
+                                                    <div className={`sc-line sc-character ${selectedFormatElement === 'character' ? 'sc-active-block' : ''}`} style={getStyle(scriptConfig.character, false, false)}>JOHN</div>
+                                                    <div className={`sc-line sc-dialogue ${selectedFormatElement === 'dialogue' ? 'sc-active-block' : ''}`} style={getStyle(scriptConfig.dialogue, false, false)}>This is taking longer than expected.</div>
+                                                    <div className={`sc-line sc-parenthetical ${selectedFormatElement === 'parenthetical' ? 'sc-active-block' : ''}`} style={getStyle(scriptConfig.parenthetical, false, false)}>(to himself)</div>
+                                                    <div className={`sc-line sc-transition ${selectedFormatElement === 'transition' ? 'sc-active-block' : ''}`} style={getStyle(scriptConfig.transition, false, false)}>CUT TO:</div>
+                                                </>
+                                            ) : (
+                                                firstBeat ? (
+                                                    <div className="real-content-view">
+                                                        <div style={slugContainerStyle} className={`flex items-center rounded transition-all duration-200 sc-line ${selectedFormatElement === 'slugline' ? 'sc-active-block' : ''}`}>
+                                                            <span className="opacity-40 mr-2 text-xs select-none">1.</span>
+                                                            <span style={slugFontStyle}>
+                                                                {firstBeat.slug.prefix || 'INT.'} {firstBeat.slug.location || 'LOCATION'} - {firstBeat.slug.time || 'DAY'}
+                                                            </span>
+                                                        </div>
+                                                        <div dangerouslySetInnerHTML={{ __html: firstBeat.content }} className="mt-4" />
+                                                        
+                                                        {selectedFormatElement !== 'visualization' && (
+                                                            <style>{`
+                                                                .real-content-view .sc-${selectedFormatElement} {
+                                                                    box-shadow: inset 0 0 0 1000px rgba(0,0,0,0.05);
+                                                                }
+                                                            `}</style>
+                                                        )}
+                                                    </div>
+                                                ) : (
+                                                    <div className="h-full flex flex-col items-center justify-center text-gray-400 border-2 border-dashed border-gray-200 rounded-lg">
+                                                        <FileText size={48} className="mb-4 opacity-20"/>
+                                                        <span className="text-sm font-bold uppercase tracking-widest text-gray-300">No Scenes Found</span>
+                                                        <span className="text-[10px] text-gray-400 mt-2 font-mono">Create a beat on the board to see it here.</span>
+                                                    </div>
+                                                )
+                                            )}
                                         </div>
                                     </div>
                                 </div>
@@ -787,27 +929,246 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
                 </div>
             )}
 
-            {/* 3. NOTES & SCRATCHPAD */}
+            {/* 3. SCRATCHPAD */}
             {activeCategory === 'scratchpad' && (
-                // ... same as original ...
-                <ViewContainer title="Notes & Scratchpad" subtitle="Customize the editor behavior for notes.">
-                    {/* ... content ... */}
+                <ViewContainer title="Notes & Scratchpad" subtitle="Configure the global scratchpad appearance and behavior.">
+                    <div className="flex h-full bg-[#0c0c0c]">
+                        <div className="w-96 overflow-y-auto border-r border-[#222] bg-[#0f0f0f] p-6 space-y-8">
+                            <Section title="Typography" icon={Type}>
+                                <div className="space-y-4">
+                                    <div>
+                                        <Label>Scratchpad Font</Label>
+                                        <select 
+                                            value={scriptConfig.noteFont || '"Inter", sans-serif'}
+                                            onChange={(e) => setScriptConfig({...scriptConfig, noteFont: e.target.value})}
+                                            className="w-full bg-[#111] border border-[#333] rounded px-3 py-2 text-xs text-white focus:border-[#f5a623] outline-none"
+                                        >
+                                            {NOTE_FONTS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
+                                        </select>
+                                    </div>
+                                    <div className="flex items-center justify-between">
+                                        <div className="w-1/2 pr-2">
+                                            <NumberControl 
+                                                label="H1 Size (px)" 
+                                                value={scratchpadConfig.h1FontSize} 
+                                                min={16} max={48} 
+                                                onChange={(v: number) => setScratchpadConfig({...scratchpadConfig, h1FontSize: v})} 
+                                            />
+                                        </div>
+                                        <div className="w-1/2 pl-2">
+                                            <NumberControl 
+                                                label="H2 Size (px)" 
+                                                value={scratchpadConfig.h2FontSize} 
+                                                min={14} max={36} 
+                                                onChange={(v: number) => setScratchpadConfig({...scratchpadConfig, h2FontSize: v})} 
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+                            </Section>
+
+                            <Section title="Markdown Styling" icon={Hash}>
+                                <div className="space-y-4">
+                                    <div className="flex items-center justify-between">
+                                        <Label>Heading 1 Color</Label>
+                                        <ColorPicker label="" value={scratchpadConfig.h1Color} onChange={(v) => setScratchpadConfig({...scratchpadConfig, h1Color: v})} />
+                                    </div>
+                                    <div className="flex items-center justify-between">
+                                        <Label>Heading 2 Color</Label>
+                                        <ColorPicker label="" value={scratchpadConfig.h2Color} onChange={(v) => setScratchpadConfig({...scratchpadConfig, h2Color: v})} />
+                                    </div>
+                                    <div className="flex items-center justify-between">
+                                        <Label>Bold Text Color</Label>
+                                        <ColorPicker label="" value={scratchpadConfig.boldColor} onChange={(v) => setScratchpadConfig({...scratchpadConfig, boldColor: v})} />
+                                    </div>
+                                    <div className="flex items-center justify-between">
+                                        <Label>Italic Text Color</Label>
+                                        <ColorPicker label="" value={scratchpadConfig.italicColor} onChange={(v) => setScratchpadConfig({...scratchpadConfig, italicColor: v})} />
+                                    </div>
+                                    <div className="flex items-center justify-between">
+                                        <Label>List Marker Color</Label>
+                                        <ColorPicker label="" value={scratchpadConfig.listMarkerColor} onChange={(v) => setScratchpadConfig({...scratchpadConfig, listMarkerColor: v})} />
+                                    </div>
+                                </div>
+                            </Section>
+                        </div>
+
+                        {/* RIGHT: Live Preview Simulator */}
+                        <div className="flex-1 overflow-auto bg-[#181818] p-10 flex justify-center items-start">
+                            <div className="w-full max-w-md bg-[#111] border border-white/10 rounded-lg p-6 shadow-2xl">
+                                <div className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-4 flex items-center gap-2">
+                                    <Eye size={12} /> Live Preview
+                                </div>
+                                <div className="space-y-2" style={{ fontFamily: scriptConfig.noteFont, fontSize: `${scriptConfig.noteFontSize}px` }}>
+                                    {/* Simulated Block Editor Content using inline styles to mimic CSS variables */}
+                                    <div style={{ color: scratchpadConfig.h1Color, fontWeight: 900, fontSize: `${scratchpadConfig.h1FontSize}px`, borderBottom: '1px solid #333', marginBottom: '0.3em' }}>
+                                        Project Notes
+                                    </div>
+                                    <div className="text-gray-300">
+                                        This is a standard <strong style={{ color: scratchpadConfig.boldColor }}>paragraph block</strong> in the scratchpad.
+                                    </div>
+                                    <div style={{ color: scratchpadConfig.h2Color, fontWeight: 700, fontSize: `${scratchpadConfig.h2FontSize}px`, marginTop: '0.4em' }}>
+                                        Character Ideas
+                                    </div>
+                                    <div className="pl-6 relative">
+                                        <span style={{ position: 'absolute', left: '0.5em', color: scratchpadConfig.listMarkerColor, fontWeight: 'bold' }}>•</span>
+                                        <span className="text-gray-300">Protagonist flaw: <em style={{ color: scratchpadConfig.italicColor }}>arrogance</em></span>
+                                    </div>
+                                    <div className="pl-6 relative">
+                                        <span style={{ position: 'absolute', left: '0.5em', color: scratchpadConfig.listMarkerColor, fontWeight: 'bold' }}>•</span>
+                                        <span className="text-gray-300">Antagonist motive: <em style={{ color: scratchpadConfig.italicColor }}>survival</em></span>
+                                    </div>
+                                    <div style={{ borderLeft: `3px solid ${scratchpadConfig.calloutBorder}`, paddingLeft: '10px', background: scratchpadConfig.calloutBackground, color: '#9ca3af', fontStyle: 'italic', borderRadius: '0 4px 4px 0' }}>
+                                        "Theme is not what you say, it's what you do."
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </ViewContainer>
             )}
 
             {/* 4. BOARD LAYERS */}
             {activeCategory === 'board' && (
-                // ... same as original ...
                 <ViewContainer title="Board Layers" subtitle="Adjust the visual stacking order of elements on the board.">
-                    {/* ... content ... */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
+                        <div className="bg-[#111] border border-[#222] rounded-sm p-6">
+                            <h4 className="text-xs font-bold text-[#666] uppercase tracking-widest mb-6">Layer Stack (Top to Bottom)</h4>
+                            <div className="space-y-2">
+                                {[...boardLayerOrder].reverse().map((layerId, i) => {
+                                    const actualIndex = boardLayerOrder.length - 1 - i;
+                                    return (
+                                        <div key={layerId} className="flex items-center gap-4 bg-[#1a1a1a] p-4 rounded-sm border border-[#222] group hover:border-[#333] transition-colors">
+                                            <div className="flex flex-col gap-1">
+                                                <button disabled={actualIndex === boardLayerOrder.length - 1} onClick={() => moveLayer(actualIndex, 'up')} className="text-gray-600 hover:text-[#f5a623] disabled:opacity-20"><ArrowUp size={14}/></button>
+                                                <button disabled={actualIndex === 0} onClick={() => moveLayer(actualIndex, 'down')} className="text-gray-600 hover:text-[#f5a623] disabled:opacity-20"><ArrowDown size={14}/></button>
+                                            </div>
+                                            <div className="flex items-center gap-4 flex-1">
+                                                <div className="p-2 bg-[#222] rounded text-[#f5a623]">{getLayerIcon(layerId)}</div>
+                                                <span className="text-sm font-bold text-gray-300 capitalize">{getLayerLabel(layerId)}</span>
+                                            </div>
+                                            <span className="text-[10px] font-mono text-[#444] font-bold">Z-{actualIndex + 1}</span>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    </div>
                 </ViewContainer>
             )}
 
             {/* 5. STORYBOARD CONFIG */}
             {activeCategory === 'storyboard' && (
-                // ... same as original ...
                 <ViewContainer title="Storyboard AI" subtitle="Configure generative models for shot visualization.">
-                    {/* ... content ... */}
+                    <div className="grid grid-cols-1 gap-6 max-w-4xl">
+                        
+                        {/* PROVIDER SELECTION */}
+                        <div className="bg-[#1e1e1e] p-6 rounded-sm border border-[#222]">
+                            <h4 className="text-sm font-bold text-white uppercase mb-4">AI Provider Engine</h4>
+                            <div className="space-y-4">
+                                <div>
+                                    <Label>Active Provider</Label>
+                                    <div className="flex bg-[#111] border border-[#333] rounded p-1 gap-1">
+                                        <button 
+                                            onClick={() => setStoryboardConfig({...storyboardConfig, provider: 'google'})}
+                                            className={`flex-1 py-2 rounded text-xs font-bold uppercase transition-all ${storyboardConfig.provider === 'google' ? 'bg-[#f5a623] text-black' : 'text-gray-500 hover:text-white'}`}
+                                        >
+                                            Google Gemini / Imagen
+                                        </button>
+                                        <button 
+                                            onClick={() => setStoryboardConfig({...storyboardConfig, provider: 'stability'})}
+                                            className={`flex-1 py-2 rounded text-xs font-bold uppercase transition-all ${storyboardConfig.provider === 'stability' ? 'bg-[#f5a623] text-black' : 'text-gray-500 hover:text-white'}`}
+                                        >
+                                            Stability AI
+                                        </button>
+                                    </div>
+                                </div>
+
+                                {storyboardConfig.provider === 'stability' && (
+                                    <div className="animate-in slide-in-from-top-2">
+                                        <Label>Stability API Key</Label>
+                                        <div className="flex gap-2 relative">
+                                            <input 
+                                                type="password"
+                                                value={tempStabilityKey}
+                                                onChange={(e) => setTempStabilityKey(e.target.value)}
+                                                className="w-full bg-[#111] border border-[#333] rounded px-3 py-2 text-xs text-white focus:border-[#f5a623] outline-none"
+                                                placeholder="sk-..."
+                                            />
+                                            <button 
+                                                onClick={() => { setStabilityApiKey(tempStabilityKey); alert("Stability Key Saved"); }}
+                                                className="px-4 py-2 bg-[#222] border border-[#333] hover:bg-[#333] text-white text-xs font-bold uppercase rounded"
+                                            >
+                                                Save
+                                            </button>
+                                        </div>
+                                        <p className="text-[9px] text-gray-500 mt-1 font-mono">Requires key from platform.stability.ai</p>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
+                        <div className="bg-[#1e1e1e] p-6 rounded-sm border border-[#222]">
+                            <h4 className="text-sm font-bold text-white uppercase mb-4">Model Configuration</h4>
+                            <div className="space-y-4">
+                                <div>
+                                    <Label>Image Generation Model</Label>
+                                    <select 
+                                        value={storyboardConfig.imageModel}
+                                        onChange={(e) => setStoryboardConfig({...storyboardConfig, imageModel: e.target.value})}
+                                        className="w-full bg-[#111] border border-[#333] rounded px-3 py-2 text-xs text-white focus:border-[#f5a623] outline-none"
+                                    >
+                                        {AVAILABLE_IMAGE_MODELS.filter(m => {
+                                            if (storyboardConfig.provider === 'stability') return m.value.includes('stable');
+                                            return !m.value.includes('stable');
+                                        }).map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+                                    </select>
+                                </div>
+                                {storyboardConfig.provider === 'google' && (
+                                    <div>
+                                        <Label>Script Analysis Model</Label>
+                                        <select 
+                                            value={storyboardConfig.textModel}
+                                            onChange={(e) => setStoryboardConfig({...storyboardConfig, textModel: e.target.value})}
+                                            className="w-full bg-[#111] border border-[#333] rounded px-3 py-2 text-xs text-white focus:border-[#f5a623] outline-none"
+                                        >
+                                            {AVAILABLE_TEXT_MODELS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+                                        </select>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                        
+                        <div className="bg-[#1e1e1e] p-6 rounded-sm border border-[#222]">
+                            <h4 className="text-sm font-bold text-white uppercase mb-4">Visual Defaults</h4>
+                             <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <Label>Aspect Ratio</Label>
+                                    <select 
+                                        value={storyboardConfig.aspectRatio}
+                                        onChange={(e) => setStoryboardConfig({...storyboardConfig, aspectRatio: e.target.value})}
+                                        className="w-full bg-[#111] border border-[#333] rounded px-3 py-2 text-xs text-white focus:border-[#f5a623] outline-none"
+                                    >
+                                        <option value="16:9">16:9 (Cinematic)</option>
+                                        <option value="4:3">4:3 (Classic)</option>
+                                        <option value="1:1">1:1 (Square)</option>
+                                        <option value="9:16">9:16 (Mobile)</option>
+                                        <option value="2.35:1">2.35:1 (Anamorphic)</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <Label>Default Art Style</Label>
+                                    <input 
+                                        type="text"
+                                        value={storyboardConfig.style}
+                                        onChange={(e) => setStoryboardConfig({...storyboardConfig, style: e.target.value})}
+                                        className="w-full bg-[#111] border border-[#333] rounded px-3 py-2 text-xs text-white focus:border-[#f5a623] outline-none"
+                                        placeholder="e.g. Charcoal Sketch"
+                                    />
+                                </div>
+                             </div>
+                        </div>
+                    </div>
                 </ViewContainer>
             )}
 
@@ -816,69 +1177,7 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
                 <ViewContainer title="System Features" subtitle="Enable experimental tools and accessibility options.">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         
-                        <FeatureCard 
-                            title="Enable Redo History" 
-                            desc="Allow re-applying undone changes. Keep off to save memory during heavy edits."
-                            icon={RotateCw}
-                            isActive={isRedoEnabled}
-                            onToggle={setRedoEnabled}
-                        />
-
-                        {/* Breakdown Language */}
-                        <div className="bg-[#111] p-5 rounded-sm border border-[#222] flex items-center justify-between group hover:border-[#444] transition-colors">
-                            <div className="flex items-center gap-4">
-                                <div className={`w-10 h-10 rounded-sm flex items-center justify-center bg-[#000] border border-[#333] text-gray-500`}>
-                                    <ListChecks size={18} />
-                                </div>
-                                <div>
-                                    <h4 className="text-xs font-bold text-white uppercase tracking-wider">Breakdown Language</h4>
-                                    <p className="text-[10px] text-gray-500 mt-1 font-mono">Select the language for generated breakdown lists.</p>
-                                </div>
-                            </div>
-                            <div className="flex bg-[#000] rounded p-0.5 border border-[#333]">
-                                <button 
-                                    onClick={() => setBreakdownLanguage('english')}
-                                    className={`px-3 py-1.5 rounded text-[10px] font-bold uppercase transition-all ${breakdownLanguage === 'english' ? 'bg-[#f5a623] text-black' : 'text-gray-500 hover:text-white'}`}
-                                >English</button>
-                                <button 
-                                    onClick={() => setBreakdownLanguage('tamil')}
-                                    className={`px-3 py-1.5 rounded text-[10px] font-bold uppercase transition-all ${breakdownLanguage === 'tamil' ? 'bg-[#f5a623] text-black' : 'text-gray-500 hover:text-white'}`}
-                                >Tamil</button>
-                            </div>
-                        </div>
-
-                        {/* NEW: Breakdown Locked Only */}
-                        <FeatureCard 
-                            title="Analyze Locked Scenes Only" 
-                            desc="If enabled, Breakdown Analysis will skip scenes not marked as 'Ready' (Locked)."
-                            icon={Lock}
-                            isActive={breakdownLockedOnly}
-                            onToggle={setBreakdownLockedOnly}
-                        />
-
-                        <FeatureCard 
-                            title="Tamil Transliteration" 
-                            desc="Type phonetically in English to generate Tamil script automatically."
-                            icon={Globe}
-                            isActive={isTamilMode}
-                            onToggle={setTamilMode}
-                        />
-                        <FeatureCard 
-                            title="Storyboard AI" 
-                            desc="Enable Generative AI features for creating storyboard visuals."
-                            icon={ImageIcon}
-                            isActive={isStoryboardFeatureEnabled}
-                            onToggle={setStoryboardFeatureEnabled}
-                        />
-                        <FeatureCard 
-                            title="PDF Drag-and-Drop Import" 
-                            desc="Enable experimental PDF parsing. Drag a PDF onto the board to convert to beats."
-                            icon={FileText}
-                            isActive={isPdfDropEnabled}
-                            onToggle={setPdfDropEnabled}
-                        />
-                        
-                        {/* AI CONFIGURATION CARD (Same as before) */}
+                        {/* AI CONFIGURATION CARD */}
                         <div className="md:col-span-2 bg-[#1e1e1e] p-6 rounded-sm border border-[#f5a623] shadow-[0_0_15px_rgba(245,166,35,0.2)]">
                             <div className="flex items-center gap-4 mb-4">
                                 <div className="w-10 h-10 rounded-sm flex items-center justify-center bg-[#f5a623] text-black">
@@ -967,9 +1266,85 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
                             </div>
                         )}
 
-                        {/* OS Input Mode (Same as before) */}
+                        {/* Breakdown Language */}
+                        <div className="bg-[#111] p-5 rounded-sm border border-[#222] flex items-center justify-between group hover:border-[#444] transition-colors">
+                            <div className="flex items-center gap-4">
+                                <div className={`w-10 h-10 rounded-sm flex items-center justify-center bg-[#000] border border-[#333] text-gray-500`}>
+                                    <ListChecks size={18} />
+                                </div>
+                                <div>
+                                    <h4 className="text-xs font-bold text-white uppercase tracking-wider">Breakdown Language</h4>
+                                    <p className="text-[10px] text-gray-500 mt-1 font-mono">Select the language for generated breakdown lists.</p>
+                                </div>
+                            </div>
+                            <div className="flex bg-[#000] rounded p-0.5 border border-[#333]">
+                                <button 
+                                    onClick={() => setBreakdownLanguage('english')}
+                                    className={`px-3 py-1.5 rounded text-[10px] font-bold uppercase transition-all ${breakdownLanguage === 'english' ? 'bg-[#f5a623] text-black' : 'text-gray-500 hover:text-white'}`}
+                                >English</button>
+                                <button 
+                                    onClick={() => setBreakdownLanguage('tamil')}
+                                    className={`px-3 py-1.5 rounded text-[10px] font-bold uppercase transition-all ${breakdownLanguage === 'tamil' ? 'bg-[#f5a623] text-black' : 'text-gray-500 hover:text-white'}`}
+                                >Tamil</button>
+                            </div>
+                        </div>
+
+                        <FeatureCard 
+                            title="Tamil Transliteration" 
+                            desc="Type phonetically in English to generate Tamil script automatically."
+                            icon={Globe}
+                            isActive={isTamilMode}
+                            onToggle={setTamilMode}
+                        />
+                        <FeatureCard 
+                            title="Storyboard AI" 
+                            desc="Enable Generative AI features for creating storyboard visuals."
+                            icon={ImageIcon}
+                            isActive={isStoryboardFeatureEnabled}
+                            onToggle={setStoryboardFeatureEnabled}
+                        />
+                        <FeatureCard 
+                            title="PDF Drag-and-Drop Import" 
+                            desc="Enable experimental PDF parsing. Drag a PDF onto the board to convert to beats."
+                            icon={FileText}
+                            isActive={isPdfDropEnabled}
+                            onToggle={setPdfDropEnabled}
+                        />
+                        <FeatureCard 
+                            title="Redo Support" 
+                            desc="Enable Ctrl+Y redo functionality (Experimental)."
+                            icon={RotateCw}
+                            isActive={isRedoEnabled}
+                            onToggle={setRedoEnabled}
+                        />
+                        
                         <div className="md:col-span-2 bg-[#111] p-6 rounded-sm border border-[#222]">
-                            {/* ... */}
+                            <div className="flex items-center justify-between mb-6">
+                                <div className="flex gap-4">
+                                    <div className="p-3 bg-[#1a1a1a] rounded-sm text-blue-500"><Keyboard size={24} /></div>
+                                    <div>
+                                        <h4 className="font-bold text-white text-sm uppercase tracking-wide">OS Input Trigger</h4>
+                                        <p className="text-xs text-gray-500 mt-1">Simulate keypress events on specific script actions.</p>
+                                    </div>
+                                </div>
+                                <Switch checked={isOsInputMode} onChange={setOsInputMode} activeColor="bg-blue-600" />
+                            </div>
+                            {isOsInputMode && (
+                                <div className="border-t border-[#222] pt-6 mt-4">
+                                    <Label>Trigger Key Configuration</Label>
+                                    <select 
+                                        value={osInputShortcut} 
+                                        onChange={(e) => setOsInputShortcut(e.target.value)}
+                                        className="mt-2 w-full max-w-xs bg-[#1a1a1a] border border-[#333] rounded-sm px-4 py-2.5 text-xs font-bold text-white focus:border-blue-500 outline-none uppercase tracking-wide"
+                                    >
+                                        <option value="NumLock">Num Lock</option>
+                                        <option value="ScrollLock">Scroll Lock</option>
+                                        <option value="F1">F1</option>
+                                        <option value="F13">F13</option>
+                                        <option value="Alt+L">Alt + L</option>
+                                    </select>
+                                </div>
+                            )}
                         </div>
                     </div>
                 </ViewContainer>

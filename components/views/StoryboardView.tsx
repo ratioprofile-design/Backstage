@@ -2,15 +2,17 @@
 import React, { useState, useEffect, useRef, memo } from 'react';
 import { useProject } from '../../context/ProjectContext';
 import { generateShotList, generateImage } from '../../services/gemini';
+import { createGoogleSheet } from '../../services/googleDrive';
 import { 
     Wand2, Image as ImageIcon, Film, Loader2, Download, 
     Plus, Trash2, RefreshCw, Play, Pause, Clock, 
     Grid3X3, LayoutGrid, Maximize, Columns, List, Table2,
     ArrowUp, ArrowDown, ArrowLeft, ArrowRight, UserCheck, ChevronLeft, ChevronRight,
     Settings2, Aperture, Paintbrush, Users, Lightbulb, X, ChevronsRight,
-    Scissors, Send, Layers, Check, Hash
+    Scissors, Send, Layers, Check, Hash, FileSpreadsheet
 } from 'lucide-react';
 import html2canvas from 'html2canvas';
+import * as XLSX from 'xlsx';
 import { Shot, CharacterData, Annotation } from '../../types';
 import { 
     SHOT_SIZES, SHOT_ANGLES, VISUAL_STYLES,
@@ -57,6 +59,7 @@ const BufferedTextArea = ({ value, onChange, className, placeholder }: any) => {
     );
 };
 
+// ... (AdvancedShotInspector, SceneDivider, isValidImage, StoryCard, ShotRow remain unchanged)
 const AdvancedShotInspector = ({ shot, onClose, onUpdate, characterData }: { 
     shot: Shot, 
     onClose: () => void, 
@@ -363,7 +366,7 @@ const StoryboardView: React.FC = () => {
       beats, generatedShots, setGeneratedShots, updateGeneratedShot, 
       addGeneratedShot, removeGeneratedShot, moveGeneratedShot, storyboardConfig, setStoryboardConfig,
       characterData, setAnnotations, panX, panY, scale,
-      geminiApiKey, stabilityApiKey // Grab both API keys
+      geminiApiKey, stabilityApiKey, googleDriveConfig
   } = useProject();
   
   // Range Analysis State
@@ -384,12 +387,11 @@ const StoryboardView: React.FC = () => {
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('table');
   const [gridSize, setGridSize] = useState<'sm' | 'md' | 'lg'>('md');
   const [showSceneBreaks, setShowSceneBreaks] = useState(true);
+  const [isExporting, setIsExporting] = useState(false);
   
   // Ref for cancellation
   const cancelQueueRef = useRef(false);
 
-  // ... (rest of implementation unchanged)
-  
   // Helper: Get Script Text
   const getScriptSegment = () => {
     const sorted = [...beats].sort((a, b) => a.x - b.x);
@@ -430,6 +432,64 @@ const StoryboardView: React.FC = () => {
     } finally {
       setAnalyzing(false);
     }
+  };
+
+  // --- EXPORT FUNCTION ---
+  const handleExport = async (format: 'csv' | 'excel' | 'sheet') => {
+      setIsExporting(true);
+      try {
+          if (generatedShots.length === 0) {
+              alert("No shots to export.");
+              return;
+          }
+
+          const exportData = generatedShots.map((shot, i) => ({
+              Index: i + 1,
+              Scene: shot.scene || '?',
+              Size: shot.shotSize,
+              Angle: shot.angle,
+              Subject: shot.subject,
+              Description: shot.description,
+              Notes: ''
+          }));
+
+          const fileName = `Storyboard_Export_${new Date().toISOString().slice(0,10)}`;
+
+          if (format === 'csv') {
+              const worksheet = XLSX.utils.json_to_sheet(exportData);
+              const csvOutput = XLSX.utils.sheet_to_csv(worksheet);
+              const blob = new Blob([csvOutput], { type: 'text/csv;charset=utf-8;' });
+              const url = URL.createObjectURL(blob);
+              const link = document.createElement('a');
+              link.href = url;
+              link.setAttribute('download', `${fileName}.csv`);
+              document.body.appendChild(link);
+              link.click();
+              document.body.removeChild(link);
+          } 
+          else if (format === 'excel') {
+              const workbook = XLSX.utils.book_new();
+              const worksheet = XLSX.utils.json_to_sheet(exportData);
+              XLSX.utils.book_append_sheet(workbook, worksheet, "ShotList");
+              XLSX.writeFile(workbook, `${fileName}.xlsx`);
+          }
+          else if (format === 'sheet') {
+              if (!googleDriveConfig.enabled) {
+                  alert("Google Drive not connected. Go to Backstage to connect.");
+                  return;
+              }
+              const worksheet = XLSX.utils.json_to_sheet(exportData);
+              const csvOutput = XLSX.utils.sheet_to_csv(worksheet);
+              await createGoogleSheet(fileName, csvOutput);
+              alert("Exported to Google Sheets (Drive root folder).");
+          }
+
+      } catch (e) {
+          console.error("Export failed", e);
+          alert("Export failed. Check console for details.");
+      } finally {
+          setIsExporting(false);
+      }
   };
 
   // --- PROMPT BUILDER ---
@@ -695,6 +755,7 @@ const StoryboardView: React.FC = () => {
         
         {/* Left: Planning Section */}
         <div className="flex items-center gap-4">
+            {/* ... Existing Input ... */}
             <div className="flex items-center gap-2 bg-[#000] border border-[#333] rounded-md px-2 py-1">
                <span className="text-[10px] font-bold text-[#666] uppercase mr-1">SCENE</span>
                <input type="number" className="w-8 bg-transparent text-center text-xs font-bold text-white outline-none focus:text-[#f5a623]" value={startScene} onChange={e => setStartScene(parseInt(e.target.value))} min={1} />
@@ -725,8 +786,39 @@ const StoryboardView: React.FC = () => {
             </button>
         </div>
 
-        {/* Center: View Options (Grid vs Table) */}
+        {/* Center: Exports & View */}
         <div className="flex items-center gap-4">
+            
+            {/* Exports Group */}
+            <div className="flex bg-[#222] rounded-full border border-[#333] p-1 gap-1">
+                <button 
+                    onClick={() => handleExport('sheet')} 
+                    disabled={isExporting}
+                    className="px-3 py-1.5 rounded-full text-[10px] font-bold uppercase text-gray-400 hover:text-white hover:bg-[#333] transition-all flex items-center gap-2"
+                    title="Export to Google Sheets"
+                >
+                    <Table2 size={12} className="text-green-500" /> Sheet
+                </button>
+                <div className="w-px bg-[#333] my-1"></div>
+                <button 
+                    onClick={() => handleExport('excel')} 
+                    disabled={isExporting}
+                    className="px-3 py-1.5 rounded-full text-[10px] font-bold uppercase text-gray-400 hover:text-white hover:bg-[#333] transition-all flex items-center gap-2"
+                    title="Export to Excel (.xlsx)"
+                >
+                    <FileSpreadsheet size={12} className="text-green-400" /> Excel
+                </button>
+                <div className="w-px bg-[#333] my-1"></div>
+                <button 
+                    onClick={() => handleExport('csv')} 
+                    disabled={isExporting}
+                    className="px-3 py-1.5 rounded-full text-[10px] font-bold uppercase text-gray-400 hover:text-white hover:bg-[#333] transition-all flex items-center gap-2"
+                    title="Download CSV"
+                >
+                    <Download size={12} /> CSV
+                </button>
+            </div>
+
             <div className="flex bg-[#000] rounded-md p-1 border border-[#333] gap-1">
                <button onClick={() => setViewMode('table')} className={`p-1.5 rounded flex items-center gap-2 text-[10px] font-bold uppercase transition-all ${viewMode === 'table' ? 'bg-[#333] text-white shadow-sm' : 'text-gray-500 hover:text-white'}`} title="List View"><List size={14} /></button>
                <button onClick={() => setViewMode('grid')} className={`p-1.5 rounded flex items-center gap-2 text-[10px] font-bold uppercase transition-all ${viewMode === 'grid' ? 'bg-[#333] text-white shadow-sm' : 'text-gray-500 hover:text-white'}`} title="Grid View"><LayoutGrid size={14} /></button>
@@ -747,7 +839,7 @@ const StoryboardView: React.FC = () => {
 
         {/* Right: Rendering Engine */}
         <div className="flex items-center gap-3 justify-end">
-             {/* Style Selector */}
+             {/* ... Existing Style Selectors ... */}
              <div className="flex items-center gap-2 bg-[#000] border border-[#333] rounded-md px-2 py-1 max-w-[150px]">
                  <ImageIcon size={12} className="text-[#666]" />
                  <select value={storyboardConfig.style || ''} onChange={(e) => setStoryboardConfig({...storyboardConfig, style: e.target.value})} disabled={isQueueRunning} className="bg-transparent text-white text-[10px] font-bold outline-none focus:text-[#f5a623] cursor-pointer w-full truncate">
@@ -787,7 +879,7 @@ const StoryboardView: React.FC = () => {
         </div>
       </div>
       
-      {/* --- PROGRESS BAR --- */}
+      {/* ... (Progress Bar and Content) ... */}
       {isQueueRunning && (
           <div className="bg-[#111] border-b border-[#333] px-4 py-2 flex items-center gap-4 shrink-0">
              <div className="text-[10px] font-bold text-[#f5a623] uppercase animate-pulse shrink-0">Processing Queue... {queueProgress.current} / {queueProgress.total}</div>

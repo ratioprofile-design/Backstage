@@ -1,8 +1,13 @@
+
 // A robust phonetic map for English to Tamil with Dictionary Support
 
 // --- DICTIONARY ---
 // Comprehensive list of colloquial words, verb forms, and screenplay terms (Top 500+ Frequency Weighted)
 const DICTIONARY: Record<string, string[]> = {
+  // --- 0. SPECIFIC USER OVERRIDES (Consistency Fixes) ---
+  "arpudham": ["அற்புதம்"], "arputham": ["அற்புதம்"],
+  "rosappu": ["ரோசாப்பூ"], "rosappoo": ["ரோசாப்பூ"], "rosapoo": ["ரோசாப்பூ"],
+
   // --- 1. PRONOUNS & PERSONS (HIGH FREQUENCY) ---
   "nan": ["நான்"], "naan": ["நான்"], "en": ["என்"], "ennoda": ["என்னோட"], "enakku": ["எனக்கு"], "ennai": ["என்னை"], "enkitta": ["என்கிட்ட"],
   "nee": ["நீ"], "un": ["உன்"], "unnoda": ["உன்னோட"], "unakku": ["உனக்கு"], "unnai": ["உன்னை"], "unkitta": ["உன்கிட்ட"],
@@ -210,6 +215,17 @@ export function toTamil(text: string): string {
   const lower = text.toLowerCase();
   if (DICTIONARY[lower]) return DICTIONARY[lower][0];
   return convert(text, {});
+}
+
+export function toEnglish(tamilText: string): string | null {
+  const target = tamilText.trim();
+  for (const [eng, tamils] of Object.entries(DICTIONARY)) {
+    if (tamils.includes(target)) {
+        // Return key in title case
+        return eng.charAt(0).toUpperCase() + eng.slice(1);
+    }
+  }
+  return null;
 }
 
 export function generateTamilSuggestions(text: string, userDictionary: Record<string, string[]> = {}): string[] {

@@ -13,6 +13,7 @@ interface ScriptEditorProps {
   id?: string;
   initialHtml: string;
   onSave: (html: string) => void;
+  onSaveImmediate?: (html: string) => void; // New prop for immediate saves
   className?: string;
   suggestions: string[]; // Characters
   onActiveFormatChange?: (format: string) => void;
@@ -31,7 +32,7 @@ const CHARACTER_EXTENSIONS = [
 ];
 
 export const ScriptEditor = forwardRef<ScriptEditorHandle, ScriptEditorProps>(({ 
-    id, initialHtml, onSave, className, suggestions, onActiveFormatChange, readOnly = false, onFocus, isActive = true
+    id, initialHtml, onSave, onSaveImmediate, className, suggestions, onActiveFormatChange, readOnly = false, onFocus, isActive = true
 }, ref) => {
   const editorRef = useRef<HTMLDivElement>(null);
   const { isTamilMode, isOsInputMode, osInputShortcut, userDictionary, learnTamilWord } = useProject();
@@ -194,9 +195,13 @@ export const ScriptEditor = forwardRef<ScriptEditorHandle, ScriptEditorProps>(({
   const handleBlur = () => {
     if (readOnly) return;
     if (editorRef.current) {
-        onSave(editorRef.current.innerHTML);
-        // We DO NOT clear active block here immediately to avoid flickering if clicking same editor
-        // rely on isActive prop from parent or focus events
+        const content = editorRef.current.innerHTML;
+        // Prioritize immediate save if provided to bypass debounce
+        if (onSaveImmediate) {
+            onSaveImmediate(content);
+        } else {
+            onSave(content);
+        }
     }
     // Delayed hide to allow click events on the popup to fire
     setTimeout(() => { 

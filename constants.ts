@@ -76,6 +76,16 @@ export const AVAILABLE_TAMIL_FONTS = [
     { label: 'Arial Unicode MS', value: 'Arial Unicode MS' },
 ];
 
+export const AVAILABLE_ENGLISH_FONTS = [
+    { label: 'Courier Prime', value: 'Courier Prime' },
+    { label: 'Vijaya', value: 'Vijaya' },
+    { label: 'Courier New', value: 'Courier New' },
+    { label: 'Helvetica Neue', value: 'Helvetica Neue' },
+    { label: 'Arial', value: 'Arial' },
+    { label: 'Times New Roman', value: 'Times New Roman' },
+    { label: 'Georgia', value: 'Georgia' },
+];
+
 export const AVAILABLE_IMAGE_MODELS = [
     { label: 'Gemini 2.5 Flash Image (Fast & Cheap)', value: 'gemini-2.5-flash-image' },
     { label: 'Gemini 3 Pro Image (High Quality)', value: 'gemini-3-pro-image-preview' },
@@ -114,8 +124,8 @@ export const LIGHTING_STYLES = [
 ];
 
 export const NOTE_FONTS = [
-    { label: 'Inter (Clean)', value: '"Inter", sans-serif' },
     { label: 'Merriweather (Serif)', value: '"Merriweather", serif' },
+    { label: 'Inter (Clean)', value: '"Inter", sans-serif' },
     { label: 'Roboto Mono (Code)', value: '"Roboto Mono", monospace' },
     { label: 'Caveat (Handwritten)', value: '"Caveat", cursive' },
     { label: 'Comic Neue (Casual)', value: '"Comic Neue", cursive' },
@@ -182,13 +192,13 @@ export const INITIAL_STATE: ProjectState = {
       outlineStyle: 'none', 
       funMode: 'none' 
     },
-    noteFont: '"Inter", sans-serif',
-    noteFontSize: 14
+    noteFont: '"Merriweather", serif', // DEFAULT UPDATED
+    noteFontSize: 12 // Default 12px
   },
   scriptViewMode: 'continuous', // Default to Continuous
   
   scratchpadConfig: {
-    fontFamily: '"Merriweather", serif',
+    fontFamily: '"Merriweather", serif', // New Default
     fontSize: 12,
     lineHeight: 1.6,
     blockSpacing: 2, 
@@ -205,11 +215,17 @@ export const INITIAL_STATE: ProjectState = {
     h1Italic: true,
     h2Italic: true,
     
+    // New Defaults
+    h1FontSize: 24,
+    h2FontSize: 18,
+    boldColor: '#f5a623', // Orange
+    italicColor: '#cccccc',
+    
     // Bullets
     listMarkerColor: '#3b82f6', // Blue (Numbers)
     bulletStyle: 'dot',
 
-    calloutBackground: 'rgba(34, 197, 94, 0.1)', // Light Green tint
+    calloutBackground: 'rgba(245, 166, 35, 0.05)', // Light Green tint
     calloutBorder: '#22c55e', // Green
     todoBorder: '#3b82f6', // Blue
     todoCheckColor: '#f5a623' // Orange

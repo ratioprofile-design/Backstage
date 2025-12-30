@@ -3,12 +3,14 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useProject } from '../../context/ProjectContext';
 import { BreakdownData } from '../../types';
 import { generateBreakdown } from '../../services/gemini';
+import { createGoogleSheet } from '../../services/googleDrive';
 import { 
     ListChecks, Users, Package, Mic2, Shirt, Wand2, Flame, Map as MapIcon, 
     Search, LayoutGrid, List as ListIcon, Eye, 
     Sparkles, Loader2, StopCircle, Trash2, Clock, Hash,
-    Lock, Unlock, Layers, Box, Tag, AlertCircle, Play
+    Lock, Unlock, Layers, Box, Tag, AlertCircle, Play, Download, Table2, FileSpreadsheet
 } from 'lucide-react';
+import * as XLSX from 'xlsx';
 
 const CATEGORIES = [
     { id: 'all', label: 'Total Manifest', icon: ListChecks, color: 'text-gray-300', bg: 'bg-gray-500/20', border: 'border-gray-500/30' },
@@ -22,10 +24,10 @@ const CATEGORIES = [
 ];
 
 const BreakdownView: React.FC = () => {
-    const { beats, updateBeat, geminiApiKey, breakdownLanguage, breakdownLockedOnly, setBreakdownLockedOnly } = useProject();
+    const { beats, updateBeat, geminiApiKey, breakdownLanguage, breakdownLockedOnly, setBreakdownLockedOnly, googleDriveConfig } = useProject();
     const [selectedCategory, setSelectedCategory] = useState<string>('all');
     const [searchTerm, setSearchTerm] = useState('');
-    const [viewType, setViewType] = useState<'by-category' | 'by-scene'>('by-category');
+    const [viewType, setViewType] = useState<'by-category' | 'by-scene'>('by-scene');
 
     // --- ANALYSIS CONFIG ---
     const [startScene, setStartScene] = useState(1);
@@ -37,6 +39,8 @@ const BreakdownView: React.FC = () => {
     const [progress, setProgress] = useState({ current: 0, total: 0, currentScene: '' });
     const abortRef = React.useRef(false);
     const isMounted = React.useRef(true);
+
+    const [isExporting, setIsExporting] = useState(false);
 
     useEffect(() => {
         isMounted.current = true;
@@ -199,11 +203,61 @@ const BreakdownView: React.FC = () => {
         setIsAnalyzing(false);
     };
 
-    const handleClearData = () => {
-        if(!confirm("Delete ALL breakdown data from ALL scenes?")) return;
-        beats.forEach(b => {
-            if(b.breakdown) updateBeat(b.id, { breakdown: undefined });
-        });
+    // --- EXPORT FUNCTION ---
+    const handleExport = async (format: 'csv' | 'excel' | 'sheet') => {
+        setIsExporting(true);
+        try {
+            // Prepare Data: Flatten Items
+            const exportData = itemsData.map(item => ({
+                Category: item.category.toUpperCase(),
+                Item: item.name,
+                Scenes: item.scenes.map(s => s.sceneNum).join(', '),
+                Source_Text: item.scenes.map(s => s.source || '').filter(Boolean).join(' | '),
+                Count: item.scenes.length
+            }));
+
+            if (exportData.length === 0) {
+                alert("No breakdown data to export.");
+                return;
+            }
+
+            const fileName = `Breakdown_Export_${new Date().toISOString().slice(0,10)}`;
+
+            if (format === 'csv') {
+                const worksheet = XLSX.utils.json_to_sheet(exportData);
+                const csvOutput = XLSX.utils.sheet_to_csv(worksheet);
+                const blob = new Blob([csvOutput], { type: 'text/csv;charset=utf-8;' });
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.setAttribute('download', `${fileName}.csv`);
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            } 
+            else if (format === 'excel') {
+                const workbook = XLSX.utils.book_new();
+                const worksheet = XLSX.utils.json_to_sheet(exportData);
+                XLSX.utils.book_append_sheet(workbook, worksheet, "Breakdown");
+                XLSX.writeFile(workbook, `${fileName}.xlsx`);
+            }
+            else if (format === 'sheet') {
+                if (!googleDriveConfig.enabled) {
+                    alert("Google Drive not connected. Go to Backstage to connect.");
+                    return;
+                }
+                const worksheet = XLSX.utils.json_to_sheet(exportData);
+                const csvOutput = XLSX.utils.sheet_to_csv(worksheet);
+                await createGoogleSheet(fileName, csvOutput);
+                alert("Exported to Google Sheets (Drive root folder).");
+            }
+
+        } catch (e) {
+            console.error("Export failed", e);
+            alert("Export failed. Check console for details.");
+        } finally {
+            setIsExporting(false);
+        }
     };
 
     return (
@@ -248,122 +302,114 @@ const BreakdownView: React.FC = () => {
                         );
                     })}
                 </div>
-
-                <div className="p-4 border-t border-[#333] bg-[#1a1a1a]">
-                    <div className="bg-[#222] rounded-lg p-1 flex">
-                        <button 
-                            onClick={() => setViewType('by-category')} 
-                            className={`flex-1 py-2 text-[10px] font-bold uppercase rounded-md flex items-center justify-center gap-2 transition-all ${viewType === 'by-category' ? 'bg-[#333] text-[#f5a623] shadow-sm' : 'text-gray-500 hover:text-white'}`}
-                        >
-                            <LayoutGrid size={14} /> Grid
-                        </button>
-                        <button 
-                            onClick={() => setViewType('by-scene')} 
-                            className={`flex-1 py-2 text-[10px] font-bold uppercase rounded-md flex items-center justify-center gap-2 transition-all ${viewType === 'by-scene' ? 'bg-[#333] text-[#f5a623] shadow-sm' : 'text-gray-500 hover:text-white'}`}
-                        >
-                            <ListIcon size={14} /> List
-                        </button>
-                    </div>
-                </div>
             </div>
 
             {/* MAIN CONTENT */}
             <div className="flex-1 flex flex-col overflow-hidden relative bg-[#121212]">
                 
-                {/* --- HEADER TOOLBAR --- */}
-                <div className="h-18 border-b border-[#333] flex items-center justify-between px-8 bg-[#1a1a1a] z-30 shrink-0 gap-6 py-4">
+                {/* --- HEADER TOOLBAR (Revised Design) --- */}
+                <div className="bg-[#111] h-14 border-b border-[#222] px-4 flex items-center justify-between shrink-0 shadow-sm z-20 gap-4">
                     
-                    {/* Search */}
-                    <div className="relative w-72 group">
-                        <Search className="absolute left-3 top-2.5 text-[#555] group-focus-within:text-[#f5a623] transition-colors" size={16} />
-                        <input 
-                            type="text" 
-                            placeholder="Search assets..." 
-                            value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
-                            className="w-full bg-[#222] border border-[#333] rounded-full pl-10 pr-4 py-2 text-xs font-medium text-white placeholder-gray-600 outline-none focus:border-[#f5a623] transition-all" 
-                        />
-                    </div>
-                    
-                    {/* Controls */}
+                    {/* Left: Planning Section */}
                     <div className="flex items-center gap-4">
-                        
-                        {/* Range & Analyze Group */}
-                        <div className="flex items-center bg-[#222] rounded-full border border-[#333] p-1 pr-1 gap-1 shadow-sm">
-                            <div className="flex items-center px-4 border-r border-[#333] gap-3">
-                                <span className="text-[10px] font-bold text-[#666] uppercase flex items-center gap-1.5"><Hash size={12}/> Scenes</span>
-                                <input 
-                                    type="number" 
-                                    className="w-10 bg-[#1a1a1a] border border-[#333] rounded px-1.5 py-0.5 text-center text-xs font-bold text-white outline-none focus:border-[#f5a623]" 
-                                    value={startScene} 
-                                    onChange={e => setStartScene(Math.max(1, parseInt(e.target.value)))} 
-                                    min={1} disabled={isAnalyzing}
-                                />
-                                <span className="text-[#444] font-bold">-</span>
-                                <input 
-                                    type="number" 
-                                    className="w-10 bg-[#1a1a1a] border border-[#333] rounded px-1.5 py-0.5 text-center text-xs font-bold text-white outline-none focus:border-[#f5a623]" 
-                                    value={endScene} 
-                                    onChange={e => setEndScene(Math.max(1, parseInt(e.target.value)))} 
-                                    min={1} disabled={isAnalyzing}
-                                />
-                            </div>
-
-                            <button 
-                                onClick={() => setBreakdownLockedOnly(!breakdownLockedOnly)}
-                                disabled={isAnalyzing}
-                                className={`p-2 rounded-full transition-all flex items-center justify-center ${breakdownLockedOnly ? 'text-green-400 bg-green-900/20' : 'text-gray-500 hover:text-white hover:bg-[#333]'}`}
-                                title={breakdownLockedOnly ? "Only Analyze Locked Scenes" : "Analyze All Scenes"}
-                            >
-                                {breakdownLockedOnly ? <Lock size={14} /> : <Unlock size={14} />}
-                            </button>
-
-                            {/* ANALYZE BUTTON */}
-                            {isAnalyzing ? (
-                                <button 
-                                    onClick={handleStopAnalysis}
-                                    className="px-4 py-1.5 bg-red-500 hover:bg-red-600 text-white rounded-full text-[10px] font-bold uppercase flex items-center gap-2 animate-pulse shadow-md transition-all ml-2"
-                                >
-                                    <StopCircle size={14} /> Stop
-                                </button>
-                            ) : (
-                                <button 
-                                    onClick={handleAnalyze}
-                                    className={`
-                                        px-5 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-wide transition-all ml-2 flex items-center gap-2
-                                        ${geminiApiKey 
-                                            ? 'bg-[#f5a623] hover:bg-[#e09612] text-black shadow-lg hover:shadow-orange-500/20' 
-                                            : 'bg-[#333] text-gray-500 cursor-not-allowed'}
-                                    `}
-                                    title={geminiApiKey ? "Start Analysis" : "API Key Missing"}
-                                >
-                                    <Play size={10} fill="currentColor" /> Analyze
-                                </button>
-                            )}
-                        </div>
-
-                        {/* Settings */}
-                        <div className="flex items-center gap-2 bg-[#222] px-3 py-1.5 rounded-full border border-[#333]">
-                             <Clock size={14} className="text-[#666]" />
-                             <select 
-                                value={delay} 
-                                onChange={(e) => setDelay(parseInt(e.target.value))} 
-                                disabled={isAnalyzing} 
-                                className="bg-transparent text-[#aaa] text-[10px] font-bold outline-none cursor-pointer focus:text-white hover:text-white"
-                             >
-                                 <option value={1}>1s Delay</option>
-                                 <option value={2}>2s Delay</option>
-                                 <option value={5}>5s Delay</option>
-                             </select>
+                        <div className="flex items-center gap-2 bg-[#000] border border-[#333] rounded-md px-2 py-1">
+                           <span className="text-[10px] font-bold text-[#666] uppercase mr-1">SCENE</span>
+                           <input type="number" className="w-8 bg-transparent text-center text-xs font-bold text-white outline-none focus:text-[#f5a623]" value={startScene} onChange={e => setStartScene(Math.max(1, parseInt(e.target.value)))} min={1} disabled={isAnalyzing} />
+                           <span className="text-gray-600 font-bold text-xs">-</span>
+                           <input type="number" className="w-8 bg-transparent text-center text-xs font-bold text-white outline-none focus:text-[#f5a623]" value={endScene} onChange={e => setEndScene(Math.max(1, parseInt(e.target.value)))} min={1} disabled={isAnalyzing} />
                         </div>
 
                         <button 
-                            onClick={handleClearData}
-                            className="p-2.5 rounded-full border border-[#333] bg-[#222] text-gray-500 hover:text-red-500 hover:border-red-500/50 transition-colors"
-                            title="Clear All Data"
+                            onClick={() => setBreakdownLockedOnly(!breakdownLockedOnly)}
+                            disabled={isAnalyzing}
+                            className={`flex items-center justify-center w-8 h-8 rounded-md border border-[#333] transition-all ${breakdownLockedOnly ? 'bg-green-900/20 text-green-500 border-green-900/50' : 'bg-[#1a1a1a] text-gray-500 hover:text-white hover:bg-[#333]'}`}
+                            title={breakdownLockedOnly ? "Only Analyze Locked Scenes" : "Analyze All Scenes"}
                         >
-                            <Trash2 size={16} />
+                            {breakdownLockedOnly ? <Lock size={14} /> : <Unlock size={14} />}
                         </button>
+
+                        <button 
+                            onClick={handleAnalyze} 
+                            disabled={isAnalyzing || !geminiApiKey} 
+                            className={`flex items-center gap-2 border border-[#333] px-3 py-1.5 rounded-md text-xs font-bold uppercase transition-all group ${
+                                geminiApiKey 
+                                ? 'bg-[#222] hover:bg-[#f5a623] hover:text-black text-gray-300' 
+                                : 'bg-[#151515] text-gray-600 cursor-not-allowed opacity-50'
+                            }`}
+                            title={geminiApiKey ? "Start Analysis" : "API Key Missing"}
+                        >
+                          {isAnalyzing ? <Loader2 className="animate-spin" size={14} /> : <Wand2 size={14} className={geminiApiKey ? "text-[#f5a623] group-hover:text-black" : "text-gray-600"} />} 
+                          {isAnalyzing ? 'Analyzing...' : 'Analyze'}
+                        </button>
+
+                        {isAnalyzing && (
+                             <button onClick={handleStopAnalysis} className="h-8 w-8 flex items-center justify-center bg-red-600 hover:bg-red-700 text-white rounded-md transition-all shadow-lg animate-pulse">
+                                <StopCircle size={14} />
+                             </button>
+                        )}
+                    </div>
+
+                    {/* Center: Exports & View */}
+                    <div className="flex items-center gap-4">
+                        
+                        {/* Exports Group */}
+                        <div className="flex bg-[#222] rounded-full border border-[#333] p-1 gap-1">
+                            <button 
+                                onClick={() => handleExport('sheet')} 
+                                disabled={isExporting}
+                                className="px-3 py-1.5 rounded-full text-[10px] font-bold uppercase text-gray-400 hover:text-white hover:bg-[#333] transition-all flex items-center gap-2"
+                                title="Export to Google Sheets"
+                            >
+                                <Table2 size={12} className="text-green-500" /> Sheet
+                            </button>
+                            <div className="w-px bg-[#333] my-1"></div>
+                            <button 
+                                onClick={() => handleExport('excel')} 
+                                disabled={isExporting}
+                                className="px-3 py-1.5 rounded-full text-[10px] font-bold uppercase text-gray-400 hover:text-white hover:bg-[#333] transition-all flex items-center gap-2"
+                                title="Export to Excel (.xlsx)"
+                            >
+                                <FileSpreadsheet size={12} className="text-green-400" /> Excel
+                            </button>
+                            <div className="w-px bg-[#333] my-1"></div>
+                            <button 
+                                onClick={() => handleExport('csv')} 
+                                disabled={isExporting}
+                                className="px-3 py-1.5 rounded-full text-[10px] font-bold uppercase text-gray-400 hover:text-white hover:bg-[#333] transition-all flex items-center gap-2"
+                                title="Download CSV"
+                            >
+                                <Download size={12} /> CSV
+                            </button>
+                        </div>
+
+                        {/* View Toggles */}
+                        <div className="flex bg-[#000] rounded-md p-1 border border-[#333] gap-1">
+                           <button onClick={() => setViewType('by-category')} className={`p-1.5 rounded flex items-center gap-2 text-[10px] font-bold uppercase transition-all ${viewType === 'by-category' ? 'bg-[#333] text-white shadow-sm' : 'text-gray-500 hover:text-white'}`} title="Category Grid"><LayoutGrid size={14} /></button>
+                           <button onClick={() => setViewType('by-scene')} className={`p-1.5 rounded flex items-center gap-2 text-[10px] font-bold uppercase transition-all ${viewType === 'by-scene' ? 'bg-[#333] text-white shadow-sm' : 'text-gray-500 hover:text-white'}`} title="Scene List"><ListIcon size={14} /></button>
+                        </div>
+                    </div>
+
+                    {/* Right: Search & Config */}
+                    <div className="flex items-center gap-3 justify-end">
+                         <div className="relative w-64 group">
+                            <Search className="absolute left-2.5 top-2 text-[#555] group-focus-within:text-[#f5a623] transition-colors" size={14} />
+                            <input 
+                                type="text" 
+                                placeholder="Search assets..." 
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                                className="w-full bg-[#000] border border-[#333] rounded-md pl-8 pr-3 py-1.5 text-xs font-medium text-white placeholder-gray-600 outline-none focus:border-[#f5a623] transition-all" 
+                            />
+                        </div>
+
+                         <div className="flex items-center gap-2 bg-[#000] px-2 py-1 rounded-md border border-[#333]">
+                             <Clock size={12} className="text-[#666]" />
+                             <select value={delay} onChange={(e) => setDelay(parseInt(e.target.value))} disabled={isAnalyzing} className="bg-transparent text-white text-[10px] font-bold outline-none focus:text-[#f5a623] cursor-pointer">
+                                 <option value={1}>1s DELAY</option>
+                                 <option value={2}>2s DELAY</option>
+                                 <option value={5}>5s DELAY</option>
+                             </select>
+                         </div>
                     </div>
                 </div>
 

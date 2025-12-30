@@ -1,11 +1,11 @@
 
-import React, { useEffect, useRef, useState, useMemo, useLayoutEffect } from 'react';
+import React, { useEffect, useRef, useState, useMemo, useLayoutEffect, useCallback } from 'react';
 import { useProject } from '../../context/ProjectContext';
 import { Search, Plus, Sun, Moon, Coffee, Eye, ZoomIn, ZoomOut, Lock, AlignLeft, User, MessageSquare, Parentheses, ArrowRightLeft, Camera, Music, Type, ListChecks, Sparkles, X, Package, Mic2, Shirt, Wand2, Users, Flame, Map, EyeOff, PanelLeft, History, StickyNote, RotateCcw, Save, Globe, Trash2, GripHorizontal, Bold, Italic, Heading, List, CheckSquare, Underline, Strikethrough, Quote } from 'lucide-react';
 import { ScriptEditor, ScriptEditorHandle } from '../ScriptEditor';
 import { SlugInput } from '../SlugInput';
 import { generateBreakdown } from '../../services/gemini';
-import { BreakdownData, BreakdownItem, BeatVersion, Note } from '../../types';
+import { BreakdownData, BreakdownItem, BeatVersion, Note, Beat } from '../../types';
 import { BlockEditor } from '../BlockEditor';
 import DiffModal from '../DiffModal';
 
@@ -27,6 +27,71 @@ const NOTE_COLORS = [
     { bg: '#1a2a3a', border: '#2563eb' }, // Blue
     { bg: '#3a1a1a', border: '#dc2626' }, // Red
 ];
+
+// Helper hook for debouncing
+function useDebounce<T extends (...args: any[]) => void>(func: T, delay: number) {
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  
+  useEffect(() => {
+      return () => {
+          if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      };
+  }, []);
+
+  return useCallback((...args: Parameters<T>) => {
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    timeoutRef.current = setTimeout(() => {
+      func(...args);
+    }, delay);
+  }, [func, delay]);
+}
+
+// Inner Component for individual beat editor to handle local debounce
+interface BeatEditorBlockProps {
+    beat: Beat;
+    isActive: boolean;
+    isReady: boolean;
+    uniqueCharacters: string[];
+    setActiveFormat: (format: string) => void;
+    onUpdateContent: (id: number, content: string) => void;
+    onFocus: () => void;
+    editorRefCallback: (el: ScriptEditorHandle | null) => void;
+}
+
+const BeatEditorBlock: React.FC<BeatEditorBlockProps> = React.memo(({ 
+    beat, isActive, isReady, uniqueCharacters, setActiveFormat, onUpdateContent, onFocus, editorRefCallback 
+}) => {
+    // Local debounce to prevent flooding global state on every keystroke
+    const debouncedSave = useDebounce((content: string) => {
+        onUpdateContent(beat.id, content);
+    }, 500);
+
+    // Immediate save handler for blur events
+    const handleImmediateSave = (content: string) => {
+        onUpdateContent(beat.id, content);
+    };
+
+    return (
+        <ScriptEditor 
+            ref={editorRefCallback} 
+            id={`editor-${beat.id}`} 
+            initialHtml={beat.content} 
+            onSave={debouncedSave} // Use debounced save while typing
+            onSaveImmediate={handleImmediateSave} // Instant save on blur
+            suggestions={uniqueCharacters} 
+            readOnly={isReady} 
+            onFocus={onFocus} 
+            onActiveFormatChange={setActiveFormat} 
+            className="script-body min-h-[1.5em] outline-none" 
+            isActive={isActive} 
+        />
+    );
+}, (prev, next) => {
+    return prev.beat.id === next.beat.id && 
+           prev.beat.content === next.beat.content && 
+           prev.isActive === next.isActive && 
+           prev.isReady === next.isReady;
+});
 
 const runPaginationPass = (
     container: HTMLElement, 
@@ -155,7 +220,7 @@ const ScriptView: React.FC = () => {
   
   // Navigation & Sidebar State
   const [showNav, setShowNav] = useState(true);
-  const [activeSidebar, setActiveSidebar] = useState<'none' | 'breakdown' | 'scratchpad' | 'history'>('none');
+  const [activeSidebar, setActiveSidebar] = useState<'none' | 'breakdown' | 'scratchpad' | 'history'>('scratchpad');
   const [scratchpadMode, setScratchpadMode] = useState<'global' | 'scene'>('global');
   
   // Dragging State for Notes
@@ -297,6 +362,10 @@ const ScriptView: React.FC = () => {
       const beat = beats.find(b => b.id === id);
       if (beat) updateBeat(id, { slug: { ...beat.slug, [field]: val } });
   };
+
+  const handleContentUpdate = useCallback((id: number, content: string) => {
+      updateBeat(id, { content });
+  }, [updateBeat]);
 
   const handleFormat = (type: string) => {
       setActiveFormat(type);
@@ -737,8 +806,8 @@ const ScriptView: React.FC = () => {
                 {/* ... Right controls unchanged ... */}
                 <div className="flex items-center gap-4">
                     <div className="flex bg-[#1a1a1a] rounded border border-[#333] p-0.5">
-                        <button onClick={() => setActiveSidebar(activeSidebar === 'breakdown' ? 'none' : 'breakdown')} className={`p-1.5 rounded flex items-center gap-2 text-[10px] font-bold uppercase transition-all ${activeSidebar === 'breakdown' ? 'bg-[#222] text-[#f5a623] shadow-sm' : 'text-gray-400 hover:text-white'}`} title="Scene Breakdown"><ListChecks size={14} /></button>
                         <button onClick={() => setActiveSidebar(activeSidebar === 'scratchpad' ? 'none' : 'scratchpad')} className={`p-1.5 rounded flex items-center gap-2 text-[10px] font-bold uppercase transition-all ${activeSidebar === 'scratchpad' ? 'bg-[#222] text-[#f5a623] shadow-sm' : 'text-gray-400 hover:text-white'}`} title="Scratchpad"><StickyNote size={14} /></button>
+                        <button onClick={() => setActiveSidebar(activeSidebar === 'breakdown' ? 'none' : 'breakdown')} className={`p-1.5 rounded flex items-center gap-2 text-[10px] font-bold uppercase transition-all ${activeSidebar === 'breakdown' ? 'bg-[#222] text-[#f5a623] shadow-sm' : 'text-gray-400 hover:text-white'}`} title="Scene Breakdown"><ListChecks size={14} /></button>
                         <button onClick={() => setActiveSidebar(activeSidebar === 'history' ? 'none' : 'history')} className={`p-1.5 rounded flex items-center gap-2 text-[10px] font-bold uppercase transition-all ${activeSidebar === 'history' ? 'bg-[#222] text-[#f5a623] shadow-sm' : 'text-gray-400 hover:text-white'}`} title="Version History"><History size={14} /></button>
                     </div>
                     <div className="w-[1px] h-4 bg-[#333]"></div>
@@ -782,7 +851,16 @@ const ScriptView: React.FC = () => {
                                             {isReady && <Lock size={12} className={activeBeatId === beat.id ? "text-black" : "text-green-500 ml-2"} />}
                                         </div>
                                         <div>
-                                            <ScriptEditor ref={(el) => { editorRefs.current[beat.id] = el; }} id={`editor-${beat.id}`} initialHtml={beat.content} onSave={(html) => updateBeat(beat.id, { content: html })} suggestions={uniqueCharacters} readOnly={isReady} onFocus={() => setActiveBeatId(beat.id)} onActiveFormatChange={setActiveFormat} className="script-body min-h-[1.5em] outline-none" isActive={activeBeatId === beat.id} />
+                                            <BeatEditorBlock 
+                                                beat={beat} 
+                                                isActive={activeBeatId === beat.id} 
+                                                isReady={isReady} 
+                                                uniqueCharacters={uniqueCharacters} 
+                                                setActiveFormat={setActiveFormat}
+                                                onUpdateContent={handleContentUpdate} 
+                                                onFocus={() => setActiveBeatId(beat.id)}
+                                                editorRefCallback={(el) => { editorRefs.current[beat.id] = el; }}
+                                            />
                                         </div>
                                     </div>
                                 );
