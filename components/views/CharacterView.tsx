@@ -7,8 +7,10 @@ import {
     Fingerprint, Brain, Users, Activity, 
     Mic2, Sparkles, MoreHorizontal, Camera,
     Network, FileText, Link2, X,
-    Bold, Italic, Upload, Image as ImageIcon,
-    AlertTriangle, BookOpen, Lock
+    Upload, Image as ImageIcon,
+    BookOpen, Clapperboard, Sun, Moon, TreePine, Box, Wand2, Calculator,
+    BarChart3, Clock, MessageSquare, Radar, Skull, Smile, Frown, Megaphone, Shirt, Package, MapPin,
+    ArrowRight
 } from 'lucide-react';
 import { CharacterData, CharacterRelationship } from '../../types';
 import { 
@@ -16,8 +18,9 @@ import {
     CHARACTER_BUILDS, CHARACTER_ARCHETYPES, CHARACTER_ROLES,
     RELATIONSHIP_TYPES
 } from '../../constants';
+import { BlockEditor } from '../BlockEditor';
 
-// --- CINEMATIC TEMPLATES (IDEAS ONLY) ---
+// --- CINEMATIC TEMPLATES ---
 const CINEMATIC_TEMPLATES: Partial<CharacterData>[] = [
     // GODFATHER
     { name: 'VITO CORLEONE', age: 60, gender: 'Male', ethnicity: 'Italian', hair: 'Grey', eyes: 'Brown', build: 'Heavy', occupation: 'Don', archetype: 'The Ruler', physiology: 'Raspy voice, slow movements.', sociology: 'Family patriarch, powerful connections.', psychology: 'Ruthless but sentimental. Justice over law.', backstory: 'Escaped Sicily as a child after family murder.' },
@@ -69,63 +72,15 @@ const CINEMATIC_TEMPLATES: Partial<CharacterData>[] = [
     { name: 'LORD BULLINGDON', age: 10, gender: 'Male', ethnicity: 'Caucasian', hair: 'Brown', eyes: 'Brown', build: 'Small', occupation: 'Heir', archetype: 'The Avenger', physiology: 'Proper, sneering.', sociology: 'Lady Lyndon\'s son.', psychology: 'Hates his stepfather Barry.', backstory: 'Refuses to accept Barry.' }
 ];
 
-// --- NOTION-LIKE EDITOR ---
-const NotionLikeEditor = ({ value, onChange, placeholder, minHeight = "150px", onFocus, className }: any) => {
-    const editorRef = useRef<HTMLDivElement>(null);
-    const isLocked = useRef(false);
-
-    useEffect(() => {
-        if (editorRef.current && !isLocked.current) {
-            if (editorRef.current.innerHTML !== value) {
-                const isHtml = /<[a-z][\s\S]*>/i.test(value);
-                if (!value) {
-                    editorRef.current.innerHTML = `<div class="nl-block"></div>`;
-                } else if (!isHtml) {
-                    editorRef.current.innerHTML = value.split('\n').map((line: string) => `<div class="nl-block">${line}</div>`).join('');
-                } else {
-                    editorRef.current.innerHTML = value;
-                }
-            }
-        }
-    }, [value]);
-
-    const emitChange = () => {
-        if (editorRef.current) {
-            isLocked.current = true; 
-            onChange(editorRef.current.innerHTML);
-            setTimeout(() => isLocked.current = false, 0);
-        }
-    };
-
-    const handleFocusInternal = (e: React.FocusEvent<HTMLDivElement>) => {
-        if (onFocus) onFocus(e);
-    };
-
-    return (
-        <div className="w-full bg-[#0a0a0a] rounded border border-[#222] hover:border-[#333] transition-all flex flex-col overflow-hidden group focus-within:border-[#f5a623] focus-within:shadow-[0_0_15px_rgba(245,166,35,0.1)] relative" style={{ minHeight }}>
-            <style>{`
-                .nl-block { position: relative; min-height: 1.5em; margin-bottom: 0.25em; padding: 2px 4px; border-radius: 2px; line-height: 1.6; }
-                .nl-block:focus { outline: none; }
-            `}</style>
-            
-            {(!value || value === '<div class="nl-block"></div>') && placeholder && (
-                <div className="absolute inset-0 p-4 text-gray-600 font-sans leading-relaxed pointer-events-none italic select-none">
-                    {placeholder}
-                </div>
-            )}
-
-            <div 
-                ref={editorRef}
-                contentEditable
-                suppressContentEditableWarning
-                onInput={emitChange}
-                onFocus={handleFocusInternal}
-                className={`flex-1 p-4 outline-none font-sans leading-relaxed custom-scrollbar relative z-10 ${className || 'text-gray-300'}`}
-                style={{ backgroundColor: 'transparent' }}
-            />
-        </div>
-    );
+const EMOTION_KEYWORDS = {
+    anger: ['angry', 'furious', 'shouts', 'screams', 'yells', 'rage', 'mad', 'snaps'],
+    joy: ['smile', 'laugh', 'happy', 'grin', 'chuckle', 'excited', 'cheers'],
+    sadness: ['cries', 'weeps', 'tears', 'sad', 'sob', 'grief', 'mourn'],
+    fear: ['scared', 'afraid', 'terrified', 'trembles', 'shivers', 'panic'],
+    surpise: ['shocked', 'gasps', 'stares', 'wide-eyed', 'stunned']
 };
+
+const ACTION_KEYWORDS = ['run', 'fight', 'punch', 'kick', 'shoot', 'kill', 'chase', 'jump', 'fall', 'slap', 'grab', 'throw', 'drive', 'crash', 'explode'];
 
 const CharacterView: React.FC = () => {
   const { characterData, setCharacterData, beats, geminiApiKey } = useProject();
@@ -134,20 +89,18 @@ const CharacterView: React.FC = () => {
   const [selectedCharId, setSelectedCharId] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  const [activeTab, setActiveTab] = useState<'profile' | 'backstory' | 'network'>('profile');
+  const [activeTab, setActiveTab] = useState<'profile' | 'backstory' | 'network' | 'stats'>('profile');
   const [nameInput, setNameInput] = useState('');
   const [isDragging, setIsDragging] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null); // Track pending deletions
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // --- DYNAMIC CAST LIST GENERATION ---
-  // Merges explicit characters (from Data) and implicit characters (from Script)
   const castList = useMemo(() => {
       const explicitChars = new Set(Object.keys(characterData));
       const allNames = new Set(explicitChars);
       const usedNames = new Set<string>();
       
-      // Scan Script for Characters AND mark them as used
       beats.forEach(b => {
           const div = document.createElement('div');
           div.innerHTML = b.content;
@@ -161,7 +114,6 @@ const CharacterView: React.FC = () => {
           });
       });
 
-      // Filter and Map
       let list = Array.from(allNames).map(name => {
           const data = characterData[name] || {
               name,
@@ -178,12 +130,128 @@ const CharacterView: React.FC = () => {
 
       if (searchTerm) {
           const lower = searchTerm.toLowerCase();
-          // HARDENED: Check for null names/archetypes
           list = list.filter(c => (c.name || '').toLowerCase().includes(lower) || (c.archetype && c.archetype.toLowerCase().includes(lower)));
       }
 
       return list.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
   }, [characterData, beats, searchTerm]);
+
+  // --- PRODUCTION STATS CALCULATOR (ENHANCED) ---
+  const charStats = useMemo(() => {
+      if (!selectedCharId) return null;
+      const name = selectedCharId.toUpperCase();
+      
+      // Metrics
+      let scenes = 0;
+      let int = 0; let ext = 0;
+      let day = 0; let night = 0;
+      let actionScenes = 0;
+      let totalLines = 0;
+      let totalWords = 0;
+      let monologues = 0;
+      let coOccurrences: Record<string, number> = {};
+      let firstScene: string | null = null;
+      let lastScene: string | null = null;
+      let emotions: Record<string, number> = { anger: 0, joy: 0, sadness: 0, fear: 0, surpise: 0 };
+      
+      const timeline: ('active' | 'inactive')[] = [];
+
+      // Sort beats by position (x, y) to approximate script order
+      const sortedBeats = [...beats].sort((a, b) => {
+          if (Math.abs(a.x - b.x) > 50) return a.x - b.x; 
+          return a.y - b.y;
+      });
+
+      sortedBeats.forEach((beat, index) => {
+          // Fast check for character presence
+          const contentUpper = beat.content.toUpperCase();
+          const charTag = `CLASS="SC-LINE SC-CHARACTER">${name}`;
+          // Check regex for loose name match in character line to be safer
+          const isPresent = contentUpper.includes(charTag) || contentUpper.includes(`>${name}<`) || contentUpper.includes(`>${name} (`);
+          
+          if (isPresent) { 
+              scenes++;
+              timeline.push('active');
+              
+              const sceneNum = beat.sceneNumber || (index + 1).toString();
+              if (!firstScene) firstScene = sceneNum;
+              lastScene = sceneNum;
+
+              const p = (beat.slug.prefix || '').toUpperCase();
+              const t = (beat.slug.time || '').toUpperCase();
+              
+              if (p.includes('INT')) int++;
+              if (p.includes('EXT')) ext++;
+              
+              if (t.includes('DAY') || t.includes('MORNING') || t.includes('DAWN')) day++;
+              if (t.includes('NIGHT') || t.includes('EVENING') || t.includes('DUSK')) night++;
+
+              // Action Check
+              const actionText = beat.content.replace(/<[^>]+>/g, ' ').toUpperCase();
+              const hasAction = ACTION_KEYWORDS.some(k => actionText.includes(k.toUpperCase()));
+              if (hasAction) actionScenes++;
+
+              // Detailed Content Analysis
+              const div = document.createElement('div');
+              div.innerHTML = beat.content;
+              const lines = div.querySelectorAll('.sc-line');
+              let counting = false;
+              
+              lines.forEach(line => {
+                  if (line.classList.contains('sc-character')) {
+                      const charName = line.textContent?.trim().replace(/\s*\(.*\)$/, '').toUpperCase();
+                      if (charName === name) {
+                          counting = true;
+                      } else {
+                          counting = false;
+                          // Co-occurrence
+                          if (charName && charName.length > 1) {
+                              coOccurrences[charName] = (coOccurrences[charName] || 0) + 1;
+                          }
+                      }
+                  } else if (line.classList.contains('sc-dialogue') && counting) {
+                      const text = (line.textContent || '').trim();
+                      const words = text.split(/\s+/).length;
+                      totalLines++;
+                      totalWords += words;
+                      if (words > 40) monologues++;
+                  } else if (line.classList.contains('sc-parenthetical') && counting) {
+                      // Emotional Analysis
+                      const parenText = line.textContent?.toLowerCase() || '';
+                      Object.entries(EMOTION_KEYWORDS).forEach(([emotion, keywords]) => {
+                          if (keywords.some(k => parenText.includes(k))) {
+                              emotions[emotion] = (emotions[emotion] || 0) + 1;
+                          }
+                      });
+                  } else if (!line.classList.contains('sc-parenthetical')) {
+                      counting = false;
+                  }
+              });
+
+          } else {
+              timeline.push('inactive');
+          }
+      });
+
+      const topRelationships = Object.entries(coOccurrences)
+          .sort(([,a], [,b]) => b - a)
+          .slice(0, 5)
+          .map(([char, count]) => ({ char, count }));
+
+      const totalScenes = beats.length || 1;
+      const percentPresence = Math.round((scenes / totalScenes) * 100);
+      
+      // Simple Estimation: 1 scene ~ 2 hours to shoot (very rough heuristic)
+      // Weighted by action scenes (x1.5)
+      const estimatedShootDays = Math.ceil(((scenes - actionScenes) * 0.2) + (actionScenes * 0.4));
+
+      return { 
+          scenes, int, ext, day, night, actionScenes, 
+          totalLines, totalWords, monologues, 
+          firstScene, lastScene, estimatedShootDays,
+          timeline, topRelationships, percentPresence, emotions 
+      };
+  }, [beats, selectedCharId]);
 
   // Select first character on load if none selected
   useEffect(() => {
@@ -199,9 +267,7 @@ const CharacterView: React.FC = () => {
       }
   }, [selectedCharId]);
 
-  // --- SELECTION HANDLER ---
   const handleSelectCharacter = (name: string) => {
-      // If selecting an implicit character, materialize it into characterData
       if (!characterData[name]) {
           const newChar: CharacterData = {
               name,
@@ -217,18 +283,15 @@ const CharacterView: React.FC = () => {
 
   const selectedChar = selectedCharId ? characterData[selectedCharId] : null;
   
-  // Safe defaults for selected character
   if (selectedChar) {
       if (!selectedChar.relationships) selectedChar.relationships = [];
       if (!selectedChar.backstory) selectedChar.backstory = '';
   }
 
   const handleAddCharacter = () => {
-    // Unique Selection Logic
     const existingNames = Object.keys(characterData).map(n => n.toUpperCase());
     const availableTemplates = CINEMATIC_TEMPLATES.filter(t => !existingNames.includes(t.name?.toUpperCase() || ''));
     
-    // Fallback for empty template pool
     if (availableTemplates.length === 0) {
         let i = 1;
         while (existingNames.includes(`NEW CHARACTER ${i}`)) i++;
@@ -248,42 +311,16 @@ const CharacterView: React.FC = () => {
     const template = availableTemplates[Math.floor(Math.random() * availableTemplates.length)];
     const name = template.name!; 
 
-    // Create new character with EMPTY bio fields, but save template data as defaults (ideas)
     const newChar: CharacterData = {
       name,
-      // Vitals are kept EMPTY to show placeholders
-      age: 0, 
-      gender: '', 
-      ethnicity: '', 
-      hair: '', 
-      eyes: '', 
-      build: '',
-      archetype: '',
-      
-      // Bio fields start empty to show placeholders
-      physiology: '', 
-      sociology: '', 
-      psychology: '', 
-      backstory: '',
-      occupation: '', // Start empty to show suggestion
-      
-      images: [],
-      relationships: [],
-      
-      // Store the template ideas here
+      age: 0, gender: '', ethnicity: '', hair: '', eyes: '', build: '', archetype: '',
+      physiology: '', sociology: '', psychology: '', backstory: '', occupation: '', 
+      images: [], relationships: [],
       templateDefaults: {
-          physiology: template.physiology,
-          sociology: template.sociology,
-          psychology: template.psychology,
-          backstory: template.backstory,
-          occupation: template.occupation,
-          archetype: template.archetype,
-          age: template.age,
-          gender: template.gender,
-          ethnicity: template.ethnicity,
-          hair: template.hair,
-          eyes: template.eyes,
-          build: template.build
+          physiology: template.physiology, sociology: template.sociology, psychology: template.psychology,
+          backstory: template.backstory, occupation: template.occupation, archetype: template.archetype,
+          age: template.age, gender: template.gender, ethnicity: template.ethnicity,
+          hair: template.hair, eyes: template.eyes, build: template.build
       }
     };
     setCharacterData(prev => ({ ...prev, [name]: newChar }));
@@ -295,7 +332,6 @@ const CharacterView: React.FC = () => {
   };
 
   const handleDelete = (name: string) => {
-      // 1. Check if character exists in script (Double check safety)
       const isUsedInScript = beats.some(beat => {
           const div = document.createElement('div');
           div.innerHTML = beat.content;
@@ -310,7 +346,6 @@ const CharacterView: React.FC = () => {
           return;
       }
 
-      // Update state
       setCharacterData(prev => {
           const newMap = { ...prev };
           delete newMap[name];
@@ -432,7 +467,6 @@ const CharacterView: React.FC = () => {
             const isSelected = selectedCharId === data.name;
             const isExplicit = !data.isImplicit;
             
-            // Name Styling Logic: Explicit characters are brighter when unselected
             let nameColorClass = 'text-gray-500 group-hover:text-gray-400';
             if (isSelected) nameColorClass = 'text-white';
             else if (isExplicit) nameColorClass = 'text-gray-300 group-hover:text-white';
@@ -458,7 +492,6 @@ const CharacterView: React.FC = () => {
                     <div className="truncate text-[10px] font-mono text-[#555] uppercase">{data.archetype || 'Archetype'}</div>
                 </div>
                 
-                {/* STATUS ACTION: Delete if useless, Lock/Link if used */}
                 <div className={`absolute right-2 top-1/2 -translate-y-1/2 transition-opacity z-10 ${isConfirming ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
                     {data.isUsed ? (
                         <span title="Active in Script"><Link2 size={12} className="text-blue-500" /></span>
@@ -471,7 +504,6 @@ const CharacterView: React.FC = () => {
                                     setConfirmDeleteId(null);
                                 } else {
                                     setConfirmDeleteId(data.name);
-                                    // Auto reset after 3s
                                     setTimeout(() => setConfirmDeleteId(prev => prev === data.name ? null : prev), 3000);
                                 }
                             }} 
@@ -535,6 +567,7 @@ const CharacterView: React.FC = () => {
                         <button onClick={() => setActiveTab('profile')} className={`px-4 py-2 text-xs font-bold uppercase tracking-wider border-b-2 transition-colors ${activeTab === 'profile' ? 'border-[#f5a623] text-[#f5a623]' : 'border-transparent text-gray-500 hover:text-gray-300'}`}>Profile</button>
                         <button onClick={() => setActiveTab('backstory')} className={`px-4 py-2 text-xs font-bold uppercase tracking-wider border-b-2 transition-colors ${activeTab === 'backstory' ? 'border-[#f5a623] text-[#f5a623]' : 'border-transparent text-gray-500 hover:text-gray-300'}`}>Backstory</button>
                         <button onClick={() => setActiveTab('network')} className={`px-4 py-2 text-xs font-bold uppercase tracking-wider border-b-2 transition-colors ${activeTab === 'network' ? 'border-[#f5a623] text-[#f5a623]' : 'border-transparent text-gray-500 hover:text-gray-300'}`}>Network</button>
+                        <button onClick={() => setActiveTab('stats')} className={`px-4 py-2 text-xs font-bold uppercase tracking-wider border-b-2 transition-colors ${activeTab === 'stats' ? 'border-[#f5a623] text-[#f5a623]' : 'border-transparent text-gray-500 hover:text-gray-300'}`}>Analytics</button>
                     </div>
                 </div>
 
@@ -575,6 +608,49 @@ const CharacterView: React.FC = () => {
                                     <button onClick={() => fileInputRef.current?.click()} className="px-6 py-2.5 bg-[#222] hover:bg-[#333] border border-[#333] hover:border-[#555] text-white font-bold uppercase text-xs tracking-wider rounded-full flex items-center gap-2 transform hover:scale-105 transition-all shadow-lg w-40 justify-center"><Upload size={14} /> Upload Img</button>
                                     <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleManualUpload} />
                                 </div>
+                            </div>
+
+                            {/* PRODUCTION STATS */}
+                            <div className="bg-[#0a0a0a] border border-[#222] rounded-lg p-5">
+                                <div className="flex items-center gap-2 mb-4 border-b border-[#222] pb-2">
+                                    <Calculator size={14} className="text-[#f5a623]" />
+                                    <h3 className="text-xs font-bold text-white uppercase tracking-widest">Production Statistics</h3>
+                                </div>
+                                {charStats && (
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div className="flex flex-col gap-1 p-2 bg-[#111] rounded border border-[#222]">
+                                            <div className="flex items-center gap-2 text-[10px] font-bold text-[#666] uppercase"><Clapperboard size={12} /> Scenes</div>
+                                            <div className="text-xl font-black text-white">{charStats.scenes}</div>
+                                        </div>
+                                        <div className="flex flex-col gap-1 p-2 bg-[#111] rounded border border-[#222]">
+                                            <div className="flex items-center gap-2 text-[10px] font-bold text-[#666] uppercase"><Wand2 size={12} /> VFX Shots</div>
+                                            <div className={`text-xl font-black ${charStats.vfx > 0 ? 'text-green-400' : 'text-[#444]'}`}>{charStats.vfx}</div>
+                                        </div>
+                                        <div className="col-span-2 grid grid-cols-2 gap-2 mt-2">
+                                            <div className="flex items-center justify-between text-[10px] font-mono text-[#888] bg-[#151515] px-2 py-1 rounded">
+                                                <span className="flex items-center gap-1"><Box size={10} /> INT</span>
+                                                <span className="text-white font-bold">{charStats.int}</span>
+                                            </div>
+                                            <div className="flex items-center justify-between text-[10px] font-mono text-[#888] bg-[#151515] px-2 py-1 rounded">
+                                                <span className="flex items-center gap-1"><TreePine size={10} /> EXT</span>
+                                                <span className="text-white font-bold">{charStats.ext}</span>
+                                            </div>
+                                            <div className="flex items-center justify-between text-[10px] font-mono text-[#888] bg-[#151515] px-2 py-1 rounded">
+                                                <span className="flex items-center gap-1"><Sun size={10} /> DAY</span>
+                                                <span className="text-white font-bold">{charStats.day}</span>
+                                            </div>
+                                            <div className="flex items-center justify-between text-[10px] font-mono text-[#888] bg-[#151515] px-2 py-1 rounded">
+                                                <span className="flex items-center gap-1"><Moon size={10} /> NIGHT</span>
+                                                <span className="text-white font-bold">{charStats.night}</span>
+                                            </div>
+                                        </div>
+                                        {charStats.vfx === 0 && charStats.scenes > 0 && (
+                                            <div className="col-span-2 text-[9px] text-[#444] text-center italic mt-1">
+                                                * Run Breakdown Analysis for accurate VFX counts
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
                             </div>
 
                             {/* BIOMETRICS */}
@@ -661,7 +737,7 @@ const CharacterView: React.FC = () => {
                         {/* --- RIGHT COLUMN: EDITORS --- */}
                         <div className="lg:col-span-8 space-y-6 animate-in slide-in-from-right-2 duration-300">
                             <DossierSection title="Physiology" icon={Fingerprint} color="text-red-400" desc="Physical appearance, defects, heredity, health.">
-                                <NotionLikeEditor 
+                                <BlockEditor 
                                     value={selectedChar.physiology} 
                                     onChange={(v: string) => updateCharacter(selectedChar.name, { physiology: v })} 
                                     className="text-gray-200 hover:text-white focus:text-white transition-colors"
@@ -669,7 +745,7 @@ const CharacterView: React.FC = () => {
                                 />
                             </DossierSection>
                             <DossierSection title="Sociology" icon={Users} color="text-blue-400" desc="Class, occupation, education, home life, religion, politics.">
-                                <NotionLikeEditor 
+                                <BlockEditor 
                                     value={selectedChar.sociology} 
                                     onChange={(v: string) => updateCharacter(selectedChar.name, { sociology: v })} 
                                     className="text-gray-200 hover:text-white focus:text-white transition-colors"
@@ -677,7 +753,7 @@ const CharacterView: React.FC = () => {
                                 />
                             </DossierSection>
                             <DossierSection title="Psychology" icon={Brain} color="text-purple-400" desc="Moral standards, ambitions, frustrations, temperament, complexes.">
-                                <NotionLikeEditor 
+                                <BlockEditor 
                                     value={selectedChar.psychology} 
                                     onChange={(v: string) => updateCharacter(selectedChar.name, { psychology: v })} 
                                     className="text-gray-200 hover:text-white focus:text-white transition-colors"
@@ -691,7 +767,7 @@ const CharacterView: React.FC = () => {
                 {activeTab === 'backstory' && (
                     <div className="lg:col-span-12 animate-in fade-in duration-300">
                         <DossierSection title="Character History" icon={FileText} color="text-[#f5a623]" desc="Comprehensive backstory, childhood, and key life events.">
-                            <NotionLikeEditor 
+                            <BlockEditor 
                                 value={selectedChar.backstory || ''} 
                                 onChange={(v: string) => updateCharacter(selectedChar.name, { backstory: v })} 
                                 className="text-gray-200 hover:text-white focus:text-white transition-colors"
@@ -742,6 +818,178 @@ const CharacterView: React.FC = () => {
                             </div>
                             <NeuralMap characters={characterData} selectedId={selectedChar.name} onSelect={setSelectedCharId} />
                         </div>
+                    </div>
+                )}
+
+                {activeTab === 'stats' && charStats && (
+                    <div className="lg:col-span-12 animate-in fade-in duration-300 space-y-6">
+                        
+                        {/* ROW 1: KEY METRICS */}
+                        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                            <div className="bg-[#0a0a0a] border border-[#333] p-5 rounded-lg flex flex-col justify-between">
+                                <div className="text-[10px] font-bold text-[#555] uppercase tracking-widest mb-1">Total Scenes</div>
+                                <div className="text-3xl font-black text-white">{charStats.scenes}</div>
+                                <div className="h-1 bg-[#222] mt-2 rounded overflow-hidden"><div className="h-full bg-[#f5a623]" style={{ width: `${charStats.percentPresence}%` }}></div></div>
+                                <div className="text-[9px] text-[#555] font-mono mt-1">{charStats.percentPresence}% of script</div>
+                            </div>
+                            <div className="bg-[#0a0a0a] border border-[#333] p-5 rounded-lg flex flex-col justify-between">
+                                <div className="text-[10px] font-bold text-[#555] uppercase tracking-widest mb-1">Word Count</div>
+                                <div className="text-3xl font-black text-white">{charStats.totalWords}</div>
+                                <div className="text-[9px] text-[#555] font-mono mt-2">Across {charStats.totalLines} lines</div>
+                            </div>
+                            <div className="bg-[#0a0a0a] border border-[#333] p-5 rounded-lg flex flex-col justify-between">
+                                <div className="text-[10px] font-bold text-[#555] uppercase tracking-widest mb-1">Est. Shoot Days</div>
+                                <div className="text-3xl font-black text-white">{charStats.estimatedShootDays}</div>
+                                <div className="text-[9px] text-[#555] font-mono mt-2">Based on scene complexity</div>
+                            </div>
+                            <div className="bg-[#0a0a0a] border border-[#333] p-5 rounded-lg flex flex-col justify-between">
+                                <div className="text-[10px] font-bold text-[#555] uppercase tracking-widest mb-1">Schedule Block</div>
+                                <div className="flex justify-between items-end">
+                                    <div><div className="text-[9px] text-[#444]">FIRST</div><div className="text-lg font-bold text-white">SC {charStats.firstScene || '-'}</div></div>
+                                    <ArrowRight size={14} className="text-[#333] mb-1.5"/>
+                                    <div className="text-right"><div className="text-[9px] text-[#444]">LAST</div><div className="text-lg font-bold text-white">SC {charStats.lastScene || '-'}</div></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* ROW 2: SCHEDULING & ENVIRONMENT */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div className="bg-[#0a0a0a] border border-[#333] p-6 rounded-lg">
+                                <div className="flex items-center gap-2 mb-6">
+                                    <Clock size={16} className="text-[#f5a623]" />
+                                    <h3 className="text-xs font-bold text-white uppercase tracking-widest">Time & Environment</h3>
+                                </div>
+                                <div className="space-y-4">
+                                    <div>
+                                        <div className="flex justify-between text-[10px] font-bold text-gray-400 mb-1"><span>DAY ({charStats.day})</span><span>NIGHT ({charStats.night})</span></div>
+                                        <div className="h-2 bg-[#222] rounded-full overflow-hidden flex">
+                                            <div className="bg-yellow-500 h-full" style={{ width: `${(charStats.day / (charStats.day + charStats.night || 1)) * 100}%` }}></div>
+                                            <div className="bg-blue-900 h-full flex-1"></div>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <div className="flex justify-between text-[10px] font-bold text-gray-400 mb-1"><span>INT ({charStats.int})</span><span>EXT ({charStats.ext})</span></div>
+                                        <div className="h-2 bg-[#222] rounded-full overflow-hidden flex">
+                                            <div className="bg-[#333] h-full" style={{ width: `${(charStats.int / (charStats.int + charStats.ext || 1)) * 100}%` }}></div>
+                                            <div className="bg-green-800 h-full flex-1"></div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div className="mt-6">
+                                    <div className="text-[10px] font-bold text-[#555] uppercase mb-2">Chronological Appearance</div>
+                                    <div className="flex h-8 gap-[1px] w-full">
+                                        {charStats.timeline.map((status, idx) => (
+                                            <div key={idx} className={`flex-1 transition-all hover:scale-y-125 ${status === 'active' ? 'bg-[#f5a623]' : 'bg-[#1a1a1a] hover:bg-[#222]'}`} title={`Scene ${idx + 1}: ${status === 'active' ? 'Present' : 'Absent'}`}></div>
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="bg-[#0a0a0a] border border-[#333] p-6 rounded-lg">
+                                <div className="flex items-center gap-2 mb-6">
+                                    <Radar size={16} className="text-[#f5a623]" />
+                                    <h3 className="text-xs font-bold text-white uppercase tracking-widest">Co-Occurrence</h3>
+                                </div>
+                                <div className="space-y-3">
+                                    {charStats.topRelationships.map((rel, idx) => (
+                                        <div key={idx} className="flex items-center gap-4">
+                                            <div className="w-6 text-[10px] font-mono text-[#555] text-right">#{idx + 1}</div>
+                                            <div className="flex-1">
+                                                <div className="flex justify-between text-[10px] font-bold text-gray-300 mb-1"><span>{rel.char}</span><span>{rel.count} Scenes</span></div>
+                                                <div className="h-1.5 bg-[#222] rounded-full overflow-hidden"><div className="h-full bg-blue-500" style={{ width: `${(rel.count / charStats.scenes) * 100}%` }}></div></div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                    {charStats.topRelationships.length === 0 && <div className="text-center text-[10px] text-[#444] py-4 italic">No interactions found yet.</div>}
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* ROW 3: PERFORMANCE & ACTION */}
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                            
+                            {/* Emotions */}
+                            <div className="bg-[#0a0a0a] border border-[#333] p-6 rounded-lg flex flex-col">
+                                <div className="flex items-center gap-2 mb-6">
+                                    <Smile size={16} className="text-pink-500" />
+                                    <h3 className="text-xs font-bold text-white uppercase tracking-widest">Emotional Range</h3>
+                                </div>
+                                <div className="space-y-3 flex-1">
+                                    {Object.entries(charStats.emotions).map(([emotion, count]) => (
+                                        <div key={emotion} className="flex items-center justify-between">
+                                            <span className="text-[10px] font-bold text-gray-400 uppercase">{emotion}</span>
+                                            <div className="flex items-center gap-2">
+                                                <div className="w-24 h-1.5 bg-[#222] rounded-full overflow-hidden">
+                                                    <div className="h-full bg-pink-500" style={{ width: `${Math.min(100, (count as number) * 10)}%` }}></div>
+                                                </div>
+                                                <span className="text-[10px] font-mono text-[#555] w-4 text-right">{count}</span>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* Dialogue Metrics */}
+                            <div className="bg-[#0a0a0a] border border-[#333] p-6 rounded-lg flex flex-col">
+                                <div className="flex items-center gap-2 mb-6">
+                                    <Megaphone size={16} className="text-blue-400" />
+                                    <h3 className="text-xs font-bold text-white uppercase tracking-widest">Dialogue Load</h3>
+                                </div>
+                                <div className="space-y-4 flex-1">
+                                    <div className="flex justify-between items-center border-b border-[#222] pb-2">
+                                        <span className="text-[10px] font-bold text-gray-400">Total Lines</span>
+                                        <span className="text-lg font-black text-white">{charStats.totalLines}</span>
+                                    </div>
+                                    <div className="flex justify-between items-center border-b border-[#222] pb-2">
+                                        <span className="text-[10px] font-bold text-gray-400">Avg Words / Line</span>
+                                        <span className="text-lg font-black text-white">{charStats.totalLines > 0 ? Math.round(charStats.totalWords / charStats.totalLines) : 0}</span>
+                                    </div>
+                                    <div className="flex justify-between items-center border-b border-[#222] pb-2">
+                                        <span className="text-[10px] font-bold text-gray-400">Monologues (>40w)</span>
+                                        <span className={`text-lg font-black ${charStats.monologues > 0 ? 'text-[#f5a623]' : 'text-[#444]'}`}>{charStats.monologues}</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Physical Action */}
+                            <div className="bg-[#0a0a0a] border border-[#333] p-6 rounded-lg flex flex-col">
+                                <div className="flex items-center gap-2 mb-6">
+                                    <Skull size={16} className="text-red-500" />
+                                    <h3 className="text-xs font-bold text-white uppercase tracking-widest">Physicality</h3>
+                                </div>
+                                <div className="flex-1 flex flex-col items-center justify-center">
+                                    <div className="relative w-24 h-24 flex items-center justify-center rounded-full border-4 border-[#222]">
+                                        <div className="text-3xl font-black text-white">{charStats.actionScenes}</div>
+                                        <div className="absolute inset-0 rounded-full border-4 border-red-500 border-t-transparent" style={{ transform: `rotate(${Math.min(360, (charStats.actionScenes / charStats.scenes) * 360)}deg)` }}></div>
+                                    </div>
+                                    <div className="mt-4 text-center">
+                                        <div className="text-[10px] font-bold text-gray-400 uppercase">Action Heavy Scenes</div>
+                                        <div className="text-[9px] text-[#555] font-mono mt-1">Based on keyword analysis</div>
+                                    </div>
+                                </div>
+                            </div>
+
+                        </div>
+
+                        {/* ROW 4: ASSETS (Placeholder for Breakdown Data) */}
+                        <div className="bg-[#0a0a0a] border border-[#333] p-6 rounded-lg">
+                            <div className="flex items-center gap-2 mb-4">
+                                <Package size={16} className="text-[#f5a623]" />
+                                <h3 className="text-xs font-bold text-white uppercase tracking-widest">Asset Requirements</h3>
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="p-3 bg-[#111] border border-[#222] rounded flex items-center justify-between">
+                                    <div className="flex items-center gap-2"><Shirt size={14} className="text-pink-400"/><span className="text-[10px] font-bold text-gray-300">Costume Changes</span></div>
+                                    <span className="text-xs font-mono text-[#555] font-bold">--</span>
+                                </div>
+                                <div className="p-3 bg-[#111] border border-[#222] rounded flex items-center justify-between">
+                                    <div className="flex items-center gap-2"><Wand2 size={14} className="text-green-400"/><span className="text-[10px] font-bold text-gray-300">VFX Shots</span></div>
+                                    <span className="text-xs font-mono text-[#555] font-bold">{charStats.vfx || '--'}</span>
+                                </div>
+                            </div>
+                            <div className="mt-2 text-[9px] text-[#444] italic text-center">* Populate Scene Breakdown to see full asset list</div>
+                        </div>
+
                     </div>
                 )}
             </div>
@@ -802,9 +1050,6 @@ const VitalInput = ({ label, value, onChange, type = 'text', icon: Icon, options
         </div>
     );
 };
-
-// ... (Rest of file content, NeuralMap and DossierSection components)
-// I will output these as well to complete the file replacement in the XML block.
 
 const NeuralMap = ({ characters, selectedId, onSelect }: { characters: Record<string, CharacterData>, selectedId: string, onSelect: (id: string) => void }) => {
     const svgRef = useRef<SVGSVGElement>(null);

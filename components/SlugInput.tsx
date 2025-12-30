@@ -137,11 +137,11 @@ export const SlugInput = ({
         autoComplete="off"
       />
       {!readOnly && isOpen && (
-        <div className={`absolute top-full ${align === 'right' ? 'right-0' : 'left-0'} w-full min-w-[120px] bg-white border border-gray-300 shadow-xl z-[9999] max-h-40 overflow-y-auto mt-1 rounded-sm print:hidden text-left`}>
+        <div className={`absolute top-full ${align === 'right' ? 'right-0' : 'left-0'} min-w-full w-max bg-white border border-gray-300 shadow-xl z-[9999] max-h-60 overflow-y-auto mt-1 rounded-sm print:hidden text-left`}>
           {filtered.map((s, i) => (
             <div 
               key={s}
-              className={`px-3 py-1.5 cursor-pointer text-sm font-bold ${i === selectedIndex ? 'bg-orange-100 text-orange-800' : 'text-gray-700 hover:bg-gray-100'}`}
+              className={`px-3 py-1.5 cursor-pointer text-sm font-bold whitespace-nowrap ${i === selectedIndex ? 'bg-orange-100 text-orange-800' : 'text-gray-700 hover:bg-gray-100'}`}
               onMouseDown={(e) => { e.preventDefault(); handleSelect(s); if(onNext) onNext(); }}
             >
               {s}

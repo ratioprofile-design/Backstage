@@ -1,14 +1,19 @@
 
-import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
-import { ProjectState, Beat, Connection, Annotation, Shot, CharacterData, ScriptConfig, StoryboardConfig, Group, WritingGoal, ProjectMetadata, BoardLayer, GoogleDriveConfig, ProjectContextType } from '../types';
-import { INITIAL_STATE } from '../constants';
-import { initializeGapi, requestAccessToken, findDriveFile, createDriveFile, updateDriveFile } from '../services/googleDrive';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
+import { 
+  ProjectState, ProjectContextType, Beat, Group, Connection, Annotation, 
+  CharacterData, Shot, Note, ScriptConfig, ScratchpadConfig, StoryboardConfig, 
+  WritingGoal, GoogleDriveConfig, ProjectMetadata, BeatStatus, BeatVersion,
+  BoardLayer
+} from '../types';
+import { INITIAL_STATE, NOTE_FONTS } from '../constants';
+import { initializeGapi, requestAccessToken, createDriveFile, updateDriveFile, findDriveFile } from '../services/googleDrive';
 import { updateGeminiConfig } from '../services/gemini';
 
-const ProjectContext = createContext<ProjectContextType | null>(null);
+const ProjectContext = createContext<ProjectContextType | undefined>(undefined);
 
-// Helper to mix hex and opacity
-const hexToRgba = (hex: string, opacity: number) => {
+// Helper function
+const hexToRgba = (hex: string, opacity: number): string => {
     let c: any;
     if(/^#([A-Fa-f0-9]{3}){1,2}$/.test(hex)){
         c= hex.substring(1).split('');
@@ -16,496 +21,440 @@ const hexToRgba = (hex: string, opacity: number) => {
             c= [c[0], c[0], c[1], c[1], c[2], c[2]];
         }
         c= '0x'+c.join('');
-        return 'rgba('+[(c>>16)&255, (c>>8)&255, c&255].join(',')+','+(opacity/100)+')';
+        return 'rgba('+[(c>>16)&255, (c>>8)&255, c&255].join(',')+','+opacity/100+')';
     }
-    return `rgba(0,0,0,${opacity/100})`; // Fallback
-}
+    return `rgba(0,0,0,${opacity/100})`;
+};
 
 export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  // --- AUTH & PROJECT SELECTION STATE ---
-  const [currentUser, setCurrentUser] = useState<string | null>(() => localStorage.getItem('causality_user') || 'Filmmaker');
-  const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
-  const [projectList, setProjectList] = useState<ProjectMetadata[]>([]);
+  // Auth State
+  const [currentUser, setCurrentUser] = useState<string | null>(localStorage.getItem('currentUser'));
+  const [currentProjectId, setCurrentProjectId] = useState<string | null>(localStorage.getItem('currentProjectId'));
+  const [projectList, setProjectList] = useState<ProjectMetadata[]>(() => {
+      const stored = localStorage.getItem('projectList');
+      return stored ? JSON.parse(stored) : [];
+  });
 
-  // --- EDITOR STATE (Loaded for active project) ---
-  const [state, setState] = useState<ProjectState>(INITIAL_STATE);
+  // Project State (Initialized with INITIAL_STATE)
+  const [beats, setBeats] = useState<Beat[]>(INITIAL_STATE.beats);
+  const [groups, setGroups] = useState<Group[]>(INITIAL_STATE.groups);
+  const [connections, setConnections] = useState<Connection[]>(INITIAL_STATE.connections);
+  const [annotations, setAnnotations] = useState<Annotation[]>(INITIAL_STATE.annotations);
+  const [characterData, setCharacterData] = useState<Record<string, CharacterData>>(INITIAL_STATE.characterData);
+  const [generatedShots, setGeneratedShots] = useState<Shot[]>(INITIAL_STATE.generatedShots);
+  const [scratchpad, setScratchpad] = useState<string>(INITIAL_STATE.scratchpad);
+  const [globalNotes, setGlobalNotes] = useState<Note[]>(INITIAL_STATE.globalNotes);
   
-  // --- HISTORY STATE ---
-  const [history, setHistory] = useState<{past: Partial<ProjectState>[], future: Partial<ProjectState>[]}>({ past: [], future: [] });
-  // Ref to access current state inside callbacks without adding 'state' to dependency array (avoids loops)
-  const stateRef = useRef(state); 
-  useEffect(() => { stateRef.current = state; }, [state]);
+  const [panX, setPanX] = useState(INITIAL_STATE.panX);
+  const [panY, setPanY] = useState(INITIAL_STATE.panY);
+  const [scale, setScaleState] = useState(INITIAL_STATE.scale);
+  const [nextId, setNextId] = useState(INITIAL_STATE.nextId);
+  const [nextAnnoId, setNextAnnoId] = useState(INITIAL_STATE.nextAnnoId);
+  
+  // Configs
+  const [isTamilMode, setTamilModeState] = useState(INITIAL_STATE.isTamilMode);
+  const [tamilFontScale, setTamilFontScaleState] = useState(INITIAL_STATE.tamilFontScale);
+  const [tamilFontFamily, setTamilFontFamilyState] = useState(INITIAL_STATE.tamilFontFamily);
+  const [userDictionary, setUserDictionary] = useState(INITIAL_STATE.userDictionary);
+  const [isOsInputMode, setOsInputModeState] = useState(INITIAL_STATE.isOsInputMode);
+  const [osInputShortcut, setOsInputShortcutState] = useState(INITIAL_STATE.osInputShortcut);
+  const [scriptConfig, setScriptConfigState] = useState<ScriptConfig>(INITIAL_STATE.scriptConfig);
+  const [scriptViewMode, setScriptViewModeState] = useState<'continuous' | 'page'>(INITIAL_STATE.scriptViewMode);
+  const [scratchpadConfig, setScratchpadConfigState] = useState<ScratchpadConfig>(INITIAL_STATE.scratchpadConfig);
+  const [storyboardConfig, setStoryboardConfigState] = useState<StoryboardConfig>(INITIAL_STATE.storyboardConfig);
+  const [isStoryboardFeatureEnabled, setStoryboardFeatureEnabledState] = useState(INITIAL_STATE.isStoryboardFeatureEnabled);
+  const [breakdownLanguage, setBreakdownLanguageState] = useState<'english' | 'tamil'>(INITIAL_STATE.breakdownLanguage);
+  const [breakdownLockedOnly, setBreakdownLockedOnlyState] = useState(INITIAL_STATE.breakdownLockedOnly);
+  const [isPdfDropEnabled, setPdfDropEnabledState] = useState(INITIAL_STATE.isPdfDropEnabled);
+  const [isRedoEnabled, setRedoEnabledState] = useState(INITIAL_STATE.isRedoEnabled);
+  const [writingGoal, setWritingGoalState] = useState<WritingGoal>(INITIAL_STATE.writingGoal);
+  const [googleDriveConfig, setGoogleDriveConfigState] = useState<GoogleDriveConfig>(INITIAL_STATE.googleDriveConfig);
+  const [geminiApiKey, setGeminiApiKeyState] = useState(INITIAL_STATE.geminiApiKey);
+  const [stabilityApiKey, setStabilityApiKeyState] = useState(INITIAL_STATE.stabilityApiKey);
+  const [dailyStats, setDailyStats] = useState(INITIAL_STATE.dailyStats);
+  const [sessionStartCount, setSessionStartCount] = useState(INITIAL_STATE.sessionStartCount);
+  const [lastSessionDate, setLastSessionDate] = useState(INITIAL_STATE.lastSessionDate);
+  const [boardLayerOrder, setBoardLayerOrderState] = useState<BoardLayer[]>(INITIAL_STATE.boardLayerOrder);
 
-  // Change Tracking
+  // Volatile State
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
-  const isJustLoaded = useRef(false);
-
-  // Drive State
   const [isDriveSyncing, setIsDriveSyncing] = useState(false);
   const [isDriveConnecting, setIsDriveConnecting] = useState(false);
 
-  // Dirty Flags
-  const isCloudDirty = useRef(false);
+  // History
+  const historyRef = useRef<string[]>([]);
+  const historyIndexRef = useRef<number>(-1);
+  const isUndoing = useRef(false);
 
-  // --- HISTORY IMPLEMENTATION ---
-  
-  // Extracts only the creative content to save memory
-  const getSnapshot = (s: ProjectState): Partial<ProjectState> => ({
-      beats: s.beats,
-      groups: s.groups,
-      connections: s.connections,
-      annotations: s.annotations,
-      characterData: s.characterData,
-      generatedShots: s.generatedShots,
-      scriptConfig: s.scriptConfig,
-      storyboardConfig: s.storyboardConfig,
-      writingGoal: s.writingGoal,
-      boardLayerOrder: s.boardLayerOrder
-  });
+  // --- ACTIONS ---
 
   const captureSnapshot = useCallback(() => {
-      const snapshot = getSnapshot(stateRef.current);
-      setHistory(prev => {
-          // Limit history to 50 steps
-          const newPast = [...prev.past, snapshot].slice(-50);
-          return { past: newPast, future: [] };
+      if (isUndoing.current) return;
+      
+      const snapshot = JSON.stringify({
+          beats, groups, connections, annotations, characterData, generatedShots, 
+          scratchpad, globalNotes, 
       });
-  }, []);
+
+      // Avoid duplicate consecutive snapshots
+      if (historyIndexRef.current >= 0 && historyRef.current[historyIndexRef.current] === snapshot) return;
+
+      const newHistory = historyRef.current.slice(0, historyIndexRef.current + 1);
+      newHistory.push(snapshot);
+      
+      // Limit history size
+      if (newHistory.length > 50) newHistory.shift();
+      
+      historyRef.current = newHistory;
+      historyIndexRef.current = newHistory.length - 1;
+      setHasUnsavedChanges(true);
+  }, [beats, groups, connections, annotations, characterData, generatedShots, scratchpad, globalNotes]);
+
+  // Initial Snapshot on Load
+  useEffect(() => {
+      if (historyRef.current.length === 0 && beats.length > 0) {
+          captureSnapshot();
+      }
+  }, [beats]); 
 
   const undo = useCallback(() => {
-      setHistory(prev => {
-          if (prev.past.length === 0) return prev;
-          const previous = prev.past[prev.past.length - 1];
-          const newPast = prev.past.slice(0, -1);
+      if (historyIndexRef.current > 0) {
+          isUndoing.current = true;
+          historyIndexRef.current--;
+          const snapshot = JSON.parse(historyRef.current[historyIndexRef.current]);
           
-          // Save current state to future
-          const currentSnapshot = getSnapshot(stateRef.current);
+          setBeats(snapshot.beats);
+          setGroups(snapshot.groups);
+          setConnections(snapshot.connections);
+          setAnnotations(snapshot.annotations);
+          setCharacterData(snapshot.characterData);
+          setGeneratedShots(snapshot.generatedShots);
+          setScratchpad(snapshot.scratchpad);
+          setGlobalNotes(snapshot.globalNotes);
           
-          // Apply previous state
-          setState(curr => ({ ...curr, ...previous }));
-          
-          return {
-              past: newPast,
-              future: [currentSnapshot, ...prev.future]
-          };
-      });
+          setTimeout(() => { isUndoing.current = false; }, 100);
+      }
   }, []);
 
   const redo = useCallback(() => {
-      setHistory(prev => {
-          if (prev.future.length === 0) return prev;
-          const next = prev.future[0];
-          const newFuture = prev.future.slice(1);
+      if (historyIndexRef.current < historyRef.current.length - 1) {
+          isUndoing.current = true;
+          historyIndexRef.current++;
+          const snapshot = JSON.parse(historyRef.current[historyIndexRef.current]);
           
-          // Save current state to past
-          const currentSnapshot = getSnapshot(stateRef.current);
+          setBeats(snapshot.beats);
+          setGroups(snapshot.groups);
+          setConnections(snapshot.connections);
+          setAnnotations(snapshot.annotations);
+          setCharacterData(snapshot.characterData);
+          setGeneratedShots(snapshot.generatedShots);
+          setScratchpad(snapshot.scratchpad);
+          setGlobalNotes(snapshot.globalNotes);
           
-          // Apply next state
-          setState(curr => ({ ...curr, ...next }));
-          
-          return {
-              past: [...prev.past, currentSnapshot],
-              future: newFuture
-          };
-      });
-  }, []);
-
-  // Global Keyboard Shortcuts
-  useEffect(() => {
-      const handleKeyDown = (e: KeyboardEvent) => {
-          // Check for Ctrl+Z or Cmd+Z
-          if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
-              if (e.shiftKey) {
-                  e.preventDefault();
-                  redo();
-              } else {
-                  e.preventDefault();
-                  undo();
-              }
-          }
-          // Check for Ctrl+Y or Cmd+Y (Alternative Redo)
-          if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y' && !e.shiftKey) {
-              e.preventDefault();
-              redo();
-          }
-      };
-      
-      window.addEventListener('keydown', handleKeyDown);
-      return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [undo, redo]);
-
-
-  // --- PROJECT SELECTION HELPER ---
-  const selectProject = (id: string) => {
-      const storedData = localStorage.getItem(`causality_project_${id}`);
-      if (storedData) {
-          try {
-              const parsed = JSON.parse(storedData);
-              const mergedState = {
-                  ...INITIAL_STATE,
-                  ...parsed,
-                  groups: parsed.groups || [],
-                  userDictionary: parsed.userDictionary || {},
-                  isOsInputMode: parsed.isOsInputMode || false,
-                  osInputShortcut: parsed.osInputShortcut || 'NumLock',
-                  isStoryboardFeatureEnabled: parsed.isStoryboardFeatureEnabled || true,
-                  breakdownLanguage: parsed.breakdownLanguage || 'english',
-                  isPdfDropEnabled: parsed.isPdfDropEnabled || false,
-                  writingGoal: { ...INITIAL_STATE.writingGoal, ...(parsed.writingGoal || {}) },
-                  dailyStats: parsed.dailyStats || {},
-                  sessionStartCount: parsed.sessionStartCount || 0,
-                  lastSessionDate: parsed.lastSessionDate || new Date().toISOString().split('T')[0],
-                  scriptConfig: { 
-                      ...INITIAL_STATE.scriptConfig, 
-                      ...parsed.scriptConfig,
-                      blockBounds: { ...INITIAL_STATE.scriptConfig.blockBounds, ...(parsed.scriptConfig?.blockBounds || {}) },
-                      slugline: { ...INITIAL_STATE.scriptConfig.slugline, ...(parsed.scriptConfig?.slugline || {}) },
-                      action: { ...INITIAL_STATE.scriptConfig.action, ...(parsed.scriptConfig?.action || {}) },
-                      character: { ...INITIAL_STATE.scriptConfig.character, ...(parsed.scriptConfig?.character || {}) },
-                      dialogue: { ...INITIAL_STATE.scriptConfig.dialogue, ...(parsed.scriptConfig?.dialogue || {}) },
-                      parenthetical: { ...INITIAL_STATE.scriptConfig.parenthetical, ...(parsed.scriptConfig?.parenthetical || {}) },
-                      transition: { ...INITIAL_STATE.scriptConfig.transition, ...(parsed.scriptConfig?.transition || {}) }, 
-                      shot: { ...INITIAL_STATE.scriptConfig.shot, ...(parsed.scriptConfig?.shot || {}) },
-                      lyrics: { ...INITIAL_STATE.scriptConfig.lyrics, ...(parsed.scriptConfig?.lyrics || {}) },
-                  },
-                  scriptViewMode: parsed.scriptViewMode || 'page',
-                  storyboardConfig: { ...INITIAL_STATE.storyboardConfig, ...(parsed.storyboardConfig || {}) },
-                  boardLayerOrder: Array.isArray(parsed.boardLayerOrder) && parsed.boardLayerOrder.length > 0 
-                      ? parsed.boardLayerOrder 
-                      : INITIAL_STATE.boardLayerOrder,
-                  tamilFontScale: parsed.tamilFontScale || INITIAL_STATE.tamilFontScale,
-                  tamilFontFamily: parsed.tamilFontFamily || INITIAL_STATE.tamilFontFamily,
-                  googleDriveConfig: { ...INITIAL_STATE.googleDriveConfig, ...(parsed.googleDriveConfig || {}) },
-                  geminiApiKey: parsed.geminiApiKey || '',
-                  stabilityApiKey: parsed.stabilityApiKey || ''
-              };
-              
-              isJustLoaded.current = true;
-              setState(mergedState);
-              setCurrentProjectId(id);
-              setHistory({ past: [], future: [] }); // Clear history on load
-              isCloudDirty.current = false; 
-              setHasUnsavedChanges(false);
-          } catch (e) {
-              console.error("Failed to load project data", e);
-              alert("Error loading project file.");
-          }
-      } else {
-          console.warn("Project data missing, initializing empty.");
-          isJustLoaded.current = true;
-          setState(INITIAL_STATE);
-          setCurrentProjectId(id);
-          setHistory({ past: [], future: [] });
-          setHasUnsavedChanges(false);
+          setTimeout(() => { isUndoing.current = false; }, 100);
       }
-  };
-
-  const createProject = (name: string) => {
-      const newId = `proj-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
-      const meta: ProjectMetadata = {
-          id: newId,
-          name: name,
-          created: Date.now(),
-          lastModified: Date.now()
-      };
-      
-      const newIndex = [meta, ...projectList];
-      setProjectList(newIndex);
-      localStorage.setItem('causality_projects_index', JSON.stringify(newIndex));
-      
-      const newState = { ...INITIAL_STATE };
-      localStorage.setItem(`causality_project_${newId}`, JSON.stringify(newState));
-      
-      selectProject(newId);
-  };
-
-  // --- INITIALIZATION ---
-  useEffect(() => {
-    const storedIndex = localStorage.getItem('causality_projects_index');
-    let index: ProjectMetadata[] = storedIndex ? JSON.parse(storedIndex) : [];
-
-    index.sort((a, b) => b.lastModified - a.lastModified);
-    setProjectList(index);
-
-    if (!currentProjectId) {
-        if (index.length > 0) {
-            selectProject(index[0].id);
-        } else {
-            createProject('My Story');
-        }
-    }
   }, []);
-
-  // Update Gemini Service whenever key changes in state
-  useEffect(() => {
-      updateGeminiConfig(state.geminiApiKey);
-  }, [state.geminiApiKey]);
 
   const login = (username: string) => {
-      localStorage.setItem('causality_user', username);
+      localStorage.setItem('currentUser', username);
       setCurrentUser(username);
   };
 
   const logout = () => {
-      localStorage.removeItem('causality_user');
+      localStorage.removeItem('currentUser');
+      localStorage.removeItem('currentProjectId');
       setCurrentUser(null);
       setCurrentProjectId(null);
-      setState(INITIAL_STATE);
-      setHistory({ past: [], future: [] });
+  };
+
+  const createProject = (name: string) => {
+      const newProject: ProjectMetadata = {
+          id: `proj_${Date.now()}`,
+          name,
+          created: Date.now(),
+          lastModified: Date.now()
+      };
+      const updatedList = [...projectList, newProject];
+      setProjectList(updatedList);
+      localStorage.setItem('projectList', JSON.stringify(updatedList));
+      selectProject(newProject.id);
+  };
+
+  const selectProject = (id: string) => {
+      const dataStr = localStorage.getItem(`project_data_${id}`);
+      if (dataStr) {
+          loadProject(JSON.parse(dataStr));
+      } else {
+          loadProject(INITIAL_STATE);
+      }
+      setCurrentProjectId(id);
+      localStorage.setItem('currentProjectId', id);
   };
 
   const deleteProject = (id: string) => {
-      if (confirm("Are you sure you want to delete this project? This cannot be undone.")) {
-          const newIndex = projectList.filter(p => p.id !== id);
-          setProjectList(newIndex);
-          localStorage.setItem('causality_projects_index', JSON.stringify(newIndex));
-          localStorage.removeItem(`causality_project_${id}`);
-          
-          if (currentProjectId === id) {
-              setCurrentProjectId(null);
-              setState(INITIAL_STATE);
-              setHistory({ past: [], future: [] });
-          }
+      const updatedList = projectList.filter(p => p.id !== id);
+      setProjectList(updatedList);
+      localStorage.setItem('projectList', JSON.stringify(updatedList));
+      localStorage.removeItem(`project_data_${id}`);
+      if (currentProjectId === id) {
+          setCurrentProjectId(null);
+          localStorage.removeItem('currentProjectId');
       }
   };
 
   const closeProject = () => {
       setCurrentProjectId(null);
-      setState(INITIAL_STATE); 
-      setHistory({ past: [], future: [] });
-      isCloudDirty.current = false;
+      localStorage.removeItem('currentProjectId');
+  };
+
+  const saveProject = useCallback(() => {
+      if (!currentProjectId) return;
+      
+      const projectData: ProjectState = {
+          beats, groups, connections, annotations, characterData, generatedShots, 
+          scratchpad, globalNotes, panX, panY, scale, nextId, nextAnnoId,
+          isTamilMode, tamilFontScale, tamilFontFamily, userDictionary,
+          isOsInputMode, osInputShortcut, scriptConfig, scriptViewMode,
+          scratchpadConfig, storyboardConfig, isStoryboardFeatureEnabled,
+          breakdownLanguage, breakdownLockedOnly, isPdfDropEnabled, isRedoEnabled, 
+          writingGoal, googleDriveConfig, geminiApiKey, stabilityApiKey, 
+          dailyStats, sessionStartCount, lastSessionDate, boardLayerOrder
+      };
+
+      localStorage.setItem(`project_data_${currentProjectId}`, JSON.stringify(projectData));
+      
+      // Update metadata
+      const updatedList = projectList.map(p => p.id === currentProjectId ? { ...p, lastModified: Date.now() } : p);
+      setProjectList(updatedList);
+      localStorage.setItem('projectList', JSON.stringify(updatedList));
+      
+      setHasUnsavedChanges(false);
+
+      // Auto Backup to Drive if enabled
+      if (googleDriveConfig.enabled && googleDriveConfig.autoBackup) {
+          backupToDrive(false);
+      }
+  }, [
+      currentProjectId, projectList, beats, groups, connections, annotations, characterData, 
+      generatedShots, scratchpad, globalNotes, panX, panY, scale, nextId, nextAnnoId,
+      isTamilMode, tamilFontScale, tamilFontFamily, userDictionary, isOsInputMode, osInputShortcut,
+      scriptConfig, scriptViewMode, scratchpadConfig, storyboardConfig, isStoryboardFeatureEnabled,
+      breakdownLanguage, breakdownLockedOnly, isPdfDropEnabled, isRedoEnabled, writingGoal, googleDriveConfig, geminiApiKey, stabilityApiKey,
+      dailyStats, sessionStartCount, lastSessionDate, boardLayerOrder
+  ]);
+
+  const loadProject = (data: ProjectState) => {
+      const merged = { ...INITIAL_STATE, ...data };
+      
+      setBeats(merged.beats);
+      setGroups(merged.groups);
+      setConnections(merged.connections);
+      setAnnotations(merged.annotations);
+      setCharacterData(merged.characterData);
+      setGeneratedShots(merged.generatedShots);
+      setScratchpad(merged.scratchpad);
+      setGlobalNotes(merged.globalNotes);
+      setPanX(merged.panX);
+      setPanY(merged.panY);
+      setScaleState(merged.scale);
+      setNextId(merged.nextId);
+      setNextAnnoId(merged.nextAnnoId);
+      setTamilModeState(merged.isTamilMode);
+      setTamilFontScaleState(merged.tamilFontScale);
+      setTamilFontFamilyState(merged.tamilFontFamily);
+      setUserDictionary(merged.userDictionary);
+      setOsInputModeState(merged.isOsInputMode);
+      setOsInputShortcutState(merged.osInputShortcut);
+      setScriptConfigState(merged.scriptConfig);
+      setScriptViewModeState(merged.scriptViewMode);
+      setScratchpadConfigState(merged.scratchpadConfig);
+      setStoryboardConfigState(merged.storyboardConfig);
+      setStoryboardFeatureEnabledState(merged.isStoryboardFeatureEnabled);
+      setBreakdownLanguageState(merged.breakdownLanguage);
+      setBreakdownLockedOnlyState(merged.breakdownLockedOnly ?? INITIAL_STATE.breakdownLockedOnly);
+      setPdfDropEnabledState(merged.isPdfDropEnabled);
+      setRedoEnabledState(merged.isRedoEnabled ?? false);
+      setWritingGoalState(merged.writingGoal);
+      setGoogleDriveConfigState(merged.googleDriveConfig);
+      setGeminiApiKeyState(merged.geminiApiKey);
+      setStabilityApiKeyState(merged.stabilityApiKey);
+      setDailyStats(merged.dailyStats);
+      setSessionStartCount(merged.sessionStartCount);
+      setLastSessionDate(merged.lastSessionDate);
+      setBoardLayerOrderState(merged.boardLayerOrder);
+      
+      // Update global API Key service
+      if (merged.geminiApiKey) updateGeminiConfig(merged.geminiApiKey);
+
+      // Reset History
+      historyRef.current = [];
+      historyIndexRef.current = -1;
       setHasUnsavedChanges(false);
   };
 
-  // --- LOCAL AUTO-SAVE ---
-  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    if (!currentProjectId) return;
-    isCloudDirty.current = true;
-
-    if (isJustLoaded.current) {
-        isJustLoaded.current = false;
-    } else {
-        setHasUnsavedChanges(true);
-    }
-
-    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-
-    saveTimeoutRef.current = setTimeout(() => {
-        localStorage.setItem(`causality_project_${currentProjectId}`, JSON.stringify(state));
-        const updatedList = projectList.map(p => 
-            p.id === currentProjectId ? { ...p, lastModified: Date.now() } : p
-        );
-        localStorage.setItem('causality_projects_index', JSON.stringify(updatedList));
-    }, 1000);
-
-    return () => { if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current); };
-  }, [state, currentProjectId]); 
-
-  // --- GOOGLE DRIVE INTEGRATION ---
-  
-  // Auto-init on load if enabled
-  useEffect(() => {
-      if (state.googleDriveConfig.enabled && state.googleDriveConfig.apiKey && state.googleDriveConfig.clientId) {
-          // Initialize silently for background backups
-          initializeGapi(state.googleDriveConfig.apiKey, state.googleDriveConfig.clientId)
-              .catch(err => console.warn("Failed to auto-init Google Drive:", err));
+  // --- GOOGLE DRIVE ---
+  const connectToDrive = async (apiKey?: string, clientId?: string) => {
+      if (!apiKey || !clientId) {
+          alert("API Key and Client ID required.");
+          return;
       }
-  }, [state.googleDriveConfig.enabled]);
-
-  const setGoogleDriveConfig = useCallback((config: GoogleDriveConfig) => setState(prev => ({ ...prev, googleDriveConfig: config })), []);
-
-  const connectToDrive = useCallback(async (apiKeyInput?: string, clientIdInput?: string) => {
-    // Use inputs if provided (from Settings form), otherwise fallback to state (reconnection attempt)
-    const apiKey = apiKeyInput || state.googleDriveConfig.apiKey;
-    const clientId = clientIdInput || state.googleDriveConfig.clientId;
-
-    if (!apiKey || !clientId) {
-        alert("Please enter API Key and Client ID first.");
-        return;
-    }
-    
-    setIsDriveConnecting(true);
-    try {
-        await initializeGapi(apiKey, clientId);
-        await requestAccessToken();
-        
-        // Only save to state ON SUCCESS
-        setState(prev => ({ 
-            ...prev, 
-            googleDriveConfig: { 
-                ...prev.googleDriveConfig, 
-                apiKey, 
-                clientId, 
-                enabled: true 
-            } 
-        }));
-        alert("Connected to Google Drive successfully!");
-    } catch (err: any) {
-        console.error("Drive connection error:", err);
-        let msg = typeof err === 'string' ? err : (err.message || "Unknown error");
-        if (msg.includes("popup_closed_by_user")) {
-            msg = "Login popup closed. Please try again.";
-        } else if (msg.includes("idpiframe_initialization_failed")) {
-            msg = "Cookies disabled or origin mismatch. Allow 3rd party cookies and check Cloud Console origins.";
-        }
-        alert(`Failed to connect: ${msg}`);
-    } finally {
-        setIsDriveConnecting(false);
-    }
-  }, [state.googleDriveConfig]);
-
-  const disconnectFromDrive = useCallback(() => {
-      if (confirm("Disconnect Google Drive? Auto-backups will stop.")) {
-          setState(prev => ({
-              ...prev,
-              googleDriveConfig: { ...prev.googleDriveConfig, enabled: false, fileId: undefined }
-          }));
+      setIsDriveConnecting(true);
+      try {
+          await initializeGapi(apiKey, clientId);
+          await requestAccessToken();
+          setGoogleDriveConfigState(prev => ({ ...prev, enabled: true, apiKey, clientId }));
+          alert("Connected to Google Drive!");
+      } catch (err) {
+          console.error(err);
+          alert("Failed to connect to Google Drive: " + err);
+      } finally {
+          setIsDriveConnecting(false);
       }
-  }, []);
-
-  const performDriveUpload = async () => {
-      const content = JSON.stringify(state, null, 2);
-      const currentProjectMeta = projectList.find(p => p.id === currentProjectId);
-      const fileName = `backstage_backup_${currentProjectMeta?.name || 'project'}.json`;
-
-      let fileId = state.googleDriveConfig.fileId;
-      if (!fileId) {
-          const foundId = await findDriveFile(fileName);
-          if (foundId) fileId = foundId;
-      }
-
-      if (fileId) {
-          await updateDriveFile(fileId, content);
-      } else {
-          fileId = await createDriveFile(fileName, content);
-      }
-
-      setState(prev => ({
-          ...prev,
-          googleDriveConfig: { ...prev.googleDriveConfig, fileId, lastBackup: Date.now() }
-      }));
-      
-      isCloudDirty.current = false;
   };
 
-  const backupToDrive = useCallback(async (force = false) => {
-      if (!state.googleDriveConfig.enabled) return;
-      if (!force && !state.googleDriveConfig.autoBackup) return;
-      if (!isCloudDirty.current && !force) return;
-      if (isDriveSyncing) return;
+  const disconnectFromDrive = () => {
+      setGoogleDriveConfigState(prev => ({ ...prev, enabled: false, fileId: undefined }));
+  };
+
+  const backupToDrive = async (force: boolean = false) => {
+      if (!googleDriveConfig.enabled || !currentProjectId) return;
+      if (!force && Date.now() - (googleDriveConfig.lastBackup || 0) < 300000) return; // 5 min debounce
 
       setIsDriveSyncing(true);
       try {
-          await performDriveUpload();
-          if (force) alert("Backup complete!");
-      } catch (err: any) {
-          console.error("Backup failed", err);
-          // Check for 401 Unauthorized (Token Expired)
-          if (err.status === 401 || (err.result && err.result.error && err.result.error.code === 401)) {
-              console.log("Token expired. Attempting refresh...");
-              try {
-                  await requestAccessToken(); // Request new token (may trigger popup if needed)
-                  console.log("Token refreshed. Retrying upload...");
-                  await performDriveUpload();
-                  if (force) alert("Backup complete (after auth refresh)!");
-              } catch (retryErr) {
-                  console.error("Retry failed:", retryErr);
-                  if (force) alert("Backup failed: Session expired. Please reconnect.");
-              }
+          const project = projectList.find(p => p.id === currentProjectId);
+          const fileName = `Backstage_Backup_${project?.name || 'Untitled'}.bst`;
+          const content = localStorage.getItem(`project_data_${currentProjectId}`) || '{}';
+          
+          if (googleDriveConfig.fileId) {
+              await updateDriveFile(googleDriveConfig.fileId, content);
           } else {
-              if (force) alert("Backup failed. See console.");
+              const existingId = await findDriveFile(fileName);
+              if (existingId) {
+                  await updateDriveFile(existingId, content);
+                  setGoogleDriveConfigState(prev => ({ ...prev, fileId: existingId }));
+              } else {
+                  const newId = await createDriveFile(fileName, content);
+                  setGoogleDriveConfigState(prev => ({ ...prev, fileId: newId }));
+              }
           }
+          setGoogleDriveConfigState(prev => ({ ...prev, lastBackup: Date.now() }));
+      } catch (err) {
+          console.error("Backup failed", err);
+          if (force) alert("Backup failed. Check console.");
       } finally {
           setIsDriveSyncing(false);
       }
-  }, [state, currentProjectId, projectList, isDriveSyncing]);
+  };
 
-  useEffect(() => {
-      let interval: ReturnType<typeof setInterval>;
-      if (state.googleDriveConfig.enabled && state.googleDriveConfig.autoBackup) {
-          interval = setInterval(() => {
-              if (isCloudDirty.current) {
-                  backupToDrive(false);
-              }
-          }, 30000); 
-      }
-      return () => { if (interval) clearInterval(interval); };
-  }, [state.googleDriveConfig.enabled, state.googleDriveConfig.autoBackup, backupToDrive]);
-
-  // --- EXIT SAFETY ---
-  useEffect(() => {
-      const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-          if ((state.googleDriveConfig.enabled && isCloudDirty.current) || hasUnsavedChanges) {
-              e.preventDefault();
-              e.returnValue = ''; 
-          }
+  // --- STATE SETTERS WRAPPERS ---
+  const setPan = (x: number, y: number) => { setPanX(x); setPanY(y); };
+  const setScale = (s: number) => setScaleState(s);
+  
+  const addBeat = (x: number, y: number) => {
+      const id = nextId;
+      setNextId(prev => prev + 1);
+      const newBeat: Beat = {
+          id, x, y, title: '', slug: { prefix: '', location: '', time: '' },
+          content: '<div class="sc-line sc-action"><br></div>',
+          color: '#444', shots: [], status: 'not-ready', versions: [], notes: []
       };
-      window.addEventListener('beforeunload', handleBeforeUnload);
-      return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, [state.googleDriveConfig.enabled, hasUnsavedChanges]);
+      setBeats(prev => [...prev, newBeat]);
+      captureSnapshot();
+      return id;
+  };
 
+  const updateBeat = (id: number, updates: Partial<Beat>) => {
+      setBeats(prev => prev.map(b => b.id === id ? { ...b, ...updates } : b));
+      captureSnapshot();
+  };
 
-  // --- STATS LOGIC ---
-  const statsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => {
-    if (!currentProjectId) return;
-    if (statsTimeoutRef.current) clearTimeout(statsTimeoutRef.current);
+  const addGroup = (group: Omit<Group, 'id'>) => {
+      const id = nextId;
+      setNextId(prev => prev + 1);
+      setGroups(prev => [...prev, { ...group, id }]);
+      captureSnapshot();
+  };
 
-    statsTimeoutRef.current = setTimeout(() => {
-        const today = new Date().toISOString().split('T')[0];
-        let currentTotalWords = 0;
-        state.beats.forEach(b => {
-            const div = document.createElement('div');
-            div.innerHTML = b.content;
-            currentTotalWords += (div.textContent || '').trim().split(/\s+/).filter(w => w.length > 0).length;
-        });
+  const updateGroup = (id: number, updates: Partial<Group>) => {
+      setGroups(prev => prev.map(g => g.id === id ? { ...g, ...updates } : g));
+      captureSnapshot();
+  };
 
-        setState(prev => {
-            const isNewDay = prev.lastSessionDate !== today;
-            let startCount = prev.sessionStartCount;
-            if (isNewDay) startCount = currentTotalWords;
-            const netWordsToday = Math.max(0, currentTotalWords - startCount);
-            
-            if (prev.dailyStats[today] === netWordsToday && prev.lastSessionDate === today) return prev;
+  const removeGroup = (id: number) => {
+      setGroups(prev => prev.filter(g => g.id !== id));
+      captureSnapshot();
+  };
 
-            return {
-                ...prev,
-                lastSessionDate: today,
-                sessionStartCount: startCount,
-                dailyStats: { ...prev.dailyStats, [today]: netWordsToday }
-            };
-        });
-    }, 2000);
-    return () => { if (statsTimeoutRef.current) clearTimeout(statsTimeoutRef.current); };
-  }, [state.beats, currentProjectId]);
+  // Shot Management
+  const updateGeneratedShot = (id: string, updates: Partial<Shot>) => {
+      setGeneratedShots(prev => prev.map(s => s.id === id ? { ...s, ...updates } : s));
+      captureSnapshot();
+  };
+
+  const addGeneratedShot = (index: number) => {
+      const newShot: Shot = {
+          id: `shot-${Date.now()}`,
+          shotSize: 'WIDE', angle: 'EYE LEVEL', description: '', subject: '', scene: '?', imageHistory: []
+      };
+      const newShots = [...generatedShots];
+      newShots.splice(index + 1, 0, newShot);
+      setGeneratedShots(newShots);
+      captureSnapshot();
+  };
+
+  const removeGeneratedShot = (id: string) => {
+      setGeneratedShots(prev => prev.filter(s => s.id !== id));
+      captureSnapshot();
+  };
+
+  const moveGeneratedShot = (fromIndex: number, toIndex: number) => {
+      const newShots = [...generatedShots];
+      const [moved] = newShots.splice(fromIndex, 1);
+      newShots.splice(toIndex, 0, moved);
+      setGeneratedShots(newShots);
+      captureSnapshot();
+  };
+
+  // Tamil Utils
+  const learnTamilWord = (english: string, tamil: string) => {
+      setUserDictionary(prev => {
+          const current = prev[english.toLowerCase()] || [];
+          if (!current.includes(tamil)) {
+              return { ...prev, [english.toLowerCase()]: [tamil, ...current] };
+          }
+          return prev;
+      });
+  };
 
   // --- CSS Variable Injection ---
   useEffect(() => {
     const root = document.documentElement;
-    const { action, character, dialogue, parenthetical, transition, shot, lyrics, blockBounds } = state.scriptConfig;
+    // Default fallback to prevent crash if scriptConfig is undefined
+    const config = scriptConfig || INITIAL_STATE.scriptConfig;
+    const { action, character, dialogue, parenthetical, transition, shot, lyrics, blockBounds } = config;
     
-    const applyStyles = (name: string, config: any) => {
-        let englishFont = config.fontFamily ? `"${config.fontFamily}"` : '"Courier Prime"';
+    const applyStyles = (name: string, cfg: any) => {
+        if (!cfg) return;
+        let englishFont = cfg.fontFamily ? `"${cfg.fontFamily}"` : '"Courier Prime"';
         const fontStack = `${englishFont}, "TamilDynamic", monospace`;
 
-        root.style.setProperty(`--margin-${name}`, `${config.marginLeft}%`);
-        root.style.setProperty(`--width-${name}`, `${config.width}%`);
-        root.style.setProperty(`--mt-${name}`, `${config.marginTop}rem`);
-        root.style.setProperty(`--mb-${name}`, `${config.marginBottom}rem`);
-        root.style.setProperty(`--size-${name}`, `${config.fontSize || 16}px`);
+        root.style.setProperty(`--margin-${name}`, `${cfg.marginLeft}%`);
+        root.style.setProperty(`--width-${name}`, `${cfg.width}%`);
+        root.style.setProperty(`--mt-${name}`, `${cfg.marginTop}rem`);
+        root.style.setProperty(`--mb-${name}`, `${cfg.marginBottom}rem`);
+        root.style.setProperty(`--size-${name}`, `${cfg.fontSize || 16}px`);
         root.style.setProperty(`--font-${name}`, fontStack);
-        root.style.setProperty(`--align-${name}`, config.textAlign || 'left');
-        root.style.setProperty(`--lh-${name}`, config.lineHeight || 1.0);
-        root.style.setProperty(`--ls-${name}`, `${config.letterSpacing || 0}px`);
-        root.style.setProperty(`--weight-${name}`, config.bold ? 'bold' : 'normal');
-        root.style.setProperty(`--style-${name}`, config.italic ? 'italic' : 'normal');
-        root.style.setProperty(`--dec-${name}`, config.underline ? 'underline' : 'none');
-        root.style.setProperty(`--color-${name}`, config.color || 'black');
-        root.style.setProperty(`--bg-${name}`, config.highlightColor || 'transparent');
+        root.style.setProperty(`--align-${name}`, cfg.textAlign || 'left');
+        root.style.setProperty(`--lh-${name}`, cfg.lineHeight || 1.0);
+        root.style.setProperty(`--ls-${name}`, `${cfg.letterSpacing || 0}px`);
+        root.style.setProperty(`--weight-${name}`, cfg.bold ? 'bold' : 'normal');
+        root.style.setProperty(`--style-${name}`, cfg.italic ? 'italic' : 'normal');
+        root.style.setProperty(`--dec-${name}`, cfg.underline ? 'underline' : 'none');
+        root.style.setProperty(`--color-${name}`, cfg.color || 'black');
+        root.style.setProperty(`--bg-${name}`, cfg.highlightColor || 'transparent');
 
-        if (config.useMusicDecorations) {
+        if (cfg.useMusicDecorations) {
             root.style.setProperty(`--prefix-${name}`, '"♫ "');
             root.style.setProperty(`--suffix-${name}`, '" ♫"');
         } else {
@@ -529,12 +478,12 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
         document.head.appendChild(styleTag);
     }
     
-    const boundsEnabled = blockBounds.enabled;
-    const boundsMode = blockBounds.mode || 'active'; 
-    const boundsColor = blockBounds.color || '#000000';
-    const boundsOpacity = blockBounds.opacity || 5;
-    const boundsOutline = blockBounds.outlineStyle || 'none';
-    const funMode = blockBounds.funMode || 'none';
+    const boundsEnabled = blockBounds?.enabled ?? false;
+    const boundsMode = blockBounds?.mode || 'active'; 
+    const boundsColor = blockBounds?.color || '#000000';
+    const boundsOpacity = blockBounds?.opacity || 5;
+    const boundsOutline = blockBounds?.outlineStyle || 'none';
+    const funMode = blockBounds?.funMode || 'none';
 
     const bgVal = hexToRgba(boundsColor, boundsOpacity);
     const fillShadow = `inset 0 0 0 9999px ${bgVal}`;
@@ -569,256 +518,105 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
           transition: box-shadow 0.2s, outline 0.2s, background-color 0.2s;
       }
     `;
+    
+    // Inject Scratchpad Variables
+    const sp = scratchpadConfig || INITIAL_STATE.scratchpadConfig;
+    
+    let bulletChar = '"•"';
+    switch(sp.bulletStyle) {
+        case 'circle': bulletChar = '"◦"'; break;
+        case 'square': bulletChar = '"■"'; break;
+        case 'dash': bulletChar = '"—"'; break;
+        case 'arrow': bulletChar = '"➤"'; break;
+        default: bulletChar = '"•"';
+    }
+
+    const scratchCss = `
+      :root {
+        --sp-h1-color: ${sp.h1Color || '#ffffff'};
+        --sp-h2-color: ${sp.h2Color || '#f5a623'};
+        --sp-h1-deco: ${sp.h1Underline ? 'underline' : 'none'};
+        --sp-h2-deco: ${sp.h2Underline ? 'underline' : 'none'};
+        --sp-h1-style: ${sp.h1Italic ? 'italic' : 'normal'};
+        --sp-h2-style: ${sp.h2Italic ? 'italic' : 'normal'};
+        --sp-list-marker: ${sp.listMarkerColor || '#f5a623'};
+        --sp-callout-bg: ${sp.calloutBackground || 'rgba(245, 166, 35, 0.05)'};
+        --sp-callout-border: ${sp.calloutBorder || '#f5a623'};
+        --sp-todo-border: ${sp.todoBorder || '#666'};
+        --sp-todo-check: ${sp.todoCheckColor || '#f5a623'};
+        --sp-block-margin: ${sp.blockSpacing || 2}px;
+        --sp-bullet-char: ${bulletChar};
+      }
+    `;
 
     styleTag.innerHTML = `
       @font-face {
         font-family: 'TamilDynamic';
-        src: local('${state.tamilFontFamily || "Vijaya"}');
-        size-adjust: ${state.tamilFontScale || 75}%;
+        src: local('${tamilFontFamily || "Vijaya"}');
+        size-adjust: ${tamilFontScale || 75}%;
         unicode-range: U+0B80-0BFF;
       }
       ${vizCss}
+      ${scratchCss}
     `;
 
-  }, [state.scriptConfig, state.tamilFontScale, state.tamilFontFamily]);
+  }, [scriptConfig, tamilFontScale, tamilFontFamily, scratchpadConfig]);
 
-  const setGeminiApiKey = useCallback((key: string) => {
-      setState(prev => ({ ...prev, geminiApiKey: key }));
-  }, []);
-
-  const setStabilityApiKey = useCallback((key: string) => {
-      setState(prev => ({ ...prev, stabilityApiKey: key }));
-  }, []);
-  
-  const setBreakdownLanguage = useCallback((lang: 'english' | 'tamil') => {
-      setState(prev => ({ ...prev, breakdownLanguage: lang }));
-  }, []);
-
-  const setPdfDropEnabled = useCallback((enabled: boolean) => {
-      setState(prev => ({ ...prev, isPdfDropEnabled: enabled }));
-  }, []);
-
-  // --- WRAPPED SETTERS (WITH HISTORY SNAPSHOT) ---
-  
-  const setBeats = useCallback((beatsOrFn: any) => {
-    setState(prev => ({ ...prev, beats: typeof beatsOrFn === 'function' ? beatsOrFn(prev.beats) : beatsOrFn }));
-  }, []);
-
-  const setGroups = useCallback((groupsOrFn: any) => {
-    setState(prev => ({ ...prev, groups: typeof groupsOrFn === 'function' ? groupsOrFn(prev.groups) : groupsOrFn }));
-  }, []);
-
-  const setConnections = useCallback((connsOrFn: any) => {
-    captureSnapshot(); 
-    setState(prev => ({ ...prev, connections: typeof connsOrFn === 'function' ? connsOrFn(prev.connections) : connsOrFn }));
-  }, [captureSnapshot]);
-
-  const setAnnotations = useCallback((annosOrFn: any) => {
-    setState(prev => ({ ...prev, annotations: typeof annosOrFn === 'function' ? annosOrFn(prev.annotations) : annosOrFn }));
-  }, []);
-
-  const setCharacterData = useCallback((dataOrFn: any) => {
-    captureSnapshot();
-    setState(prev => ({ ...prev, characterData: typeof dataOrFn === 'function' ? dataOrFn(prev.characterData) : dataOrFn }));
-  }, [captureSnapshot]);
-
-  const setGeneratedShots = useCallback((shotsOrFn: any) => {
-    captureSnapshot();
-    setState(prev => ({ ...prev, generatedShots: typeof shotsOrFn === 'function' ? shotsOrFn(prev.generatedShots) : shotsOrFn }));
-  }, [captureSnapshot]);
-
-  // --- ACTIONS ---
-  
-  const updateGeneratedShot = useCallback((id: string, updates: Partial<Shot>) => {
-    captureSnapshot();
-    setState(prev => ({ ...prev, generatedShots: prev.generatedShots.map(s => s.id === id ? { ...s, ...updates } : s) }));
-  }, [captureSnapshot]);
-
-  const addGeneratedShot = useCallback((index: number) => {
-    captureSnapshot();
-    setState(prev => {
-        const prevShot = prev.generatedShots[index];
-        const newShot: Shot = { id: `manual-${Date.now()}`, shotSize: 'WIDE (WS)', angle: 'EYE LEVEL', description: '', subject: '', imageUrl: null, scene: prevShot ? prevShot.scene : '?' };
-        const newShots = [...prev.generatedShots];
-        newShots.splice(index + 1, 0, newShot);
-        return { ...prev, generatedShots: newShots };
-    });
-  }, [captureSnapshot]);
-
-  const removeGeneratedShot = useCallback((id: string) => {
+  const setScriptConfig = (config: ScriptConfig) => {
+      setScriptConfigState(config);
       captureSnapshot();
-      setState(prev => ({ ...prev, generatedShots: prev.generatedShots.filter(s => s.id !== id) }));
-  }, [captureSnapshot]);
-
-  const moveGeneratedShot = useCallback((fromIndex: number, toIndex: number) => {
+  };
+  const setScriptViewMode = (mode: 'continuous' | 'page') => setScriptViewModeState(mode);
+  const setScratchpadConfig = (config: ScratchpadConfig) => {
+      setScratchpadConfigState(config);
       captureSnapshot();
-      setState(prev => {
-          const shots = [...prev.generatedShots];
-          if (toIndex < 0 || toIndex >= shots.length) return prev;
-          const [movedShot] = shots.splice(fromIndex, 1);
-          shots.splice(toIndex, 0, movedShot);
-          return { ...prev, generatedShots: shots };
-      });
-  }, [captureSnapshot]);
+  };
+  const setStoryboardConfig = (config: StoryboardConfig) => setStoryboardConfigState(config);
+  const setStoryboardFeatureEnabled = (enabled: boolean) => setStoryboardFeatureEnabledState(enabled);
+  const setBreakdownLanguage = (lang: 'english' | 'tamil') => setBreakdownLanguageState(lang);
+  const setBreakdownLockedOnly = (enabled: boolean) => { setBreakdownLockedOnlyState(enabled); captureSnapshot(); };
+  const setPdfDropEnabled = (enabled: boolean) => setPdfDropEnabledState(enabled);
+  const setRedoEnabled = (enabled: boolean) => { setRedoEnabledState(enabled); captureSnapshot(); };
+  const setWritingGoal = (goal: WritingGoal) => setWritingGoalState(goal);
+  const setGoogleDriveConfig = (config: GoogleDriveConfig) => setGoogleDriveConfigState(config);
+  const setGeminiApiKey = (key: string) => { setGeminiApiKeyState(key); };
+  const setStabilityApiKey = (key: string) => { setStabilityApiKeyState(key); };
+  const setBoardLayerOrder = (order: BoardLayer[]) => setBoardLayerOrderState(order);
+  const setTamilMode = (enabled: boolean) => setTamilModeState(enabled);
+  const setTamilFontScale = (scale: number) => setTamilFontScaleState(scale);
+  const setTamilFontFamily = (font: string) => setTamilFontFamilyState(font);
+  const setOsInputMode = (enabled: boolean) => setOsInputModeState(enabled);
+  const setOsInputShortcut = (key: string) => setOsInputShortcutState(key);
 
-  const setPan = useCallback((x: number, y: number) => { setState(prev => ({ ...prev, panX: x, panY: y })); }, []);
-  const setScale = useCallback((s: number) => { setState(prev => ({ ...prev, scale: s })); }, []);
-  
-  const updateBeat = useCallback((id: number, updates: Partial<Beat>) => {
-    captureSnapshot();
-    setState(prev => ({ ...prev, beats: prev.beats.map(b => b.id === id ? { ...b, ...updates } : b) }));
-  }, [captureSnapshot]);
-  
-  const addBeat = useCallback((x: number, y: number) => {
-    captureSnapshot();
-    const newId = Date.now() + Math.floor(Math.random() * 1000);
-    setState(prev => ({
-      ...prev,
-      beats: [...prev.beats, { 
-        id: newId, 
-        x, 
-        y, 
-        title: '', 
-        summary: '', 
-        slug: { prefix: '', location: '', time: '' },
-        content: '<div class="sc-line sc-action"><br></div>', 
-        color: '#444', 
-        shots: [], 
-        status: 'not-ready', 
-        versions: [] 
-      }],
-      nextId: prev.nextId + 1 
-    }));
-    return newId;
-  }, [captureSnapshot]);
-
-  const addGroup = useCallback((group: Omit<Group, 'id'>) => {
-    captureSnapshot();
-    setState(prev => ({ ...prev, groups: [...prev.groups, { ...group, id: Date.now() + Math.floor(Math.random() * 1000) }] }));
-  }, [captureSnapshot]);
-
-  const updateGroup = useCallback((id: number, updates: Partial<Group>) => {
-    captureSnapshot();
-    setState(prev => ({ ...prev, groups: prev.groups.map(g => g.id === id ? { ...g, ...updates } : g) }));
-  }, [captureSnapshot]);
-
-  const removeGroup = useCallback((id: number) => {
-    captureSnapshot();
-    setState(prev => ({ ...prev, groups: prev.groups.filter(g => g.id !== id) }));
-  }, [captureSnapshot]);
-  
-  const loadProject = useCallback((data: ProjectState) => {
-    const mergedState = { 
-        ...INITIAL_STATE, 
-        ...data, 
-        groups: data.groups || [], 
-        userDictionary: data.userDictionary || {}, 
-        isOsInputMode: data.isOsInputMode || false, 
-        osInputShortcut: data.osInputShortcut || 'NumLock', 
-        isStoryboardFeatureEnabled: data.isStoryboardFeatureEnabled || false,
-        breakdownLanguage: data.breakdownLanguage || 'english',
-        isPdfDropEnabled: data.isPdfDropEnabled || false,
-        writingGoal: { ...INITIAL_STATE.writingGoal, ...data.writingGoal }, 
-        dailyStats: data.dailyStats || {}, 
-        sessionStartCount: data.sessionStartCount || 0, 
-        lastSessionDate: data.lastSessionDate || new Date().toISOString().split('T')[0], 
-        scriptConfig: { 
-            ...INITIAL_STATE.scriptConfig, 
-            ...data.scriptConfig,
-            blockBounds: { ...INITIAL_STATE.scriptConfig.blockBounds, ...(data.scriptConfig?.blockBounds || {}) },
-            slugline: { ...INITIAL_STATE.scriptConfig.slugline, ...(data.scriptConfig?.slugline || {}) }, 
-            action: { ...INITIAL_STATE.scriptConfig.action, ...(data.scriptConfig?.action || {}) }, 
-            character: { ...INITIAL_STATE.scriptConfig.character, ...(data.scriptConfig?.character || {}) }, 
-            dialogue: { ...INITIAL_STATE.scriptConfig.dialogue, ...(data.scriptConfig?.dialogue || {}) }, 
-            parenthetical: { ...INITIAL_STATE.scriptConfig.parenthetical, ...(data.scriptConfig?.parenthetical || {}) }, 
-            transition: { ...INITIAL_STATE.scriptConfig.transition, ...(data.scriptConfig?.transition || {}) }, 
-            shot: { ...INITIAL_STATE.scriptConfig.shot, ...(data.scriptConfig?.shot || {}) },
-            lyrics: { ...INITIAL_STATE.scriptConfig.lyrics, ...(data.scriptConfig?.lyrics || {}) },
-        }, 
-        scriptViewMode: data.scriptViewMode || 'page',
-        storyboardConfig: { ...INITIAL_STATE.storyboardConfig, ...(data.storyboardConfig || {}) },
-        boardLayerOrder: Array.isArray(data.boardLayerOrder) && data.boardLayerOrder.length > 0 
-            ? data.boardLayerOrder 
-            : INITIAL_STATE.boardLayerOrder,
-        tamilFontScale: data.tamilFontScale || INITIAL_STATE.tamilFontScale,
-        tamilFontFamily: data.tamilFontFamily || INITIAL_STATE.tamilFontFamily,
-        googleDriveConfig: { ...INITIAL_STATE.googleDriveConfig, ...(data.googleDriveConfig || {}) },
-        geminiApiKey: data.geminiApiKey || '',
-        stabilityApiKey: data.stabilityApiKey || ''
-    };
-    
-    isJustLoaded.current = true;
-    setState(mergedState);
-    setHistory({ past: [], future: [] }); // Reset history on new load
-    setHasUnsavedChanges(false);
-  }, []);
-
-  const saveProject = useCallback(() => {
-    const dataStr = JSON.stringify(state, null, 2);
-    const blob = new Blob([dataStr], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `causality_project_${new Date().toISOString().slice(0,10)}.bst`;
-    a.click();
-    URL.revokeObjectURL(url);
-    setHasUnsavedChanges(false);
-  }, [state]);
-
-  const setTamilMode = useCallback((enabled: boolean) => setState(prev => ({ ...prev, isTamilMode: enabled })), []);
-  const setTamilFontScale = useCallback((scale: number) => setState(prev => ({ ...prev, tamilFontScale: scale })), []);
-  const setTamilFontFamily = useCallback((font: string) => setState(prev => ({ ...prev, tamilFontFamily: font })), []);
-  const setOsInputMode = useCallback((enabled: boolean) => setState(prev => ({ ...prev, isOsInputMode: enabled })), []);
-  const setOsInputShortcut = useCallback((key: string) => setState(prev => ({ ...prev, osInputShortcut: key })), []);
-  const learnTamilWord = useCallback((english: string, tamil: string) => {
-    setState(prev => {
-      const lowerEng = english.toLowerCase();
-      const currentList = prev.userDictionary[lowerEng] || [];
-      const filtered = currentList.filter(w => w !== tamil);
-      return { ...prev, userDictionary: { ...prev.userDictionary, [lowerEng]: [tamil, ...filtered] } };
-    });
-  }, []);
-  const setScriptConfig = useCallback((config: ScriptConfig) => {
-      captureSnapshot();
-      setState(prev => ({ ...prev, scriptConfig: config }));
-  }, [captureSnapshot]);
-  
-  const setScriptViewMode = useCallback((mode: 'continuous' | 'page') => setState(prev => ({ ...prev, scriptViewMode: mode })), []);
-  
-  const setStoryboardConfig = useCallback((config: StoryboardConfig) => {
-      captureSnapshot();
-      setState(prev => ({ ...prev, storyboardConfig: config }));
-  }, [captureSnapshot]);
-  
-  const setStoryboardFeatureEnabled = useCallback((enabled: boolean) => setState(prev => ({ ...prev, isStoryboardFeatureEnabled: enabled })), []);
-  const setWritingGoal = useCallback((goal: WritingGoal) => setState(prev => ({ ...prev, writingGoal: goal })), []);
-  const setBoardLayerOrder = useCallback((order: BoardLayer[]) => setState(prev => ({ ...prev, boardLayerOrder: order })), []);
+  const value: ProjectContextType = {
+      beats, groups, connections, annotations, characterData, generatedShots,
+      scratchpad, globalNotes, panX, panY, scale, nextId, nextAnnoId,
+      isTamilMode, tamilFontScale, tamilFontFamily, userDictionary,
+      isOsInputMode, osInputShortcut, scriptConfig, scriptViewMode,
+      scratchpadConfig, storyboardConfig, isStoryboardFeatureEnabled,
+      breakdownLanguage, breakdownLockedOnly, isPdfDropEnabled, isRedoEnabled, 
+      writingGoal, googleDriveConfig,
+      geminiApiKey, stabilityApiKey, dailyStats, sessionStartCount, lastSessionDate,
+      boardLayerOrder, currentUser, currentProjectId, projectList, hasUnsavedChanges,
+      isDriveSyncing, isDriveConnecting,
+      
+      login, logout, selectProject, createProject, deleteProject, closeProject,
+      setBeats, setGroups, setConnections, setAnnotations, setCharacterData, 
+      setGeneratedShots, setScratchpad, setGlobalNotes, updateGeneratedShot, 
+      addGeneratedShot, removeGeneratedShot, moveGeneratedShot, setPan, setScale, 
+      updateBeat, addBeat, addGroup, updateGroup, removeGroup, loadProject, 
+      saveProject, setTamilMode, setTamilFontScale, setTamilFontFamily, 
+      learnTamilWord, setOsInputMode, setOsInputShortcut, setScriptConfig, 
+      setScriptViewMode, setScratchpadConfig, setStoryboardConfig, 
+      setStoryboardFeatureEnabled, setBreakdownLanguage, setBreakdownLockedOnly, 
+      setPdfDropEnabled, setRedoEnabled,
+      setWritingGoal, setGoogleDriveConfig, connectToDrive, disconnectFromDrive, 
+      backupToDrive, setGeminiApiKey, setStabilityApiKey, setBoardLayerOrder,
+      undo, redo, canUndo: historyIndexRef.current > 0, canRedo: historyIndexRef.current < historyRef.current.length - 1, captureSnapshot
+  };
 
   return (
-    <ProjectContext.Provider value={{
-      ...state,
-      currentUser, currentProjectId, projectList, 
-      login, logout, selectProject, createProject, deleteProject, closeProject,
-      hasUnsavedChanges,
-      setBeats, setGroups, setConnections, setAnnotations, setCharacterData, setGeneratedShots,
-      updateGeneratedShot, addGeneratedShot, removeGeneratedShot, moveGeneratedShot,
-      setPan, setScale, updateBeat, addBeat, addGroup, updateGroup, removeGroup, loadProject, saveProject,
-      setTamilMode, setTamilFontScale, setTamilFontFamily, learnTamilWord, setOsInputMode, setOsInputShortcut, setScriptConfig, setScriptViewMode,
-      setStoryboardConfig, setStoryboardFeatureEnabled, setWritingGoal,
-      setBoardLayerOrder,
-      setGoogleDriveConfig, connectToDrive, disconnectFromDrive, backupToDrive, isDriveSyncing, isDriveConnecting,
-      
-      // AI Keys
-      setGeminiApiKey,
-      setStabilityApiKey,
-      setBreakdownLanguage,
-      
-      // Features
-      setPdfDropEnabled,
-
-      // History Exports
-      undo, redo, canUndo: history.past.length > 0, canRedo: history.future.length > 0, captureSnapshot
-    }}>
+    <ProjectContext.Provider value={value}>
       {children}
     </ProjectContext.Provider>
   );
@@ -826,6 +624,8 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
 export const useProject = () => {
   const context = useContext(ProjectContext);
-  if (!context) throw new Error("useProject must be used within ProjectProvider");
+  if (context === undefined) {
+    throw new Error('useProject must be used within a ProjectProvider');
+  }
   return context;
 };

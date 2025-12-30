@@ -19,8 +19,44 @@ import {
     SB_MOVEMENT, SB_EYELINE
 } from '../../constants';
 
-// --- ADVANCED SHOT INSPECTOR PANEL ---
-// ... (AdvancedShotInspector component remains unchanged, omitting to save space as it has no deps on API key)
+// --- HELPER: Buffered Input to prevent History Spam ---
+const BufferedInput = ({ value, onChange, className, placeholder, type = 'text', align }: any) => {
+    const [localValue, setLocalValue] = useState(value || '');
+    useEffect(() => { setLocalValue(value || ''); }, [value]);
+    
+    const commit = () => { if (localValue !== (value || '')) onChange(localValue); };
+    
+    return (
+        <input 
+            type={type}
+            value={localValue}
+            onChange={(e) => setLocalValue(e.target.value)}
+            onBlur={commit}
+            onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
+            className={className}
+            placeholder={placeholder}
+            style={align ? { textAlign: align } : undefined}
+        />
+    );
+};
+
+const BufferedTextArea = ({ value, onChange, className, placeholder }: any) => {
+    const [localValue, setLocalValue] = useState(value || '');
+    useEffect(() => { setLocalValue(value || ''); }, [value]);
+    
+    const commit = () => { if (localValue !== (value || '')) onChange(localValue); };
+    
+    return (
+        <textarea 
+            value={localValue}
+            onChange={(e) => setLocalValue(e.target.value)}
+            onBlur={commit}
+            className={className}
+            placeholder={placeholder}
+        />
+    );
+};
+
 const AdvancedShotInspector = ({ shot, onClose, onUpdate, characterData }: { 
     shot: Shot, 
     onClose: () => void, 
@@ -65,12 +101,13 @@ const AdvancedShotInspector = ({ shot, onClose, onUpdate, characterData }: {
         </div>
     );
 
+    // Using BufferedInput to prevent OOM crash during typing
     const InputField = ({ label, value, onChange, placeholder }: any) => (
         <div className="mb-3">
             <label className="text-[9px] font-mono font-bold text-[#555] uppercase block mb-1">{label}</label>
-            <input 
-                value={value || ''} 
-                onChange={(e) => onChange(e.target.value)}
+            <BufferedInput 
+                value={value} 
+                onChange={onChange}
                 placeholder={placeholder}
                 className="w-full bg-[#0a0a0a] border border-[#333] rounded px-2 py-1.5 text-[10px] text-gray-300 focus:border-[#f5a623] outline-none placeholder-gray-700"
             />
@@ -158,8 +195,6 @@ const AdvancedShotInspector = ({ shot, onClose, onUpdate, characterData }: {
     );
 };
 
-// ... (SceneDivider, StoryCard, ShotRow components remain unchanged, assume they are present)
-// Re-implementing them briefly for file completeness if full file is replaced
 const SceneDivider = ({ scene, onBundle, onToBoard }: { scene: string, onBundle: () => void, onToBoard: () => Promise<boolean> }) => {
     const [sendState, setSendState] = useState<'idle' | 'sending' | 'sent'>('idle');
     const handleSend = async () => {
@@ -184,10 +219,23 @@ const SceneDivider = ({ scene, onBundle, onToBoard }: { scene: string, onBundle:
     );
 };
 
+const isValidImage = (url: string | null | undefined): boolean => {
+    return !!url && (url.startsWith('data:image') || url.startsWith('http') || url.startsWith('blob:'));
+};
+
 const StoryCard = memo(({ shot, index, total, onUpdate, onAddNext, onDelete, onMove, onRender, onDownload, onOpenInspector, onToBoard, isRendering }: any) => {
     const [historyIndex, setHistoryIndex] = useState(-1);
     const [sendState, setSendState] = useState<'idle' | 'sending' | 'sent'>('idle');
+    const [confirmDelete, setConfirmDelete] = useState(false);
+
     useEffect(() => { setHistoryIndex(-1); }, [shot.imageUrl, shot.imageHistory]);
+    useEffect(() => {
+        if (confirmDelete) {
+            const timer = setTimeout(() => setConfirmDelete(false), 3000);
+            return () => clearTimeout(timer);
+        }
+    }, [confirmDelete]);
+
     const displayImage = historyIndex === -1 ? shot.imageUrl : (shot.imageHistory ? shot.imageHistory[historyIndex] : null);
     const hasHistory = shot.imageHistory && shot.imageHistory.length > 0;
     const handlePrevHistory = () => { if (historyIndex === -1 && hasHistory) setHistoryIndex(shot.imageHistory.length - 1); else if (historyIndex > 0) setHistoryIndex(historyIndex - 1); };
@@ -208,11 +256,17 @@ const StoryCard = memo(({ shot, index, total, onUpdate, onAddNext, onDelete, onM
                      <button onClick={() => onOpenInspector(shot.id)} className="p-1 hover:bg-[#333] text-gray-400 hover:text-[#f5a623] rounded flex items-center gap-1"><Settings2 size={12} /></button>
                      <div className="w-px h-3 bg-[#333] mx-1"></div>
                      <button onClick={() => onAddNext(index)} className="p-1 hover:bg-[#333] text-gray-400 hover:text-green-500 rounded"><Plus size={12} /></button>
-                     <button onClick={() => onDelete(shot.id)} className="p-1 hover:bg-[#333] text-gray-400 hover:text-red-500 rounded"><Trash2 size={12} /></button>
+                     <button 
+                        onClick={() => { if(confirmDelete) onDelete(shot.id); else setConfirmDelete(true); }} 
+                        className={`p-1 hover:bg-[#333] rounded transition-colors ${confirmDelete ? 'text-red-500 bg-red-900/20' : 'text-gray-400 hover:text-red-500'}`}
+                        title={confirmDelete ? "Click again to delete" : "Delete Shot"}
+                     >
+                        <Trash2 size={12} className={confirmDelete ? "animate-pulse" : ""} />
+                     </button>
                 </div>
             </div>
             <div className="aspect-video bg-black relative flex items-center justify-center overflow-hidden border-b border-[#333] group-inner">
-                {displayImage ? (<img src={displayImage} alt="Shot" className="w-full h-full object-cover" />) : (<div className="text-[#333] flex flex-col items-center gap-2"><Film size={32} /></div>)}
+                {isValidImage(displayImage) ? (<img src={displayImage} alt="Shot" className="w-full h-full object-cover" />) : (<div className="text-[#333] flex flex-col items-center gap-2"><Film size={32} /></div>)}
                 {isRendering && (<div className="absolute inset-0 bg-black/70 flex flex-col items-center justify-center text-accent z-10"><Loader2 className="animate-spin mb-2" size={24} /><span className="text-[10px] font-bold uppercase tracking-widest">Rendering...</span></div>)}
                 {!isRendering && hasHistory && (<div className="absolute inset-0 flex justify-between items-center px-2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"><button onClick={handlePrevHistory} className="bg-black/50 hover:bg-black/80 text-white p-1 rounded-full pointer-events-auto transition-colors"><ChevronLeft size={16} /></button><button onClick={handleNextHistory} className="bg-black/50 hover:bg-black/80 text-white p-1 rounded-full pointer-events-auto transition-colors"><ChevronRight size={16} /></button></div>)}
                 {historyIndex !== -1 && (<div className="absolute top-2 right-2 bg-black/60 text-white text-[9px] font-bold px-1.5 py-0.5 rounded border border-white/20">V.{historyIndex + 1}</div>)}
@@ -220,7 +274,12 @@ const StoryCard = memo(({ shot, index, total, onUpdate, onAddNext, onDelete, onM
             <div className="p-3 flex-1 flex flex-col gap-2">
                 <div className="flex items-center gap-2">
                     <span className="text-[9px] font-bold text-[#555] uppercase shrink-0">SCENE</span>
-                    <input className="bg-transparent text-[10px] font-bold text-[#888] w-full outline-none border-b border-transparent focus:border-[#f5a623] transition-colors" value={shot.scene || ''} onChange={(e) => onUpdate(shot.id, { scene: e.target.value })} placeholder="?" />
+                    <BufferedInput 
+                        className="bg-transparent text-[10px] font-bold text-[#888] w-full outline-none border-b border-transparent focus:border-[#f5a623] transition-colors" 
+                        value={shot.scene || ''} 
+                        onChange={(val: string) => onUpdate(shot.id, { scene: val })} 
+                        placeholder="?" 
+                    />
                 </div>
                 <div className="grid grid-cols-2 gap-2">
                     <div>
@@ -238,8 +297,22 @@ const StoryCard = memo(({ shot, index, total, onUpdate, onAddNext, onDelete, onM
                         </select>
                     </div>
                 </div>
-                <div><label className="text-[9px] font-bold text-[#555] uppercase block mb-1">Subject</label><input className="w-full bg-[#1a1a1a] border border-[#333] rounded px-1.5 py-1 text-[10px] text-gray-300 focus:border-[#f5a623] outline-none" value={shot.subject} onChange={(e) => onUpdate(shot.id, { subject: e.target.value })} /></div>
-                <div className="flex-1"><label className="text-[9px] font-bold text-[#555] uppercase block mb-1">Visual Action</label><textarea className="w-full h-16 bg-[#1a1a1a] border border-[#333] rounded px-1.5 py-1 text-[10px] text-gray-300 focus:border-[#f5a623] outline-none resize-none leading-relaxed" value={shot.description} onChange={(e) => onUpdate(shot.id, { description: e.target.value })} /></div>
+                <div>
+                    <label className="text-[9px] font-bold text-[#555] uppercase block mb-1">Subject</label>
+                    <BufferedInput 
+                        className="w-full bg-[#1a1a1a] border border-[#333] rounded px-1.5 py-1 text-[10px] text-gray-300 focus:border-[#f5a623] outline-none" 
+                        value={shot.subject} 
+                        onChange={(val: string) => onUpdate(shot.id, { subject: val })} 
+                    />
+                </div>
+                <div className="flex-1">
+                    <label className="text-[9px] font-bold text-[#555] uppercase block mb-1">Visual Action</label>
+                    <BufferedTextArea 
+                        className="w-full h-16 bg-[#1a1a1a] border border-[#333] rounded px-1.5 py-1 text-[10px] text-gray-300 focus:border-[#f5a623] outline-none resize-none leading-relaxed" 
+                        value={shot.description} 
+                        onChange={(val: string) => onUpdate(shot.id, { description: val })} 
+                    />
+                </div>
             </div>
             <div className="p-2 border-t border-[#333] bg-[#222] flex gap-2">
                 <button onClick={() => onRender(index)} disabled={isRendering} className="flex-1 bg-[#333] border border-[#444] text-[#ccc] py-1.5 rounded text-[10px] font-bold uppercase hover:bg-[#444] hover:text-white flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50"><ImageIcon size={12} /> {shot.imageUrl ? 'Re-Draw' : 'Draw'}</button>
@@ -251,20 +324,40 @@ const StoryCard = memo(({ shot, index, total, onUpdate, onAddNext, onDelete, onM
 }, (prev, next) => prev.shot === next.shot && prev.index === next.index && prev.isRendering === next.isRendering && prev.total === next.total);
 
 const ShotRow = memo(({ shot, index, total, onUpdate, onAddNext, onDelete, onMove, onRender, isRendering }: any) => {
+    const [confirmDelete, setConfirmDelete] = useState(false);
+    useEffect(() => {
+        if (confirmDelete) {
+            const timer = setTimeout(() => setConfirmDelete(false), 3000);
+            return () => clearTimeout(timer);
+        }
+    }, [confirmDelete]);
+
     return (
         <tr className="border-b border-[#2a2a2a] hover:bg-[#222] transition-colors group">
             <td className="p-2 text-center text-xs text-gray-500 font-mono w-14 border-r border-[#2a2a2a]"><div className="flex flex-col items-center gap-1"><span>{index + 1}</span><div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity"><button disabled={index === 0} onClick={() => onMove(index, index - 1)} className="hover:text-[#f5a623] disabled:opacity-30"><ArrowUp size={10} /></button><button disabled={index === total - 1} onClick={() => onMove(index, index + 1)} className="hover:text-[#f5a623] disabled:opacity-30"><ArrowDown size={10} /></button></div></div></td>
-            <td className="p-2 w-32 border-r border-[#2a2a2a]"><div className="w-28 h-16 bg-black rounded border border-[#333] overflow-hidden relative flex items-center justify-center cursor-pointer hover:border-[#f5a623] group/thumb" onClick={() => onRender(index)}>{shot.imageUrl ? (<img src={shot.imageUrl} className="w-full h-full object-cover" />) : (<Film size={16} className="text-[#333]" />)}{isRendering ? (<div className="absolute inset-0 bg-black/60 flex items-center justify-center"><Loader2 size={16} className="animate-spin text-[#f5a623]" /></div>) : (<div className="absolute inset-0 bg-black/60 opacity-0 group-hover/thumb:opacity-100 flex items-center justify-center transition-opacity"><Wand2 size={16} className="text-white" /></div>)}</div></td>
-            <td className="p-2 w-20 border-r border-[#2a2a2a]"><input className="w-full bg-transparent text-xs text-center border-b border-transparent focus:border-[#f5a623] outline-none text-gray-300 placeholder-gray-600" value={shot.scene || ''} onChange={(e) => onUpdate(shot.id, { scene: e.target.value })} placeholder="SC#" /></td>
+            <td className="p-2 w-32 border-r border-[#2a2a2a]"><div className="w-28 h-16 bg-black rounded border border-[#333] overflow-hidden relative flex items-center justify-center cursor-pointer hover:border-[#f5a623] group/thumb" onClick={() => onRender(index)}>{isValidImage(shot.imageUrl) ? (<img src={shot.imageUrl} className="w-full h-full object-cover" />) : (<Film size={16} className="text-[#333]" />)}{isRendering ? (<div className="absolute inset-0 bg-black/60 flex items-center justify-center"><Loader2 size={16} className="animate-spin text-[#f5a623]" /></div>) : (<div className="absolute inset-0 bg-black/60 opacity-0 group-hover/thumb:opacity-100 flex items-center justify-center transition-opacity"><Wand2 size={16} className="text-white" /></div>)}</div></td>
+            <td className="p-2 w-20 border-r border-[#2a2a2a]"><BufferedInput className="w-full bg-transparent text-xs text-center border-b border-transparent focus:border-[#f5a623] outline-none text-gray-300 placeholder-gray-600" value={shot.scene || ''} onChange={(val: string) => onUpdate(shot.id, { scene: val })} placeholder="SC#" /></td>
             <td className="p-2 w-40 border-r border-[#2a2a2a]"><select className="w-full bg-transparent text-xs text-gray-300 outline-none border border-transparent hover:border-[#333] focus:border-[#f5a623] rounded py-1" value={shot.shotSize} onChange={(e) => onUpdate(shot.id, { shotSize: e.target.value })}>{SHOT_SIZES.map(s => <option key={s} value={s}>{s}</option>)}{!SHOT_SIZES.includes(shot.shotSize) && shot.shotSize && (<option value={shot.shotSize}>{shot.shotSize}</option>)}</select></td>
             <td className="p-2 w-40 border-r border-[#2a2a2a]"><select className="w-full bg-transparent text-xs text-gray-300 outline-none border border-transparent hover:border-[#333] focus:border-[#f5a623] rounded py-1" value={shot.angle} onChange={(e) => onUpdate(shot.id, { angle: e.target.value })}>{SHOT_ANGLES.map(a => <option key={a} value={a}>{a}</option>)}{!SHOT_ANGLES.includes(shot.angle) && shot.angle && (<option value={shot.angle}>{shot.angle}</option>)}</select></td>
-            <td className="p-2 w-48 border-r border-[#2a2a2a]"><input className="w-full bg-transparent text-xs text-gray-300 outline-none border-b border-transparent focus:border-[#f5a623] py-1" value={shot.subject} onChange={(e) => onUpdate(shot.id, { subject: e.target.value })} placeholder="Subject..." /></td>
-            <td className="p-2 border-r border-[#2a2a2a]"><textarea className="w-full bg-transparent text-xs text-gray-300 resize-none outline-none focus:bg-[#222] rounded p-1 h-14 leading-relaxed" value={shot.description} onChange={(e) => onUpdate(shot.id, { description: e.target.value })} placeholder="Describe the action..." /></td>
-            <td className="p-2 text-center w-20"><div className="flex items-center justify-center gap-1"><button onClick={() => onAddNext(index)} className="p-1.5 text-gray-500 hover:text-green-500 hover:bg-[#333] rounded transition-colors"><Plus size={14} /></button><button onClick={() => onDelete(shot.id)} className="p-1.5 text-gray-500 hover:text-red-500 hover:bg-[#333] rounded transition-colors"><Trash2 size={14} /></button></div></td>
+            <td className="p-2 w-48 border-r border-[#2a2a2a]"><BufferedInput className="w-full bg-transparent text-xs text-gray-300 outline-none border-b border-transparent focus:border-[#f5a623] py-1" value={shot.subject} onChange={(val: string) => onUpdate(shot.id, { subject: val })} placeholder="Subject..." /></td>
+            <td className="p-2 border-r border-[#2a2a2a]"><BufferedTextArea className="w-full bg-transparent text-xs text-gray-300 resize-none outline-none focus:bg-[#222] rounded p-1 h-14 leading-relaxed" value={shot.description} onChange={(val: string) => onUpdate(shot.id, { description: val })} placeholder="Describe the action..." /></td>
+            <td className="p-2 text-center w-20">
+                <div className="flex items-center justify-center gap-1">
+                    <button onClick={() => onAddNext(index)} className="p-1.5 text-gray-500 hover:text-green-500 hover:bg-[#333] rounded transition-colors"><Plus size={14} /></button>
+                    <button 
+                        onClick={() => { if(confirmDelete) onDelete(shot.id); else setConfirmDelete(true); }}
+                        className={`p-1.5 rounded transition-colors ${confirmDelete ? 'text-red-500 bg-red-900/20' : 'text-gray-500 hover:text-red-500 hover:bg-[#333]'}`}
+                        title={confirmDelete ? "Click again" : "Delete"}
+                    >
+                        <Trash2 size={14} className={confirmDelete ? "animate-pulse" : ""} />
+                    </button>
+                </div>
+            </td>
         </tr>
     );
 });
 
+// ... (StoryboardView wrapper implementation unchanged)
 const StoryboardView: React.FC = () => {
   const { 
       beats, generatedShots, setGeneratedShots, updateGeneratedShot, 
@@ -295,6 +388,8 @@ const StoryboardView: React.FC = () => {
   // Ref for cancellation
   const cancelQueueRef = useRef(false);
 
+  // ... (rest of implementation unchanged)
+  
   // Helper: Get Script Text
   const getScriptSegment = () => {
     const sorted = [...beats].sort((a, b) => a.x - b.x);
@@ -482,7 +577,7 @@ const StoryboardView: React.FC = () => {
       card.style.width = '1200px'; card.style.backgroundColor = '#111'; card.style.color = '#eee'; card.style.fontFamily = 'Helvetica Neue, Arial, sans-serif'; card.style.padding = '0'; card.style.display = 'flex'; card.style.flexDirection = 'column';
       const imgContainer = document.createElement('div');
       imgContainer.style.width = '100%'; imgContainer.style.aspectRatio = '16/9'; imgContainer.style.backgroundColor = '#000'; imgContainer.style.display = 'flex'; imgContainer.style.alignItems = 'center'; imgContainer.style.justifyContent = 'center'; imgContainer.style.overflow = 'hidden';
-      if (shot.imageUrl) { const img = document.createElement('img'); img.src = shot.imageUrl; img.style.width = '100%'; img.style.height = '100%'; img.style.objectFit = 'cover'; imgContainer.appendChild(img); } else { const placeholder = document.createElement('div'); placeholder.innerText = 'NO VISUAL'; placeholder.style.color = '#333'; placeholder.style.fontSize = '40px'; placeholder.style.fontWeight = 'bold'; imgContainer.appendChild(placeholder); }
+      if (isValidImage(shot.imageUrl)) { const img = document.createElement('img'); img.src = shot.imageUrl!; img.style.width = '100%'; img.style.height = '100%'; img.style.objectFit = 'cover'; imgContainer.appendChild(img); } else { const placeholder = document.createElement('div'); placeholder.innerText = 'NO VISUAL'; placeholder.style.color = '#333'; placeholder.style.fontSize = '40px'; placeholder.style.fontWeight = 'bold'; imgContainer.appendChild(placeholder); }
       const info = document.createElement('div'); info.style.padding = '40px'; info.style.backgroundColor = '#1a1a1a'; info.style.borderTop = '2px solid #333';
       const header = document.createElement('div'); header.style.display = 'flex'; header.style.justifyContent = 'space-between'; header.style.marginBottom = '20px'; header.style.borderBottom = '1px solid #333'; header.style.paddingBottom = '20px';
       const sceneInfo = document.createElement('div'); sceneInfo.innerHTML = `<span style="color:#666; font-size: 18px; font-weight: 800; letter-spacing: 2px;">SCENE ${shot.scene || '?'}</span>`;
@@ -513,7 +608,7 @@ const StoryboardView: React.FC = () => {
   };
 
   const handleBundleScene = async (sceneId: string) => {
-      const sceneShots = generatedShots.filter(s => String(s.scene) === sceneId && s.imageUrl);
+      const sceneShots = generatedShots.filter(s => String(s.scene) === sceneId && isValidImage(s.imageUrl));
       if (sceneShots.length === 0) { alert("No generated visuals found in this scene to bundle."); return; }
       const container = document.createElement('div');
       container.style.position = 'absolute'; container.style.top = '-20000px'; container.style.left = '0'; container.style.width = '1000px';  container.style.backgroundColor = '#000'; container.style.display = 'flex'; container.style.flexDirection = 'column'; container.style.padding = '20px'; container.style.gap = '20px';
@@ -544,7 +639,7 @@ const StoryboardView: React.FC = () => {
       const shot = generatedShots.find(s => s.id === shotId);
       if (!shot) return false;
       const imageToUse = specificImageUrl || shot.imageUrl;
-      if (!imageToUse) return false;
+      if (!isValidImage(imageToUse)) return false;
       const tempShot = { ...shot, imageUrl: imageToUse };
       const dataUrl = await generateCardDataUrl(tempShot, 1.5); 
       if (!dataUrl) { alert("Failed to generate card for board."); return false; }
@@ -556,7 +651,7 @@ const StoryboardView: React.FC = () => {
   };
 
   const handleSceneToBoard = async (sceneId: string): Promise<boolean> => {
-      const sceneShots = generatedShots.filter(s => String(s.scene || '?') === sceneId && s.imageUrl);
+      const sceneShots = generatedShots.filter(s => String(s.scene || '?') === sceneId && isValidImage(s.imageUrl));
       if (sceneShots.length === 0) { alert("No generated images found in this scene to bundle."); return false; }
       const centerX = (-panX + (window.innerWidth / 2)) / scale;
       const centerY = (-panY + (window.innerHeight / 2)) / scale;

@@ -113,6 +113,14 @@ export const LIGHTING_STYLES = [
     'Low-Key / Dark', 'Volumetric Fog', 'Harsh Sunlight'
 ];
 
+export const NOTE_FONTS = [
+    { label: 'Inter (Clean)', value: '"Inter", sans-serif' },
+    { label: 'Merriweather (Serif)', value: '"Merriweather", serif' },
+    { label: 'Roboto Mono (Code)', value: '"Roboto Mono", monospace' },
+    { label: 'Caveat (Handwritten)', value: '"Caveat", cursive' },
+    { label: 'Comic Neue (Casual)', value: '"Comic Neue", cursive' },
+];
+
 export const INITIAL_STATE: ProjectState = {
   beats: [
     { 
@@ -126,7 +134,8 @@ export const INITIAL_STATE: ProjectState = {
       color: '#444', 
       shots: [], 
       status: 'not-ready', 
-      versions: [] 
+      versions: [],
+      notes: [] // Init scene notes
     }
   ],
   groups: [],
@@ -134,6 +143,10 @@ export const INITIAL_STATE: ProjectState = {
   annotations: [],
   characterData: {},
   generatedShots: [],
+  
+  scratchpad: '', // Legacy string content
+  globalNotes: [], // Init global notes
+
   panX: -24500,
   panY: -24500,
   scale: 1,
@@ -168,9 +181,40 @@ export const INITIAL_STATE: ProjectState = {
       opacity: 10, 
       outlineStyle: 'none', 
       funMode: 'none' 
-    }
+    },
+    noteFont: '"Inter", sans-serif',
+    noteFontSize: 14
   },
   scriptViewMode: 'continuous', // Default to Continuous
+  
+  scratchpadConfig: {
+    fontFamily: '"Merriweather", serif',
+    fontSize: 12,
+    lineHeight: 1.6,
+    blockSpacing: 2, 
+    enableDragAnimations: true,
+    dragScale: 1.02,
+    dragOpacity: 0.8,
+    glassEffect: false,
+    enableMarkdown: true,
+    // Defaults for Markdown
+    h1Color: '#3b82f6', // Blue
+    h2Color: '#22c55e', // Green
+    h1Underline: false,
+    h2Underline: false,
+    h1Italic: true,
+    h2Italic: true,
+    
+    // Bullets
+    listMarkerColor: '#3b82f6', // Blue (Numbers)
+    bulletStyle: 'dot',
+
+    calloutBackground: 'rgba(34, 197, 94, 0.1)', // Light Green tint
+    calloutBorder: '#22c55e', // Green
+    todoBorder: '#3b82f6', // Blue
+    todoCheckColor: '#f5a623' // Orange
+  },
+
   storyboardConfig: {
     provider: 'google',
     style: 'Charcoal Sketch',
@@ -180,7 +224,9 @@ export const INITIAL_STATE: ProjectState = {
   },
   isStoryboardFeatureEnabled: true,
   breakdownLanguage: 'english',
+  breakdownLockedOnly: true, // Default to true per user request
   isPdfDropEnabled: false, // Default OFF
+  isRedoEnabled: false, // Default OFF (per user request)
   writingGoal: {
     isActive: false,
     mode: 'deadline', // 'deadline' or 'habit'

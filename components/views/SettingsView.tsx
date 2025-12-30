@@ -13,12 +13,12 @@ import {
   MousePointer2, ALargeSmall, Globe, Video, Music,
   BoxSelect, Scan, Grid, Zap, Cloud, AlertTriangle, RefreshCw, Wand2,
   Moon, Sun, Coffee, Download, XCircle, Sparkles, Wifi, ShieldCheck, ShieldAlert,
-  Key, Cpu, ListChecks
+  Key, Cpu, ListChecks, StickyNote
 } from 'lucide-react';
 import PrintPreviewModal from '../PrintPreviewModal';
 import { 
     AVAILABLE_TAMIL_FONTS, AVAILABLE_IMAGE_MODELS, AVAILABLE_TEXT_MODELS,
-    VISUAL_STYLES, LIGHTING_STYLES 
+    VISUAL_STYLES, LIGHTING_STYLES, NOTE_FONTS
 } from '../../constants';
 import { updateGeminiConfig, generateText } from '../../services/gemini';
 
@@ -211,11 +211,12 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
     googleDriveConfig, setGoogleDriveConfig, connectToDrive, disconnectFromDrive, backupToDrive, isDriveSyncing, isDriveConnecting,
     geminiApiKey, setGeminiApiKey,
     stabilityApiKey, setStabilityApiKey,
-    breakdownLanguage, setBreakdownLanguage
+    breakdownLanguage, setBreakdownLanguage,
+    isPdfDropEnabled, setPdfDropEnabled
   } = useProject();
 
   const [activeCategory, setActiveCategory] = useState<'project' | 'formatting' | 'board' | 'storyboard' | 'features'>('formatting');
-  const [selectedFormatElement, setSelectedFormatElement] = useState<keyof ScriptConfig | 'visualization'>('action');
+  const [selectedFormatElement, setSelectedFormatElement] = useState<keyof ScriptConfig | 'visualization' | 'scratchpad'>('action');
   const [previewMode, setPreviewMode] = useState<'example' | 'real'>('example');
   const [showPrintPreview, setShowPrintPreview] = useState(false);
   const [installPrompt, setInstallPrompt] = useState<any>(null);
@@ -415,7 +416,7 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
     { id: 'lyrics', label: 'Lyrics', icon: Music },
   ];
 
-  const currentConfig = selectedFormatElement !== 'visualization' 
+  const currentConfig = (selectedFormatElement !== 'visualization' && selectedFormatElement !== 'scratchpad')
     ? (scriptConfig[selectedFormatElement as keyof ScriptConfig] as any) 
     : null;
   const currentAlign = currentConfig?.textAlign || 'left';
@@ -669,25 +670,72 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
                                     })}
                                 </div>
                                 <div className="h-px bg-[#222] mb-4"></div>
-                                <button
-                                    onClick={() => setSelectedFormatElement('visualization')}
-                                    className={`
-                                        w-full flex items-center gap-2 px-3 py-3 rounded-sm border transition-all duration-200
-                                        ${selectedFormatElement === 'visualization'
-                                            ? 'bg-[#f5a623]/10 border-[#f5a623] text-[#f5a623]' 
-                                            : 'bg-[#151515] border-[#222] text-gray-500 hover:border-[#333] hover:text-gray-300'}
-                                    `}
-                                >
-                                    <Scan size={14} className={selectedFormatElement === 'visualization' ? 'text-[#f5a623]' : 'opacity-50'} />
-                                    <div className="flex flex-col items-start">
-                                        <span className="text-[10px] font-bold uppercase tracking-wider">Layout Viz</span>
-                                        <span className="text-[8px] opacity-60">Global Block Bounds</span>
-                                    </div>
-                                </button>
+                                <div className="space-y-2">
+                                    <button
+                                        onClick={() => setSelectedFormatElement('visualization')}
+                                        className={`
+                                            w-full flex items-center gap-2 px-3 py-3 rounded-sm border transition-all duration-200
+                                            ${selectedFormatElement === 'visualization'
+                                                ? 'bg-[#f5a623]/10 border-[#f5a623] text-[#f5a623]' 
+                                                : 'bg-[#151515] border-[#222] text-gray-500 hover:border-[#333] hover:text-gray-300'}
+                                        `}
+                                    >
+                                        <Scan size={14} className={selectedFormatElement === 'visualization' ? 'text-[#f5a623]' : 'opacity-50'} />
+                                        <div className="flex flex-col items-start">
+                                            <span className="text-[10px] font-bold uppercase tracking-wider">Layout Viz</span>
+                                            <span className="text-[8px] opacity-60">Global Block Bounds</span>
+                                        </div>
+                                    </button>
+                                    <button
+                                        onClick={() => setSelectedFormatElement('scratchpad')}
+                                        className={`
+                                            w-full flex items-center gap-2 px-3 py-3 rounded-sm border transition-all duration-200
+                                            ${selectedFormatElement === 'scratchpad'
+                                                ? 'bg-[#f5a623]/10 border-[#f5a623] text-[#f5a623]' 
+                                                : 'bg-[#151515] border-[#222] text-gray-500 hover:border-[#333] hover:text-gray-300'}
+                                        `}
+                                    >
+                                        <StickyNote size={14} className={selectedFormatElement === 'scratchpad' ? 'text-[#f5a623]' : 'opacity-50'} />
+                                        <div className="flex flex-col items-start">
+                                            <span className="text-[10px] font-bold uppercase tracking-wider">Notes / Scratchpad</span>
+                                            <span className="text-[8px] opacity-60">Font Settings</span>
+                                        </div>
+                                    </button>
+                                </div>
                             </div>
 
                             <div className="p-6 space-y-8">
-                                {selectedFormatElement === 'visualization' ? (
+                                {selectedFormatElement === 'scratchpad' ? (
+                                    <Section title="Notes Typography" icon={Type}>
+                                        <div className="space-y-4">
+                                            <div>
+                                                <Label>Scratchpad Font</Label>
+                                                <select 
+                                                    value={scriptConfig.noteFont || '"Inter", sans-serif'}
+                                                    onChange={(e) => setScriptConfig({...scriptConfig, noteFont: e.target.value})}
+                                                    className="w-full bg-[#111] border border-[#333] rounded px-3 py-2 text-xs text-white focus:border-[#f5a623] outline-none"
+                                                >
+                                                    {NOTE_FONTS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
+                                                </select>
+                                                <p className="text-[9px] text-[#555] mt-2 font-mono">Applies to Global Scratchpad and Scene Notes.</p>
+                                            </div>
+                                            <div>
+                                                <Label>Base Font Size (px)</Label>
+                                                <div className="flex items-center gap-3">
+                                                    <input 
+                                                        type="range" 
+                                                        min="10" 
+                                                        max="32" 
+                                                        value={scriptConfig.noteFontSize || 14} 
+                                                        onChange={(e) => setScriptConfig({...scriptConfig, noteFontSize: parseInt(e.target.value)})}
+                                                        className="flex-1 accent-[#f5a623] h-1 bg-[#333] rounded-lg appearance-none cursor-pointer" 
+                                                    />
+                                                    <span className="text-xs font-mono font-bold w-8 text-right">{scriptConfig.noteFontSize || 14}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </Section>
+                                ) : selectedFormatElement === 'visualization' ? (
                                     <>
                                         <Section title="Appearance" icon={Eye}>
                                             <div className="space-y-4">
@@ -939,7 +987,7 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
                                                 </div>
 
                                                 <div className={`sc-line sc-action ${selectedFormatElement === 'action' ? 'sc-active-block' : ''}`} style={getStyle(scriptConfig.action, false, false)}>
-                                                    The steam rises from a cup. JOHN (30s) sits nervously.
+                                                    The steam rises from a porcelain cup. JOHN (30s) sits nervously.
                                                 </div>
 
                                                 <div className={`sc-line sc-character ${selectedFormatElement === 'character' ? 'sc-active-block' : ''}`} style={getStyle(scriptConfig.character, false, false)}>
@@ -980,7 +1028,7 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
                                                         <div dangerouslySetInnerHTML={{ __html: firstBeat.content }} className="mt-4" />
                                                         
                                                         {/* Force selection class for visualization in Settings Real View */}
-                                                        {selectedFormatElement !== 'visualization' && (
+                                                        {selectedFormatElement !== 'visualization' && selectedFormatElement !== 'scratchpad' && (
                                                             <style>{`
                                                                 .real-content-view .sc-${selectedFormatElement} {
                                                                     box-shadow: inset 0 0 0 1000px rgba(0,0,0,0.05); /* Soft highlight for selected type */
@@ -1281,18 +1329,12 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
                             isActive={isStoryboardFeatureEnabled}
                             onToggle={setStoryboardFeatureEnabled}
                         />
-                        {/* PDF Import Feature Toggle */}
                         <FeatureCard 
                             title="PDF Drag-and-Drop Import" 
                             desc="Enable experimental PDF parsing. Drag a PDF onto the board to convert to beats."
                             icon={FileText}
-                            isActive={googleDriveConfig.isPdfDropEnabled} // Assuming isPdfDropEnabled is exposed in googleDriveConfig or similar, checking context. 
-                            // Wait, looking at context, it's a separate field. Let's fix the prop usage below.
-                            // FIX: Using context value directly as FeatureCard prop is cleaner.
-                            // Re-checking context... "setPdfDropEnabled" and "isPdfDropEnabled" are available.
-                            // I need to make sure "isPdfDropEnabled" is destructured from useProject at the top.
-                            // It is NOT currently destructured in this file. I need to add it.
-                            onToggle={() => {}} // Placeholder, logic fixed in next block
+                            isActive={isPdfDropEnabled}
+                            onToggle={setPdfDropEnabled}
                         />
                         
                         <div className="md:col-span-2 bg-[#111] p-6 rounded-sm border border-[#222]">

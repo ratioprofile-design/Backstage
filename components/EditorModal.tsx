@@ -1,4 +1,5 @@
 
+// ... (imports remain the same)
 import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { useProject } from '../context/ProjectContext';
 import { ScriptEditor } from './ScriptEditor';
@@ -13,6 +14,7 @@ import {
   Layers, ChevronRight, GripHorizontal, Calendar,
   PanelLeft, Lock
 } from 'lucide-react';
+import DiffModal from './DiffModal';
 
 interface EditorModalProps {
   beatId: number;
@@ -22,8 +24,7 @@ interface EditorModalProps {
   initialOffset?: number;
 }
 
-// --- HELPER COMPONENTS ---
-
+// ... (Helper components ColorDropdown, useDebounce, TEXT_COLORS, HILITE_COLORS, getSortedBeats remain same)
 const ColorDropdown = ({ icon: Icon, type, title, options, onSelect }: any) => {
     const [isOpen, setIsOpen] = useState(false);
     const containerRef = useRef<HTMLDivElement>(null);
@@ -76,7 +77,6 @@ const ColorDropdown = ({ icon: Icon, type, title, options, onSelect }: any) => {
     );
 };
 
-// Simple debounce utility
 const useDebounce = (callback: Function, delay: number) => {
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const debouncedFunc = useCallback((...args: any[]) => {
@@ -106,7 +106,6 @@ const HILITE_COLORS = [
     { label: 'Pink', value: '#fbcfe8' },
 ];
 
-// --- GRAPH SORT HELPER ---
 const getSortedBeats = (beats: Beat[], connections: Connection[]): Beat[] => {
     if (beats.length === 0) return [];
 
@@ -175,7 +174,10 @@ const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScri
   const isReady = beat?.status === 'ready';
   const isReadOnly = isReady; 
   
-  // --- DRAG IMPLEMENTATION ---
+  // Diff Modal State
+  const [diffVersion, setDiffVersion] = useState<BeatVersion | null>(null);
+
+  // ... (Drag implementation remains same)
   const modalRef = useRef<HTMLDivElement>(null);
   const summaryRef = useRef<HTMLTextAreaElement>(null);
   const [showSidebar, setShowSidebar] = useState(false);
@@ -235,13 +237,12 @@ const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScri
   const editorId = `modal-editor-${beatId}`;
   const scopeId = `editor-scope-${beatId}`;
   
-  // --- SCENE ORDER LOGIC ---
+  // ... (Scene Order, Hierarchy, Refs, Stats logic - unchanged)
   const sortedBeats = useMemo(() => getSortedBeats(beats, connections), [beats, connections]);
   const sceneIndex = useMemo(() => sortedBeats.findIndex(b => b.id === beatId) + 1, [sortedBeats, beatId]);
   
   const [tempSceneNum, setTempSceneNum] = useState(sceneIndex.toString());
 
-  // Sync temp scene num when actual index changes (e.g. external reorder)
   useEffect(() => {
       setTempSceneNum(sceneIndex.toString());
   }, [sceneIndex]);
@@ -253,31 +254,24 @@ const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScri
           return;
       }
 
-      // Logic: Move current beat to be AFTER the beat at (newIndex - 1)
       const otherBeats = sortedBeats.filter(b => b.id !== beatId);
       
       let newPredecessorId: number | null = null;
       let newSuccessorId: number | null = null;
 
       if (newIndex === 1) {
-          // Moving to start
           newSuccessorId = otherBeats.length > 0 ? otherBeats[0].id : null;
       } else {
-          // Moving to middle or end
-          // Predecessor is at index (newIndex - 2) because newIndex is 1-based and we removed self
           const pred = otherBeats[newIndex - 2];
           if (pred) newPredecessorId = pred.id;
           
-          const succ = otherBeats[newIndex - 1]; // The one currently at that spot
+          const succ = otherBeats[newIndex - 1]; 
           if (succ) newSuccessorId = succ.id;
       }
 
-      // Re-Link
       let newConns = connections.filter(c => c.from !== beatId && c.to !== beatId);
       
-      // If we have a predecessor, connect Pred -> Me
       if (newPredecessorId !== null) {
-          // Remove existing link from Pred -> (Old Successor) to avoid branching if we want linear insert
           const existingPredConn = connections.find(c => c.from === newPredecessorId);
           if (existingPredConn && existingPredConn.to === newSuccessorId) {
               newConns = newConns.filter(c => !(c.from === newPredecessorId && c.to === newSuccessorId));
@@ -286,7 +280,6 @@ const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScri
           newConns.push({ from: newPredecessorId, to: beatId });
       }
 
-      // If we have a successor, connect Me -> Succ
       if (newSuccessorId !== null) {
           newConns.push({ from: beatId, to: newSuccessorId });
       }
@@ -302,7 +295,6 @@ const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScri
           bx >= g.x && bx <= g.x + g.width &&
           by >= g.y && by <= g.y + g.height
       );
-      // Sort: Largest (Act) -> Smallest (Seq)
       return parents.sort((a, b) => (b.width * b.height) - (a.width * a.height));
   }, [beat, groups]);
 
@@ -343,28 +335,35 @@ const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScri
       setSaveStatus('saved'); 
   };
 
-  const restoreVersion = (v: BeatVersion) => {
+  // TRIGGER DIFF MODAL
+  const handleRestoreClick = (v: BeatVersion) => {
       if (!beat) return;
-      if (confirm(`Restore version from ${new Date(v.timestamp).toLocaleTimeString()}? Current unsaved changes will be moved to history.`)) {
-          const currentContent = contentRef.current;
-          const backupVersion: BeatVersion = {
-              id: `backup-${Date.now()}`,
-              timestamp: Date.now(),
-              title: beat.title,
-              content: currentContent,
-              summary: beat.summary
-          };
-          updateBeat(beat.id, {
-              title: v.title,
-              content: v.content,
-              summary: v.summary,
-              versions: [...(beat.versions || []), backupVersion]
-          });
-          contentRef.current = v.content;
-          calculateStats(v.content);
-          setEditorKey(prev => prev + 1);
-          setShowVersionMenu(false);
-      }
+      setDiffVersion(v);
+  };
+
+  const confirmRestoreVersion = () => {
+      if (!beat || !diffVersion) return;
+      
+      const currentContent = contentRef.current;
+      const backupVersion: BeatVersion = {
+          id: `backup-${Date.now()}`,
+          timestamp: Date.now(),
+          title: beat.title,
+          content: currentContent,
+          summary: beat.summary
+      };
+      
+      updateBeat(beat.id, {
+          title: diffVersion.title,
+          content: diffVersion.content,
+          summary: diffVersion.summary,
+          versions: [...(beat.versions || []), backupVersion]
+      });
+      contentRef.current = diffVersion.content;
+      calculateStats(diffVersion.content);
+      setEditorKey(prev => prev + 1);
+      setShowVersionMenu(false);
+      setDiffVersion(null); // Close modal
   };
 
   useEffect(() => {
@@ -380,6 +379,7 @@ const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScri
       }
   }, []);
 
+  // ... (uniqueLocations, uniqueCharacters, style check, auto-save logic - unchanged)
   const uniqueLocations = useMemo(() => {
     const locs = new Set<string>();
     ['HOUSE', 'KITCHEN', 'BEDROOM', 'OFFICE', 'PARK', 'STREET', 'CAR', 'APARTMENT', 'SCHOOL', 'HOSPITAL'].forEach(l => locs.add(l));
@@ -393,13 +393,9 @@ const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScri
 
   const uniqueCharacters = useMemo(() => {
       const chars = new Set<string>();
-      
-      // 1. Add from Character Manifest (Created Characters)
       Object.values(characterData).forEach((c: any) => {
           if (c.name) chars.add(c.name.toUpperCase());
       });
-
-      // 2. Add from existing Script content (Dynamic)
       beats.forEach(b => {
           const div = document.createElement('div');
           div.innerHTML = b.content;
@@ -408,7 +404,6 @@ const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScri
               if (name && name.length > 1) chars.add(name);
           });
       });
-
       return Array.from(chars).sort();
   }, [beats, characterData]);
 
@@ -505,6 +500,7 @@ const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScri
       if (e.key === 'Escape') {
           if (showStatusMenu) { setShowStatusMenu(false); return; }
           if (showVersionMenu) { setShowVersionMenu(false); return; }
+          if (diffVersion) { setDiffVersion(null); return; }
           e.stopPropagation();
           onClose();
       }
@@ -610,6 +606,7 @@ const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScri
         {/* --- LEFT SIDEBAR (STATS & META) --- */}
         {showSidebar && (
             <div className="w-48 bg-[#111] border-r border-[#333] p-4 flex flex-col shrink-0 relative overflow-y-auto custom-scrollbar animate-in slide-in-from-left-4 fade-in duration-200">
+             {/* ... (Sidebar contents same as before) ... */}
              <div className="flex flex-col gap-2 mb-4">
                 {hierarchy.length > 0 && (
                     <div className="flex items-center flex-wrap gap-1">
@@ -715,7 +712,7 @@ const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScri
                                                     v{beat.versions!.length - i}
                                                 </span>
                                                 <button 
-                                                    onClick={() => restoreVersion(v)}
+                                                    onClick={() => handleRestoreClick(v)}
                                                     className="text-[9px] text-blue-400 hover:text-white hover:underline opacity-0 group-hover:opacity-100 transition-opacity"
                                                 >
                                                     Restore
@@ -774,6 +771,7 @@ const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScri
             <div className={`px-4 py-2 border-b border-[#333] flex items-center gap-2 z-30 shrink-0 shadow-lg transition-colors ${isReadOnly ? 'bg-[#151515] opacity-80' : 'bg-[#1e1e1e]'}`}>
                 <div className="w-full flex gap-2 items-center font-screenplay">
                     <span className="text-gray-500 font-bold select-none text-xs">{sceneIndex}.</span>
+                    {/* MODIFIED: Widths increased for Prefix and Time inputs */}
                     <SlugInput
                         id={prefixId}
                         value={beat.slug.prefix}
@@ -782,7 +780,7 @@ const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScri
                         onNext={() => document.getElementById(locationId)?.focus()}
                         placeholder="INT."
                         readOnly={isReadOnly}
-                        className="w-14 shrink-0 font-bold uppercase text-sm border-b border-transparent focus:border-[#f5a623] transition-colors text-gray-200 placeholder-gray-600"
+                        className="w-20 shrink-0 font-bold uppercase text-sm border-b border-transparent focus:border-[#f5a623] transition-colors text-gray-200 placeholder-gray-600"
                     />
                     <SlugInput 
                         id={locationId}
@@ -803,7 +801,7 @@ const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScri
                         onNext={() => document.getElementById(editorId)?.focus()}
                         placeholder="DAY"
                         readOnly={isReadOnly}
-                        className="w-20 shrink-0 font-bold uppercase text-sm border-b border-transparent focus:border-[#f5a623] transition-colors text-gray-200 placeholder-gray-600"
+                        className="w-32 shrink-0 font-bold uppercase text-sm border-b border-transparent focus:border-[#f5a623] transition-colors text-gray-200 placeholder-gray-600"
                         align="right"
                     />
                 </div>
@@ -874,6 +872,18 @@ const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScri
 
         </div>
       </div>
+
+      {/* DIFF MODAL */}
+      {diffVersion && beat && (
+          <DiffModal
+              currentContent={beat.content}
+              snapshotContent={diffVersion.content}
+              timestamp={diffVersion.timestamp}
+              snapshotTitle={diffVersion.summary}
+              onRestore={confirmRestoreVersion}
+              onClose={() => setDiffVersion(null)}
+          />
+      )}
     </div>
   );
 };

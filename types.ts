@@ -85,6 +85,13 @@ export interface BeatVersion {
   content: string;
 }
 
+export interface Note {
+  id: string;
+  content: string; // HTML Content
+  color: string; // Hex color for sticky note background
+  timestamp: number;
+}
+
 export interface Beat {
   id: number;
   x: number;
@@ -94,6 +101,8 @@ export interface Beat {
   summary?: string; // Scene Summary
   slug: Slugline;
   content: string; // HTML content for the script body
+  scratchpad?: string; // Legacy: Single scratchpad string
+  notes?: Note[]; // New: Array of sticky notes
   color?: string; // Grouping/Chain color
   tint?: string; // Card background tint
   shots?: Shot[]; // Array of storyboard shots for this scene
@@ -238,6 +247,37 @@ export interface ScriptConfig {
   lyrics: ScriptElementConfig;
   slugline: SluglineConfig;
   blockBounds: BlockBoundsConfig; // Global layout visualization settings
+  noteFont: string; // Font family for scratchpad notes
+  noteFontSize: number; // Font size for scratchpad notes
+}
+
+export interface ScratchpadConfig {
+  fontFamily: string;
+  fontSize: number;
+  lineHeight: number;
+  blockSpacing: number; // Spacing between blocks (margin-bottom)
+  enableDragAnimations: boolean;
+  dragScale: number; // 1.0 to 1.2
+  dragOpacity: number; // 0.1 to 1.0
+  glassEffect: boolean;
+  enableMarkdown: boolean;
+  
+  // Markdown Styling
+  h1Color: string;
+  h2Color: string;
+  h1Underline: boolean;
+  h2Underline: boolean;
+  h1Italic: boolean;
+  h2Italic: boolean;
+  
+  // Bullets & Lists
+  listMarkerColor: string; 
+  bulletStyle: 'dot' | 'circle' | 'square' | 'dash' | 'arrow';
+
+  calloutBackground: string;
+  calloutBorder: string;
+  todoBorder: string;
+  todoCheckColor: string;
 }
 
 export interface StoryboardConfig {
@@ -317,6 +357,10 @@ export interface ProjectState {
   annotations: Annotation[];
   characterData: Record<string, CharacterData>;
   generatedShots: Shot[]; // Global shot list (optional/legacy use)
+  
+  scratchpad: string; // Legacy: Global scratchpad content
+  globalNotes: Note[]; // New: Global sticky notes
+
   panX: number;
   panY: number;
   scale: number;
@@ -335,15 +379,20 @@ export interface ProjectState {
   scriptConfig: ScriptConfig;
   scriptViewMode: 'continuous' | 'page'; // New: Visual mode for Script Editor
   
+  // Scratchpad Configuration
+  scratchpadConfig: ScratchpadConfig;
+
   // Storyboard Configuration
   storyboardConfig: StoryboardConfig;
   isStoryboardFeatureEnabled: boolean;
   
   // Breakdown Configuration
   breakdownLanguage: 'english' | 'tamil';
+  breakdownLockedOnly: boolean; // New: Limit analysis to locked scenes
 
   // Feature Flags
   isPdfDropEnabled: boolean; // New Flag
+  isRedoEnabled: boolean; // New Flag
 
   // Writing Goals
   writingGoal: WritingGoal;
@@ -387,6 +436,10 @@ export interface ProjectContextType extends ProjectState {
   setCharacterData: (data: Record<string, CharacterData> | ((prev: Record<string, CharacterData>) => Record<string, CharacterData>)) => void;
   setGeneratedShots: (shots: Shot[] | ((prev: Shot[]) => Shot[])) => void;
   
+  // Scratchpad
+  setScratchpad: (content: string) => void;
+  setGlobalNotes: (notes: Note[]) => void;
+
   // Shot Management Helpers
   updateGeneratedShot: (id: string, updates: Partial<Shot>) => void;
   addGeneratedShot: (index: number) => void;
@@ -416,15 +469,21 @@ export interface ProjectContextType extends ProjectState {
   // Script Layout
   setScriptConfig: (config: ScriptConfig) => void;
   setScriptViewMode: (mode: 'continuous' | 'page') => void;
+  
+  // Scratchpad Configuration
+  setScratchpadConfig: (config: ScratchpadConfig) => void;
+
   // Storyboard Configuration
   setStoryboardConfig: (config: StoryboardConfig) => void;
   setStoryboardFeatureEnabled: (enabled: boolean) => void;
   
   // Breakdown Configuration
   setBreakdownLanguage: (lang: 'english' | 'tamil') => void;
+  setBreakdownLockedOnly: (enabled: boolean) => void;
 
   // Features
   setPdfDropEnabled: (enabled: boolean) => void;
+  setRedoEnabled: (enabled: boolean) => void;
   
   // Goals
   setWritingGoal: (goal: WritingGoal) => void;

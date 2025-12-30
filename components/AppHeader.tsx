@@ -12,7 +12,7 @@ interface AppHeaderProps {
 }
 
 const AppHeader: React.FC<AppHeaderProps> = ({ currentView, onViewChange, onRefresh }) => {
-  const { isStoryboardFeatureEnabled, writingGoal, dailyStats, beats, currentUser, saveProject, loadProject, hasUnsavedChanges, undo, redo, canUndo, canRedo } = useProject();
+  const { isStoryboardFeatureEnabled, writingGoal, dailyStats, beats, currentUser, saveProject, loadProject, hasUnsavedChanges, undo, redo, canUndo, canRedo, isRedoEnabled } = useProject();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const views = [
@@ -119,14 +119,17 @@ const AppHeader: React.FC<AppHeaderProps> = ({ currentView, onViewChange, onRefr
               >
                   <RotateCcw size={14} />
               </button>
-              <button 
-                  onClick={redo}
-                  disabled={!canRedo}
-                  className="w-8 h-8 flex items-center justify-center rounded-sm hover:bg-[#222] text-[#666] hover:text-white transition-colors disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-[#666]"
-                  title="Redo (Ctrl+Y)"
-              >
-                  <RotateCw size={14} />
-              </button>
+              
+              {isRedoEnabled && (
+                  <button 
+                      onClick={redo}
+                      disabled={!canRedo}
+                      className="w-8 h-8 flex items-center justify-center rounded-sm hover:bg-[#222] text-[#666] hover:text-white transition-colors disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-[#666]"
+                      title="Redo (Ctrl+Y)"
+                  >
+                      <RotateCw size={14} />
+                  </button>
+              )}
 
               <div className="h-6 w-[1px] bg-[#222] mx-2"></div>
 
