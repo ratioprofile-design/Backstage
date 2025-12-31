@@ -116,8 +116,9 @@ const BreakdownView: React.FC = () => {
         const sortedBeats = [...beats].sort((a, b) => a.x - b.x);
         return sortedBeats.map((beat, idx) => {
             const hasBreakdown = !!beat.breakdown;
+            // Fix: Add explicit cast to any[] and default length to avoid "operator > applied to unknown" later
             const totalItems = hasBreakdown 
-                ? Object.values(beat.breakdown || {}).reduce((acc: number, arr: any) => acc + (arr?.length || 0), 0)
+                ? Object.values(beat.breakdown || {}).reduce((acc: number, arr: any) => acc + ((arr as any[])?.length || 0), 0)
                 : 0;
             return { beat, hasBreakdown, totalItems, sceneIndex: idx + 1 };
         });
@@ -442,7 +443,7 @@ const BreakdownView: React.FC = () => {
                             <div className="h-full bg-[#f5a623] transition-all duration-300 ease-out" style={{ width: `${(progress.current / progress.total) * 100}%` }} />
                         </div>
                         <div className="text-[10px] text-gray-400 font-mono shrink-0">
-                            {Math.round((progress.current / progress.total) * 100)}%
+                            {Math.round((progress.current / progress.total) * 100)}
                         </div>
                     </div>
                 )}

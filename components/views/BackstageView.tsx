@@ -1,5 +1,4 @@
 
-
 import React, { useState, useRef, useEffect } from 'react';
 import { useProject } from '../../context/ProjectContext';
 import { ScriptConfig, ProjectState } from '../../types';
@@ -15,7 +14,7 @@ import {
   BoxSelect, Scan, Grid, Zap, Cloud, AlertTriangle, RefreshCw, Wand2,
   Moon, Sun, Coffee, Download, XCircle, Sparkles, Wifi, ShieldCheck, ShieldAlert,
   Key, Cpu, ListChecks, StickyNote, Hash, List, GripHorizontal, RotateCw, Lock,
-  LayoutTemplate
+  LayoutTemplate, Server, Copy, ExternalLink
 } from 'lucide-react';
 import PrintPreviewModal from '../PrintPreviewModal';
 import { 
@@ -23,6 +22,7 @@ import {
     VISUAL_STYLES, NOTE_FONTS, AVAILABLE_ENGLISH_FONTS
 } from '../../constants';
 import { updateGeminiConfig, generateText } from '../../services/gemini';
+import { SETUP_SQL, getSupabaseProjectRef } from '../../services/supabase';
 
 const TEXT_COLORS = [
   { name: 'Black', value: '#000000', class: 'bg-black' },
@@ -241,6 +241,7 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
     writingGoal, 
     dailyStats, sessionStartCount, lastSessionDate,
     projectList, currentUser, currentProjectId,
+    cloudHealth, refreshCloudHealth,
     
     googleDriveConfig, setGoogleDriveConfig, connectToDrive, disconnectFromDrive, backupToDrive, isDriveSyncing, isDriveConnecting,
     geminiApiKey, setGeminiApiKey,
@@ -267,6 +268,7 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
   const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'failed' | 'invalid'>('idle');
   const [statusMsg, setStatusMsg] = useState('');
   const [keyUpdateStatus, setKeyUpdateStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
+  const [isHealthLoading, setIsHealthLoading] = useState(false);
 
   useEffect(() => {
       setTempGeminiKey(geminiApiKey || '');
@@ -312,7 +314,7 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
 
       if (trimmedKey.includes(".apps.googleusercontent.com") || trimmedKey.includes(".com")) {
           setTestStatus('invalid');
-          setStatusMsg("❌ You entered a Client ID. Use an API Key (starts with 'AIza').");
+          setStatusMsg("❌ You entered a Client ID. Use an API Key (starts ('AIza').");
           return;
       }
 
@@ -386,6 +388,17 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
       downloadProject();
   };
 
+  const handleRefreshHealth = async () => {
+      setIsHealthLoading(true);
+      await refreshCloudHealth();
+      setTimeout(() => setIsHealthLoading(false), 500);
+  };
+
+  const copySql = () => {
+      navigator.clipboard.writeText(SETUP_SQL);
+      alert("SQL setup command copied to clipboard!");
+  };
+
   const updateFormat = (elm: keyof ScriptConfig, prop: string, val: any) => {
     if (elm === 'slugline') {
        setScriptConfig({
@@ -394,10 +407,15 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
        });
     } else {
        const targetConfig = scriptConfig[elm as keyof ScriptConfig];
-       if (targetConfig) {
+       if (targetConfig && typeof targetConfig === 'object') {
            setScriptConfig({
               ...scriptConfig,
               [elm]: { ...targetConfig, [prop]: val }
+           });
+       } else {
+           setScriptConfig({
+              ...scriptConfig,
+              [elm]: val
            });
        }
     }
@@ -588,7 +606,6 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
 
                         {/* GOOGLE DRIVE CONFIG */}
                         <div className="md:col-span-2 bg-[#111] p-6 rounded-sm border border-[#222] mt-4">
-                            {/* ... Drive Config Content ... */}
                             <div className="flex items-center gap-3 mb-6">
                                 <div className={`p-2 rounded ${googleDriveConfig.enabled ? 'bg-green-500/10 text-green-500' : 'bg-[#222] text-gray-500'}`}>
                                     <Cloud size={20} />
@@ -693,7 +710,6 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
 
                     <div className="flex-1 overflow-hidden flex flex-col md:flex-row bg-[#0c0c0c]">
                         <div className="w-80 overflow-y-auto border-r border-[#222] bg-[#0f0f0f]">
-                            {/* ... Formatting Controls ... */}
                             <div className="p-4 border-b border-[#222]">
                                 <Label>Select Element to Style</Label>
                                 <div className="grid grid-cols-2 gap-2 mt-2 mb-4">
@@ -993,14 +1009,12 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
                             </Section>
                         </div>
 
-                        {/* RIGHT: Live Preview Simulator */}
                         <div className="flex-1 overflow-auto bg-[#181818] p-10 flex justify-center items-start">
                             <div className="w-full max-w-md bg-[#111] border border-white/10 rounded-lg p-6 shadow-2xl">
                                 <div className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-4 flex items-center gap-2">
                                     <Eye size={12} /> Live Preview
                                 </div>
                                 <div className="space-y-2" style={{ fontFamily: scriptConfig.noteFont, fontSize: `${scriptConfig.noteFontSize}px` }}>
-                                    {/* Simulated Block Editor Content using inline styles to mimic CSS variables */}
                                     <div style={{ color: scratchpadConfig.h1Color, fontWeight: 900, fontSize: `${scratchpadConfig.h1FontSize}px`, borderBottom: '1px solid #333', marginBottom: '0.3em' }}>
                                         Project Notes
                                     </div>
@@ -1177,6 +1191,78 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
                 <ViewContainer title="System Features" subtitle="Enable experimental tools and accessibility options.">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         
+                        {/* CLOUD DIAGNOSTIC CARD */}
+                        <div className="md:col-span-2 bg-[#1e1e1e] p-6 rounded-sm border border-[#333] shadow-lg">
+                            <div className="flex items-center justify-between mb-6">
+                                <div className="flex items-center gap-4">
+                                    <div className={`w-10 h-10 rounded-sm flex items-center justify-center ${cloudHealth === 'ready' ? 'bg-green-500 text-black' : 'bg-[#222] text-[#f5a623]'}`}>
+                                        <Server size={20} />
+                                    </div>
+                                    <div>
+                                        <h4 className="text-base font-bold text-white uppercase tracking-wider">Cloud Connection Health</h4>
+                                        <p className="text-xs text-gray-400 mt-1">Status of your Supabase database schema.</p>
+                                    </div>
+                                </div>
+                                <button 
+                                    onClick={handleRefreshHealth}
+                                    disabled={isHealthLoading}
+                                    className="p-2 bg-[#111] border border-[#333] rounded hover:bg-[#222] transition-colors"
+                                    title="Refresh Status"
+                                >
+                                    <RefreshCw size={16} className={isHealthLoading ? 'animate-spin' : ''} />
+                                </button>
+                            </div>
+
+                            {cloudHealth === 'missing-table' ? (
+                                <div className="bg-orange-900/10 border border-orange-900/50 rounded-lg p-5 animate-in fade-in">
+                                    <div className="flex items-start gap-4 mb-4">
+                                        <AlertTriangle size={24} className="text-[#f5a623] shrink-0" />
+                                        <div>
+                                            <h5 className="text-sm font-black text-[#f5a623] uppercase">Database Setup Required</h5>
+                                            <p className="text-xs text-gray-300 mt-1">The 'projects' table was not found in your Supabase database. Cloud syncing is currently disabled.</p>
+                                        </div>
+                                    </div>
+                                    
+                                    <div className="bg-black rounded-lg p-4 font-mono text-[11px] text-gray-400 border border-white/5 relative group">
+                                        <pre className="overflow-x-auto custom-scrollbar">{SETUP_SQL}</pre>
+                                        <button 
+                                            onClick={copySql}
+                                            className="absolute top-2 right-2 p-2 bg-[#222] hover:bg-[#333] text-white rounded transition-all opacity-0 group-hover:opacity-100 flex items-center gap-2 border border-white/10"
+                                        >
+                                            <Copy size={12} /> Copy SQL
+                                        </button>
+                                    </div>
+                                    <div className="mt-4 flex gap-3">
+                                        <a 
+                                            href={`https://supabase.com/dashboard/project/${getSupabaseProjectRef()}/sql/new`}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="flex-1 bg-[#f5a623] hover:bg-[#e09612] text-black py-2.5 rounded font-black text-[10px] uppercase tracking-widest flex items-center justify-center gap-2 transition-all shadow-lg"
+                                        >
+                                            <ExternalLink size={12} /> Open Supabase SQL Editor
+                                        </a>
+                                    </div>
+                                    <p className="text-[10px] text-gray-500 mt-3 italic">Paste the command into the editor link above, run it, then click the refresh icon on this card.</p>
+                                </div>
+                            ) : cloudHealth === 'ready' ? (
+                                <div className="bg-green-900/10 border border-green-900/50 rounded-lg p-5 flex items-center gap-4">
+                                    <Check size={24} className="text-green-500" />
+                                    <div>
+                                        <h5 className="text-sm font-black text-green-500 uppercase">System Optimal</h5>
+                                        <p className="text-xs text-gray-300">Database connection and schema verified. Cloud syncing active.</p>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="bg-[#111] border border-[#222] rounded-lg p-5 flex items-center gap-4">
+                                    <RefreshCw size={24} className="text-gray-500" />
+                                    <div>
+                                        <h5 className="text-sm font-black text-gray-500 uppercase">Verifying...</h5>
+                                        <p className="text-xs text-gray-500">Checking cloud service status.</p>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
                         {/* AI CONFIGURATION CARD */}
                         <div className="md:col-span-2 bg-[#1e1e1e] p-6 rounded-sm border border-[#f5a623] shadow-[0_0_15px_rgba(245,166,35,0.2)]">
                             <div className="flex items-center gap-4 mb-4">
@@ -1266,7 +1352,6 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
                             </div>
                         )}
 
-                        {/* Breakdown Language */}
                         <div className="bg-[#111] p-5 rounded-sm border border-[#222] flex items-center justify-between group hover:border-[#444] transition-colors">
                             <div className="flex items-center gap-4">
                                 <div className={`w-10 h-10 rounded-sm flex items-center justify-center bg-[#000] border border-[#333] text-gray-500`}>

@@ -12,6 +12,7 @@
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
     "@google/genai": "^1.34.0",
+    "@supabase/supabase-js": "2.39.7",
     "lucide-react": "^0.562.0",
     "recharts": "^3.6.0",
     "html2canvas": "^1.4.1",

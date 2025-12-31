@@ -1,5 +1,4 @@
 
-
 export interface Slugline {
   prefix: string;
   location: string;
@@ -358,6 +357,8 @@ export type ViewMode = 'board' | 'script' | 'characters' | 'breakdown' | 'storyb
 
 export type BoardLayer = 'beats' | 'groups' | 'connections' | 'annotations' | 'text';
 
+export type CloudHealth = 'unknown' | 'ready' | 'missing-table' | 'error';
+
 export interface ProjectState {
   beats: Beat[];
   groups: Group[]; // Visual groupings for beats
@@ -432,6 +433,10 @@ export interface ProjectContextType extends ProjectState {
   createProject: (name: string) => void;
   deleteProject: (id: string) => void;
   closeProject: () => void;
+  
+  // Cloud Health
+  cloudHealth: CloudHealth;
+  refreshCloudHealth: () => Promise<void>;
 
   // Change Tracking
   hasUnsavedChanges: boolean;
