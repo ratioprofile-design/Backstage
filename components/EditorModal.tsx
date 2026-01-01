@@ -1,10 +1,8 @@
-
-// ... (imports remain the same)
 import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { useProject } from '../context/ProjectContext';
 import { ScriptEditor } from './ScriptEditor';
 import { SlugInput } from './SlugInput';
-import { BeatVersion, Beat, Connection } from '../types';
+import { BeatVersion, Beat, Connection, Note } from '../types';
 import { 
   X, Save, CheckCircle2, Cloud, 
   Clock, Bold, Italic, Underline,
@@ -12,9 +10,10 @@ import {
   AlignLeft, Hash, Type, History, RotateCcw,
   Check, CircleDashed, ArchiveRestore, Plus,
   Layers, ChevronRight, GripHorizontal, Calendar,
-  PanelLeft, Lock
+  PanelLeft, Lock, StickyNote, Trash2
 } from 'lucide-react';
 import DiffModal from './DiffModal';
+import { BlockEditor } from './BlockEditor';
 
 interface EditorModalProps {
   beatId: number;
@@ -24,7 +23,7 @@ interface EditorModalProps {
   initialOffset?: number;
 }
 
-// ... (Helper components ColorDropdown, useDebounce, TEXT_COLORS, HILITE_COLORS, getSortedBeats remain same)
+// ... (Helper components ColorDropdown, useDebounce, TEXT_COLORS, HILITE_COLORS, getSortedBeats)
 const ColorDropdown = ({ icon: Icon, type, title, options, onSelect }: any) => {
     const [isOpen, setIsOpen] = useState(false);
     const containerRef = useRef<HTMLDivElement>(null);
@@ -167,7 +166,7 @@ const getSortedBeats = (beats: Beat[], connections: Connection[]): Beat[] => {
 };
 
 const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScript, onFocus, initialOffset = 0 }) => {
-  const { beats, updateBeat, scriptConfig, characterData, groups, connections, setConnections } = useProject();
+  const { beats, updateBeat, scriptConfig, characterData, groups, connections, setConnections, scratchpadConfig } = useProject();
   
   // Data Retrieval
   const beat = beats.find(b => b.id === beatId);
@@ -176,6 +175,9 @@ const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScri
   
   // Diff Modal State
   const [diffVersion, setDiffVersion] = useState<BeatVersion | null>(null);
+  
+  // Note Deletion Confirmation State
+  const [confirmDeleteNoteId, setConfirmDeleteNoteId] = useState<string | null>(null);
 
   // ... (Drag implementation remains same)
   const modalRef = useRef<HTMLDivElement>(null);
@@ -434,6 +436,13 @@ const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScri
     updateBeat(beat.id, { title: e.target.value }); 
   };
 
+  const handleTitleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+      if (e.key === 'Enter') {
+          e.preventDefault();
+          summaryRef.current?.focus();
+      }
+  };
+
   const handleSummaryChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     if (!beat) return;
     updateBeat(beat.id, { summary: e.target.value }); 
@@ -496,6 +505,32 @@ const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScri
       document.execCommand(command, false, value || 'inherit');
   };
 
+  // --- SCRATCHPAD LOGIC ---
+  const addNote = () => {
+      if (!beat) return;
+      const newNote: Note = {
+          id: `note-${Date.now()}`,
+          content: '<div class="nl-block"><br></div>',
+          color: '#d97706',
+          timestamp: Date.now()
+      };
+      const currentNotes = beat.notes || [];
+      updateBeat(beat.id, { notes: [...currentNotes, newNote] });
+  };
+
+  const updateNote = (id: string, updates: Partial<Note>) => {
+      if (!beat) return;
+      const currentNotes = beat.notes || [];
+      updateBeat(beat.id, { notes: currentNotes.map(n => n.id === id ? { ...n, ...updates } : n) });
+  };
+
+  const deleteNote = (id: string) => {
+      if (!beat) return;
+      const currentNotes = beat.notes || [];
+      updateBeat(beat.id, { notes: currentNotes.filter(n => n.id !== id) });
+      setConfirmDeleteNoteId(null);
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
       if (e.key === 'Escape') {
           if (showStatusMenu) { setShowStatusMenu(false); return; }
@@ -514,7 +549,7 @@ const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScri
         tabIndex={-1}
         className="fixed bg-[#1e1e1e] rounded-lg shadow-[0_30px_60px_rgba(0,0,0,0.9)] flex flex-col overflow-hidden ring-1 ring-white/10 outline-none"
         style={{ 
-            width: showSidebar ? 900 : 720,
+            width: showSidebar ? 1000 : 720,
             height: 550,
         }}
         onMouseDown={(e) => { 
@@ -605,7 +640,7 @@ const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScri
         
         {/* --- LEFT SIDEBAR (STATS & META) --- */}
         {showSidebar && (
-            <div className="w-48 bg-[#111] border-r border-[#333] p-4 flex flex-col shrink-0 relative overflow-y-auto custom-scrollbar animate-in slide-in-from-left-4 fade-in duration-200">
+            <div className="w-72 bg-[#111] border-r border-[#333] p-4 flex flex-col shrink-0 relative overflow-y-auto custom-scrollbar animate-in slide-in-from-left-4 fade-in duration-200">
              {/* ... (Sidebar contents same as before) ... */}
              <div className="flex flex-col gap-2 mb-4">
                 {hierarchy.length > 0 && (
@@ -629,6 +664,7 @@ const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScri
                 <input 
                    value={beat.title}
                    onChange={handleTitleChange}
+                   onKeyDown={handleTitleKeyDown}
                    className="w-full bg-transparent border-b border-[#333] py-1 text-sm font-bold text-gray-200 outline-none transition-colors placeholder-gray-600 focus:border-[#f5a623]"
                    placeholder="Untitled Beat"
                 />
@@ -734,6 +770,55 @@ const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScri
                         )}
                     </div>
                  </div>
+             </div>
+
+             {/* Scene Scratchpad (Placed below Versions) */}
+             <div className="mb-4 space-y-2 border-t border-[#333] pt-4">
+                <label className="text-[9px] font-bold text-gray-500 uppercase tracking-widest flex items-center gap-1.5">
+                    <StickyNote size={10} /> Scene Notes
+                </label>
+                <div className="flex flex-col gap-2">
+                    {(beat.notes || []).map((note, index) => {
+                        const isConfirming = confirmDeleteNoteId === note.id;
+                        return (
+                        <div key={note.id} className="relative group">
+                            <div className="bg-[#1a1a1a] border border-white/5 rounded-md overflow-hidden">
+                                 <div className="flex justify-between items-center px-2 py-1 bg-black/20 border-b border-white/5">
+                                    <div className="flex gap-1">
+                                        <div className="w-1.5 h-1.5 rounded-full" style={{backgroundColor: note.color || '#d97706'}}></div>
+                                    </div>
+                                    <button 
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            if (isConfirming) {
+                                                deleteNote(note.id);
+                                            } else {
+                                                setConfirmDeleteNoteId(note.id);
+                                                setTimeout(() => setConfirmDeleteNoteId(null), 3000);
+                                            }
+                                        }} 
+                                        className={`transition-all ${isConfirming ? 'text-red-500 opacity-100 bg-red-900/20 px-1.5 rounded animate-pulse' : 'text-gray-600 hover:text-red-500 opacity-0 group-hover:opacity-100'}`}
+                                        title={isConfirming ? "Click again to confirm delete" : "Delete Note"}
+                                    >
+                                        <Trash2 size={8} />
+                                    </button>
+                                 </div>
+                                 <BlockEditor
+                                    value={note.content}
+                                    onChange={(val) => updateNote(note.id, { content: val })}
+                                    config={scratchpadConfig}
+                                    minHeight="40px"
+                                    className="text-[10px]"
+                                    showToolbar={false}
+                                    chromeless={true}
+                                 />
+                            </div>
+                        </div>
+                    )})}
+                    <button onClick={addNote} className="w-full py-2 border border-dashed border-[#333] hover:border-[#f5a623] hover:text-[#f5a623] text-gray-600 text-[9px] font-bold uppercase rounded transition-all flex items-center justify-center gap-1">
+                        <Plus size={10} /> Add Note
+                    </button>
+                </div>
              </div>
 
              {/* Stats Grid */}
