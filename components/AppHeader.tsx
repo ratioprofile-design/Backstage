@@ -1,8 +1,8 @@
 
-import React, { useMemo, useRef } from 'react';
+import React, { useMemo } from 'react';
 import { ViewMode } from '../types';
 import { useProject } from '../context/ProjectContext';
-import { Target, Zap, Clock, LogOut, Save, Upload, RotateCcw, RotateCw, Film, Download } from 'lucide-react';
+import { Target, Zap, Clock, Film, RotateCcw, RotateCw } from 'lucide-react';
 
 interface AppHeaderProps {
   currentView: ViewMode;
@@ -13,12 +13,10 @@ interface AppHeaderProps {
 
 const AppHeader: React.FC<AppHeaderProps> = ({ currentView, onViewChange, onRefresh }) => {
   const { 
-      isStoryboardFeatureEnabled, writingGoal, dailyStats, beats, currentUser, 
-      saveProject, loadProject, downloadProject, 
-      hasUnsavedChanges, undo, redo, canUndo, canRedo, isRedoEnabled,
-      projectList, currentProjectId
+      isStoryboardFeatureEnabled, writingGoal, dailyStats, beats,
+      projectList, currentProjectId,
+      undo, redo, canUndo, canRedo
   } = useProject();
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const activeProjectName = useMemo(() => {
       const proj = projectList.find(p => p.id === currentProjectId);
@@ -33,25 +31,6 @@ const AppHeader: React.FC<AppHeaderProps> = ({ currentView, onViewChange, onRefr
     { id: 'storyboard', label: 'Storyboard', hidden: !isStoryboardFeatureEnabled },
     { id: 'statistics', label: 'Statistics' }
   ].filter(v => !v.hidden);
-
-  const handleFileLoad = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        try {
-          const data = JSON.parse(event.target?.result as string);
-          loadProject(data);
-          alert("Project Loaded Successfully!");
-        } catch (err) {
-          console.error("Failed to load project", err);
-          alert("Invalid project file");
-        }
-      };
-      reader.readAsText(file);
-    }
-    e.target.value = ''; 
-  };
 
   // Live Progress Calculation
   const progressDisplay = useMemo(() => {
@@ -100,7 +79,7 @@ const AppHeader: React.FC<AppHeaderProps> = ({ currentView, onViewChange, onRefr
     <>
       <header className="fixed top-0 left-0 w-full h-[50px] bg-[#111] border-b border-[#3d3d3d] flex items-center justify-between px-5 z-[500] select-none shadow-[0_2px_10px_rgba(0,0,0,0.3)] font-['Helvetica_Neue',Helvetica,Arial,sans-serif]">
         
-        {/* LEFT: Cinematic Logo -> Settings + File Ops */}
+        {/* LEFT: Cinematic Logo -> Settings */}
         <div className="flex items-center gap-5 h-full flex-1">
           <div 
               onClick={() => onViewChange('backstage')}
@@ -118,59 +97,6 @@ const AppHeader: React.FC<AppHeaderProps> = ({ currentView, onViewChange, onRefr
                       {activeProjectName}
                   </span>
               </div>
-          </div>
-
-          <div className="h-6 w-[1px] bg-[#333]"></div>
-
-          <div className="flex items-center gap-1">
-              <button 
-                  onClick={undo}
-                  disabled={!canUndo}
-                  className="w-8 h-8 flex items-center justify-center rounded-sm hover:bg-[#222] text-[#666] hover:text-white transition-colors disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-[#666]"
-                  title="Undo (Ctrl+Z)"
-              >
-                  <RotateCcw size={14} />
-              </button>
-              
-              {isRedoEnabled && (
-                  <button 
-                      onClick={redo}
-                      disabled={!canRedo}
-                      className="w-8 h-8 flex items-center justify-center rounded-sm hover:bg-[#222] text-[#666] hover:text-white transition-colors disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-[#666]"
-                      title="Redo (Ctrl+Y)"
-                  >
-                      <RotateCw size={14} />
-                  </button>
-              )}
-
-              <div className="h-6 w-[1px] bg-[#222] mx-2"></div>
-
-              <button 
-                  onClick={() => fileInputRef.current?.click()}
-                  className="flex items-center gap-2 px-3 py-1.5 rounded-sm hover:bg-[#222] text-[#666] hover:text-white transition-colors"
-                  title="Load Project File"
-              >
-                  <Upload size={14} />
-              </button>
-              <input type="file" ref={fileInputRef} className="hidden" accept=".json,.bst" onChange={handleFileLoad} />
-
-              <button 
-                  onClick={downloadProject}
-                  className="flex items-center gap-2 px-3 py-1.5 rounded-sm hover:bg-[#222] text-[#666] hover:text-white transition-colors"
-                  title="Download Project File (.bst)"
-              >
-                  <Download size={14} />
-              </button>
-
-              <button 
-                  onClick={saveProject}
-                  className={`flex items-center gap-2 px-3 py-1.5 rounded-sm transition-all duration-300 ${hasUnsavedChanges 
-                      ? 'bg-[#f5a623]/10 text-[#f5a623] border border-[#f5a623]/50 shadow-[0_0_10px_rgba(245,166,35,0.2)] animate-pulse' 
-                      : 'hover:bg-[#222] text-[#666] hover:text-white border border-transparent'}`}
-                  title={hasUnsavedChanges ? "Unsaved Changes!" : "Quick Save (Local)"}
-              >
-                  <Save size={14} className={hasUnsavedChanges ? "animate-bounce" : ""} />
-              </button>
           </div>
         </div>
 
@@ -192,13 +118,26 @@ const AppHeader: React.FC<AppHeaderProps> = ({ currentView, onViewChange, onRefr
             ))}
           </div>
           
-          <button 
-            onClick={onRefresh}
-            className="bg-transparent border border-[#444] text-[#888] px-2.5 py-1.5 cursor-pointer text-[14px] rounded-[4px] transition-all duration-200 flex items-center justify-center hover:bg-[#222] hover:text-white hover:border-[#666] active:rotate-180"
-            title="Refresh Current View"
-          >
-            ↻
-          </button>
+          {/* UNDO / REDO GROUP */}
+          <div className="flex bg-[#222] border border-[#3d3d3d] rounded-[4px] overflow-hidden">
+             <button 
+                onClick={undo}
+                disabled={!canUndo}
+                className={`px-3 py-1.5 flex items-center justify-center transition-all ${!canUndo ? 'text-[#444] cursor-not-allowed' : 'text-[#888] hover:text-white hover:bg-[#2a2a2a]'}`}
+                title="Undo (Ctrl+Z)"
+             >
+                <RotateCcw size={14} />
+             </button>
+             <div className="w-px bg-[#3d3d3d]"></div>
+             <button 
+                onClick={redo}
+                disabled={!canRedo}
+                className={`px-3 py-1.5 flex items-center justify-center transition-all ${!canRedo ? 'text-[#444] cursor-not-allowed' : 'text-[#888] hover:text-white hover:bg-[#2a2a2a]'}`}
+                title="Redo (Ctrl+Y)"
+             >
+                <RotateCw size={14} />
+             </button>
+          </div>
         </div>
 
         {/* RIGHT: Goal / Progress Widget & User */}

@@ -221,9 +221,10 @@ const WelcomeScreen: React.FC = () => {
                                   </div>
                                   
                                   <button 
-                                      onClick={(e) => { e.stopPropagation(); deleteProject(project.id); }}
+                                      onClick={(e) => e.stopPropagation()} 
+                                      onDoubleClick={(e) => { e.stopPropagation(); deleteProject(project.id); }}
                                       className="p-2 text-gray-600 hover:text-red-500 hover:bg-red-900/20 rounded-full transition-colors opacity-0 group-hover:opacity-100"
-                                      title="Delete Project"
+                                      title="Double click to delete"
                                   >
                                       <Trash2 size={16} />
                                   </button>

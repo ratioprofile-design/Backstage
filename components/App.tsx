@@ -149,11 +149,30 @@ const StyleInjector: React.FC = () => {
 };
 
 const AppContent: React.FC = () => {
-  const { currentUser, currentProjectId } = useProject();
+  const { currentUser, currentProjectId, undo, redo } = useProject();
   const [currentView, setCurrentView] = useState<ViewMode>('board');
   const [openBeatIds, setOpenBeatIds] = useState<number[]>([]);
   const [showPrintPreview, setShowPrintPreview] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+
+  // Global Keyboard Shortcuts for Undo/Redo
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+        // Undo: Ctrl+Z / Cmd+Z
+        if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+            e.preventDefault();
+            undo();
+        }
+        // Redo: Ctrl+Y / Cmd+Y / Ctrl+Shift+Z / Cmd+Shift+Z
+        if (((e.ctrlKey || e.metaKey) && e.key === 'y') || ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'z')) {
+            e.preventDefault();
+            redo();
+        }
+    };
+
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+  }, [undo, redo]);
 
   const handleRefresh = () => setRefreshKey(prev => prev + 1);
 

@@ -246,7 +246,7 @@ export const INITIAL_STATE: ProjectState = {
   breakdownLanguage: 'english',
   breakdownLockedOnly: true, // Default to true per user request
   isPdfDropEnabled: false, // Default OFF
-  isRedoEnabled: false, // Default OFF (per user request)
+  isRedoEnabled: true, // Default ON
   writingGoal: {
     isActive: false,
     mode: 'deadline', // 'deadline' or 'habit'
