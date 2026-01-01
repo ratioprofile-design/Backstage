@@ -1,4 +1,278 @@
 
+export interface ScratchpadConfig {
+  fontFamily: string;
+  fontSize: number;
+  lineHeight: number;
+  blockSpacing: number; // Spacing between blocks (margin-bottom)
+  enableDragAnimations: boolean;
+  dragScale: number; // 1.0 to 1.2
+  dragOpacity: number; // 0.1 to 1.0
+  glassEffect: boolean;
+  enableMarkdown: boolean;
+  
+  // Markdown Styling
+  h1Color: string;
+  h2Color: string;
+  h1Underline: boolean;
+  h2Underline: boolean;
+  h1Italic: boolean;
+  h2Italic: boolean;
+  
+  // New Sizing & Style
+  h1FontSize: number; // px
+  h2FontSize: number; // px
+  boldColor: string;
+  italicColor: string;
+  
+  // Bullets & Lists
+  listMarkerColor: string; 
+  listMarkerSize: number; // Percentage (e.g. 100)
+  listMarkerTopOffset: number; // Px (e.g. 0)
+  bulletStyle: 'dot' | 'circle' | 'square' | 'dash' | 'arrow';
+
+  // Checkboxes
+  checkboxSize: number; // px (e.g. 12)
+  checkboxTopOffset: number; // px (e.g. 0)
+
+  calloutBackground: string;
+  calloutBorder: string;
+  todoBorder: string;
+  todoCheckColor: string;
+}
+
+export interface StoryboardConfig {
+  provider: 'google' | 'stability'; // New provider toggle
+  style: string; // e.g. "Charcoal Sketch", "Photorealistic"
+  aspectRatio: string; // e.g. "16:9", "4:3"
+  imageModel?: string; // Model ID for image generation
+  textModel?: string; // Model ID for shot list analysis
+}
+
+export interface PrintSettings {
+  paperSize: 'letter' | 'a4';
+  marginTop: number;
+  marginBottom: number;
+  marginLeft: number;
+  marginRight: number;
+  showPageNumbers: boolean;
+  sceneNumbers: boolean;
+  
+  // Content Filtering
+  selectedLocations: string[]; // Empty = All
+  selectedCharacters: string[]; // Empty = All
+
+  // Element Styling (Overrides for Print)
+  styles: {
+    slugline: TextStyleConfig;
+    action: TextStyleConfig;
+    character: TextStyleConfig;
+    dialogue: TextStyleConfig;
+    parenthetical: TextStyleConfig;
+    transition: TextStyleConfig;
+  };
+}
+
+export interface WritingGoal {
+  isActive: boolean;
+  mode: 'deadline' | 'habit'; // Project Goal vs Daily Habit
+  type: 'pages' | 'words';
+  
+  // Deadline Mode
+  targetAmount: number;
+  deadline: number; // timestamp
+  startDate: number; // timestamp
+  
+  // Habit Mode
+  dailyTarget: number; // e.g. 500 words per session
+
+  // Calculator Props
+  includeWeekends: boolean;
+  dailyWritingMinutes: number; // e.g. 120 for 2 hours
+}
+
+export interface GoogleDriveConfig {
+  clientId: string;
+  apiKey: string;
+  enabled: boolean;
+  autoBackup: boolean;
+  lastBackup: number | null;
+  fileId?: string; // ID of the file on Google Drive if it exists
+}
+
+export interface ProjectMetadata {
+  id: string;
+  name: string;
+  lastModified: number;
+  created: number;
+}
+
+export type ViewMode = 'board' | 'script' | 'characters' | 'breakdown' | 'storyboard' | 'statistics' | 'backstage' | 'goals';
+
+export type BoardLayer = 'beats' | 'groups' | 'connections' | 'annotations' | 'text';
+
+export interface ProjectState {
+  beats: Beat[];
+  groups: Group[]; // Visual groupings for beats
+  connections: Connection[];
+  annotations: Annotation[];
+  characterData: Record<string, CharacterData>;
+  generatedShots: Shot[]; // Global shot list (optional/legacy use)
+  
+  scratchpad: string; // Legacy: Global scratchpad content
+  globalNotes: Note[]; // New: Global sticky notes
+
+  panX: number;
+  panY: number;
+  scale: number;
+  nextId: number;
+  nextAnnoId: number;
+  // Tamil Features
+  isTamilMode: boolean;
+  tamilFontScale: number; // Percentage (e.g., 75)
+  tamilFontFamily: string; // e.g. 'Vijaya'
+  userDictionary: Record<string, string[]>;
+  // OS Input Features
+  isOsInputMode: boolean;
+  osInputShortcut: string; // e.g., 'NumLock', 'F1', 'ScrollLock'
+  
+  // Script Layout Configuration (Global)
+  scriptConfig: ScriptConfig;
+  scriptViewMode: 'continuous' | 'page'; // New: Visual mode for Script Editor
+  
+  // Scratchpad Configuration
+  scratchpadConfig: ScratchpadConfig;
+
+  // Storyboard Configuration
+  storyboardConfig: StoryboardConfig;
+  isStoryboardFeatureEnabled: boolean;
+  
+  // Breakdown Configuration
+  breakdownLanguage: 'english' | 'tamil';
+  breakdownLockedOnly: boolean; // New: Limit analysis to locked scenes
+
+  // Feature Flags
+  isPdfDropEnabled: boolean; // New Flag
+  isRedoEnabled: boolean; // New Flag
+
+  // Writing Goals
+  writingGoal: WritingGoal;
+  
+  // Google Drive
+  googleDriveConfig: GoogleDriveConfig;
+  
+  // AI Keys
+  geminiApiKey: string;
+  stabilityApiKey: string;
+
+  // Analytics
+  dailyStats: Record<string, number>; // YYYY-MM-DD -> Word Count
+  sessionStartCount: number; // Word count at start of today's session
+  lastSessionDate: string; // YYYY-MM-DD
+
+  // Board Layers
+  boardLayerOrder: BoardLayer[];
+}
+
+export interface ProjectContextType extends ProjectState {
+  // Auth & Project Management
+  currentUser: string | null;
+  currentProjectId: string | null;
+  projectList: ProjectMetadata[];
+  login: (username: string) => void;
+  logout: () => void;
+  selectProject: (id: string) => void;
+  createProject: (name: string) => void;
+  deleteProject: (id: string) => void;
+  closeProject: () => void;
+
+  // Change Tracking
+  hasUnsavedChanges: boolean;
+
+  // State Setters (Operate on the currently loaded project)
+  setBeats: (beats: Beat[] | ((prev: Beat[]) => Beat[])) => void;
+  setGroups: (groups: Group[] | ((prev: Group[]) => Group[])) => void;
+  setConnections: (conns: Connection[] | ((prev: Connection[]) => Connection[])) => void;
+  setAnnotations: (annos: Annotation[] | ((prev: Annotation[]) => Annotation[])) => void;
+  setCharacterData: (data: Record<string, CharacterData> | ((prev: Record<string, CharacterData>) => Record<string, CharacterData>)) => void;
+  setGeneratedShots: (shots: Shot[] | ((prev: Shot[]) => Shot[])) => void;
+  
+  // Scratchpad
+  setScratchpad: (content: string) => void;
+  setGlobalNotes: (notes: Note[]) => void;
+
+  // Shot Management Helpers
+  updateGeneratedShot: (id: string, updates: Partial<Shot>) => void;
+  addGeneratedShot: (index: number) => void;
+  removeGeneratedShot: (id: string) => void;
+  moveGeneratedShot: (fromIndex: number, toIndex: number) => void;
+  
+  setPan: (x: number, y: number) => void;
+  setScale: (s: number) => void;
+  updateBeat: (id: number, updates: Partial<Beat>) => void;
+  addBeat: (x: number, y: number) => number; // Returns new ID
+  
+  // Group Management
+  addGroup: (group: Omit<Group, 'id'>) => void;
+  updateGroup: (id: number, updates: Partial<Group>) => void;
+  removeGroup: (id: number) => void;
+
+  loadProject: (data: ProjectState) => void;
+  saveProject: () => void;
+  downloadProject: () => void;
+  
+  // Tamil Utils
+  setTamilMode: (enabled: boolean) => void;
+  setTamilFontScale: (scale: number) => void;
+  setTamilFontFamily: (font: string) => void;
+  learnTamilWord: (english: string, tamil: string) => void;
+  // OS Input Utils
+  setOsInputMode: (enabled: boolean) => void;
+  setOsInputShortcut: (key: string) => void;
+  // Script Layout
+  setScriptConfig: (config: ScriptConfig) => void;
+  setScriptViewMode: (mode: 'continuous' | 'page') => void;
+  
+  // Scratchpad Configuration
+  setScratchpadConfig: (config: ScratchpadConfig) => void;
+
+  // Storyboard Configuration
+  setStoryboardConfig: (config: StoryboardConfig) => void;
+  setStoryboardFeatureEnabled: (enabled: boolean) => void;
+  
+  // Breakdown Configuration
+  setBreakdownLanguage: (lang: 'english' | 'tamil') => void;
+  setBreakdownLockedOnly: (enabled: boolean) => void;
+
+  // Features
+  setPdfDropEnabled: (enabled: boolean) => void;
+  setRedoEnabled: (enabled: boolean) => void;
+  
+  // Goals
+  setWritingGoal: (goal: WritingGoal) => void;
+
+  // Google Drive
+  setGoogleDriveConfig: (config: GoogleDriveConfig) => void;
+  connectToDrive: (apiKey?: string, clientId?: string) => Promise<void>;
+  disconnectFromDrive: () => void;
+  backupToDrive: (force?: boolean) => Promise<void>;
+  isDriveSyncing: boolean;
+  isDriveConnecting: boolean; 
+  
+  // AI Keys
+  setGeminiApiKey: (key: string) => void;
+  setStabilityApiKey: (key: string) => void;
+
+  // Board Layers
+  setBoardLayerOrder: (order: BoardLayer[]) => void;
+
+  // HISTORY
+  undo: () => void;
+  redo: () => void;
+  canUndo: boolean;
+  canRedo: boolean;
+  captureSnapshot: () => void;
+}
+
 export interface Slugline {
   prefix: string;
   location: string;
@@ -144,44 +418,89 @@ export interface Group {
   color: string;
 }
 
-export interface CharacterRelationship {
-  target: string; // Name of the other character
-  type: string; // e.g. 'Ally', 'Enemy', 'Family'
-  description?: string;
+export interface RelationshipEdge {
+  targetId: string; // Target Character ID
+  targetName: string; // Cached Name
+  type: string; // e.g. 'Sibling', 'Rival'
+  powerDynamic: number; // -100 (Dominated by) to 100 (Dominates)
+  emotion: string; // e.g. 'Guilt', 'Envy'
+  notes?: string;
+}
+
+export interface CharacterArc {
+  startState: string;
+  incitingShift: string;
+  midpointChange: string;
+  lowestPoint: string;
+  finalState: string;
 }
 
 export interface CharacterData {
+  id: string;
   name: string;
-  aliases: string[]; // Alternate names for detection (e.g. Tamil spelling, Nicknames)
-  physiology: string;
-  sociology: string;
-  psychology: string;
-  backstory: string; // New Field
-  relationships: CharacterRelationship[]; // New Field
-  age: number;
-  gender: string;
-  ethnicity?: string; // Added field
-  hair: string;
-  eyes: string;
-  build: string;
-  occupation: string;
-  archetype: string;
+  aliases: string[];
+  
+  // 1. Identity (Hard Anchors)
+  role: 'Protagonist' | 'Antagonist' | 'Ally' | 'Foil' | 'Mentor' | 'Extra' | 'Unknown';
+  narrativeFunction: string; // "Moral compass", "Chaos agent"
+  firstAppearance?: string; // Scene Number or "Ep 1"
+  lastAppearance?: string;
+  screenTimeWeight: number; // 0-100
+
+  // 2. Psychological Core
+  coreDesire: string;
+  coreFear: string;
+  internalLie: string;
+  truth: string; // Realization
+  moralAlignment: number; // 0 (Selfish) - 100 (Selfless)
+  temperament: string; // 'Calm', 'Volatile', 'Cold'
+
+  // 3. Backstory
+  definingEvent: string;
+  emotionalScar: string;
+  unresolvedRelationship: string;
+  socioEconomicOrigin: string;
+
+  // 4. External Characterization
+  age: string; // String to allow ranges "30s"
+  physicalTraits: string[]; // "Limp", "Scar", "Tall"
+  costumeStyle: string;
+  colorPalette: string[];
+  movementStyle: string;
+  signatureProp: string;
   images: string[];
-  // Optional container for template ideas (Ghost Text)
-  templateDefaults?: {
-    physiology?: string;
-    sociology?: string;
-    psychology?: string;
-    backstory?: string;
-    occupation?: string;
-    archetype?: string;
-    age?: number;
-    gender?: string;
-    ethnicity?: string;
-    hair?: string;
-    eyes?: string;
-    build?: string;
-  };
+
+  // 5. Behavioral Patterns
+  defaultReaction: string; // Under pressure
+  conflictStyle: string; // 'Avoid', 'Attack', 'Manipulate'
+  decisionSpeed: 'Impulsive' | 'Deliberate' | 'Frozen' | 'Unknown';
+  powerStrategy: string; // 'Intimidation', 'Charm'
+
+  // 6. Dialogue & Voice
+  speechRhythm: string;
+  vocabularyLevel: string; // 'Street', 'Poetic'
+  silenceTendency: 'Talkative' | 'Guarded' | 'Silent' | 'Unknown';
+  verbalWeapon: string; // 'Sarcasm', 'Logic'
+  catchphrase: string;
+
+  // 7. Relationships (Matrix)
+  relationships: RelationshipEdge[];
+
+  // 8. Arc
+  arc: CharacterArc;
+
+  // Legacy Fields (For compatibility)
+  physiology?: string;
+  sociology?: string;
+  psychology?: string;
+  backstory?: string;
+  occupation?: string;
+  gender?: string;
+  archetype?: string;
+  hair?: string;
+  eyes?: string;
+  build?: string;
+  templateDefaults?: any;
 }
 
 export interface TextStyleConfig {
@@ -250,278 +569,4 @@ export interface ScriptConfig {
   blockBounds: BlockBoundsConfig; // Global layout visualization settings
   noteFont: string; // Font family for scratchpad notes
   noteFontSize: number; // Font size for scratchpad notes
-}
-
-export interface ScratchpadConfig {
-  fontFamily: string;
-  fontSize: number;
-  lineHeight: number;
-  blockSpacing: number; // Spacing between blocks (margin-bottom)
-  enableDragAnimations: boolean;
-  dragScale: number; // 1.0 to 1.2
-  dragOpacity: number; // 0.1 to 1.0
-  glassEffect: boolean;
-  enableMarkdown: boolean;
-  
-  // Markdown Styling
-  h1Color: string;
-  h2Color: string;
-  h1Underline: boolean;
-  h2Underline: boolean;
-  h1Italic: boolean;
-  h2Italic: boolean;
-  
-  // New Sizing & Style
-  h1FontSize: number; // px
-  h2FontSize: number; // px
-  boldColor: string;
-  italicColor: string;
-  
-  // Bullets & Lists
-  listMarkerColor: string; 
-  bulletStyle: 'dot' | 'circle' | 'square' | 'dash' | 'arrow';
-
-  calloutBackground: string;
-  calloutBorder: string;
-  todoBorder: string;
-  todoCheckColor: string;
-}
-
-export interface StoryboardConfig {
-  provider: 'google' | 'stability'; // New provider toggle
-  style: string; // e.g. "Charcoal Sketch", "Photorealistic"
-  aspectRatio: string; // e.g. "16:9", "4:3"
-  imageModel?: string; // Model ID for image generation
-  textModel?: string; // Model ID for shot list analysis
-}
-
-export interface PrintSettings {
-  paperSize: 'letter' | 'a4';
-  marginTop: number;
-  marginBottom: number;
-  marginLeft: number;
-  marginRight: number;
-  showPageNumbers: boolean;
-  sceneNumbers: boolean;
-  
-  // Content Filtering
-  selectedLocations: string[]; // Empty = All
-  selectedCharacters: string[]; // Empty = All
-
-  // Element Styling (Overrides for Print)
-  styles: {
-    slugline: TextStyleConfig;
-    action: TextStyleConfig;
-    character: TextStyleConfig;
-    dialogue: TextStyleConfig;
-    parenthetical: TextStyleConfig;
-    transition: TextStyleConfig;
-  };
-}
-
-export interface WritingGoal {
-  isActive: boolean;
-  mode: 'deadline' | 'habit'; // Project Goal vs Daily Habit
-  type: 'pages' | 'words';
-  
-  // Deadline Mode
-  targetAmount: number;
-  deadline: number; // timestamp
-  startDate: number; // timestamp
-  
-  // Habit Mode
-  dailyTarget: number; // e.g. 500 words per session
-
-  // Calculator Props
-  includeWeekends: boolean;
-  dailyWritingMinutes: number; // e.g. 120 for 2 hours
-}
-
-export interface GoogleDriveConfig {
-  clientId: string;
-  apiKey: string;
-  enabled: boolean;
-  autoBackup: boolean;
-  lastBackup: number | null;
-  fileId?: string; // ID of the file on Google Drive if it exists
-}
-
-export interface ProjectMetadata {
-  id: string;
-  name: string;
-  lastModified: number;
-  created: number;
-}
-
-export type ViewMode = 'board' | 'script' | 'characters' | 'breakdown' | 'storyboard' | 'statistics' | 'backstage' | 'goals';
-
-export type BoardLayer = 'beats' | 'groups' | 'connections' | 'annotations' | 'text';
-
-export type CloudHealth = 'unknown' | 'ready' | 'missing-table' | 'error';
-
-export interface ProjectState {
-  beats: Beat[];
-  groups: Group[]; // Visual groupings for beats
-  connections: Connection[];
-  annotations: Annotation[];
-  characterData: Record<string, CharacterData>;
-  generatedShots: Shot[]; // Global shot list (optional/legacy use)
-  
-  scratchpad: string; // Legacy: Global scratchpad content
-  globalNotes: Note[]; // New: Global sticky notes
-
-  panX: number;
-  panY: number;
-  scale: number;
-  nextId: number;
-  nextAnnoId: number;
-  // Tamil Features
-  isTamilMode: boolean;
-  tamilFontScale: number; // Percentage (e.g., 75)
-  tamilFontFamily: string; // e.g. 'Vijaya'
-  userDictionary: Record<string, string[]>;
-  // OS Input Features
-  isOsInputMode: boolean;
-  osInputShortcut: string; // e.g., 'NumLock', 'F1', 'ScrollLock'
-  
-  // Script Layout Configuration (Global)
-  scriptConfig: ScriptConfig;
-  scriptViewMode: 'continuous' | 'page'; // New: Visual mode for Script Editor
-  
-  // Scratchpad Configuration
-  scratchpadConfig: ScratchpadConfig;
-
-  // Storyboard Configuration
-  storyboardConfig: StoryboardConfig;
-  isStoryboardFeatureEnabled: boolean;
-  
-  // Breakdown Configuration
-  breakdownLanguage: 'english' | 'tamil';
-  breakdownLockedOnly: boolean; // New: Limit analysis to locked scenes
-
-  // Feature Flags
-  isPdfDropEnabled: boolean; // New Flag
-  isRedoEnabled: boolean; // New Flag
-
-  // Writing Goals
-  writingGoal: WritingGoal;
-  
-  // Google Drive
-  googleDriveConfig: GoogleDriveConfig;
-  
-  // AI Keys
-  geminiApiKey: string;
-  stabilityApiKey: string;
-
-  // Analytics
-  dailyStats: Record<string, number>; // YYYY-MM-DD -> Word Count
-  sessionStartCount: number; // Word count at start of today's session
-  lastSessionDate: string; // YYYY-MM-DD
-
-  // Board Layers
-  boardLayerOrder: BoardLayer[];
-}
-
-export interface ProjectContextType extends ProjectState {
-  // Auth & Project Management
-  currentUser: string | null;
-  currentProjectId: string | null;
-  projectList: ProjectMetadata[];
-  login: (username: string) => void;
-  logout: () => void;
-  selectProject: (id: string) => void;
-  createProject: (name: string) => void;
-  deleteProject: (id: string) => void;
-  closeProject: () => void;
-  
-  // Cloud Health
-  cloudHealth: CloudHealth;
-  refreshCloudHealth: () => Promise<void>;
-
-  // Change Tracking
-  hasUnsavedChanges: boolean;
-
-  // State Setters (Operate on the currently loaded project)
-  setBeats: (beats: Beat[] | ((prev: Beat[]) => Beat[])) => void;
-  setGroups: (groups: Group[] | ((prev: Group[]) => Group[])) => void;
-  setConnections: (conns: Connection[] | ((prev: Connection[]) => Connection[])) => void;
-  setAnnotations: (annos: Annotation[] | ((prev: Annotation[]) => Annotation[])) => void;
-  setCharacterData: (data: Record<string, CharacterData> | ((prev: Record<string, CharacterData>) => Record<string, CharacterData>)) => void;
-  setGeneratedShots: (shots: Shot[] | ((prev: Shot[]) => Shot[])) => void;
-  
-  // Scratchpad
-  setScratchpad: (content: string) => void;
-  setGlobalNotes: (notes: Note[]) => void;
-
-  // Shot Management Helpers
-  updateGeneratedShot: (id: string, updates: Partial<Shot>) => void;
-  addGeneratedShot: (index: number) => void;
-  removeGeneratedShot: (id: string) => void;
-  moveGeneratedShot: (fromIndex: number, toIndex: number) => void;
-  
-  setPan: (x: number, y: number) => void;
-  setScale: (s: number) => void;
-  updateBeat: (id: number, updates: Partial<Beat>) => void;
-  addBeat: (x: number, y: number) => number; // Returns new ID
-  
-  // Group Management
-  addGroup: (group: Omit<Group, 'id'>) => void;
-  updateGroup: (id: number, updates: Partial<Group>) => void;
-  removeGroup: (id: number) => void;
-
-  loadProject: (data: ProjectState) => void;
-  saveProject: () => void;
-  downloadProject: () => void;
-  
-  // Tamil Utils
-  setTamilMode: (enabled: boolean) => void;
-  setTamilFontScale: (scale: number) => void;
-  setTamilFontFamily: (font: string) => void;
-  learnTamilWord: (english: string, tamil: string) => void;
-  // OS Input Utils
-  setOsInputMode: (enabled: boolean) => void;
-  setOsInputShortcut: (key: string) => void;
-  // Script Layout
-  setScriptConfig: (config: ScriptConfig) => void;
-  setScriptViewMode: (mode: 'continuous' | 'page') => void;
-  
-  // Scratchpad Configuration
-  setScratchpadConfig: (config: ScratchpadConfig) => void;
-
-  // Storyboard Configuration
-  setStoryboardConfig: (config: StoryboardConfig) => void;
-  setStoryboardFeatureEnabled: (enabled: boolean) => void;
-  
-  // Breakdown Configuration
-  setBreakdownLanguage: (lang: 'english' | 'tamil') => void;
-  setBreakdownLockedOnly: (enabled: boolean) => void;
-
-  // Features
-  setPdfDropEnabled: (enabled: boolean) => void;
-  setRedoEnabled: (enabled: boolean) => void;
-  
-  // Goals
-  setWritingGoal: (goal: WritingGoal) => void;
-
-  // Google Drive
-  setGoogleDriveConfig: (config: GoogleDriveConfig) => void;
-  connectToDrive: (apiKey?: string, clientId?: string) => Promise<void>;
-  disconnectFromDrive: () => void;
-  backupToDrive: (force?: boolean) => Promise<void>;
-  isDriveSyncing: boolean;
-  isDriveConnecting: boolean; 
-  
-  // AI Keys
-  setGeminiApiKey: (key: string) => void;
-  setStabilityApiKey: (key: string) => void;
-
-  // Board Layers
-  setBoardLayerOrder: (order: BoardLayer[]) => void;
-
-  // HISTORY
-  undo: () => void;
-  redo: () => void;
-  canUndo: boolean;
-  canRedo: boolean;
-  captureSnapshot: () => void;
 }

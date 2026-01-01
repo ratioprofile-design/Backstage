@@ -1,5 +1,7 @@
 
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useState, useMemo } from 'react';
+import { Bold, Italic, Underline, Heading, List, CheckSquare, Quote } from 'lucide-react';
+import { ScratchpadConfig } from '../types';
 
 interface BlockEditorProps {
     value: string;
@@ -10,22 +12,52 @@ interface BlockEditorProps {
     className?: string;
     fontFamily?: string;
     fontSize?: number;
-    style?: React.CSSProperties; // Pass additional styles like lineHeight
+    style?: React.CSSProperties; 
+    showToolbar?: boolean;
+    config?: Partial<ScratchpadConfig>;
+    readOnly?: boolean;
+    transparent?: boolean; // Removes background/border
+    chromeless?: boolean; // Removes all padding/decorations for pure text feel
 }
 
-export const BlockEditor: React.FC<BlockEditorProps> = ({ value, onChange, placeholder, minHeight = "150px", onFocus, className, fontFamily, fontSize, style }) => {
+// Default Configuration to fallback (Matches CharacterView aesthetic)
+const DEFAULT_CONFIG: Partial<ScratchpadConfig> = {
+    h1Color: '#f5a623',
+    h2Color: '#22c55e',
+    boldColor: '#f5a623',
+    italicColor: '#cccccc',
+    listMarkerColor: '#f5a623',
+    calloutBackground: 'rgba(245, 166, 35, 0.05)',
+    calloutBorder: '#f5a623',
+    todoBorder: '#555',
+    todoCheckColor: '#f5a623',
+    fontSize: 14,
+    h1FontSize: 20,
+    h2FontSize: 16,
+    listMarkerSize: 100,
+    listMarkerTopOffset: 0,
+    checkboxSize: 12,
+    checkboxTopOffset: 0
+};
+
+export const BlockEditor: React.FC<BlockEditorProps> = ({ 
+    value, onChange, placeholder, minHeight = "150px", onFocus, 
+    className, fontFamily, fontSize, style, showToolbar = true,
+    config, readOnly = false, transparent = false, chromeless = false
+}) => {
     const editorRef = useRef<HTMLDivElement>(null);
     const isLocked = useRef(false);
+    const [isFocused, setIsFocused] = useState(false);
+    
+    const scopeId = useMemo(() => `be-${Math.random().toString(36).substr(2, 9)}`, []);
 
     useEffect(() => {
         if (editorRef.current && !isLocked.current) {
-            // Only update if content is genuinely different to avoid cursor jumps on re-render
             if (editorRef.current.innerHTML !== value) {
                 const isHtml = /<[a-z][\s\S]*>/i.test(value);
                 if (!value || value.trim() === '') {
                     editorRef.current.innerHTML = `<div class="nl-block"><br></div>`;
                 } else if (!isHtml) {
-                    // Convert plain text to blocks
                     editorRef.current.innerHTML = value.split('\n').map((line: string) => `<div class="nl-block">${line || '<br>'}</div>`).join('');
                 } else {
                     editorRef.current.innerHTML = value;
@@ -35,356 +67,277 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({ value, onChange, place
     }, [value]);
 
     const emitChange = () => {
-        if (editorRef.current) {
+        if (editorRef.current && !readOnly) {
             isLocked.current = true; 
             onChange(editorRef.current.innerHTML);
             setTimeout(() => isLocked.current = false, 0);
         }
     };
 
-    // --- MARKDOWN LOGIC ---
-    const handleInput = (e: React.FormEvent<HTMLDivElement>) => {
+    const handleFocusInternal = (e: React.FocusEvent<HTMLDivElement>) => {
+        if (readOnly) return;
+        setIsFocused(true);
+        if (onFocus) onFocus(e);
+    };
+
+    const handleBlurInternal = (e: React.FocusEvent<HTMLDivElement>) => {
+        if (!e.currentTarget.contains(e.relatedTarget)) {
+            setIsFocused(false);
+        }
+    };
+
+    // --- TOOLBAR ACTIONS ---
+    const format = (cmd: string, arg?: string) => {
+        document.execCommand(cmd, false, arg);
+        editorRef.current?.focus();
+    };
+
+    const toggleBlock = (cls: string) => {
         const sel = window.getSelection();
-        if (!sel || !sel.anchorNode) {
-            emitChange();
-            return;
-        }
-
+        if (!sel || !sel.rangeCount) return;
         let node = sel.anchorNode;
-        // Ensure we are inside a block
-        let block = (node.nodeType === 3 ? node.parentNode : node) as HTMLElement;
-        if (!block.classList.contains('nl-block')) {
-            const closest = block.closest('.nl-block');
-            if (closest) block = closest as HTMLElement;
-            else return emitChange(); 
-        }
-
-        const text = block.textContent || '';
+        if (node?.nodeType === 3) node = node.parentNode;
         
-        // Trigger on Space detection.
-        let transformType = '';
-        let stripLen = 0;
-
-        // HEADING 1 (# )
-        if (text.startsWith('# ') && !block.classList.contains('nl-h1')) {
-            transformType = 'nl-h1';
-            stripLen = 2;
-        }
-        // HEADING 2 (## )
-        else if (text.startsWith('## ') && !block.classList.contains('nl-h2')) {
-            transformType = 'nl-h2';
-            stripLen = 3;
-        }
-        // BULLET LIST (- )
-        else if ((text.startsWith('- ') || text.startsWith('* ')) && !block.classList.contains('nl-list')) {
-            transformType = 'nl-list';
-            stripLen = 2;
-        }
-        // NUMBERED LIST (1. )
-        else if ((text.startsWith('1. ')) && !block.classList.contains('nl-num')) {
-            transformType = 'nl-num';
-            stripLen = 3;
-        }
-        // CHECKBOX ([] )
-        else if ((text.startsWith('[] ') || text.startsWith('[ ] ')) && !block.classList.contains('nl-check')) {
-            transformType = 'nl-check';
-            stripLen = text.indexOf(']') + 2;
-        }
-        // QUOTE (> )
-        else if (text.startsWith('> ') && !block.classList.contains('nl-quote')) {
-            transformType = 'nl-quote';
-            stripLen = 2;
+        let block = node as HTMLElement;
+        while (block && block !== editorRef.current && !block.classList.contains('nl-block')) {
+            block = block.parentElement as HTMLElement;
         }
 
-        // Apply Transformation
-        if (transformType) {
-            block.classList.add(transformType);
-            
-            // NON-DESTRUCTIVE STRIP: Manipulate the TextNode directly
-            // This preserves the node identity so the browser doesn't lose the cursor context
-            const textNode = block.firstChild;
-            if (textNode && textNode.nodeType === 3) {
-                // Remove the syntax characters
-                (textNode as Text).deleteData(0, stripLen);
-                
-                // If node becomes empty, we might need to handle it to prevent collapse
-                // but usually contentEditable handles a single empty text node fine if we don't touch innerHTML
-                if (textNode.textContent?.length === 0) {
-                    // Force a BR if empty to keep height
-                    block.innerHTML = '<br>';
-                    // Reset cursor to start
-                    const range = document.createRange();
-                    range.setStart(block, 0);
-                    range.collapse(true);
-                    sel.removeAllRanges();
-                    sel.addRange(range);
-                }
+        if (block && block.classList.contains('nl-block')) {
+            if (block.classList.contains(cls)) {
+                block.className = 'nl-block';
             } else {
-                // Fallback for weird edge cases
-                block.innerHTML = '<br>';
-                const range = document.createRange();
-                range.setStart(block, 0);
-                range.collapse(true);
-                sel.removeAllRanges();
-                sel.addRange(range);
+                block.className = `nl-block ${cls}`;
+            }
+            emitChange();
+        }
+        editorRef.current?.focus();
+    };
+
+    // --- MARKDOWN AUTO-FORMATTING ---
+    const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+        if (readOnly) return;
+
+        // Enter key: Ensure new block creation preserves basic structure
+        if (e.key === 'Enter') {
+            const sel = window.getSelection();
+            if (sel && sel.anchorNode) {
+                let node = sel.anchorNode;
+                if (node.nodeType === 3) node = node.parentNode;
+                const el = node as HTMLElement;
+                if (el.classList.contains('nl-h1') || el.classList.contains('nl-h2')) {
+                    e.preventDefault();
+                    document.execCommand('insertHTML', false, '<div class="nl-block"><br></div>');
+                }
             }
         }
 
+        // Space key trigger for Markdown
+        if (e.key === ' ') {
+            const sel = window.getSelection();
+            if (!sel || !sel.isCollapsed) return;
+            
+            let node = sel.anchorNode;
+            if (node?.nodeType === 3) node = node.parentNode;
+            const element = node as HTMLElement;
+            
+            if (element && element.classList.contains('nl-block')) {
+                const text = element.textContent || '';
+                
+                const patterns = [
+                    { match: /^#$/, cls: 'nl-h1' },
+                    { match: /^##$/, cls: 'nl-h2' },
+                    { match: /^\*$/, cls: 'nl-list' },
+                    { match: /^-$/, cls: 'nl-list' },
+                    { match: /^1\.$/, cls: 'nl-num' },
+                    { match: /^\[\]$/, cls: 'nl-check' },
+                    { match: /^\[x\]$/i, cls: 'nl-check nl-checked' },
+                    { match: /^>$/, cls: 'nl-quote' },
+                ];
+
+                for (const p of patterns) {
+                    if (p.match.test(text)) {
+                        e.preventDefault(); // Prevent the space
+                        element.className = `nl-block ${p.cls}`;
+                        element.innerHTML = '<br>'; // Clear trigger text
+                        emitChange();
+                        return;
+                    }
+                }
+            }
+        }
+    };
+
+    const handleInput = (e: React.FormEvent<HTMLDivElement>) => {
+        if (readOnly) return;
         emitChange();
     };
 
-    const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
-        if (e.key === 'Tab') {
-            e.preventDefault();
-            const sel = window.getSelection();
-            if (!sel || !sel.rangeCount) return;
-            
-            let block = (sel.anchorNode?.nodeType === 3 ? sel.anchorNode.parentNode : sel.anchorNode) as HTMLElement;
-            if (!block.classList.contains('nl-block')) block = block.closest('.nl-block') as HTMLElement;
-            
-            if (block) {
-                if (e.shiftKey) {
-                    block.classList.remove('nl-indent');
-                } else {
-                    block.classList.add('nl-indent');
-                }
+    const handleClick = (e: React.MouseEvent<HTMLDivElement>) => {
+        if (readOnly) return;
+        const target = e.target as HTMLElement;
+        if (target.classList.contains('nl-check')) {
+            const rect = target.getBoundingClientRect();
+            const clickX = e.clientX - rect.left;
+            if (clickX < 30) {
+                e.preventDefault();
+                e.stopPropagation();
+                target.classList.toggle('nl-checked');
                 emitChange();
-            }
-            return;
-        }
-
-        if (e.key === 'Enter') {
-            e.preventDefault();
-            const sel = window.getSelection();
-            if (!sel || !sel.rangeCount) return;
-            
-            const range = sel.getRangeAt(0);
-            let currentBlock = (range.startContainer.nodeType === 3 ? range.startContainer.parentNode : range.startContainer) as HTMLElement;
-            if (!currentBlock.classList.contains('nl-block')) currentBlock = currentBlock.closest('.nl-block') as HTMLElement;
-
-            // Create new block
-            const newBlock = document.createElement('div');
-            newBlock.className = 'nl-block';
-            
-            // Carry over list styles if Enter pressed in a list item
-            if (currentBlock) {
-                if (currentBlock.classList.contains('nl-list')) {
-                    if (currentBlock.textContent?.trim() === '') {
-                        currentBlock.className = 'nl-block'; // Break list on empty
-                        emitChange();
-                        return; 
-                    }
-                    newBlock.className = 'nl-block nl-list';
-                } 
-                else if (currentBlock.classList.contains('nl-check')) {
-                    if (currentBlock.textContent?.trim() === '') {
-                        currentBlock.className = 'nl-block'; 
-                        emitChange();
-                        return; 
-                    }
-                    newBlock.className = 'nl-block nl-check';
-                }
-                else if (currentBlock.classList.contains('nl-num')) {
-                    if (currentBlock.textContent?.trim() === '') {
-                        currentBlock.className = 'nl-block'; 
-                        emitChange();
-                        return; 
-                    }
-                    newBlock.className = 'nl-block nl-num';
-                }
-                
-                // Carry Indentation
-                if (currentBlock.classList.contains('nl-indent')) {
-                    newBlock.classList.add('nl-indent');
-                }
-            }
-
-            newBlock.innerHTML = '<br>';
-            
-            if (currentBlock && currentBlock.nextSibling) {
-                editorRef.current?.insertBefore(newBlock, currentBlock.nextSibling);
-            } else {
-                editorRef.current?.appendChild(newBlock);
-            }
-
-            // Move cursor
-            const newRange = document.createRange();
-            newRange.setStart(newBlock, 0);
-            newRange.collapse(true);
-            sel.removeAllRanges();
-            sel.addRange(newRange);
-            
-            emitChange();
-        } else if (e.key === 'Backspace') {
-            // Check if deleting empty list item -> convert to paragraph
-            const sel = window.getSelection();
-            if (sel && sel.rangeCount) {
-                let node = sel.anchorNode;
-                // @ts-ignore
-                let block = (node.nodeType === 3 ? node.parentNode : node) as HTMLElement;
-                if (!block.classList.contains('nl-block')) block = block.closest('.nl-block') as HTMLElement;
-                
-                if (block && block.textContent?.length === 0) {
-                    if (block.classList.contains('nl-indent')) {
-                        block.classList.remove('nl-indent');
-                        emitChange();
-                        e.preventDefault();
-                        return;
-                    }
-                    if (block.classList.contains('nl-list') || block.classList.contains('nl-num') || block.classList.contains('nl-check') || block.classList.contains('nl-h1') || block.classList.contains('nl-h2')) {
-                        block.className = 'nl-block'; // Reset to paragraph
-                        emitChange();
-                        e.preventDefault();
-                    }
-                }
             }
         }
     };
 
+    // Construct dynamic CSS variables based on config prop merged with defaults
+    const dynamicStyle = useMemo(() => {
+        const finalConfig = { ...DEFAULT_CONFIG, ...config };
+        
+        return {
+            ...style,
+            '--sp-base-size': `${finalConfig.fontSize || 14}px`,
+            '--sp-line-height': finalConfig.lineHeight || 1.6,
+            '--sp-h1-size': `${finalConfig.h1FontSize || 20}px`,
+            '--sp-h2-size': `${finalConfig.h2FontSize || 16}px`,
+            '--sp-h1-color': finalConfig.h1Color || '#f5a623',
+            '--sp-h2-color': finalConfig.h2Color || '#22c55e',
+            '--sp-bold-color': finalConfig.boldColor || '#f5a623',
+            '--sp-italic-color': finalConfig.italicColor || '#cccccc',
+            '--sp-list-marker': finalConfig.listMarkerColor || '#f5a623',
+            '--sp-marker-size': `${finalConfig.listMarkerSize || 100}%`,
+            '--sp-marker-top': `${finalConfig.listMarkerTopOffset || 0}px`,
+            '--sp-h1-deco': finalConfig.h1Underline ? 'underline' : 'none',
+            '--sp-h2-deco': finalConfig.h2Underline ? 'underline' : 'none',
+            '--sp-h1-style': finalConfig.h1Italic ? 'italic' : 'normal',
+            '--sp-h2-style': finalConfig.h2Italic ? 'italic' : 'normal',
+            '--sp-callout-bg': finalConfig.calloutBackground || 'rgba(245, 166, 35, 0.05)',
+            '--sp-callout-border': finalConfig.calloutBorder || '#f5a623',
+            '--sp-todo-border': finalConfig.todoBorder || '#555',
+            '--sp-todo-check': finalConfig.todoCheckColor || '#f5a623',
+            '--sp-checkbox-size': `${finalConfig.checkboxSize || 12}px`,
+            '--sp-checkbox-top': `${finalConfig.checkboxTopOffset || 0}px`,
+        } as React.CSSProperties;
+    }, [config, style]);
+
+    const activeFont = config?.fontFamily || fontFamily || 'inherit';
+    const activeSize = config?.fontSize || fontSize || 14;
+
+    // --- CONDITIONAL CLASSES ---
+    const isClean = transparent || chromeless;
+    const containerClasses = isClean 
+        ? `w-full bg-transparent border-none ${className}` 
+        : `w-full bg-[#0a0a0a] rounded border border-[#222] hover:border-[#333] transition-all flex flex-col overflow-hidden focus-within:border-[#f5a623] focus-within:shadow-[0_0_15px_rgba(245,166,35,0.1)] ${className}`;
+    
+    const contentClasses = chromeless
+        ? `flex-1 p-0 outline-none custom-scrollbar relative z-10 block-editor-content`
+        : `flex-1 p-4 outline-none custom-scrollbar relative z-10 block-editor-content`;
+
+    const placeholderTop = chromeless ? '0px' : (showToolbar && isFocused ? '32px' : '0px');
+    const placeholderClasses = chromeless
+        ? `absolute inset-0 p-0 text-gray-600 font-sans leading-relaxed pointer-events-none italic select-none`
+        : `absolute inset-0 p-4 text-gray-600 font-sans leading-relaxed pointer-events-none italic select-none`;
+
     return (
-        <div className={`w-full bg-[#111] rounded-none border border-white/10 hover:border-white/20 transition-all flex flex-col overflow-hidden group focus-within:border-[#f5a623] relative ${className}`} style={{ minHeight }}>
+        <div 
+            className={`flex flex-col group relative ${scopeId} ${containerClasses}`} 
+            style={{ minHeight, ...dynamicStyle }}
+            onBlur={handleBlurInternal}
+        >
             <style>{`
-                /* Base Block */
-                .nl-block { 
+                .${scopeId} { counter-reset: nl-num; }
+                .${scopeId} .nl-block { 
                     position: relative; 
                     min-height: 1.5em; 
-                    margin-bottom: var(--sp-block-margin, 2px); 
-                    padding: 2px 6px; 
-                    border-radius: 2px; 
-                    color: #e5e5e5; 
-                    font-size: ${fontSize || 14}px; 
-                    transition: padding-left 0.1s;
-                }
-                .nl-block:focus { outline: none; background: rgba(255,255,255,0.05); }
-                .nl-block:empty::before { content: attr(data-placeholder); color: #555; pointer-events: none; }
-                
-                /* INDENTATION */
-                .nl-indent { 
-                    margin-left: 2em; 
-                    border-left: 1px solid rgba(255,255,255,0.1);
-                }
-
-                /* HEADINGS */
-                .nl-h1 { 
-                    font-size: 1.5em; 
-                    font-weight: 900; 
-                    color: var(--sp-h1-color, #fff); 
-                    margin-top: 0.5em; 
-                    margin-bottom: 0.3em; 
-                    border-bottom: 1px solid #333; 
-                    text-decoration: var(--sp-h1-deco, none);
-                    font-style: var(--sp-h1-style, normal);
-                }
-                .nl-h2 { 
-                    font-size: 1.25em; 
-                    font-weight: 700; 
-                    color: var(--sp-h2-color, #f5a623); 
-                    margin-top: 0.4em; 
-                    text-decoration: var(--sp-h2-deco, none);
-                    font-style: var(--sp-h2-style, normal);
-                }
-                
-                /* LISTS */
-                .nl-list { 
-                    padding-left: 1.5em; 
-                    position: relative; 
-                }
-                .nl-list::before { 
-                    content: var(--sp-bullet-char, "•"); 
-                    position: absolute; 
-                    left: 0.5em; 
-                    top: 0;
-                    color: var(--sp-list-marker, #f5a623); 
-                    font-weight: bold; 
-                }
-                .nl-list.nl-indent::before {
-                    content: "◦"; /* Hollow bullet for level 2 */
-                }
-                
-                /* NUMBERED LIST - FIXED ALIGNMENT */
-                .block-editor-content { counter-reset: top-level; }
-                
-                .nl-num { 
-                    padding-left: 2.2em; /* Adjusted padding to prevent overlap */
-                    position: relative; 
-                }
-                
-                .nl-num:not(.nl-indent) { 
-                    counter-increment: top-level; 
-                    counter-reset: sub-level; 
-                }
-                
-                .nl-num:not(.nl-indent)::before { 
-                    content: counter(top-level) "."; 
-                    position: absolute; 
-                    left: 0.2em; 
-                    top: 0;
-                    width: 1.5em;
-                    text-align: right;
-                    color: var(--sp-list-marker, #f5a623); 
-                    font-weight: bold; 
-                    font-family: inherit; /* Align with text font */
-                    font-size: 0.9em;
-                }
-
-                /* NUMBERED LIST - SUB LEVEL */
-                .nl-num.nl-indent {
-                    counter-increment: sub-level;
-                }
-                .nl-num.nl-indent::before {
-                    content: counter(sub-level, lower-alpha) "."; 
-                    position: absolute;
-                    left: 0.2em;
-                    top: 0;
-                    width: 1.5em;
-                    text-align: right;
-                    color: var(--sp-list-marker, #f5a623);
-                    font-weight: bold;
-                    font-family: inherit;
-                    font-size: 0.9em;
-                }
-
-                /* CHECKBOX */
-                .nl-check { padding-left: 2em; position: relative; }
-                .nl-check::before { 
-                    content: ""; 
-                    position: absolute; 
-                    left: 0.5em; 
-                    top: 0.35em;
-                    width: 12px; 
-                    height: 12px; 
-                    border: 1px solid var(--sp-todo-border, #666); 
+                    margin-bottom: 2px; 
+                    padding: 2px 4px;
                     border-radius: 2px;
-                    transition: all 0.2s;
+                    color: #e5e5e5; 
+                    font-size: var(--sp-base-size, ${activeSize}px); 
+                    line-height: var(--sp-line-height, 1.6);
                 }
-                .nl-check:hover::before { border-color: var(--sp-todo-check, #f5a623); background: rgba(255,255,255,0.05); }
+                .${scopeId} .nl-block:focus { outline: none; background: rgba(255,255,255,0.05); }
                 
-                /* CALLOUT / QUOTE */
-                .nl-quote { 
-                    border-left: 3px solid var(--sp-callout-border, #f5a623); 
+                /* MARKDOWN STYLES */
+                .${scopeId} .nl-h1 { 
+                    font-size: var(--sp-h1-size, 20px); 
+                    color: var(--sp-h1-color); 
+                    font-weight: 900; 
+                    border-bottom: 1px solid #333; 
+                    margin-top: 0.5em;
+                    margin-bottom: 0.2em;
+                    text-decoration: var(--sp-h1-deco); 
+                    font-style: var(--sp-h1-style); 
+                }
+                .${scopeId} .nl-h2 { 
+                    font-size: var(--sp-h2-size, 16px); 
+                    color: var(--sp-h2-color); 
+                    font-weight: 700; 
+                    margin-top: 0.5em; 
+                    text-decoration: var(--sp-h2-deco); 
+                    font-style: var(--sp-h2-style); 
+                }
+                .${scopeId} .nl-quote { 
+                    border-left: 3px solid var(--sp-callout-border); 
+                    background: var(--sp-callout-bg); 
                     padding-left: 10px; 
                     font-style: italic; 
-                    color: #9ca3af; 
-                    background: var(--sp-callout-bg, rgba(245, 166, 35, 0.05)); 
-                    border-radius: 0 4px 4px 0;
+                    color: #bbb; 
                 }
+                .${scopeId} .nl-list { padding-left: 1.5em; }
+                .${scopeId} .nl-list::before { 
+                    content: '•'; position: absolute; left: 0.5em; 
+                    color: var(--sp-list-marker); font-weight: bold; font-size: var(--sp-marker-size, 100%);
+                    top: var(--sp-marker-top, 0px);
+                }
+                .${scopeId} .nl-num { padding-left: 1.5em; counter-increment: nl-num; }
+                .${scopeId} .nl-num::before { 
+                    content: counter(nl-num) "."; position: absolute; left: 0.5em; 
+                    color: #3b82f6; font-weight: bold; font-size: 0.8em; 
+                    top: calc(2px + var(--sp-marker-top, 0px)); 
+                }
+                .${scopeId} .nl-check { padding-left: 1.8em; position: relative; }
+                .${scopeId} .nl-check::before { 
+                    content: ''; position: absolute; left: 0.5em; top: calc(0.4em + var(--sp-checkbox-top, 0px)); 
+                    width: var(--sp-checkbox-size, 12px); height: var(--sp-checkbox-size, 12px); 
+                    border: 1px solid var(--sp-todo-border); border-radius: 3px; cursor: pointer;
+                }
+                .${scopeId} .nl-check.nl-checked::after {
+                    content: '✓'; position: absolute; left: 0.5em; top: calc(0.1em + var(--sp-checkbox-top, 0px));
+                    font-size: var(--sp-checkbox-size, 12px); font-weight: bold; color: var(--sp-todo-check); pointer-events: none;
+                }
+                .${scopeId} .nl-check.nl-checked { text-decoration: line-through; opacity: 0.6; }
             `}</style>
             
-            {(!value || value === '<div class="nl-block"><br></div>') && placeholder && (
-                <div className="absolute inset-0 p-4 text-gray-600 font-sans leading-relaxed pointer-events-none italic select-none" style={{fontSize: `${fontSize || 14}px`}}>
+            {showToolbar && !readOnly && !isClean && (
+                <div className={`flex items-center gap-0.5 bg-[#151515] border-b border-[#222] px-1 py-1 transition-all duration-200 overflow-hidden ${isFocused ? 'max-h-10 opacity-100' : 'max-h-0 opacity-0 border-none py-0'}`}>
+                    <button onMouseDown={(e) => { e.preventDefault(); format('bold'); }} className="p-1 rounded hover:bg-[#333] text-gray-400 hover:text-white" title="Bold"><Bold size={12}/></button>
+                    <button onMouseDown={(e) => { e.preventDefault(); format('italic'); }} className="p-1 rounded hover:bg-[#333] text-gray-400 hover:text-white" title="Italic"><Italic size={12}/></button>
+                    <button onMouseDown={(e) => { e.preventDefault(); format('underline'); }} className="p-1 rounded hover:bg-[#333] text-gray-400 hover:text-white" title="Underline"><Underline size={12}/></button>
+                    <div className="w-px h-3 bg-[#333] mx-1"></div>
+                    <button onMouseDown={(e) => { e.preventDefault(); toggleBlock('nl-h1'); }} className="p-1 rounded hover:bg-[#333] text-gray-400 hover:text-[#f5a623]" title="Heading 1"><Heading size={12}/></button>
+                    <button onMouseDown={(e) => { e.preventDefault(); toggleBlock('nl-h2'); }} className="p-1 rounded hover:bg-[#333] text-gray-400 hover:text-[#22c55e]" title="Heading 2"><Heading size={10}/></button>
+                    <div className="w-px h-3 bg-[#333] mx-1"></div>
+                    <button onMouseDown={(e) => { e.preventDefault(); toggleBlock('nl-list'); }} className="p-1 rounded hover:bg-[#333] text-gray-400 hover:text-white" title="Bullet List"><List size={12}/></button>
+                    <button onMouseDown={(e) => { e.preventDefault(); toggleBlock('nl-check'); }} className="p-1 rounded hover:bg-[#333] text-gray-400 hover:text-white" title="To-Do"><CheckSquare size={12}/></button>
+                    <button onMouseDown={(e) => { e.preventDefault(); toggleBlock('nl-quote'); }} className="p-1 rounded hover:bg-[#333] text-gray-400 hover:text-white" title="Callout"><Quote size={12}/></button>
+                </div>
+            )}
+
+            {(!value || value === '<div class="nl-block"><br></div>') && placeholder && !isFocused && (
+                <div className={placeholderClasses} style={{fontSize: activeSize + 'px', top: placeholderTop}}>
                     {placeholder}
                 </div>
             )}
 
             <div 
                 ref={editorRef}
-                contentEditable
+                contentEditable={!readOnly}
                 suppressContentEditableWarning
                 onInput={handleInput}
                 onKeyDown={handleKeyDown}
-                onFocus={onFocus}
-                className="flex-1 p-3 outline-none custom-scrollbar relative z-10 block-editor-content"
-                style={{ backgroundColor: 'transparent', fontFamily: fontFamily || 'inherit', lineHeight: style?.lineHeight || 1.6 }}
+                onClick={handleClick}
+                onFocus={handleFocusInternal}
+                className={contentClasses}
+                style={{ backgroundColor: 'transparent', fontFamily: activeFont }}
             />
         </div>
     );

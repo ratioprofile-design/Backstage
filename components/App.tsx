@@ -1,27 +1,157 @@
 
-import React, { useState } from 'react';
-import { ProjectProvider, useProject } from './context/ProjectContext';
-import AppHeader from './components/AppHeader';
-import BoardView from './components/views/BoardView';
-import ScriptView from './components/views/ScriptView';
-import CharacterView from './components/views/CharacterView';
-import StoryboardView from './components/views/StoryboardView';
-import StatisticsView from './components/views/StatisticsView';
-import BackstageView from './components/views/BackstageView';
-import GoalView from './components/views/GoalView';
-import BreakdownView from './components/views/BreakdownView';
-import EditorModal from './components/EditorModal';
-import PrintPreviewModal from './components/PrintPreviewModal';
-import WelcomeScreen from './components/WelcomeScreen';
-import { ViewMode } from './types';
+import React, { useEffect, useMemo, useState } from 'react';
+import { ProjectProvider, useProject } from '../context/ProjectContext';
+import AppHeader from './AppHeader';
+import BoardView from './views/BoardView';
+import ScriptView from './views/ScriptView';
+import CharacterView from './views/CharacterView';
+import StoryboardView from './views/StoryboardView';
+import StatisticsView from './views/StatisticsView';
+import BackstageView from './views/BackstageView';
+import GoalView from './views/GoalView';
+import BreakdownView from './views/BreakdownView';
+import EditorModal from './EditorModal';
+import PrintPreviewModal from './PrintPreviewModal';
+import WelcomeScreen from './WelcomeScreen';
+import { ViewMode, ScriptConfig } from '../types';
+
+const StyleInjector: React.FC = () => {
+  const { scriptConfig, scratchpadConfig } = useProject();
+  const { blockBounds, paperTheme, slugline } = scriptConfig;
+
+  useEffect(() => {
+    const styleId = 'dynamic-script-styling';
+    let styleEl = document.getElementById(styleId) as HTMLStyleElement;
+    if (!styleEl) {
+      styleEl = document.createElement('style');
+      styleEl.id = styleId;
+      document.head.appendChild(styleEl);
+    }
+
+    // Script Element Variables
+    const elements = ['action', 'character', 'dialogue', 'parenthetical', 'transition', 'shot', 'lyrics'] as const;
+    const elementVars = elements.map(el => {
+      const conf = scriptConfig[el];
+      return `
+        --margin-${el}: ${conf.marginLeft}%;
+        --width-${el}: ${conf.width}%;
+        --mt-${el}: ${conf.marginTop}rem;
+        --mb-${el}: ${conf.marginBottom}rem;
+        --size-${el}: ${conf.fontSize}px;
+        --font-${el}: '${conf.fontFamily}', "Courier Prime", monospace;
+        --align-${el}: ${conf.textAlign};
+        --lh-${el}: ${conf.lineHeight};
+        --ls-${el}: ${conf.letterSpacing}px;
+        --weight-${el}: ${conf.bold ? 'bold' : 'normal'};
+        --style-${el}: ${conf.italic ? 'italic' : 'normal'};
+        --dec-${el}: ${conf.underline ? 'underline' : 'none'};
+        --color-${el}: ${conf.color};
+        --bg-${el}: ${conf.highlightColor || 'transparent'};
+      `;
+    }).join('\n');
+
+    // Slugline Variables
+    const slugVars = `
+        --size-slug: ${slugline.fontSize}px;
+        --font-slug: '${slugline.fontFamily}', "Courier Prime", monospace;
+        --align-slug: ${slugline.textAlign};
+        --lh-slug: ${slugline.lineHeight};
+        --ls-slug: ${slugline.letterSpacing}px;
+        --weight-slug: ${slugline.bold ? 'bold' : 'normal'};
+        --style-slug: ${slugline.italic ? 'italic' : 'normal'};
+        --dec-slug: ${slugline.underline ? 'underline' : 'none'};
+        --color-slug: ${slugline.color};
+        --bg-slug: ${slugline.paddingEnabled ? (slugline.highlightColor || 'rgba(0,0,0,0.05)') : 'transparent'};
+        --padding-v-slug: ${slugline.paddingEnabled ? slugline.paddingVertical + 'px' : '0px'};
+        --padding-h-slug: ${slugline.paddingEnabled ? slugline.paddingHorizontal + 'px' : '0px'};
+        --mt-slug: ${slugline.marginTop}rem;
+        --mb-slug: ${slugline.marginBottom}rem;
+    `;
+
+    // Scratchpad Variables - Added safety checks/defaults to prevent invalid CSS
+    const spVars = `
+        --sp-base-size: ${scratchpadConfig.fontSize || 14}px;
+        --sp-h1-size: ${scratchpadConfig.h1FontSize || 24}px;
+        --sp-h2-size: ${scratchpadConfig.h2FontSize || 18}px;
+        --sp-h1-color: ${scratchpadConfig.h1Color || '#3b82f6'};
+        --sp-h2-color: ${scratchpadConfig.h2Color || '#22c55e'};
+        --sp-bold-color: ${scratchpadConfig.boldColor || '#f5a623'};
+        --sp-italic-color: ${scratchpadConfig.italicColor || '#cccccc'};
+        --sp-list-marker: ${scratchpadConfig.listMarkerColor || '#3b82f6'};
+        --sp-marker-size: ${scratchpadConfig.listMarkerSize || 100}%;
+        --sp-marker-top: ${scratchpadConfig.listMarkerTopOffset || 0}px;
+        --sp-h1-deco: ${scratchpadConfig.h1Underline ? 'underline' : 'none'};
+        --sp-h2-deco: ${scratchpadConfig.h2Underline ? 'underline' : 'none'};
+        --sp-h1-style: ${scratchpadConfig.h1Italic ? 'italic' : 'normal'};
+        --sp-h2-style: ${scratchpadConfig.h2Italic ? 'italic' : 'normal'};
+        --sp-callout-bg: ${scratchpadConfig.calloutBackground || 'rgba(245, 166, 35, 0.05)'};
+        --sp-callout-border: ${scratchpadConfig.calloutBorder || '#22c55e'};
+        --sp-todo-border: ${scratchpadConfig.todoBorder || '#3b82f6'};
+        --sp-todo-check: ${scratchpadConfig.todoCheckColor || '#f5a623'};
+        --sp-checkbox-size: ${scratchpadConfig.checkboxSize || 12}px;
+        --sp-checkbox-top: ${scratchpadConfig.checkboxTopOffset || 0}px;
+    `;
+
+    // Theme Colors
+    let themeCss = '';
+    if (paperTheme === 'dark') themeCss = '--bg-paper: #1a1a1a; --text-paper: #e5e5e5; --accent-paper: #2a2a2a;';
+    else if (paperTheme === 'sepia') themeCss = '--bg-paper: #fdf6e3; --text-paper: #586e75; --accent-paper: #eee8d5;';
+    else if (paperTheme === 'red') themeCss = '--bg-paper: #000000; --text-paper: #ff5555; --accent-paper: #111111;';
+    else themeCss = '--bg-paper: #ffffff; --text-paper: #000000; --accent-paper: #e5e7eb;';
+
+    // Layout Visualization
+    const color = blockBounds.color || '#f5a623';
+    const opacity = (blockBounds.opacity || 10) / 100;
+    const outline = blockBounds.outlineStyle !== 'none' ? `1px ${blockBounds.outlineStyle} ${color}` : 'none';
+    const selector = blockBounds.mode === 'all' ? '.sc-line' : '.sc-active-block';
+
+    let funStyles = '';
+    if (blockBounds.funMode === 'blueprint') {
+        funStyles = `background-color: rgba(0, 50, 150, ${opacity}) !important; border: 1px dashed rgba(255,255,255,0.4) !important; box-shadow: inset 0 0 10px rgba(0,0,0,0.2) !important;`;
+    } else if (blockBounds.funMode === 'cyber') {
+        funStyles = `background-color: rgba(20, 20, 20, ${opacity}) !important; border: 1px solid ${color} !important; box-shadow: 0 0 8px ${color}, inset 0 0 4px ${color} !important;`;
+    } else if (blockBounds.funMode === 'glass') {
+        funStyles = `background-color: rgba(255, 255, 255, ${opacity}) !important; backdrop-filter: blur(4px) !important; border: 1px solid rgba(255,255,255,0.3) !important; box-shadow: 0 4px 12px rgba(0,0,0,0.1) !important;`;
+    } else {
+        funStyles = `background-color: ${color}${Math.floor(opacity * 255).toString(16).padStart(2, '0')} !important; outline: ${outline} !important;`;
+    }
+
+    styleEl.innerHTML = `
+      :root {
+        ${elementVars}
+        ${slugVars}
+        ${spVars}
+        ${themeCss}
+      }
+      ${blockBounds.enabled ? `${selector} { ${funStyles} transition: all 0.2s ease; }` : ''}
+      .sc-active-block { position: relative; z-index: 1; }
+      .sc-paper-preview { background-color: var(--bg-paper) !important; color: var(--text-paper) !important; transition: background-color 0.3s ease; }
+      
+      .sc-line.sc-slugline {
+        padding: var(--padding-v-slug) var(--padding-h-slug);
+        background-color: var(--bg-slug);
+        margin-top: var(--mt-slug);
+        margin-bottom: var(--mb-slug);
+        font-family: var(--font-slug);
+        font-size: var(--size-slug);
+        text-align: var(--align-slug);
+        line-height: var(--lh-slug);
+        letter-spacing: var(--ls-slug);
+        font-weight: var(--weight-slug);
+        font-style: var(--style-slug);
+        text-decoration: var(--dec-slug);
+        color: var(--color-slug);
+      }
+    `;
+  }, [scriptConfig, scratchpadConfig]);
+
+  return null;
+};
 
 const AppContent: React.FC = () => {
   const { currentUser, currentProjectId } = useProject();
   const [currentView, setCurrentView] = useState<ViewMode>('board');
-  
-  // Window Management for Beat Editors
   const [openBeatIds, setOpenBeatIds] = useState<number[]>([]);
-  
   const [showPrintPreview, setShowPrintPreview] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
 
@@ -29,7 +159,6 @@ const AppContent: React.FC = () => {
 
   const handleEditBeat = (id: number) => {
       setOpenBeatIds(prev => {
-          // If already open, move to end (top focus)
           if (prev.includes(id)) return [...prev.filter(i => i !== id), id];
           return [...prev, id];
       });
@@ -41,20 +170,18 @@ const AppContent: React.FC = () => {
 
   const handleFocusBeat = (id: number) => {
       setOpenBeatIds(prev => {
-          // Optimization: If already top, do nothing
           if (prev.length === 0 || prev[prev.length - 1] === id) return prev;
           return [...prev.filter(i => i !== id), id];
       });
   };
 
-  // --- ROUTING LOGIC ---
-  // If no user is logged in OR no project is selected, show Welcome Screen
   if (!currentUser || !currentProjectId) {
       return <WelcomeScreen />;
   }
 
   return (
     <>
+      <StyleInjector />
       <div className="print:hidden">
         <AppHeader 
             currentView={currentView} 
@@ -75,7 +202,6 @@ const AppContent: React.FC = () => {
         {currentView === 'goals' && <div className="w-full h-full"><GoalView key={`goals-${refreshKey}`} /></div>}
       </main>
 
-      {/* WINDOWS LAYER (Only visible in Board View) */}
       {currentView === 'board' && (
         <div className="fixed inset-0 pointer-events-none z-[1000] overflow-hidden">
             {openBeatIds.map((id, index) => (

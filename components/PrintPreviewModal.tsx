@@ -1,11 +1,13 @@
-
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useProject } from '../context/ProjectContext';
-import { PrintSettings, TextStyleConfig, Beat } from '../types';
+import { PrintSettings, TextStyleConfig, Beat, Shot, CharacterData } from '../types';
 import { 
   X, Printer, FileText, Layout, Palette, ListFilter, CheckCircle2, 
   Maximize, MapPin, User, Minus, Plus, Download, Loader2, Check,
-  Bold, Italic, Underline, BookOpen, Image as ImageIcon, Users
+  Bold, Italic, Underline, BookOpen, Image as ImageIcon, Users, Hash, PaintBucket,
+  Sun, Moon, Box, ArrowRight, MoveHorizontal, MoveVertical, Sunset, Clock,
+  Aperture, Lightbulb, Paintbrush, Footprints, Film, Heart, Crown, Shield, Zap, Star,
+  Type, Sliders
 } from 'lucide-react';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
@@ -14,76 +16,94 @@ interface PrintPreviewModalProps {
   onClose: () => void;
 }
 
-const HIGHLIGHT_COLORS = [
-  { label: 'None', value: null },
-  { label: 'Light Gray', value: '#f3f4f6' },
-  { label: 'Gray', value: '#d1d5db' },
-  { label: 'Yellow', value: '#fff59d' },
-  { label: 'Green', value: '#a5d6a7' },
-  { label: 'Blue', value: '#90caf9' },
-  { label: 'Pink', value: '#f48fb1' },
+// Updated Palette
+const SCENE_COLORS = [
+    { label: 'White', value: '#ffffff' },
+    { label: 'Light Gray', value: '#f3f4f6' },
+    { label: 'Gray', value: '#9ca3af' },
+    { label: 'Dark Gray', value: '#4b5563' },
+    { label: 'Black', value: '#000000' },
+    { label: 'Cream', value: '#fef9c3' },
+    { label: 'Gold', value: '#d97706' },
+    { label: 'Orange', value: '#f97316' },
+    { label: 'Red', value: '#dc2626' },
+    { label: 'Blue', value: '#2563eb' },
+    { label: 'Navy', value: '#1e3a8a' },
+    { label: 'Purple', value: '#9333ea' },
+    { label: 'Green', value: '#16a34a' },
+    { label: 'Teal', value: '#0d9488' },
+    { label: 'Brown', value: '#78350f' },
 ];
+
+interface PrintStyleConfig extends TextStyleConfig {
+    marginLeft?: number;
+    width?: number;
+    marginTop?: number;
+    marginBottom?: number;
+}
 
 const PrintPreviewModal: React.FC<PrintPreviewModalProps> = ({ onClose }) => {
   const { beats, scriptConfig, characterData, generatedShots, projectList, currentProjectId } = useProject();
   const [activeTab, setActiveTab] = useState<'layout' | 'sections' | 'style' | 'content'>('sections');
   const [scale, setScale] = useState(0.65);
   const [isExporting, setIsExporting] = useState(false);
+  const [selectedStyleElement, setSelectedStyleElement] = useState<string>('slugline');
   
-  // Bible Sections State
   const [sections, setSections] = useState({
       cover: true,
-      characters: false,
-      storyboard: false,
+      characters: true,
+      storyboard: true,
       script: true
   });
 
-  // Pagination State
+  const [showDialogueNumbers, setShowDialogueNumbers] = useState(false);
+  const [colorCoding, setColorCoding] = useState({
+      enabled: false,
+      intBg: '#e5e7eb',
+      extBg: '#d1d5db',
+      dayText: '#000000',
+      nightText: '#000000',
+      twilightText: '#c2410c',
+      transitionText: '#4b5563'
+  });
+
   const [pages, setPages] = useState<Beat[][]>([]);
   const hiddenRef = useRef<HTMLDivElement>(null);
-  const bibleRef = useRef<HTMLDivElement>(null);
   
-  // Project Info
   const currentProjectName = projectList.find(p => p.id === currentProjectId)?.name || "Untitled Project";
   const currentDate = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
 
-  // Initialize settings
-  const [settings, setSettings] = useState<PrintSettings>(() => ({
+  // Standard Script Margins
+  const [settings, setSettings] = useState<PrintSettings & { styles: Record<string, PrintStyleConfig> } & { sceneNumbersLeft: boolean, sceneNumbersRight: boolean }>(() => ({
     paperSize: 'a4',
     marginTop: 1.0,
     marginBottom: 1.0,
     marginLeft: 1.5,
     marginRight: 1.0,
     showPageNumbers: true,
-    sceneNumbers: true,
+    sceneNumbers: true, 
+    sceneNumbersLeft: true,
+    sceneNumbersRight: true,
     selectedLocations: [],
     selectedCharacters: [],
     styles: {
-      slugline: { ...scriptConfig.slugline },
-      action: { ...scriptConfig.action },
-      character: { ...scriptConfig.character },
-      dialogue: { ...scriptConfig.dialogue },
-      parenthetical: { ...scriptConfig.parenthetical },
-      transition: { ...scriptConfig.transition }
+      slugline: { ...scriptConfig.slugline, marginLeft: 0, width: 100, marginTop: scriptConfig.slugline.marginTop, marginBottom: scriptConfig.slugline.marginBottom }, 
+      action: { ...scriptConfig.action, marginLeft: scriptConfig.action.marginLeft, width: scriptConfig.action.width, marginTop: scriptConfig.action.marginTop, marginBottom: scriptConfig.action.marginBottom },
+      character: { ...scriptConfig.character, marginLeft: scriptConfig.character.marginLeft, width: scriptConfig.character.width, marginTop: scriptConfig.character.marginTop, marginBottom: scriptConfig.character.marginBottom },
+      dialogue: { ...scriptConfig.dialogue, marginLeft: scriptConfig.dialogue.marginLeft, width: scriptConfig.dialogue.width, marginTop: scriptConfig.dialogue.marginTop, marginBottom: scriptConfig.dialogue.marginBottom },
+      parenthetical: { ...scriptConfig.parenthetical, marginLeft: scriptConfig.parenthetical.marginLeft, width: scriptConfig.parenthetical.width, marginTop: scriptConfig.parenthetical.marginTop, marginBottom: scriptConfig.parenthetical.marginBottom },
+      transition: { ...scriptConfig.transition, marginLeft: scriptConfig.transition.marginLeft, width: scriptConfig.transition.width, marginTop: scriptConfig.transition.marginTop, marginBottom: scriptConfig.transition.marginBottom }
     }
   }));
 
   // --- DATA PROCESSING ---
-  const { allLocations, allCharacters } = useMemo(() => {
+  const { allLocations } = useMemo(() => {
     const locs = new Set<string>();
-    const chars = new Set<string>();
     beats.forEach(b => {
       if (b.slug.location) locs.add(b.slug.location.trim());
-      const div = document.createElement('div');
-      div.innerHTML = b.content;
-      div.querySelectorAll('.sc-character').forEach(el => {
-        const name = el.textContent?.trim().replace(/\s*\(.*\)$/, '').toUpperCase();
-        if (name) chars.add(name);
-      });
     });
     return {
       allLocations: Array.from(locs).sort(),
-      allCharacters: Array.from(chars).sort()
     };
   }, [beats]);
 
@@ -103,6 +123,88 @@ const PrintPreviewModal: React.FC<PrintPreviewModalProps> = ({ onClose }) => {
     }
     return result;
   }, [beats, settings.selectedLocations, settings.selectedCharacters]);
+
+  const chunkArray = <T,>(array: T[], size: number): T[][] => {
+      const result = [];
+      for (let i = 0; i < array.length; i += size) {
+          result.push(array.slice(i, i + size));
+      }
+      return result;
+  };
+
+  // --- CHARACTER PAGINATION ---
+  const characterPages = useMemo(() => {
+      const chars = Object.values(characterData);
+      return chunkArray(chars, 2); // 2 Characters per page (Elite Layout)
+  }, [characterData]);
+
+  // --- STORYBOARD PAGINATION (GRID AWARE & COMPACT) ---
+  const storyboardPages = useMemo(() => {
+      const groups: Record<string, Shot[]> = {};
+      generatedShots.forEach(shot => {
+          const sceneKey = shot.scene ? String(shot.scene) : 'Unassigned';
+          if (!groups[sceneKey]) groups[sceneKey] = [];
+          groups[sceneKey].push(shot);
+      });
+      
+      const sortedKeys = Object.keys(groups).sort((a,b) => {
+          const numA = parseInt(a);
+          const numB = parseInt(b);
+          if(!isNaN(numA) && !isNaN(numB)) return numA - numB;
+          return a.localeCompare(b);
+      });
+
+      type RenderItem = { type: 'header', text: string } | { type: 'shot', data: Shot };
+      const items: RenderItem[] = [];
+      
+      sortedKeys.forEach(key => {
+          items.push({ type: 'header', text: key });
+          groups[key].forEach(shot => {
+              items.push({ type: 'shot', data: shot });
+          });
+      });
+
+      // Page Layout Logic
+      // Units are arbitrary "weight". Page limit is 100.
+      // Goal: Fit 1 Header + 6 Shots (3 rows of 2).
+      const LIMIT = 100;
+      const COST_HEADER = 15; // Compact header
+      const COST_SHOT = 14;   // 14 * 6 = 84.  84 + 15 = 99. Fits!
+      
+      const pages: RenderItem[][] = [];
+      let currentPage: RenderItem[] = [];
+      let currentWeight = 0;
+
+      items.forEach(item => {
+          const itemCost = item.type === 'header' ? COST_HEADER : COST_SHOT;
+
+          // ORPHAN CHECK: 
+          // If adding a header, make sure we have space for at least 1 row of shots (2 shots)
+          // Cost of Header + 2 shots = 15 + 28 = 43.
+          if (item.type === 'header') {
+              if (currentWeight + itemCost + (COST_SHOT * 2) > LIMIT) {
+                  // Force break if header + 1 row won't fit
+                  pages.push(currentPage);
+                  currentPage = [];
+                  currentWeight = 0;
+              }
+          } 
+          // Standard capacity check
+          else if (currentWeight + itemCost > LIMIT) {
+              pages.push(currentPage);
+              currentPage = [];
+              currentWeight = 0;
+          }
+          
+          currentPage.push(item);
+          currentWeight += itemCost;
+      });
+
+      if (currentPage.length > 0) pages.push(currentPage);
+      return pages;
+
+  }, [generatedShots]);
+
 
   // --- SCRIPT PAGINATION EFFECT ---
   useEffect(() => {
@@ -128,17 +230,15 @@ const PrintPreviewModal: React.FC<PrintPreviewModalProps> = ({ onClose }) => {
 
         children.forEach((child, index) => {
             const h = child.offsetHeight; 
-            const marginBottom = 16; 
-            const totalItemHeight = h + marginBottom;
-
-            if (currentH + totalItemHeight > writableHeight && currentPage.length > 0) {
+            
+            if (currentH + h > writableHeight && currentPage.length > 0) {
                 newPages.push(currentPage);
                 currentPage = [];
                 currentH = 0;
             }
 
             currentPage.push(filteredBeats[index]);
-            currentH += totalItemHeight;
+            currentH += h;
         });
 
         if (currentPage.length > 0) newPages.push(currentPage);
@@ -146,16 +246,20 @@ const PrintPreviewModal: React.FC<PrintPreviewModalProps> = ({ onClose }) => {
         else setPages(newPages);
     }, 50);
 
-  }, [filteredBeats, settings]);
+  }, [filteredBeats, settings, showDialogueNumbers]);
 
   // --- STYLES ---
   const dynamicCss = useMemo(() => {
-    const genRule = (className: string, config: TextStyleConfig) => `
+    const genRule = (className: string, config: PrintStyleConfig) => `
       ${className} {
         font-weight: ${config.bold ? 'bold' : 'normal'} !important;
         font-style: ${config.italic ? 'italic' : 'normal'} !important;
         text-decoration: ${config.underline ? 'underline' : 'none'} !important;
         background-color: ${config.highlightColor || 'transparent'} !important;
+        margin-left: ${config.marginLeft || 0}% !important;
+        width: ${config.width || 100}% !important;
+        margin-top: ${config.marginTop || 0}rem !important;
+        margin-bottom: ${config.marginBottom || 0}rem !important;
       }
     `;
     return `
@@ -173,6 +277,20 @@ const PrintPreviewModal: React.FC<PrintPreviewModalProps> = ({ onClose }) => {
       ${genRule('.sc-dialogue', settings.styles.dialogue)}
       ${genRule('.sc-parenthetical', settings.styles.parenthetical)}
       ${genRule('.sc-transition', settings.styles.transition)}
+
+      .sc-dialogue[data-dn] { position: relative; }
+      .sc-dialogue[data-dn]::before {
+          content: '(' attr(data-dn) ')';
+          position: absolute;
+          left: -45px;
+          top: 0;
+          font-family: monospace;
+          font-size: 8pt;
+          color: #999;
+          font-weight: normal;
+          text-align: right;
+          width: 40px;
+      }
     `;
   }, [settings]);
 
@@ -187,10 +305,9 @@ const PrintPreviewModal: React.FC<PrintPreviewModalProps> = ({ onClose }) => {
     style.innerHTML = dynamicCss;
   }, [dynamicCss]);
 
-  // --- EXPORT PDF ---
+  // --- EXPORT PDF (Improved Geometry Engine) ---
   const handleDownloadPDF = async () => {
     setIsExporting(true);
-    
     try {
       const pdf = new jsPDF({
         orientation: 'portrait',
@@ -198,54 +315,78 @@ const PrintPreviewModal: React.FC<PrintPreviewModalProps> = ({ onClose }) => {
         format: settings.paperSize
       });
 
-      // We capture everything inside the main scrollable area
-      const scrollContainer = document.getElementById('preview-scroll-container');
-      if (!scrollContainer) throw new Error("Container not found");
-
-      // 1. Gather all rendered page elements
-      const pageElements = Array.from(scrollContainer.querySelectorAll('.bible-page')) as HTMLElement[];
+      // 1. Precise Geometry Calculations (96 DPI Reference)
+      const isLetter = settings.paperSize === 'letter';
+      const pageW_in = isLetter ? 8.5 : 8.27;
+      const pageH_in = isLetter ? 11 : 11.69;
       
-      // 2. Clone them into a hidden container to capture at high res without scaling interference
+      // Fixed Pixel Dimensions for the Capture Container
+      // This forces the layout engine to render exactly as if on the printed page
+      const pixelWidth = isLetter ? 816 : 794; // 8.5 * 96, 8.27 * 96
+      const pixelHeight = isLetter ? 1056 : 1123;
+
+      // 2. Create SANDBOX Container (Off-screen but explicitly sized)
+      // We do NOT use the existing preview elements because they might be scaled by CSS transform.
+      // We clone them into a fresh container with fixed pixel dimensions.
       const renderContainer = document.createElement('div');
-      renderContainer.style.position = 'absolute';
-      renderContainer.style.top = '-10000px';
+      renderContainer.style.position = 'fixed';
+      renderContainer.style.top = '0';
       renderContainer.style.left = '0';
-      renderContainer.style.width = settings.paperSize === 'letter' ? '8.5in' : '210mm'; 
+      renderContainer.style.zIndex = '-9999'; // Hide it
+      renderContainer.style.width = `${pixelWidth}px`;
+      renderContainer.style.height = `${pixelHeight}px`;
+      renderContainer.style.overflow = 'hidden'; // Clip overflow
+      renderContainer.style.backgroundColor = '#ffffff';
       document.body.appendChild(renderContainer);
 
-      for (let i = 0; i < pageElements.length; i++) {
-          const original = pageElements[i];
+      // Get source elements
+      const sourceElements = Array.from(document.querySelectorAll('.bible-page')) as HTMLElement[];
+
+      for (let i = 0; i < sourceElements.length; i++) {
+          const original = sourceElements[i];
           const clone = original.cloneNode(true) as HTMLElement;
           
-          // Clean up visual artifacts for print
+          // 3. Normalize Clone Styles
+          // Crucial: Force the clone to fill the pixel-perfect container
           clone.style.transform = 'none';
           clone.style.margin = '0';
           clone.style.boxShadow = 'none';
           clone.style.marginBottom = '0';
+          clone.style.width = '100%';  // Fill the 794px container
+          clone.style.height = '100%'; // Fill the 1123px container
+          clone.style.position = 'relative';
+          clone.style.border = 'none';
+          clone.style.boxSizing = 'border-box'; // Ensure padding is inside
           
+          // Clear container and mount clone
+          renderContainer.innerHTML = ''; 
           renderContainer.appendChild(clone);
 
-          // Render
-          const canvas = await html2canvas(clone, {
-              scale: 2, // High res
-              backgroundColor: '#ffffff',
+          // 4. Capture with Explicit Dimensions
+          // windowWidth/windowHeight forces media queries/layout to behave like a desktop screen of that size
+          const canvas = await html2canvas(renderContainer, {
+              scale: 2, // 2x Scale for crisp text (effective 192 DPI)
               useCORS: true,
-              logging: false
+              logging: false,
+              width: pixelWidth,
+              height: pixelHeight,
+              windowWidth: pixelWidth,
+              windowHeight: pixelHeight,
+              backgroundColor: '#ffffff'
           });
 
-          const imgData = canvas.toDataURL('image/jpeg', 0.95);
-          const pdfWidth = pdf.internal.pageSize.getWidth();
-          const pdfHeight = pdf.internal.pageSize.getHeight();
+          const imgData = canvas.toDataURL('image/jpeg', 0.90);
 
           if (i > 0) pdf.addPage();
-          pdf.addImage(imgData, 'JPEG', 0, 0, pdfWidth, pdfHeight);
           
-          renderContainer.removeChild(clone);
+          // 5. Inject 1:1
+          // Since our capture container had the EXACT aspect ratio of the PDF page,
+          // mapping it to (0, 0, pageW, pageH) results in ZERO stretching.
+          pdf.addImage(imgData, 'JPEG', 0, 0, pageW_in, pageH_in);
       }
 
       document.body.removeChild(renderContainer);
       pdf.save(`${currentProjectName.replace(/\s+/g, '_')}_Bible.pdf`);
-
     } catch (error) {
       console.error("PDF Export Error:", error);
       alert("Failed to export PDF. Please check console.");
@@ -254,21 +395,24 @@ const PrintPreviewModal: React.FC<PrintPreviewModalProps> = ({ onClose }) => {
     }
   };
 
-  const toggleStyle = (element: keyof typeof settings.styles, property: keyof TextStyleConfig) => {
+  const toggleStyle = (element: string, property: keyof TextStyleConfig) => {
     setSettings(prev => ({
       ...prev,
       styles: {
         ...prev.styles,
-        [element]: { ...prev.styles[element], [property]: property === 'highlightColor' ? null : !prev.styles[element][property] }
+        [element]: { ...prev.styles[element], [property]: property === 'highlightColor' ? null : !(prev.styles[element] as any)[property] }
       }
     }));
   };
 
-  const setHighlight = (element: keyof typeof settings.styles, color: string | null) => {
-    setSettings(prev => ({
-      ...prev,
-      styles: { ...prev.styles, [element]: { ...prev.styles[element], highlightColor: color } }
-    }));
+  const updateGeometry = (element: string, property: 'marginLeft' | 'width' | 'marginTop' | 'marginBottom', value: number) => {
+      setSettings(prev => ({
+          ...prev,
+          styles: {
+              ...prev.styles,
+              [element]: { ...prev.styles[element], [property]: value }
+          }
+      }));
   };
 
   const toggleFilter = (type: 'loc' | 'char', value: string) => {
@@ -284,12 +428,82 @@ const PrintPreviewModal: React.FC<PrintPreviewModalProps> = ({ onClose }) => {
       height: settings.paperSize === 'letter' ? '11in' : '297mm',
   };
 
-  const contentStyle = {
+  // Styles for SCRIPT pages (using user-defined margins)
+  const scriptContentStyle = {
       paddingTop: `${settings.marginTop}in`,
       paddingBottom: `${settings.marginBottom}in`,
       paddingLeft: `${settings.marginLeft}in`,
       paddingRight: `${settings.marginRight}in`,
   };
+
+  // Styles for VISUAL pages (Full width/optimized margins - INDEPENDENT)
+  const visualContentStyle = {
+      paddingTop: `0.5in`,
+      paddingBottom: `0.5in`,
+      paddingLeft: `0.5in`,
+      paddingRight: `0.5in`,
+  };
+
+  const getSlugStyles = (prefix: string, time: string) => {
+      let bg = scriptConfig.slugline.highlightColor;
+      if (scriptConfig.slugline.paddingEnabled && !bg) bg = '#f3f4f6'; 
+      let color = scriptConfig.slugline.color || '#000000';
+      let padding = scriptConfig.slugline.paddingEnabled 
+          ? `${scriptConfig.slugline.paddingVertical}px ${scriptConfig.slugline.paddingHorizontal}px`
+          : '0px';
+      
+      if (colorCoding.enabled) {
+          const p = prefix.toUpperCase();
+          const t = time.toUpperCase().trim();
+          if (p.includes('INT')) bg = colorCoding.intBg;
+          else if (p.includes('EXT')) bg = colorCoding.extBg;
+          
+          // Enhanced Color Coding
+          if (t.includes('NIGHT')) color = colorCoding.nightText;
+          else if (t.includes('DAY') || t.includes('MORNING')) color = colorCoding.dayText;
+          else if (t.includes('DUSK') || t.includes('TWILIGHT')) color = colorCoding.twilightText;
+          else if (t.includes('CONTINUOUS') || t.includes('LATER')) color = colorCoding.transitionText;
+          
+          if (bg && bg !== 'transparent') padding = '4px 8px';
+      }
+      return { bg: bg || 'transparent', color, padding };
+  };
+
+  const getRoleColor = (role: string) => {
+      const r = (role || '').toLowerCase();
+      if (r.includes('protagonist') || r.includes('hero')) return '#d97706'; // Gold
+      if (r.includes('antagonist') || r.includes('villain')) return '#dc2626'; // Red
+      if (r.includes('mentor') || r.includes('sage')) return '#2563eb'; // Blue
+      if (r.includes('love')) return '#db2777'; // Pink
+      return '#4b5563'; // Silver/Gray
+  };
+
+  let globalDialogueCounter = 0;
+  const processBeatContent = (html: string, resetCounter = false) => {
+      if (resetCounter) globalDialogueCounter = 0;
+      if (!showDialogueNumbers) return html;
+      return html.replace(/class=["']([^"']*)\bsc-dialogue\b([^"']*)["']/g, (match) => {
+          globalDialogueCounter++;
+          return `${match} data-dn="${globalDialogueCounter}"`;
+      });
+  };
+
+  const ColorPicker = ({ label, value, onChange }: { label: string, value: string, onChange: (c: string) => void }) => (
+      <div className="flex items-center justify-between">
+          <span className="text-[10px] font-bold text-gray-400 uppercase">{label}</span>
+          <div className="flex gap-1 flex-wrap justify-end max-w-[200px]">
+              {SCENE_COLORS.map(c => (
+                  <button 
+                    key={c.value} 
+                    onClick={() => onChange(c.value)}
+                    className={`w-4 h-4 rounded-full border border-gray-600 hover:scale-125 transition-transform ${value === c.value ? 'ring-1 ring-white' : ''}`}
+                    style={{ backgroundColor: c.value }}
+                    title={c.label}
+                  />
+              ))}
+          </div>
+      </div>
+  );
 
   return (
     <div className="fixed inset-0 z-[5000] bg-[#09090b] text-gray-100 flex font-sans animate-in fade-in duration-200">
@@ -325,66 +539,27 @@ const PrintPreviewModal: React.FC<PrintPreviewModalProps> = ({ onClose }) => {
          </div>
 
          <div className="flex-1 overflow-y-auto custom-scrollbar px-6 py-6 space-y-8 bg-[#0c0c0c]">
-            
             {activeTab === 'sections' && (
                 <div className="space-y-4 animate-in slide-in-from-left-2 duration-300">
                     <div className="text-xs font-bold text-[#666] uppercase tracking-widest mb-2">Document Components</div>
-                    
-                    <div 
-                        onClick={() => setSections(s => ({...s, cover: !s.cover}))}
-                        className={`p-4 rounded border cursor-pointer transition-all flex items-center justify-between ${sections.cover ? 'bg-[#f5a623]/10 border-[#f5a623]' : 'bg-[#111] border-[#222] hover:border-[#444]'}`}
-                    >
-                        <div className="flex items-center gap-3">
-                            <BookOpen size={18} className={sections.cover ? "text-[#f5a623]" : "text-gray-500"} />
-                            <div>
-                                <div className={`text-xs font-bold ${sections.cover ? 'text-white' : 'text-gray-400'}`}>Cover Page</div>
-                                <div className="text-[10px] text-gray-600">Title, Date, Author</div>
+                    {['cover', 'script', 'characters', 'storyboard'].map(sec => (
+                        <div 
+                            key={sec}
+                            onClick={() => setSections(s => ({...s, [sec]: !s[sec as keyof typeof s]}))}
+                            className={`p-4 rounded border cursor-pointer transition-all flex items-center justify-between ${sections[sec as keyof typeof sections] ? 'bg-[#f5a623]/10 border-[#f5a623]' : 'bg-[#111] border-[#222] hover:border-[#444]'}`}
+                        >
+                            <div className="flex items-center gap-3">
+                                {sec === 'cover' && <BookOpen size={18} className={sections.cover ? "text-[#f5a623]" : "text-gray-500"} />}
+                                {sec === 'script' && <FileText size={18} className={sections.script ? "text-[#f5a623]" : "text-gray-500"} />}
+                                {sec === 'characters' && <Users size={18} className={sections.characters ? "text-[#f5a623]" : "text-gray-500"} />}
+                                {sec === 'storyboard' && <ImageIcon size={18} className={sections.storyboard ? "text-[#f5a623]" : "text-gray-500"} />}
+                                <div>
+                                    <div className={`text-xs font-bold ${sections[sec as keyof typeof sections] ? 'text-white' : 'text-gray-400'} capitalize`}>{sec}</div>
+                                </div>
                             </div>
+                            {sections[sec as keyof typeof sections] && <CheckCircle2 size={16} className="text-[#f5a623]" />}
                         </div>
-                        {sections.cover && <CheckCircle2 size={16} className="text-[#f5a623]" />}
-                    </div>
-
-                    <div 
-                        onClick={() => setSections(s => ({...s, script: !s.script}))}
-                        className={`p-4 rounded border cursor-pointer transition-all flex items-center justify-between ${sections.script ? 'bg-[#f5a623]/10 border-[#f5a623]' : 'bg-[#111] border-[#222] hover:border-[#444]'}`}
-                    >
-                        <div className="flex items-center gap-3">
-                            <FileText size={18} className={sections.script ? "text-[#f5a623]" : "text-gray-500"} />
-                            <div>
-                                <div className={`text-xs font-bold ${sections.script ? 'text-white' : 'text-gray-400'}`}>Screenplay</div>
-                                <div className="text-[10px] text-gray-600">Standard formatted script</div>
-                            </div>
-                        </div>
-                        {sections.script && <CheckCircle2 size={16} className="text-[#f5a623]" />}
-                    </div>
-
-                    <div 
-                        onClick={() => setSections(s => ({...s, characters: !s.characters}))}
-                        className={`p-4 rounded border cursor-pointer transition-all flex items-center justify-between ${sections.characters ? 'bg-[#f5a623]/10 border-[#f5a623]' : 'bg-[#111] border-[#222] hover:border-[#444]'}`}
-                    >
-                        <div className="flex items-center gap-3">
-                            <Users size={18} className={sections.characters ? "text-[#f5a623]" : "text-gray-500"} />
-                            <div>
-                                <div className={`text-xs font-bold ${sections.characters ? 'text-white' : 'text-gray-400'}`}>Character Bios</div>
-                                <div className="text-[10px] text-gray-600">Profiles & Visuals</div>
-                            </div>
-                        </div>
-                        {sections.characters && <CheckCircle2 size={16} className="text-[#f5a623]" />}
-                    </div>
-
-                    <div 
-                        onClick={() => setSections(s => ({...s, storyboard: !s.storyboard}))}
-                        className={`p-4 rounded border cursor-pointer transition-all flex items-center justify-between ${sections.storyboard ? 'bg-[#f5a623]/10 border-[#f5a623]' : 'bg-[#111] border-[#222] hover:border-[#444]'}`}
-                    >
-                        <div className="flex items-center gap-3">
-                            <ImageIcon size={18} className={sections.storyboard ? "text-[#f5a623]" : "text-gray-500"} />
-                            <div>
-                                <div className={`text-xs font-bold ${sections.storyboard ? 'text-white' : 'text-gray-400'}`}>Storyboard</div>
-                                <div className="text-[10px] text-gray-600">Visual Shot List</div>
-                            </div>
-                        </div>
-                        {sections.storyboard && <CheckCircle2 size={16} className="text-[#f5a623]" />}
-                    </div>
+                    ))}
                 </div>
             )}
 
@@ -392,7 +567,7 @@ const PrintPreviewModal: React.FC<PrintPreviewModalProps> = ({ onClose }) => {
               <div className="space-y-8 animate-in slide-in-from-left-2 duration-300">
                  <section className="space-y-4">
                     <label className="text-xs font-bold text-[#666] uppercase tracking-widest flex items-center gap-2">
-                        <Maximize size={12}/> Margins (Inches)
+                        <Maximize size={12}/> Margins (Script Only)
                     </label>
                     <div className="bg-[#111] p-5 rounded-lg border border-[#222]">
                        <div className="grid grid-cols-2 gap-x-6 gap-y-4">
@@ -410,9 +585,10 @@ const PrintPreviewModal: React.FC<PrintPreviewModalProps> = ({ onClose }) => {
                        </div>
                     </div>
                  </section>
+                 
                  <section className="space-y-3">
                     <label className="text-xs font-bold text-[#666] uppercase tracking-widest">Options</label>
-                    <div className="space-y-2">
+                    <div className="space-y-3">
                        <label className="flex items-center justify-between px-4 py-3 bg-[#111] rounded border border-[#222] cursor-pointer hover:border-[#444] transition-all group">
                           <span className="text-xs font-bold text-gray-400 group-hover:text-gray-200">Show Page Numbers</span>
                           <div className={`w-9 h-5 rounded-full relative transition-colors ${settings.showPageNumbers ? 'bg-[#f5a623]' : 'bg-[#333]'}`}>
@@ -420,11 +596,34 @@ const PrintPreviewModal: React.FC<PrintPreviewModalProps> = ({ onClose }) => {
                              <div className={`absolute top-1 w-3 h-3 bg-white rounded-full transition-all shadow-sm`} style={{left: settings.showPageNumbers ? '20px' : '4px'}} />
                           </div>
                        </label>
+
+                       {/* Scene Numbers Configuration */}
+                       <div className="bg-[#111] rounded border border-[#222] p-3">
+                            <div className="flex items-center justify-between mb-2">
+                                <span className="text-xs font-bold text-gray-400">Scene Numbers</span>
+                            </div>
+                            <div className="flex gap-2">
+                                <button 
+                                    onClick={() => setSettings(s => ({...s, sceneNumbersLeft: !s.sceneNumbersLeft}))}
+                                    className={`flex-1 py-1.5 text-[10px] font-bold uppercase rounded border transition-all ${settings.sceneNumbersLeft ? 'bg-[#f5a623]/20 border-[#f5a623] text-[#f5a623]' : 'bg-[#0a0a0a] border-[#333] text-gray-500'}`}
+                                >
+                                    Left
+                                </button>
+                                <button 
+                                    onClick={() => setSettings(s => ({...s, sceneNumbersRight: !s.sceneNumbersRight}))}
+                                    className={`flex-1 py-1.5 text-[10px] font-bold uppercase rounded border transition-all ${settings.sceneNumbersRight ? 'bg-[#f5a623]/20 border-[#f5a623] text-[#f5a623]' : 'bg-[#0a0a0a] border-[#333] text-gray-500'}`}
+                                >
+                                    Right
+                                </button>
+                            </div>
+                       </div>
+
+                       {/* Dialogue Numbers */}
                        <label className="flex items-center justify-between px-4 py-3 bg-[#111] rounded border border-[#222] cursor-pointer hover:border-[#444] transition-all group">
-                          <span className="text-xs font-bold text-gray-400 group-hover:text-gray-200">Show Scene Numbers</span>
-                          <div className={`w-9 h-5 rounded-full relative transition-colors ${settings.sceneNumbers ? 'bg-[#f5a623]' : 'bg-[#333]'}`}>
-                             <input type="checkbox" checked={settings.sceneNumbers} onChange={e => setSettings(s => ({...s, sceneNumbers: e.target.checked}))} className="sr-only" />
-                             <div className={`absolute top-1 w-3 h-3 bg-white rounded-full transition-all shadow-sm`} style={{left: settings.sceneNumbers ? '20px' : '4px'}} />
+                          <span className="text-xs font-bold text-gray-400 group-hover:text-gray-200">Continuous Dialogue #</span>
+                          <div className={`w-9 h-5 rounded-full relative transition-colors ${showDialogueNumbers ? 'bg-[#f5a623]' : 'bg-[#333]'}`}>
+                             <input type="checkbox" checked={showDialogueNumbers} onChange={e => setShowDialogueNumbers(e.target.checked)} className="sr-only" />
+                             <div className={`absolute top-1 w-3 h-3 bg-white rounded-full transition-all shadow-sm`} style={{left: showDialogueNumbers ? '20px' : '4px'}} />
                           </div>
                        </label>
                     </div>
@@ -433,20 +632,129 @@ const PrintPreviewModal: React.FC<PrintPreviewModalProps> = ({ onClose }) => {
             )}
 
             {activeTab === 'style' && (
-              <div className="space-y-4 animate-in slide-in-from-left-2 duration-300">
-                 <div className="text-xs font-bold text-[#666] uppercase tracking-widest mb-4">Script Appearance</div>
-                 {(Object.keys(settings.styles) as Array<keyof typeof settings.styles>).map(elm => (
-                    <div key={elm} className="bg-[#111] p-3 rounded border border-[#222] hover:border-[#333] transition-colors flex items-center justify-between mb-2">
-                      <span className="text-xs font-bold uppercase tracking-wide text-gray-300">{elm}</span>
-                      <div className="flex items-center gap-4">
-                          <div className="flex gap-1 bg-[#0a0a0a] rounded border border-[#222] p-0.5">
-                             <button onClick={() => toggleStyle(elm, 'bold')} className={`p-1.5 rounded transition-all ${settings.styles[elm].bold ? 'bg-[#f5a623] text-black' : 'text-gray-600 hover:text-gray-300'}`} title="Bold"><Bold size={12}/></button>
-                             <button onClick={() => toggleStyle(elm, 'italic')} className={`p-1.5 rounded transition-all ${settings.styles[elm].italic ? 'bg-[#f5a623] text-black' : 'text-gray-600 hover:text-gray-300'}`} title="Italic"><Italic size={12}/></button>
-                             <button onClick={() => toggleStyle(elm, 'underline')} className={`p-1.5 rounded transition-all ${settings.styles[elm].underline ? 'bg-[#f5a623] text-black' : 'text-gray-600 hover:text-gray-300'}`} title="Underline"><Underline size={12}/></button>
-                          </div>
-                      </div>
+              <div className="space-y-6 animate-in slide-in-from-left-2 duration-300">
+                 
+                 {/* 1. TYPOGRAPHY (Existing) */}
+                 <div className="bg-[#111] p-4 rounded border border-[#222] space-y-4">
+                     <div className="text-[10px] font-bold text-gray-500 uppercase flex items-center gap-2"><Type size={12}/> Typography Styles</div>
+                     {Object.keys(settings.styles).map((elm) => (
+                         <div key={elm} className="flex items-center justify-between">
+                             <span className="text-xs text-gray-300 capitalize">{elm}</span>
+                             <div className="flex bg-[#222] rounded p-0.5">
+                                 <button onClick={() => toggleStyle(elm, 'bold')} className={`p-1 rounded ${settings.styles[elm as any].bold ? 'text-[#f5a623] bg-[#333]' : 'text-gray-600'}`} title="Bold"><Bold size={12}/></button>
+                                 <button onClick={() => toggleStyle(elm, 'italic')} className={`p-1 rounded ${settings.styles[elm as any].italic ? 'text-[#f5a623] bg-[#333]' : 'text-gray-600'}`} title="Italic"><Italic size={12}/></button>
+                                 <button onClick={() => toggleStyle(elm, 'underline')} className={`p-1 rounded ${settings.styles[elm as any].underline ? 'text-[#f5a623] bg-[#333]' : 'text-gray-600'}`} title="Underline"><Underline size={12}/></button>
+                             </div>
+                         </div>
+                     ))}
+                 </div>
+
+                 {/* 2. COLOR CODING (Expanded) */}
+                 <div className="bg-[#111] p-4 rounded border border-[#222] space-y-4">
+                     <div className="flex items-center justify-between mb-2">
+                         <div className="flex items-center gap-2">
+                             <PaintBucket size={14} className="text-[#f5a623]" />
+                             <span className="text-xs font-bold text-white uppercase">Scene Colors</span>
+                         </div>
+                         <div className={`w-9 h-5 rounded-full relative transition-colors cursor-pointer ${colorCoding.enabled ? 'bg-[#f5a623]' : 'bg-[#333]'}`} onClick={() => setColorCoding(c => ({...c, enabled: !c.enabled}))}>
+                             <div className={`absolute top-1 w-3 h-3 bg-white rounded-full transition-all shadow-sm`} style={{left: colorCoding.enabled ? '20px' : '4px'}} />
+                         </div>
+                     </div>
+                     
+                     <div className={`space-y-4 transition-opacity ${colorCoding.enabled ? 'opacity-100' : 'opacity-30 pointer-events-none'}`}>
+                         <div>
+                             <div className="flex items-center gap-2 mb-2 text-[9px] font-bold text-gray-500 uppercase"><Box size={10} /> Backgrounds</div>
+                             <div className="space-y-2 pl-2 border-l border-[#333]">
+                                 <ColorPicker label="INT. Scenes" value={colorCoding.intBg} onChange={(c) => setColorCoding(p => ({...p, intBg: c}))} />
+                                 <ColorPicker label="EXT. Scenes" value={colorCoding.extBg} onChange={(c) => setColorCoding(p => ({...p, extBg: c}))} />
+                             </div>
+                         </div>
+                         <div>
+                             <div className="flex items-center gap-2 mb-2 text-[9px] font-bold text-gray-500 uppercase"><Sun size={10} /> Time of Day Text</div>
+                             <div className="space-y-2 pl-2 border-l border-[#333]">
+                                 <ColorPicker label="Day" value={colorCoding.dayText} onChange={(c) => setColorCoding(p => ({...p, dayText: c}))} />
+                                 <ColorPicker label="Night" value={colorCoding.nightText} onChange={(c) => setColorCoding(p => ({...p, nightText: c}))} />
+                                 <ColorPicker label="Twilight/Dusk" value={colorCoding.twilightText} onChange={(c) => setColorCoding(p => ({...p, twilightText: c}))} />
+                                 <ColorPicker label="Transitions" value={colorCoding.transitionText} onChange={(c) => setColorCoding(p => ({...p, transitionText: c}))} />
+                             </div>
+                         </div>
+                     </div>
+                 </div>
+
+                 {/* 3. ELEMENT GEOMETRY (Margins/Layout) */}
+                 <div className="bg-[#111] p-4 rounded border border-[#222] space-y-4">
+                    <div className="flex items-center gap-2 mb-2">
+                         <Sliders size={14} className="text-[#f5a623]" />
+                         <span className="text-xs font-bold text-white uppercase">Fine-Tune Layout</span>
                     </div>
-                 ))}
+                    
+                    {/* Element Selector */}
+                    <div className="flex overflow-x-auto gap-1 pb-2 border-b border-[#333] mb-4 custom-scrollbar">
+                        {['slugline', 'action', 'character', 'dialogue', 'parenthetical', 'transition'].map(elm => (
+                            <button
+                                key={elm}
+                                onClick={() => setSelectedStyleElement(elm)}
+                                className={`px-3 py-1.5 rounded text-[10px] font-bold uppercase whitespace-nowrap transition-colors ${selectedStyleElement === elm ? 'bg-[#f5a623] text-black' : 'bg-[#222] text-gray-400 hover:text-white'}`}
+                            >
+                                {elm.substring(0, 4)}
+                            </button>
+                        ))}
+                    </div>
+
+                    {/* Sliders */}
+                    <div className="space-y-4">
+                        <div>
+                            <div className="flex justify-between text-[10px] text-gray-400 mb-1">
+                                <span>Left Margin (%)</span>
+                                <span>{settings.styles[selectedStyleElement as any].marginLeft}%</span>
+                            </div>
+                            <input 
+                                type="range" min="0" max="80" 
+                                value={settings.styles[selectedStyleElement as any].marginLeft} 
+                                onChange={(e) => updateGeometry(selectedStyleElement, 'marginLeft', parseInt(e.target.value))}
+                                className="w-full h-1 bg-[#333] rounded-lg appearance-none cursor-pointer accent-[#f5a623]"
+                            />
+                        </div>
+                        <div>
+                            <div className="flex justify-between text-[10px] text-gray-400 mb-1">
+                                <span>Width (%)</span>
+                                <span>{settings.styles[selectedStyleElement as any].width}%</span>
+                            </div>
+                            <input 
+                                type="range" min="10" max="100" 
+                                value={settings.styles[selectedStyleElement as any].width} 
+                                onChange={(e) => updateGeometry(selectedStyleElement, 'width', parseInt(e.target.value))}
+                                className="w-full h-1 bg-[#333] rounded-lg appearance-none cursor-pointer accent-[#f5a623]"
+                            />
+                        </div>
+                        <div className="grid grid-cols-2 gap-4">
+                            <div>
+                                <div className="flex justify-between text-[10px] text-gray-400 mb-1">
+                                    <span>Top (rem)</span>
+                                    <span>{settings.styles[selectedStyleElement as any].marginTop}</span>
+                                </div>
+                                <input 
+                                    type="range" min="0" max="4" step="0.1"
+                                    value={settings.styles[selectedStyleElement as any].marginTop} 
+                                    onChange={(e) => updateGeometry(selectedStyleElement, 'marginTop', parseFloat(e.target.value))}
+                                    className="w-full h-1 bg-[#333] rounded-lg appearance-none cursor-pointer accent-[#f5a623]"
+                                />
+                            </div>
+                            <div>
+                                <div className="flex justify-between text-[10px] text-gray-400 mb-1">
+                                    <span>Bottom (rem)</span>
+                                    <span>{settings.styles[selectedStyleElement as any].marginBottom}</span>
+                                </div>
+                                <input 
+                                    type="range" min="0" max="4" step="0.1"
+                                    value={settings.styles[selectedStyleElement as any].marginBottom} 
+                                    onChange={(e) => updateGeometry(selectedStyleElement, 'marginBottom', parseFloat(e.target.value))}
+                                    className="w-full h-1 bg-[#333] rounded-lg appearance-none cursor-pointer accent-[#f5a623]"
+                                />
+                            </div>
+                        </div>
+                    </div>
+                 </div>
               </div>
             )}
 
@@ -478,7 +786,7 @@ const PrintPreviewModal: React.FC<PrintPreviewModalProps> = ({ onClose }) => {
               className="w-full py-3.5 bg-[#f5a623] hover:bg-[#e09612] text-black rounded font-black text-xs uppercase tracking-widest transition-all flex items-center justify-center gap-2 shadow-lg disabled:opacity-50 disabled:grayscale"
             >
               {isExporting ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
-              {isExporting ? 'Compiling PDF...' : 'Download Bible PDF'}
+              {isExporting ? 'Compiling PDF...' : 'Download PDF'}
             </button>
          </div>
       </div>
@@ -513,90 +821,187 @@ const PrintPreviewModal: React.FC<PrintPreviewModalProps> = ({ onClose }) => {
                    </div>
                )}
 
-               {/* 2. CHARACTERS */}
-               {sections.characters && Object.keys(characterData).length > 0 && (
-                   <div className="bible-page border border-gray-200" style={{...pageStyle, ...contentStyle}}>
-                        <div className="text-2xl font-black uppercase border-b-4 border-black pb-2 mb-8">Character Manifest</div>
-                        <div className="grid grid-cols-2 gap-6">
-                            {Object.values(characterData).slice(0, 6).map((char: any, i: number) => (
-                                <div key={i} className="flex gap-4 border border-gray-300 p-4 rounded-sm break-inside-avoid">
-                                    <div className="w-24 h-24 bg-gray-100 shrink-0 border border-gray-200">
-                                        {char.images && char.images[0] ? (
-                                            <img src={char.images[0]} className="w-full h-full object-cover" alt={char.name} />
-                                        ) : (
-                                            <div className="w-full h-full flex items-center justify-center text-gray-300"><User size={24}/></div>
-                                        )}
+               {/* 2. CHARACTERS (ELITE LAYOUT with FULL WIDTH) */}
+               {sections.characters && characterPages.map((pageChars: CharacterData[], pageIdx: number) => (
+                   <div key={`chars-page-${pageIdx}`} className="bible-page border border-gray-200" style={{...pageStyle, ...visualContentStyle}}>
+                        <div className="flex items-center justify-between border-b-2 border-black pb-2 mb-8">
+                            <div className="text-3xl font-serif font-bold uppercase tracking-wide">Cast Manifest</div>
+                            <div className="text-[10px] font-sans font-bold uppercase tracking-widest text-gray-500">PG {pageIdx + 1}</div>
+                        </div>
+                        
+                        <div className="flex flex-col gap-8 h-full">
+                            {pageChars.map((char: any, i: number) => (
+                                <div key={i} className="flex gap-6 break-inside-avoid h-[45%] border-b border-gray-200 pb-6 last:border-0 last:pb-0">
+                                    <div className="w-1/3 flex flex-col gap-2">
+                                        <div className="flex-1 bg-gray-100 relative overflow-hidden border border-gray-300">
+                                            {char.images && char.images[0] ? (
+                                                <img src={char.images[0]} className="w-full h-full object-cover grayscale contrast-110" alt={char.name} />
+                                            ) : (
+                                                <div className="w-full h-full flex flex-col items-center justify-center text-gray-300 gap-2">
+                                                    <User size={48} strokeWidth={1} />
+                                                    <span className="text-[9px] uppercase tracking-widest">No Image</span>
+                                                </div>
+                                            )}
+                                            <div className="absolute bottom-0 left-0 right-0 bg-black/90 text-white text-[9px] font-bold uppercase tracking-widest py-1 px-2 text-center">
+                                                {char.archetype || 'Archetype Unknown'}
+                                            </div>
+                                        </div>
                                     </div>
-                                    <div className="flex-1 min-w-0">
-                                        <div className="font-black text-lg uppercase leading-none mb-1">{char.name}</div>
-                                        <div className="text-xs font-bold text-gray-500 uppercase mb-3">{char.archetype || 'Unknown'}</div>
-                                        <div className="grid grid-cols-2 gap-y-1 text-[10px] font-mono text-gray-600">
-                                            <div>AGE: {char.age}</div>
-                                            <div>ROLE: {char.occupation}</div>
-                                            <div className="col-span-2 line-clamp-2 mt-1 italic opacity-80">{char.physiology || char.description}</div>
+
+                                    <div className="flex-1 flex flex-col">
+                                        <div className="flex flex-col border-b-2 border-black pb-2 mb-3">
+                                            <h3 className="text-4xl font-serif font-black uppercase tracking-tighter text-black leading-none">{char.name}</h3>
+                                            <div className="flex items-center gap-2 mt-1">
+                                                <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#f5a623]">{char.occupation || 'UNKNOWN ROLE'}</span>
+                                                <div className="h-px bg-gray-300 flex-1"></div>
+                                            </div>
+                                        </div>
+
+                                        <div className="grid grid-cols-2 gap-x-4 gap-y-2 mb-4 bg-gray-50 p-3 border border-gray-200 text-[10px] font-sans">
+                                            <div className="flex justify-between border-b border-gray-200 pb-1"><span className="font-bold text-gray-500 uppercase">Age</span><span className="font-medium text-black uppercase">{char.age || '-'}</span></div>
+                                            <div className="flex justify-between border-b border-gray-200 pb-1"><span className="font-bold text-gray-500 uppercase">Gender</span><span className="font-medium text-black uppercase">{char.gender || '-'}</span></div>
+                                            <div className="flex justify-between border-b border-gray-200 pb-1"><span className="font-bold text-gray-500 uppercase">Ethnicity</span><span className="font-medium text-black uppercase">{char.ethnicity || '-'}</span></div>
+                                            <div className="flex justify-between border-b border-gray-200 pb-1"><span className="font-bold text-gray-500 uppercase">Hair/Eyes</span><span className="font-medium text-black uppercase">{char.hair || '-'} / {char.eyes || '-'}</span></div>
+                                        </div>
+
+                                        <div className="flex-1">
+                                            <p className="font-serif text-xs leading-relaxed text-black text-justify line-clamp-6">
+                                                {char.backstory || char.description || (char.physiology ? `${char.physiology} ${char.psychology}` : "No biographical data available.")}
+                                            </p>
                                         </div>
                                     </div>
                                 </div>
                             ))}
                         </div>
                    </div>
-               )}
+               ))}
 
-               {/* 3. STORYBOARD */}
-               {sections.storyboard && generatedShots.length > 0 && (
-                   <div className="bible-page border border-gray-200" style={{...pageStyle, ...contentStyle}}>
-                       <div className="text-2xl font-black uppercase border-b-4 border-black pb-2 mb-8">Visual Storyboard</div>
-                       <div className="grid grid-cols-3 gap-6">
-                           {generatedShots.slice(0, 9).map((shot, i) => (
-                               <div key={i} className="break-inside-avoid">
-                                   <div className="aspect-video bg-gray-100 border border-gray-300 mb-2">
-                                       {shot.imageUrl ? (
-                                           <img src={shot.imageUrl} className="w-full h-full object-cover" alt="Shot" />
-                                       ) : (
-                                           <div className="w-full h-full flex items-center justify-center text-gray-300 text-xs font-bold">NO IMG</div>
-                                       )}
-                                   </div>
-                                   <div className="flex justify-between items-end border-b border-gray-300 pb-1 mb-1">
-                                       <span className="text-[10px] font-black uppercase">SC.{shot.scene || '?'}</span>
-                                       <span className="text-[8px] font-mono font-bold uppercase text-gray-500">{shot.shotSize}</span>
-                                   </div>
-                                   <div className="text-[9px] leading-tight text-gray-700 line-clamp-3">{shot.description}</div>
-                               </div>
-                           ))}
+               {/* 3. STORYBOARD (CINEMATIC GALLERY) */}
+               {sections.storyboard && storyboardPages.map((pageItems: any[], pageIdx: number) => (
+                   <div key={`story-page-${pageIdx}`} className="bible-page border border-gray-200" style={{...pageStyle, ...visualContentStyle}}>
+                       {/* Page Header */}
+                       <div className="flex items-center justify-between border-b-4 border-black pb-2 mb-8">
+                            <div className="text-4xl font-serif font-black uppercase tracking-tighter">Visual Continuity</div>
+                            <div className="text-[10px] font-sans font-bold uppercase tracking-widest text-gray-500 bg-gray-100 px-2 py-1 rounded">Board Pg {pageIdx + 1}</div>
+                        </div>
+
+                       {/* Items Container */}
+                       <div className="flex flex-wrap -mx-3 content-start">
+                           {pageItems.map((item, i) => {
+                               if (item.type === 'header') {
+                                   return (
+                                       <div key={i} className="w-full px-4 mb-4 mt-2 break-inside-avoid">
+                                           {/* Slate Header Style */}
+                                           <div className="flex items-center gap-4">
+                                                <div className="bg-black text-white py-2 px-6 shadow-xl relative z-10">
+                                                    <span className="text-lg font-black uppercase tracking-widest">SCENE {item.text}</span>
+                                                </div>
+                                                {/* Cut Line */}
+                                                <div className="flex-1 border-b-2 border-dashed border-black/20 relative"></div>
+                                                <div className="text-[9px] font-black text-black/30 uppercase tracking-[0.2em]">CUT TO</div>
+                                           </div>
+                                       </div>
+                                   );
+                               } else {
+                                   const shot = item.data as Shot;
+                                   return (
+                                       <div key={i} className="w-1/2 px-3 mb-4 break-inside-avoid">
+                                           {/* Double-Matte Card */}
+                                           <div className="bg-white p-2 shadow-[0_15px_40px_-12px_rgba(0,0,0,0.15)] h-full flex flex-col relative transition-transform">
+                                               
+                                               {/* Image Frame with Matte Border */}
+                                               <div className="relative border-2 border-zinc-900 bg-zinc-100">
+                                                   <div className="aspect-video overflow-hidden bg-zinc-200">
+                                                       {shot.imageUrl ? (
+                                                           <img src={shot.imageUrl} className="w-full h-full object-cover contrast-[1.1] saturate-[0.9]" alt="Shot" />
+                                                       ) : (
+                                                           <div className="w-full h-full flex flex-col items-center justify-center text-zinc-400">
+                                                               <Film size={32} className="opacity-20 mb-2" />
+                                                               <span className="text-[9px] font-bold uppercase tracking-widest opacity-50">No Visual Asset</span>
+                                                           </div>
+                                                       )}
+                                                   </div>
+                                                   
+                                                   {/* High Contrast Tech Bar */}
+                                                   <div className="bg-zinc-900 text-white px-2 py-1.5 flex justify-between items-center border-t border-zinc-800">
+                                                       <span className="text-[9px] font-black uppercase tracking-widest text-[#f5a623]">{shot.shotSize}</span>
+                                                       <span className="text-[8px] font-bold uppercase tracking-wide text-zinc-400">{shot.angle}</span>
+                                                   </div>
+                                               </div>
+
+                                               {/* Narrative Block */}
+                                               <div className="pt-2 px-1 flex-1 flex flex-col">
+                                                   <div className="mb-1.5 border-b border-gray-100 pb-1.5">
+                                                       <span className="text-[7px] font-bold uppercase text-gray-400 tracking-[0.2em] block mb-0.5">SUBJECT</span>
+                                                       <span className="text-[10px] font-black text-black uppercase leading-none tracking-tight block">{shot.subject || 'SCENE ACTION'}</span>
+                                                   </div>
+                                                   
+                                                   <p className="font-serif text-[9px] leading-snug text-gray-800 line-clamp-2 text-justify">
+                                                       {shot.description}
+                                                   </p>
+                                               </div>
+                                           </div>
+                                       </div>
+                                   );
+                               }
+                           })}
                        </div>
                    </div>
-               )}
-
-               {/* 4. SCRIPT PAGES */}
-               {sections.script && pages.map((pageBeats, pageIndex) => (
-                    <div 
-                       key={`script-${pageIndex}`}
-                       className="bible-page border border-gray-200"
-                       style={{...pageStyle, ...contentStyle}}
-                    >
-                       {settings.showPageNumbers && (
-                           <div className="absolute top-0 right-0 p-4 text-black/40 font-screenplay text-[12pt] pointer-events-none"
-                             style={{ paddingTop: `${Math.max(0.5, settings.marginTop - 0.5)}in`, paddingRight: `${settings.marginRight}in` }}
-                           >
-                             {pageIndex + 1}.
-                           </div>
-                       )}
-                       <div className="w-full h-full overflow-hidden text-black font-screenplay text-[12pt] leading-tight">
-                         {pageBeats.map((beat) => {
-                            const originalIndex = filteredBeats.findIndex(b => b.id === beat.id);
-                            return (
-                               <div key={beat.id} className="mb-4 page-break-avoid">
-                                 <div className="print-slugline font-bold uppercase mb-2">
-                                   {settings.sceneNumbers && `${originalIndex + 1}. `} 
-                                   {beat.slug.prefix} {beat.slug.location} - {beat.slug.time}
-                                 </div>
-                                 <div dangerouslySetInnerHTML={{ __html: beat.content }} />
-                               </div>
-                            );
-                         })}
-                       </div>
-                    </div>
                ))}
+
+               {/* 4. SCRIPT PAGES (Uses Standard Margins) */}
+               {sections.script && (
+                   (() => {
+                       globalDialogueCounter = 0;
+                       return pages.map((pageBeats, pageIndex) => (
+                            <div 
+                               key={`script-${pageIndex}`}
+                               className="bible-page border border-gray-200"
+                               style={{...pageStyle, ...scriptContentStyle}}
+                            >
+                               {settings.showPageNumbers && (
+                                   <div className="absolute top-0 right-0 p-4 text-black/40 font-screenplay text-[12pt] pointer-events-none"
+                                     style={{ paddingTop: `${Math.max(0.5, settings.marginTop - 0.5)}in`, paddingRight: `${settings.marginRight}in` }}
+                                   >
+                                     {pageIndex + 1}.
+                                   </div>
+                               )}
+                               <div className="w-full h-full overflow-hidden text-black font-screenplay text-[12pt] leading-tight">
+                                 {pageBeats.map((beat) => {
+                                    const originalIndex = filteredBeats.findIndex(b => b.id === beat.id);
+                                    const slugText = `${beat.slug.prefix} ${beat.slug.location} - ${beat.slug.time}`;
+                                    const { bg, color, padding } = getSlugStyles(beat.slug.prefix, beat.slug.time);
+                                    const finalContent = processBeatContent(beat.content);
+
+                                    return (
+                                       <div key={beat.id} className="mb-4 page-break-avoid">
+                                         <div 
+                                            className="print-slugline font-bold uppercase mb-2"
+                                            style={{ 
+                                                backgroundColor: bg, 
+                                                color: color, 
+                                                padding: padding,
+                                                borderRadius: '4px',
+                                                display: 'flex',
+                                                justifyContent: 'space-between',
+                                                alignItems: 'baseline'
+                                            }}
+                                         >
+                                           <div className="flex gap-4">
+                                               {settings.sceneNumbersLeft && <span>{originalIndex + 1}.</span>}
+                                               <span>{slugText}</span>
+                                           </div>
+                                           {settings.sceneNumbersRight && <span>{originalIndex + 1}.</span>}
+                                         </div>
+                                         <div dangerouslySetInnerHTML={{ __html: finalContent }} />
+                                       </div>
+                                    );
+                                 })}
+                               </div>
+                            </div>
+                       ));
+                   })()
+               )}
             </div>
          </div>
       </div>

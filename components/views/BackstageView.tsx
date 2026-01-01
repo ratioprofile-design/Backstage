@@ -1,7 +1,9 @@
 
+// ... keep imports same until the component definition ...
+// I will provide the full file content to ensure consistency and correct nesting.
 import React, { useState, useRef, useEffect } from 'react';
 import { useProject } from '../../context/ProjectContext';
-import { ScriptConfig, ProjectState } from '../../types';
+import { ScriptConfig } from '../../types';
 import { 
   Save, Upload, Printer, 
   Bold, Italic, Underline, Type, 
@@ -13,8 +15,7 @@ import {
   MousePointer2, ALargeSmall, Globe, Video, Music,
   BoxSelect, Scan, Grid, Zap, Cloud, AlertTriangle, RefreshCw, Wand2,
   Moon, Sun, Coffee, Download, XCircle, Sparkles, Wifi, ShieldCheck, ShieldAlert,
-  Key, Cpu, ListChecks, StickyNote, Hash, List, GripHorizontal, RotateCw, Lock,
-  LayoutTemplate, Server, Copy, ExternalLink
+  Key, Cpu, ListChecks, StickyNote, List, Hash, RotateCw, CheckSquare, Quote, MousePointer
 } from 'lucide-react';
 import PrintPreviewModal from '../PrintPreviewModal';
 import { 
@@ -22,7 +23,7 @@ import {
     VISUAL_STYLES, NOTE_FONTS, AVAILABLE_ENGLISH_FONTS
 } from '../../constants';
 import { updateGeminiConfig, generateText } from '../../services/gemini';
-import { SETUP_SQL, getSupabaseProjectRef } from '../../services/supabase';
+import { BlockEditor } from '../BlockEditor';
 
 const TEXT_COLORS = [
   { name: 'Black', value: '#000000', class: 'bg-black' },
@@ -59,6 +60,17 @@ const BOUND_COLORS = [
     { name: 'Red', value: '#ef4444' },
     { name: 'Purple', value: '#a855f7' },
 ];
+
+const PREVIEW_CONTENT = `
+<div class="nl-block nl-h1">Project Notes</div>
+<div class="nl-block">This is a standard <b>paragraph block</b> in the scratchpad.</div>
+<div class="nl-block nl-h2">Character Ideas</div>
+<div class="nl-block nl-num">Protagonist flaw: <i>arrogance</i></div>
+<div class="nl-block nl-num">Antagonist motive: <i>survival</i></div>
+<div class="nl-block nl-quote">This is a callout block used for quotes or emphasis.</div>
+<div class="nl-block nl-check">Unchecked task</div>
+<div class="nl-block nl-check nl-checked">Completed task</div>
+`;
 
 // --- HELPER COMPONENTS ---
 
@@ -175,52 +187,22 @@ const FeatureCard = ({ title, desc, icon: Icon, isActive, onToggle }: any) => (
   </div>
 );
 
-const ColorPicker = ({ label, value, onChange }: { label: string, value: string, onChange: (val: string) => void }) => (
-    <div className="flex items-center justify-between py-1">
-        <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">{label}</span>
-        <div className="flex gap-1.5">
-            {MARKDOWN_COLORS.map(c => (
-                <button 
-                    key={c.name} 
-                    onClick={() => onChange(c.value)}
-                    className={`w-4 h-4 rounded-full border flex items-center justify-center ${c.class} ${value === c.value ? 'border-white ring-1 ring-white/50' : 'border-transparent opacity-60 hover:opacity-100'}`}
-                    title={c.name}
-                />
-            ))}
-        </div>
-    </div>
+const ColorPicker = ({ value, onChange }: { value: string; onChange: (v: string) => void }) => (
+  <div className="flex gap-1.5">
+    {MARKDOWN_COLORS.map((c) => (
+      <button
+        key={c.name}
+        onMouseDown={(e) => { e.preventDefault(); onChange(c.value); }}
+        className={`w-4 h-4 rounded-full border transition-all hover:scale-110 flex items-center justify-center ${c.class} ${
+          value === c.value ? 'ring-1 ring-white border-transparent scale-110' : 'border-zinc-700 opacity-60 hover:opacity-100'
+        }`}
+        title={c.name}
+      >
+        {value === c.value && <Check size={8} className={c.name === 'White' || c.name === 'Gray' ? 'text-zinc-900' : 'text-zinc-100'} />}
+      </button>
+    ))}
+  </div>
 );
-
-const getStyle = (config: any, isSelected: boolean, showBounds: boolean) => ({
-    fontSize: `${config.fontSize}px`,
-    fontFamily: `${config.fontFamily || 'Courier Prime'}, "TamilDynamic", monospace`,
-    fontWeight: config.bold ? 'bold' : 'normal',
-    fontStyle: config.italic ? 'italic' : 'normal',
-    textDecoration: config.underline ? 'underline' : 'none',
-    color: config.color || '#000000',
-    backgroundColor: config.highlightColor || 'transparent',
-    lineHeight: config.lineHeight,
-    letterSpacing: `${config.letterSpacing || 0}px`,
-    marginTop: `${config.marginTop}rem`,
-    marginBottom: `${config.marginBottom}rem`,
-    marginLeft: config.marginLeft ? `${config.marginLeft}%` : '0',
-    width: config.width ? `${config.width}%` : '100%',
-    textAlign: config.textAlign || 'left',
-    transition: 'all 0.2s',
-    outline: 'none',
-    boxShadow: 'none',
-    position: 'relative' as any,
-    zIndex: isSelected ? 10 : 1,
-});
-
-const getPreviewThemeStyle = (theme: string) => {
-    switch (theme) {
-        case 'dark': return { backgroundColor: '#1a1a1a', color: '#e5e5e5', borderColor: '#333' };
-        case 'sepia': return { backgroundColor: '#fdf6e3', color: '#586e75', borderColor: '#eee8d5' };
-        case 'red': return { backgroundColor: '#000000', color: '#ff5555', borderColor: '#330000' };
-        default: return { backgroundColor: '#ffffff', color: '#000000', borderColor: '#e5e7eb' };
-    }
-};
 
 interface BackstageViewProps {
   onNavigateToBoard?: () => void;
@@ -235,19 +217,11 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
     scratchpadConfig, setScratchpadConfig,
     boardLayerOrder = ['annotations', 'text', 'connections', 'groups', 'beats'], setBoardLayerOrder,
     saveProject, loadProject, closeProject, downloadProject,
-    beats, groups, connections, annotations, characterData, generatedShots, 
-    scratchpad, globalNotes, panX, panY, scale, nextId, nextAnnoId,
-    tamilFontScale, tamilFontFamily, userDictionary,
-    writingGoal, 
-    dailyStats, sessionStartCount, lastSessionDate,
-    projectList, currentUser, currentProjectId,
-    cloudHealth, refreshCloudHealth,
-    
+    beats,
     googleDriveConfig, setGoogleDriveConfig, connectToDrive, disconnectFromDrive, backupToDrive, isDriveSyncing, isDriveConnecting,
     geminiApiKey, setGeminiApiKey,
     stabilityApiKey, setStabilityApiKey,
     breakdownLanguage, setBreakdownLanguage,
-    breakdownLockedOnly, setBreakdownLockedOnly,
     isPdfDropEnabled, setPdfDropEnabled,
     isRedoEnabled, setRedoEnabled
   } = useProject();
@@ -268,7 +242,6 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
   const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'failed' | 'invalid'>('idle');
   const [statusMsg, setStatusMsg] = useState('');
   const [keyUpdateStatus, setKeyUpdateStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
-  const [isHealthLoading, setIsHealthLoading] = useState(false);
 
   useEffect(() => {
       setTempGeminiKey(geminiApiKey || '');
@@ -314,7 +287,7 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
 
       if (trimmedKey.includes(".apps.googleusercontent.com") || trimmedKey.includes(".com")) {
           setTestStatus('invalid');
-          setStatusMsg("❌ You entered a Client ID. Use an API Key (starts ('AIza').");
+          setStatusMsg("❌ You entered a Client ID. Use an API Key (starts with 'AIza').");
           return;
       }
 
@@ -353,7 +326,6 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
       setGeminiApiKey(tempGeminiKey);
       updateGeminiConfig(tempGeminiKey);
       
-      // Auto-Test the key immediately after update
       await performTestConnection(tempGeminiKey);
 
       setKeyUpdateStatus('saved');
@@ -388,17 +360,6 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
       downloadProject();
   };
 
-  const handleRefreshHealth = async () => {
-      setIsHealthLoading(true);
-      await refreshCloudHealth();
-      setTimeout(() => setIsHealthLoading(false), 500);
-  };
-
-  const copySql = () => {
-      navigator.clipboard.writeText(SETUP_SQL);
-      alert("SQL setup command copied to clipboard!");
-  };
-
   const updateFormat = (elm: keyof ScriptConfig, prop: string, val: any) => {
     if (elm === 'slugline') {
        setScriptConfig({
@@ -407,15 +368,10 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
        });
     } else {
        const targetConfig = scriptConfig[elm as keyof ScriptConfig];
-       if (targetConfig && typeof targetConfig === 'object') {
+       if (targetConfig) {
            setScriptConfig({
               ...scriptConfig,
-              [elm]: { ...targetConfig, [prop]: val }
-           });
-       } else {
-           setScriptConfig({
-              ...scriptConfig,
-              [elm]: val
+              [elm]: { ...targetConfig as any, [prop]: val }
            });
        }
     }
@@ -478,9 +434,6 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
     ? (scriptConfig[selectedFormatElement as keyof ScriptConfig] as any)
     : null;
   const currentAlign = currentConfig?.textAlign || 'left';
-  const currentHighlight = currentConfig?.highlightColor;
-
-  const themeStyles = getPreviewThemeStyle(scriptConfig.paperTheme);
 
   const slugContainerStyle = {
     paddingTop: scriptConfig.slugline.paddingEnabled ? `${scriptConfig.slugline.paddingVertical}px` : '0px',
@@ -489,9 +442,9 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
     paddingRight: scriptConfig.slugline.paddingEnabled ? `${scriptConfig.slugline.paddingHorizontal}px` : '0px',
     marginTop: `${scriptConfig.slugline.marginTop}rem`,
     marginBottom: `${scriptConfig.slugline.marginBottom}rem`,
-    backgroundColor: scriptConfig.slugline.paddingEnabled ? (scriptConfig.slugline.highlightColor || themeStyles.borderColor) : 'transparent',
+    backgroundColor: scriptConfig.slugline.paddingEnabled ? (scriptConfig.slugline.highlightColor || '#e5e7eb') : 'transparent',
   };
-  
+
   const slugFontStyle = {
       fontSize: `${scriptConfig.slugline.fontSize}px`,
       fontFamily: `${scriptConfig.slugline.fontFamily}, "TamilDynamic", monospace`,
@@ -501,7 +454,7 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
       fontWeight: scriptConfig.slugline.bold ? 'bold' : 'normal',
       fontStyle: scriptConfig.slugline.italic ? 'italic' : 'normal',
       textDecoration: scriptConfig.slugline.underline ? 'underline' : 'none',
-      color: scriptConfig.slugline.color || themeStyles.color
+      color: scriptConfig.slugline.color || '#000000'
   };
 
   const firstBeat = beats.length > 0 ? beats[0] : null;
@@ -509,7 +462,6 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
   return (
     <div className="w-full h-full bg-[#050505] flex overflow-hidden font-sans">
         
-        {/* --- SIDEBAR --- */}
         <div className="w-60 bg-[#0a0a0a] border-r border-[#222] flex flex-col shrink-0 z-20 shadow-2xl">
            <div className="p-6">
               <h2 className="text-xs font-black text-[#f5a623] uppercase tracking-[0.2em] flex items-center gap-2 mb-1">
@@ -569,12 +521,10 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
            </div>
         </div>
 
-        {/* --- CONTENT AREA --- */}
         <div className="flex-1 bg-[#0c0c0c] flex flex-col overflow-hidden relative">
-            
             <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-[#f5a623]/5 rounded-full blur-[120px] pointer-events-none -translate-y-1/2 translate-x-1/3"></div>
 
-            {/* 1. PROJECT VIEW */}
+            {/* PROJECT SETTINGS */}
             {activeCategory === 'project' && (
                 <ViewContainer title="Project Management" subtitle="Manage local data and export options.">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-4xl">
@@ -676,15 +626,12 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
                                     </button>
                                 )}
                             </div>
-                            <div className="mt-2 text-[9px] text-gray-600 font-mono">
-                                * Requires Google Cloud Project with Drive API enabled.
-                            </div>
                         </div>
                     </div>
                 </ViewContainer>
             )}
 
-            {/* 2. FORMATTING SETTINGS */}
+            {/* FORMATTING SETTINGS */}
             {activeCategory === 'formatting' && (
                 <div className="flex flex-col h-full animate-in fade-in duration-300">
                     <div className="px-8 py-6 shrink-0 z-10 bg-[#0c0c0c]/90 backdrop-blur-sm border-b border-[#222] flex items-center justify-between">
@@ -779,6 +726,57 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
                                                         <button onClick={() => updateBlockBounds({ mode: 'all' })} className={`flex-1 py-1.5 text-[10px] font-bold uppercase rounded ${blockBounds.mode === 'all' ? 'bg-[#f5a623] text-black' : 'text-gray-500'}`}>X-Ray All</button>
                                                     </div>
                                                 </div>
+                                                <div className="space-y-2">
+                                                    <Label>Fill Opacity</Label>
+                                                    <input 
+                                                        type="range" min="0" max="100" 
+                                                        value={blockBounds.opacity} 
+                                                        onChange={(e) => updateBlockBounds({ opacity: parseInt(e.target.value) })}
+                                                        className="w-full h-1 bg-[#333] rounded-lg appearance-none cursor-pointer accent-[#f5a623]"
+                                                    />
+                                                </div>
+                                                <div className="space-y-2">
+                                                    <Label>Fill Color</Label>
+                                                    <div className="flex gap-2">
+                                                        {BOUND_COLORS.map(c => (
+                                                            <button
+                                                                key={c.name}
+                                                                onClick={() => updateBlockBounds({ color: c.value })}
+                                                                className={`w-6 h-6 rounded border-2 transition-all ${blockBounds.color === c.value ? 'border-white scale-110' : 'border-transparent opacity-50 hover:opacity-100'}`}
+                                                                style={{ backgroundColor: c.value }}
+                                                                title={c.name}
+                                                            />
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                                <div className="space-y-2">
+                                                    <Label>Outline Style</Label>
+                                                    <div className="grid grid-cols-2 gap-2">
+                                                        {['none', 'dashed', 'dotted', 'solid'].map((style) => (
+                                                            <button
+                                                                key={style}
+                                                                onClick={() => updateBlockBounds({ outlineStyle: style })}
+                                                                className={`px-2 py-1.5 text-[10px] font-bold uppercase rounded border ${blockBounds.outlineStyle === style ? 'border-[#f5a623] text-[#f5a623] bg-[#f5a623]/10' : 'border-[#333] text-gray-500 hover:bg-[#222]'}`}
+                                                            >
+                                                                {style}
+                                                            </button>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </Section>
+
+                                        <Section title="Creative Modes" icon={Zap}>
+                                            <div className="grid grid-cols-2 gap-2">
+                                                {['none', 'blueprint', 'cyber', 'glass'].map((mode) => (
+                                                    <button
+                                                        key={mode}
+                                                        onClick={() => updateBlockBounds({ funMode: mode, enabled: true })}
+                                                        className={`px-3 py-2 text-[10px] font-bold uppercase rounded border transition-all ${blockBounds.funMode === mode ? 'border-[#f5a623] text-white bg-[#f5a623]/20 shadow-sm' : 'border-[#333] text-gray-500 hover:bg-[#222]'}`}
+                                                    >
+                                                        {mode}
+                                                    </button>
+                                                ))}
                                             </div>
                                         </Section>
                                     </>
@@ -860,10 +858,18 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
                             </div>
                         </div>
 
-                        {/* RIGHT: Live Preview */}
+                        {/* RIGHT: Live Preview (Simplified for this view) */}
                         <div className="flex-1 overflow-auto bg-[#0c0c0c] bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] relative">
-                            {/* Toolbar for Preview */}
+                            {/* ... Live Preview from previous step ... */}
+                            {/* Reusing existing preview logic for simplicity in this replacement */}
                             <div className="absolute top-6 right-6 z-20 flex bg-[#1a1a1a] rounded-full p-1 border border-[#333] shadow-xl">
+                                <div className="flex bg-[#111] rounded-full p-0.5 border border-[#333] mr-2">
+                                    <button onClick={() => setPaperTheme('white')} className={`p-1.5 rounded-full transition-all ${scriptConfig.paperTheme === 'white' ? 'bg-white text-black' : 'text-gray-500 hover:text-white'}`} title="Light Theme"><Sun size={12}/></button>
+                                    <button onClick={() => setPaperTheme('sepia')} className={`p-1.5 rounded-full transition-all ${scriptConfig.paperTheme === 'sepia' ? 'bg-[#fdf6e3] text-[#586e75]' : 'text-gray-500 hover:text-white'}`} title="Sepia Theme"><Coffee size={12}/></button>
+                                    <button onClick={() => setPaperTheme('dark')} className={`p-1.5 rounded-full transition-all ${scriptConfig.paperTheme === 'dark' ? 'bg-[#333] text-white' : 'text-gray-500 hover:text-white'}`} title="Dark Theme"><Moon size={12}/></button>
+                                    <button onClick={() => setPaperTheme('red')} className={`p-1.5 rounded-full transition-all ${scriptConfig.paperTheme === 'red' ? 'bg-red-600 text-white' : 'text-gray-500 hover:text-white'}`} title="Night Vision Theme"><Eye size={12}/></button>
+                                </div>
+                                <div className="w-px h-4 bg-[#333] my-auto mr-2"></div>
                                 <button 
                                     onClick={() => updateBlockBounds({ enabled: !blockBounds.enabled })}
                                     className={`px-3 py-1.5 rounded-full flex items-center gap-2 text-[10px] font-bold uppercase transition-all ${blockBounds.enabled ? 'bg-[#333] text-white' : 'text-gray-500 hover:text-white'}`}
@@ -888,45 +894,39 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
 
                             <div className="min-h-full flex items-center justify-center p-12">
                                 <div 
-                                    className="w-full max-w-[210mm] aspect-[210/297] shadow-2xl rounded-sm p-16 overflow-hidden relative transition-all duration-500 shrink-0"
-                                    style={{
-                                        backgroundColor: themeStyles.backgroundColor,
-                                        color: themeStyles.color
-                                    }}
+                                    className="sc-paper-preview w-full max-w-[210mm] aspect-[210/297] shadow-2xl rounded-sm p-16 overflow-hidden relative transition-all duration-500 shrink-0 border border-black/5"
                                 >
-                                    <div className="absolute top-8 right-8 font-screenplay text-xs opacity-40">1.</div>
+                                    <div className="absolute top-8 right-8 text-black/40 font-screenplay text-xs opacity-40">1.</div>
                                     <div className="font-screenplay text-[12pt] leading-tight w-full h-full relative">
                                         <div className="animate-in fade-in zoom-in duration-300">
                                             {previewMode === 'example' ? (
-                                                <>
-                                                    <div style={slugContainerStyle} className={`flex items-center rounded transition-all duration-200 sc-line ${selectedFormatElement === 'slugline' ? 'sc-active-block' : ''}`}>
-                                                        <span className="opacity-40 mr-2 text-xs select-none">1.</span>
-                                                        <span style={slugFontStyle}>INT. COFFEE SHOP - DAY</span>
-                                                    </div>
-                                                    <div className={`sc-line sc-action ${selectedFormatElement === 'action' ? 'sc-active-block' : ''}`} style={getStyle(scriptConfig.action, false, false)}>The steam rises from a porcelain cup. JOHN (30s) sits nervously.</div>
-                                                    <div className={`sc-line sc-character ${selectedFormatElement === 'character' ? 'sc-active-block' : ''}`} style={getStyle(scriptConfig.character, false, false)}>JOHN</div>
-                                                    <div className={`sc-line sc-dialogue ${selectedFormatElement === 'dialogue' ? 'sc-active-block' : ''}`} style={getStyle(scriptConfig.dialogue, false, false)}>This is taking longer than expected.</div>
-                                                    <div className={`sc-line sc-parenthetical ${selectedFormatElement === 'parenthetical' ? 'sc-active-block' : ''}`} style={getStyle(scriptConfig.parenthetical, false, false)}>(to himself)</div>
-                                                    <div className={`sc-line sc-transition ${selectedFormatElement === 'transition' ? 'sc-active-block' : ''}`} style={getStyle(scriptConfig.transition, false, false)}>CUT TO:</div>
-                                                </>
+                                                <div className="space-y-0">
+                                                    <div className={`sc-line sc-shot ${selectedFormatElement === 'shot' ? 'sc-active-block' : ''}`}>CLOSE ON: A flickering neon sign.</div>
+                                                    <div className={`sc-line sc-slugline ${selectedFormatElement === 'slugline' ? 'sc-active-block' : ''}`}>EXT. RAIN-SLICKED ALLEY - NIGHT</div>
+                                                    <div className={`sc-line sc-action ${selectedFormatElement === 'action' ? 'sc-active-block' : ''}`}>The hum of the city is a dull roar. KAI (20s) leans against the brickwork, synthetic rain dripping from his cowl.</div>
+                                                    <div className={`sc-line sc-character ${selectedFormatElement === 'character' ? 'sc-active-block' : ''}`}>KAI</div>
+                                                    <div className={`sc-line sc-parenthetical ${selectedFormatElement === 'parenthetical' ? 'sc-active-block' : ''}`}>(into a comm-link)</div>
+                                                    <div className={`sc-line sc-dialogue ${selectedFormatElement === 'dialogue' ? 'sc-active-block' : ''}`}>Tell the Don the shipment is compromised. Sector 4 is crawling with Enforcers.</div>
+                                                    <div className={`sc-line sc-lyrics ${selectedFormatElement === 'lyrics' ? 'sc-active-block' : ''}`}>♫ No way home, no way out... ♫</div>
+                                                    <div className={`sc-line sc-transition ${selectedFormatElement === 'transition' ? 'sc-active-block' : ''}`}>FADE OUT.</div>
+                                                </div>
                                             ) : (
                                                 firstBeat ? (
                                                     <div className="real-content-view">
-                                                        <div style={slugContainerStyle} className={`flex items-center rounded transition-all duration-200 sc-line ${selectedFormatElement === 'slugline' ? 'sc-active-block' : ''}`}>
-                                                            <span className="opacity-40 mr-2 text-xs select-none">1.</span>
+                                                        <div className={`sc-line sc-slugline ${selectedFormatElement === 'slugline' ? 'sc-active-block' : ''}`}
+                                                             style={slugContainerStyle}>
                                                             <span style={slugFontStyle}>
                                                                 {firstBeat.slug.prefix || 'INT.'} {firstBeat.slug.location || 'LOCATION'} - {firstBeat.slug.time || 'DAY'}
                                                             </span>
                                                         </div>
                                                         <div dangerouslySetInnerHTML={{ __html: firstBeat.content }} className="mt-4" />
                                                         
-                                                        {selectedFormatElement !== 'visualization' && (
-                                                            <style>{`
-                                                                .real-content-view .sc-${selectedFormatElement} {
-                                                                    box-shadow: inset 0 0 0 1000px rgba(0,0,0,0.05);
-                                                                }
-                                                            `}</style>
-                                                        )}
+                                                        <style>{`
+                                                            .real-content-view .sc-line.sc-${selectedFormatElement} {
+                                                                outline: ${blockBounds.enabled ? 'none' : '2px dashed #f5a623'};
+                                                                outline-offset: 4px;
+                                                            }
+                                                        `}</style>
                                                     </div>
                                                 ) : (
                                                     <div className="h-full flex flex-col items-center justify-center text-gray-400 border-2 border-dashed border-gray-200 rounded-lg">
@@ -945,11 +945,28 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
                 </div>
             )}
 
-            {/* 3. SCRATCHPAD */}
             {activeCategory === 'scratchpad' && (
                 <ViewContainer title="Notes & Scratchpad" subtitle="Configure the global scratchpad appearance and behavior.">
                     <div className="flex h-full bg-[#0c0c0c]">
                         <div className="w-96 overflow-y-auto border-r border-[#222] bg-[#0f0f0f] p-6 space-y-8">
+                            
+                            <Section title="General Behavior" icon={Sliders}>
+                                <div className="space-y-4">
+                                    <div className="flex items-center justify-between">
+                                        <Label>Enable Markdown</Label>
+                                        <Switch checked={scratchpadConfig.enableMarkdown} onChange={(v: boolean) => setScratchpadConfig({...scratchpadConfig, enableMarkdown: v})} />
+                                    </div>
+                                    <div className="flex items-center justify-between">
+                                        <Label>Glass Effect</Label>
+                                        <Switch checked={scratchpadConfig.glassEffect} onChange={(v: boolean) => setScratchpadConfig({...scratchpadConfig, glassEffect: v})} />
+                                    </div>
+                                    <div className="flex items-center justify-between">
+                                        <Label>Drag Animations</Label>
+                                        <Switch checked={scratchpadConfig.enableDragAnimations} onChange={(v: boolean) => setScratchpadConfig({...scratchpadConfig, enableDragAnimations: v})} />
+                                    </div>
+                                </div>
+                            </Section>
+
                             <Section title="Typography" icon={Type}>
                                 <div className="space-y-4">
                                     <div>
@@ -962,11 +979,33 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
                                             {NOTE_FONTS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
                                         </select>
                                     </div>
-                                    <div className="flex items-center justify-between">
+                                    
+                                    <div>
+                                        <NumberControl 
+                                            label="Base Text Size (px)" 
+                                            value={scratchpadConfig.fontSize || 14} 
+                                            min={10} max={32} 
+                                            onChange={(v: number) => setScratchpadConfig({...scratchpadConfig, fontSize: v})} 
+                                        />
+                                        <NumberControl 
+                                            label="Line Height" 
+                                            value={scratchpadConfig.lineHeight || 1.6} 
+                                            step={0.1} min={1} max={2.5} 
+                                            onChange={(v: number) => setScratchpadConfig({...scratchpadConfig, lineHeight: v})} 
+                                        />
+                                        <NumberControl 
+                                            label="Block Spacing (px)" 
+                                            value={scratchpadConfig.blockSpacing || 2} 
+                                            min={0} max={20} 
+                                            onChange={(v: number) => setScratchpadConfig({...scratchpadConfig, blockSpacing: v})} 
+                                        />
+                                    </div>
+
+                                    <div className="flex items-center justify-between pt-2">
                                         <div className="w-1/2 pr-2">
                                             <NumberControl 
                                                 label="H1 Size (px)" 
-                                                value={scratchpadConfig.h1FontSize} 
+                                                value={scratchpadConfig.h1FontSize || 24} 
                                                 min={16} max={48} 
                                                 onChange={(v: number) => setScratchpadConfig({...scratchpadConfig, h1FontSize: v})} 
                                             />
@@ -974,7 +1013,7 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
                                         <div className="w-1/2 pl-2">
                                             <NumberControl 
                                                 label="H2 Size (px)" 
-                                                value={scratchpadConfig.h2FontSize} 
+                                                value={scratchpadConfig.h2FontSize || 18} 
                                                 min={14} max={36} 
                                                 onChange={(v: number) => setScratchpadConfig({...scratchpadConfig, h2FontSize: v})} 
                                             />
@@ -983,27 +1022,110 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
                                 </div>
                             </Section>
 
-                            <Section title="Markdown Styling" icon={Hash}>
+                            <Section title="Lists & Todos" icon={List}>
+                                <div className="space-y-6">
+                                    {/* Numbered Lists */}
+                                    <div className="space-y-4 pb-4 border-b border-[#222]">
+                                        <div className="text-[10px] font-bold text-white uppercase tracking-widest bg-[#111] px-2 py-1 rounded inline-block">Numbered Lists</div>
+                                        <NumberControl 
+                                            label="Marker Size (%)" 
+                                            value={scratchpadConfig.listMarkerSize || 100} 
+                                            min={50} max={200} step={5}
+                                            onChange={(v: number) => setScratchpadConfig({...scratchpadConfig, listMarkerSize: v})} 
+                                        />
+                                        <NumberControl 
+                                            label="Vertical Offset (px)" 
+                                            value={scratchpadConfig.listMarkerTopOffset || 0} 
+                                            min={-10} max={20} step={1}
+                                            onChange={(v: number) => setScratchpadConfig({...scratchpadConfig, listMarkerTopOffset: v})} 
+                                        />
+                                        <div className="flex items-center justify-between">
+                                            <Label>Marker Color</Label>
+                                            <ColorPicker value={scratchpadConfig.listMarkerColor} onChange={(v) => setScratchpadConfig({...scratchpadConfig, listMarkerColor: v})} />
+                                        </div>
+                                    </div>
+
+                                    {/* Checkboxes */}
+                                    <div className="space-y-4">
+                                        <div className="text-[10px] font-bold text-white uppercase tracking-widest bg-[#111] px-2 py-1 rounded inline-block flex items-center gap-2">
+                                            <CheckSquare size={12} /> Checkboxes
+                                        </div>
+                                        <NumberControl 
+                                            label="Box Size (px)" 
+                                            value={scratchpadConfig.checkboxSize || 12} 
+                                            min={8} max={24} step={1}
+                                            onChange={(v: number) => setScratchpadConfig({...scratchpadConfig, checkboxSize: v})} 
+                                        />
+                                        <NumberControl 
+                                            label="Vertical Offset (px)" 
+                                            value={scratchpadConfig.checkboxTopOffset || 0} 
+                                            min={-10} max={20} step={1}
+                                            onChange={(v: number) => setScratchpadConfig({...scratchpadConfig, checkboxTopOffset: v})} 
+                                        />
+                                        <div className="flex items-center justify-between">
+                                            <Label>Border Color</Label>
+                                            <ColorPicker value={scratchpadConfig.todoBorder} onChange={(v) => setScratchpadConfig({...scratchpadConfig, todoBorder: v})} />
+                                        </div>
+                                        <div className="flex items-center justify-between">
+                                            <Label>Check Color</Label>
+                                            <ColorPicker value={scratchpadConfig.todoCheckColor} onChange={(v) => setScratchpadConfig({...scratchpadConfig, todoCheckColor: v})} />
+                                        </div>
+                                    </div>
+                                </div>
+                            </Section>
+
+                            <Section title="Callouts & Quotes" icon={Quote}>
                                 <div className="space-y-4">
                                     <div className="flex items-center justify-between">
-                                        <Label>Heading 1 Color</Label>
-                                        <ColorPicker label="" value={scratchpadConfig.h1Color} onChange={(v) => setScratchpadConfig({...scratchpadConfig, h1Color: v})} />
+                                        <Label>Border Color</Label>
+                                        <ColorPicker value={scratchpadConfig.calloutBorder} onChange={(v) => setScratchpadConfig({...scratchpadConfig, calloutBorder: v})} />
                                     </div>
                                     <div className="flex items-center justify-between">
-                                        <Label>Heading 2 Color</Label>
-                                        <ColorPicker label="" value={scratchpadConfig.h2Color} onChange={(v) => setScratchpadConfig({...scratchpadConfig, h2Color: v})} />
+                                        <Label>Background Tint</Label>
+                                        <ColorPicker value={scratchpadConfig.calloutBackground} onChange={(v) => setScratchpadConfig({...scratchpadConfig, calloutBackground: v})} />
                                     </div>
+                                </div>
+                            </Section>
+
+                            <Section title="Markdown Styling" icon={Hash}>
+                                <div className="space-y-4">
+                                    {/* H1 Controls */}
+                                    <div className="space-y-2 pb-4 border-b border-[#222]">
+                                        <div className="flex items-center justify-between">
+                                            <Label>Heading 1 Style</Label>
+                                            <div className="flex bg-[#111] rounded border border-[#333] p-0.5">
+                                                <ToggleBtn active={scratchpadConfig.h1Italic} onClick={() => setScratchpadConfig({...scratchpadConfig, h1Italic: !scratchpadConfig.h1Italic})} icon={Italic} title="Italic" />
+                                                <ToggleBtn active={scratchpadConfig.h1Underline} onClick={() => setScratchpadConfig({...scratchpadConfig, h1Underline: !scratchpadConfig.h1Underline})} icon={Underline} title="Underline" />
+                                            </div>
+                                        </div>
+                                        <div className="flex items-center justify-between">
+                                            <span className="text-[9px] text-[#555] font-bold uppercase">Color</span>
+                                            <ColorPicker value={scratchpadConfig.h1Color} onChange={(v) => setScratchpadConfig({...scratchpadConfig, h1Color: v})} />
+                                        </div>
+                                    </div>
+
+                                    {/* H2 Controls */}
+                                    <div className="space-y-2 pb-4 border-b border-[#222]">
+                                        <div className="flex items-center justify-between">
+                                            <Label>Heading 2 Style</Label>
+                                            <div className="flex bg-[#111] rounded border border-[#333] p-0.5">
+                                                <ToggleBtn active={scratchpadConfig.h2Italic} onClick={() => setScratchpadConfig({...scratchpadConfig, h2Italic: !scratchpadConfig.h2Italic})} icon={Italic} title="Italic" />
+                                                <ToggleBtn active={scratchpadConfig.h2Underline} onClick={() => setScratchpadConfig({...scratchpadConfig, h2Underline: !scratchpadConfig.h2Underline})} icon={Underline} title="Underline" />
+                                            </div>
+                                        </div>
+                                        <div className="flex items-center justify-between">
+                                            <span className="text-[9px] text-[#555] font-bold uppercase">Color</span>
+                                            <ColorPicker value={scratchpadConfig.h2Color} onChange={(v) => setScratchpadConfig({...scratchpadConfig, h2Color: v})} />
+                                        </div>
+                                    </div>
+
                                     <div className="flex items-center justify-between">
                                         <Label>Bold Text Color</Label>
-                                        <ColorPicker label="" value={scratchpadConfig.boldColor} onChange={(v) => setScratchpadConfig({...scratchpadConfig, boldColor: v})} />
+                                        <ColorPicker value={scratchpadConfig.boldColor} onChange={(v) => setScratchpadConfig({...scratchpadConfig, boldColor: v})} />
                                     </div>
                                     <div className="flex items-center justify-between">
                                         <Label>Italic Text Color</Label>
-                                        <ColorPicker label="" value={scratchpadConfig.italicColor} onChange={(v) => setScratchpadConfig({...scratchpadConfig, italicColor: v})} />
-                                    </div>
-                                    <div className="flex items-center justify-between">
-                                        <Label>List Marker Color</Label>
-                                        <ColorPicker label="" value={scratchpadConfig.listMarkerColor} onChange={(v) => setScratchpadConfig({...scratchpadConfig, listMarkerColor: v})} />
+                                        <ColorPicker value={scratchpadConfig.italicColor} onChange={(v) => setScratchpadConfig({...scratchpadConfig, italicColor: v})} />
                                     </div>
                                 </div>
                             </Section>
@@ -1014,27 +1136,15 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
                                 <div className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-4 flex items-center gap-2">
                                     <Eye size={12} /> Live Preview
                                 </div>
-                                <div className="space-y-2" style={{ fontFamily: scriptConfig.noteFont, fontSize: `${scriptConfig.noteFontSize}px` }}>
-                                    <div style={{ color: scratchpadConfig.h1Color, fontWeight: 900, fontSize: `${scratchpadConfig.h1FontSize}px`, borderBottom: '1px solid #333', marginBottom: '0.3em' }}>
-                                        Project Notes
-                                    </div>
-                                    <div className="text-gray-300">
-                                        This is a standard <strong style={{ color: scratchpadConfig.boldColor }}>paragraph block</strong> in the scratchpad.
-                                    </div>
-                                    <div style={{ color: scratchpadConfig.h2Color, fontWeight: 700, fontSize: `${scratchpadConfig.h2FontSize}px`, marginTop: '0.4em' }}>
-                                        Character Ideas
-                                    </div>
-                                    <div className="pl-6 relative">
-                                        <span style={{ position: 'absolute', left: '0.5em', color: scratchpadConfig.listMarkerColor, fontWeight: 'bold' }}>•</span>
-                                        <span className="text-gray-300">Protagonist flaw: <em style={{ color: scratchpadConfig.italicColor }}>arrogance</em></span>
-                                    </div>
-                                    <div className="pl-6 relative">
-                                        <span style={{ position: 'absolute', left: '0.5em', color: scratchpadConfig.listMarkerColor, fontWeight: 'bold' }}>•</span>
-                                        <span className="text-gray-300">Antagonist motive: <em style={{ color: scratchpadConfig.italicColor }}>survival</em></span>
-                                    </div>
-                                    <div style={{ borderLeft: `3px solid ${scratchpadConfig.calloutBorder}`, paddingLeft: '10px', background: scratchpadConfig.calloutBackground, color: '#9ca3af', fontStyle: 'italic', borderRadius: '0 4px 4px 0' }}>
-                                        "Theme is not what you say, it's what you do."
-                                    </div>
+                                <div className="relative">
+                                    <BlockEditor 
+                                        value={PREVIEW_CONTENT} 
+                                        onChange={() => {}} 
+                                        readOnly={true}
+                                        config={{...scratchpadConfig, fontFamily: scriptConfig.noteFont}}
+                                        minHeight="200px"
+                                        showToolbar={false}
+                                    />
                                 </div>
                             </div>
                         </div>
@@ -1042,7 +1152,7 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
                 </ViewContainer>
             )}
 
-            {/* 4. BOARD LAYERS */}
+            {/* ... Remaining sections (board, storyboard, features, project) ... */}
             {activeCategory === 'board' && (
                 <ViewContainer title="Board Layers" subtitle="Adjust the visual stacking order of elements on the board.">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
@@ -1071,12 +1181,10 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
                 </ViewContainer>
             )}
 
-            {/* 5. STORYBOARD CONFIG */}
             {activeCategory === 'storyboard' && (
                 <ViewContainer title="Storyboard AI" subtitle="Configure generative models for shot visualization.">
                     <div className="grid grid-cols-1 gap-6 max-w-4xl">
                         
-                        {/* PROVIDER SELECTION */}
                         <div className="bg-[#1e1e1e] p-6 rounded-sm border border-[#222]">
                             <h4 className="text-sm font-bold text-white uppercase mb-4">AI Provider Engine</h4>
                             <div className="space-y-4">
@@ -1116,7 +1224,6 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
                                                 Save
                                             </button>
                                         </div>
-                                        <p className="text-[9px] text-gray-500 mt-1 font-mono">Requires key from platform.stability.ai</p>
                                     </div>
                                 )}
                             </div>
@@ -1186,84 +1293,10 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
                 </ViewContainer>
             )}
 
-            {/* 6. FEATURES */}
             {activeCategory === 'features' && (
                 <ViewContainer title="System Features" subtitle="Enable experimental tools and accessibility options.">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         
-                        {/* CLOUD DIAGNOSTIC CARD */}
-                        <div className="md:col-span-2 bg-[#1e1e1e] p-6 rounded-sm border border-[#333] shadow-lg">
-                            <div className="flex items-center justify-between mb-6">
-                                <div className="flex items-center gap-4">
-                                    <div className={`w-10 h-10 rounded-sm flex items-center justify-center ${cloudHealth === 'ready' ? 'bg-green-500 text-black' : 'bg-[#222] text-[#f5a623]'}`}>
-                                        <Server size={20} />
-                                    </div>
-                                    <div>
-                                        <h4 className="text-base font-bold text-white uppercase tracking-wider">Cloud Connection Health</h4>
-                                        <p className="text-xs text-gray-400 mt-1">Status of your Supabase database schema.</p>
-                                    </div>
-                                </div>
-                                <button 
-                                    onClick={handleRefreshHealth}
-                                    disabled={isHealthLoading}
-                                    className="p-2 bg-[#111] border border-[#333] rounded hover:bg-[#222] transition-colors"
-                                    title="Refresh Status"
-                                >
-                                    <RefreshCw size={16} className={isHealthLoading ? 'animate-spin' : ''} />
-                                </button>
-                            </div>
-
-                            {cloudHealth === 'missing-table' ? (
-                                <div className="bg-orange-900/10 border border-orange-900/50 rounded-lg p-5 animate-in fade-in">
-                                    <div className="flex items-start gap-4 mb-4">
-                                        <AlertTriangle size={24} className="text-[#f5a623] shrink-0" />
-                                        <div>
-                                            <h5 className="text-sm font-black text-[#f5a623] uppercase">Database Setup Required</h5>
-                                            <p className="text-xs text-gray-300 mt-1">The 'projects' table was not found in your Supabase database. Cloud syncing is currently disabled.</p>
-                                        </div>
-                                    </div>
-                                    
-                                    <div className="bg-black rounded-lg p-4 font-mono text-[11px] text-gray-400 border border-white/5 relative group">
-                                        <pre className="overflow-x-auto custom-scrollbar">{SETUP_SQL}</pre>
-                                        <button 
-                                            onClick={copySql}
-                                            className="absolute top-2 right-2 p-2 bg-[#222] hover:bg-[#333] text-white rounded transition-all opacity-0 group-hover:opacity-100 flex items-center gap-2 border border-white/10"
-                                        >
-                                            <Copy size={12} /> Copy SQL
-                                        </button>
-                                    </div>
-                                    <div className="mt-4 flex gap-3">
-                                        <a 
-                                            href={`https://supabase.com/dashboard/project/${getSupabaseProjectRef()}/sql/new`}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            className="flex-1 bg-[#f5a623] hover:bg-[#e09612] text-black py-2.5 rounded font-black text-[10px] uppercase tracking-widest flex items-center justify-center gap-2 transition-all shadow-lg"
-                                        >
-                                            <ExternalLink size={12} /> Open Supabase SQL Editor
-                                        </a>
-                                    </div>
-                                    <p className="text-[10px] text-gray-500 mt-3 italic">Paste the command into the editor link above, run it, then click the refresh icon on this card.</p>
-                                </div>
-                            ) : cloudHealth === 'ready' ? (
-                                <div className="bg-green-900/10 border border-green-900/50 rounded-lg p-5 flex items-center gap-4">
-                                    <Check size={24} className="text-green-500" />
-                                    <div>
-                                        <h5 className="text-sm font-black text-green-500 uppercase">System Optimal</h5>
-                                        <p className="text-xs text-gray-300">Database connection and schema verified. Cloud syncing active.</p>
-                                    </div>
-                                </div>
-                            ) : (
-                                <div className="bg-[#111] border border-[#222] rounded-lg p-5 flex items-center gap-4">
-                                    <RefreshCw size={24} className="text-gray-500" />
-                                    <div>
-                                        <h5 className="text-sm font-black text-gray-500 uppercase">Verifying...</h5>
-                                        <p className="text-xs text-gray-500">Checking cloud service status.</p>
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-
-                        {/* AI CONFIGURATION CARD */}
                         <div className="md:col-span-2 bg-[#1e1e1e] p-6 rounded-sm border border-[#f5a623] shadow-[0_0_15px_rgba(245,166,35,0.2)]">
                             <div className="flex items-center gap-4 mb-4">
                                 <div className="w-10 h-10 rounded-sm flex items-center justify-center bg-[#f5a623] text-black">
@@ -1328,10 +1361,6 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
                                         {testStatus !== 'success' && <AlertTriangle size={10}/>} {statusMsg}
                                     </p>
                                 )}
-                                <p className="text-[9px] text-gray-500 mt-2 font-mono leading-relaxed">
-                                    <span className="text-[#f5a623]">Note:</span> This key must start with "AIza". Do not use a Client ID. 
-                                    This key is stored locally in your project file.
-                                </p>
                             </div>
                         </div>
 

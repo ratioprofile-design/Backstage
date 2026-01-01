@@ -1,5 +1,5 @@
 
-import { ProjectState } from './types';
+import { ProjectState, CharacterData } from './types';
 
 export const STORYLINE_COLORS = [
   '#e67e22', '#3498db', '#9b59b6', '#2ecc71', '#e74c3c', 
@@ -127,8 +127,6 @@ export const NOTE_FONTS = [
     { label: 'Merriweather (Serif)', value: '"Merriweather", serif' },
     { label: 'Inter (Clean)', value: '"Inter", sans-serif' },
     { label: 'Roboto Mono (Code)', value: '"Roboto Mono", monospace' },
-    { label: 'Caveat (Handwritten)', value: '"Caveat", cursive' },
-    { label: 'Comic Neue (Casual)', value: '"Comic Neue", cursive' },
 ];
 
 export const INITIAL_STATE: ProjectState = {
@@ -216,14 +214,20 @@ export const INITIAL_STATE: ProjectState = {
     h2Italic: true,
     
     // New Defaults
-    h1FontSize: 24,
-    h2FontSize: 18,
+    h1FontSize: 17,
+    h2FontSize: 14,
     boldColor: '#f5a623', // Orange
     italicColor: '#cccccc',
     
     // Bullets
     listMarkerColor: '#3b82f6', // Blue (Numbers)
+    listMarkerSize: 120, 
+    listMarkerTopOffset: 1, 
     bulletStyle: 'dot',
+
+    // Checkboxes
+    checkboxSize: 12,
+    checkboxTopOffset: 2,
 
     calloutBackground: 'rgba(245, 166, 35, 0.05)', // Light Green tint
     calloutBorder: '#22c55e', // Green

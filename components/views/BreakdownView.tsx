@@ -24,7 +24,7 @@ const CATEGORIES = [
 ];
 
 const BreakdownView: React.FC = () => {
-    const { beats, updateBeat, geminiApiKey, breakdownLanguage, breakdownLockedOnly, setBreakdownLockedOnly, googleDriveConfig } = useProject();
+    const { beats, updateBeat, geminiApiKey, breakdownLanguage, breakdownLockedOnly, setBreakdownLockedOnly, googleDriveConfig, scriptConfig, scratchpadConfig } = useProject();
     const [selectedCategory, setSelectedCategory] = useState<string>('all');
     const [searchTerm, setSearchTerm] = useState('');
     const [viewType, setViewType] = useState<'by-category' | 'by-scene'>('by-scene');
@@ -116,9 +116,8 @@ const BreakdownView: React.FC = () => {
         const sortedBeats = [...beats].sort((a, b) => a.x - b.x);
         return sortedBeats.map((beat, idx) => {
             const hasBreakdown = !!beat.breakdown;
-            // Fix: Add explicit cast to any[] and default length to avoid "operator > applied to unknown" later
             const totalItems = hasBreakdown 
-                ? Object.values(beat.breakdown || {}).reduce((acc: number, arr: any) => acc + ((arr as any[])?.length || 0), 0)
+                ? Object.values(beat.breakdown || {}).reduce((acc: number, arr: any) => acc + (arr?.length || 0), 0)
                 : 0;
             return { beat, hasBreakdown, totalItems, sceneIndex: idx + 1 };
         });
@@ -259,6 +258,11 @@ const BreakdownView: React.FC = () => {
         } finally {
             setIsExporting(false);
         }
+    };
+
+    const fontStyle = {
+        fontFamily: scriptConfig.noteFont,
+        fontSize: `${scratchpadConfig.fontSize || 14}px`
     };
 
     return (
@@ -443,7 +447,7 @@ const BreakdownView: React.FC = () => {
                             <div className="h-full bg-[#f5a623] transition-all duration-300 ease-out" style={{ width: `${(progress.current / progress.total) * 100}%` }} />
                         </div>
                         <div className="text-[10px] text-gray-400 font-mono shrink-0">
-                            {Math.round((progress.current / progress.total) * 100)}
+                            {Math.round((progress.current / progress.total) * 100)}%
                         </div>
                     </div>
                 )}
@@ -463,7 +467,7 @@ const BreakdownView: React.FC = () => {
                                                     {catMeta && <catMeta.icon size={18} className={catMeta.color} />}
                                                 </div>
                                                 <div>
-                                                    <h3 className="text-sm font-bold text-gray-200 group-hover:text-white transition-colors">{item.name}</h3>
+                                                    <h3 className="text-sm font-bold text-gray-200 group-hover:text-white transition-colors" style={fontStyle}>{item.name}</h3>
                                                     <div className="text-[10px] text-[#666] font-medium uppercase mt-0.5">{catMeta?.label}</div>
                                                 </div>
                                             </div>
@@ -509,7 +513,7 @@ const BreakdownView: React.FC = () => {
                                                 <span className="text-lg font-black text-white">{item.beat.sceneNumber || item.sceneIndex}</span>
                                             </div>
                                             <div>
-                                                <h4 className="text-base font-bold text-gray-200 group-hover:text-white transition-colors">
+                                                <h4 className="text-base font-bold text-gray-200 group-hover:text-white transition-colors" style={fontStyle}>
                                                     {item.beat.slug.location || 'UNKNOWN LOCATION'}
                                                 </h4>
                                                 <div className="flex items-center gap-2 text-[10px] font-medium text-[#666] mt-1 bg-[#1a1a1a] px-2 py-0.5 rounded w-fit">
@@ -541,7 +545,7 @@ const BreakdownView: React.FC = () => {
                                                                 const name = typeof i === 'string' ? i : i.name;
                                                                 const src = typeof i === 'string' ? null : i.source;
                                                                 return (
-                                                                    <div key={idx} className="text-[11px] text-gray-400 pl-2 border-l-2 border-[#333] hover:border-[#f5a623] hover:text-white transition-all cursor-default py-0.5" title={src ? `Source: "${src}"` : undefined}>
+                                                                    <div key={idx} className="text-[11px] text-gray-400 pl-2 border-l-2 border-[#333] hover:border-[#f5a623] hover:text-white transition-all cursor-default py-0.5" title={src ? `Source: "${src}"` : undefined} style={fontStyle}>
                                                                         {name}
                                                                     </div>
                                                                 );

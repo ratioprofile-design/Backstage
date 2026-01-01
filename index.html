@@ -32,16 +32,14 @@
     </script>
     <link href="https://fonts.googleapis.com/css2?family=Courier+Prime:ital,wght@0,400;0,700;1,400;1,700&display=swap" rel="stylesheet">
     <style>
-      /* Define a balanced version of Vijaya that is scaled down to match Courier Prime's x-height */
       @font-face {
         font-family: 'VijayaBalanced';
         src: local('Vijaya');
-        size-adjust: 120%; /* SCALED: Vijaya is naturally small. 120% brings it to optical parity with Courier 12pt. */
-        unicode-range: U+0B80-0BFF; /* Tamil Unicode Range */
+        size-adjust: 120%;
+        unicode-range: U+0B80-0BFF;
       }
 
       :root {
-        /* Default Screenplay Settings (Overridden by JS) */
         --margin-action: 0%; --width-action: 100%; --mt-action: 0rem; --mb-action: 0rem; --size-action: 13px; --font-action: 'Courier Prime', 'VijayaBalanced', monospace; --align-action: left; --lh-action: 1.15; --ls-action: 0px; --weight-action: normal; --style-action: italic; --dec-action: none; --color-action: black; --bg-action: transparent;
         --margin-character: 37%; --width-character: 50%; --mt-character: 0rem; --mb-character: 0rem; --size-character: 13px; --font-character: 'Courier Prime', 'VijayaBalanced', monospace; --align-character: left; --lh-character: 1.15; --ls-character: 0px; --weight-character: normal; --style-character: normal; --dec-character: none; --color-character: black; --bg-character: transparent;
         --margin-dialogue: 25%; --width-dialogue: 50%; --mt-dialogue: 0rem; --mb-dialogue: 0rem; --size-dialogue: 13px; --font-dialogue: 'Courier Prime', 'VijayaBalanced', monospace; --align-dialogue: left; --lh-dialogue: 1.15; --ls-dialogue: 0px; --weight-dialogue: normal; --style-dialogue: normal; --dec-dialogue: none; --color-dialogue: black; --bg-dialogue: transparent;
@@ -57,7 +55,6 @@
       .no-scrollbar::-webkit-scrollbar { display: none; }
       .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 
-      /* Screenplay Formatting Logic (Screen View) */
       .sc-line { 
         display: block; 
         min-height: 1.2em; 
@@ -176,14 +173,9 @@
         background-color: var(--bg-lyrics) !important;
       }
 
-      .sc-lyrics::before {
-        content: var(--prefix-lyrics);
-      }
-      .sc-lyrics::after {
-        content: var(--suffix-lyrics);
-      }
+      .sc-lyrics::before { content: var(--prefix-lyrics); }
+      .sc-lyrics::after { content: var(--suffix-lyrics); }
 
-      /* --- PRINT STYLES --- */
       @media print {
         @page { margin: 1in; }
         html, body, #root, main { width: 100% !important; height: auto !important; overflow: visible !important; position: static !important; display: block !important; margin: 0 !important; padding: 0 !important; background-color: white !important; color: black !important; visibility: visible !important; }
@@ -204,7 +196,7 @@
     "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
     "react/": "https://esm.sh/react@^19.2.3/",
     "@google/genai": "https://esm.sh/@google/genai@^1.34.0",
-    "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@2.39.7",
+    "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@^2.39.7",
     "lucide-react": "https://esm.sh/lucide-react@^0.562.0",
     "recharts": "https://esm.sh/recharts@^3.6.0",
     "html2canvas": "https://esm.sh/html2canvas@^1.4.1",
@@ -215,9 +207,7 @@
   }
 }
 </script>
-<!-- Google Identity Services -->
 <script src="https://accounts.google.com/gsi/client" async defer></script>
-<!-- Google API Client -->
 <script src="https://apis.google.com/js/api.js" async defer></script>
 </head>
   <body>
