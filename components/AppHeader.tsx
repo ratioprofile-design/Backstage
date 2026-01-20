@@ -2,7 +2,7 @@
 import React, { useMemo } from 'react';
 import { ViewMode } from '../types';
 import { useProject } from '../context/ProjectContext';
-import { Target, Zap, Clock, Film, RotateCcw, RotateCw } from 'lucide-react';
+import { Target, Zap, Clock, Film, RotateCcw, RotateCw, CheckCircle2, TrendingUp } from 'lucide-react';
 
 interface AppHeaderProps {
   currentView: ViewMode;
@@ -32,47 +32,79 @@ const AppHeader: React.FC<AppHeaderProps> = ({ currentView, onViewChange, onRefr
     { id: 'statistics', label: 'Statistics' }
   ].filter(v => !v.hidden);
 
-  // Live Progress Calculation
+  // Live Progress Calculation (Smart Daily/Total Switch)
   const progressDisplay = useMemo(() => {
       if (!writingGoal.isActive) return null;
 
+      // 1. Calculate Total Volume
+      let totalWords = 0;
+      beats.forEach(b => {
+          // Robust HTML strip to get pure text content
+          const div = document.createElement('div');
+          div.innerHTML = b.content;
+          const text = (div.textContent || '').trim();
+          if (text.length > 0) {
+              totalWords += text.split(/\s+/).filter(w => w.length > 0).length;
+          }
+      });
+      // UPDATED: Use floor to count only complete pages
+      const totalPages = Math.floor(totalWords / 250);
+
+      // 2. Determine Units
+      const isPages = writingGoal.type === 'pages';
+      const currentTotal = isPages ? totalPages : totalWords;
+      const targetTotal = writingGoal.targetAmount;
+
+      // 3. Calculate Daily Progress
+      // FIX: Use toISOString to match ProjectContext's storage key format
+      const todayKey = new Date().toISOString().split('T')[0];
+      const todayWords = dailyStats[todayKey] || 0;
+      // UPDATED: Use floor to count only complete pages
+      const todayPages = Math.floor(todayWords / 250);
+      const currentDaily = isPages ? todayPages : todayWords;
+
+      // 4. Calculate Dynamic Daily Goal
+      const today = new Date();
+      today.setHours(0,0,0,0);
+      const dueDate = new Date(writingGoal.deadline);
+      dueDate.setHours(0,0,0,0);
+      
+      const diffTime = dueDate.getTime() - today.getTime();
+      const daysLeft = Math.max(1, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
+      const unitsLeft = Math.max(0, targetTotal - currentTotal);
+      
+      let dailyTarget = 0;
       if (writingGoal.mode === 'habit') {
-          const todayStr = new Date().toISOString().split('T')[0];
-          const todayCount = dailyStats[todayStr] || 0;
-          const target = writingGoal.dailyTarget || 500;
-          const percent = Math.min(100, (todayCount / target) * 100);
-          const isDone = todayCount >= target;
-          
-          return {
-              label: `${todayCount} / ${target}`,
-              sub: 'Today',
-              percent,
-              isDone,
-              icon: Zap
-          };
+          dailyTarget = writingGoal.dailyTarget;
       } else {
-          // Deadline Mode - Calculate Total Words from Script
-          let totalWords = 0;
-          beats.forEach(b => {
-              // Strip tags and replace with space to ensure word separation
-              const text = b.content.replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').trim();
-              if (text.length > 0) {
-                  totalWords += text.split(/\s+/).filter(w => w.length > 0).length;
-              }
-          });
-          
-          const current = writingGoal.type === 'pages' ? Math.ceil(totalWords / 250) : totalWords;
-          const target = writingGoal.targetAmount;
-          const percent = Math.min(100, (current / target) * 100);
-          
-          return {
-              label: `${current} / ${target}`,
-              sub: writingGoal.type === 'pages' ? 'Pages' : 'Words',
-              percent,
-              isDone: current >= target,
-              icon: Clock
-          };
+          // If we are ahead of schedule, daily target might be 0, but usually we want to keep momentum
+          dailyTarget = unitsLeft > 0 ? Math.ceil(unitsLeft / daysLeft) : 0;
       }
+
+      // 5. Determine Display State
+      // If user hit daily target, switch to Total Project Progress (Gold)
+      // Otherwise show Daily Progress (Blue)
+      const isDailyDone = currentDaily >= dailyTarget && dailyTarget > 0;
+      const isProjectDone = currentTotal >= targetTotal;
+
+      const showTotal = isDailyDone || isProjectDone;
+
+      const currentDisplay = showTotal ? currentTotal : currentDaily;
+      const targetDisplay = showTotal ? targetTotal : dailyTarget;
+      
+      const percent = targetDisplay > 0 
+          ? Math.min(100, Math.round((currentDisplay / targetDisplay) * 100))
+          : (currentDisplay > 0 ? 100 : 0);
+
+      return {
+          current: currentDisplay,
+          target: targetDisplay,
+          unit: isPages ? 'Pgs' : 'Wds',
+          percent,
+          isDone: isProjectDone,
+          showTotal, // true = Gold (Project), false = Blue (Daily)
+          label: showTotal ? (isProjectDone ? 'Done' : 'Project') : 'Today'
+      };
   }, [writingGoal, dailyStats, beats]);
 
   return (
@@ -144,34 +176,47 @@ const AppHeader: React.FC<AppHeaderProps> = ({ currentView, onViewChange, onRefr
         <div className="flex items-center justify-end gap-[10px] h-full flex-1">
           <button 
             onClick={() => onViewChange('goals')}
-            className={`relative overflow-hidden flex items-center gap-3 px-3 py-1.5 rounded-[4px] border transition-all duration-300 group min-w-[140px] ${
+            className={`relative overflow-hidden flex items-center gap-3 px-3 py-1.5 rounded-[4px] border transition-all duration-300 group min-w-[140px] h-9 ${
               currentView === 'goals'
                 ? 'bg-[#222] border-[#f5a623] shadow-[0_0_10px_rgba(245,166,35,0.2)]'
                 : writingGoal.isActive 
                     ? 'bg-[#1a1a1a] border-[#333] hover:border-[#555]' 
                     : 'bg-[#222] border-[#444] text-[#888] hover:border-[#666] hover:text-[#ccc]'
             }`}
-            title="Goal Tracking"
+            title={progressDisplay ? `${progressDisplay.label} Progress: ${progressDisplay.percent}%` : "Set Goal"}
           >
              {/* Progress Bar Background */}
              {writingGoal.isActive && progressDisplay && (
                  <div 
-                    className={`absolute left-0 top-0 bottom-0 bg-[#f5a623]/10 transition-all duration-500 ease-out pointer-events-none ${progressDisplay.isDone ? 'bg-green-500/20' : ''}`}
+                    className={`absolute left-0 top-0 bottom-0 transition-all duration-500 ease-out pointer-events-none ${
+                        progressDisplay.showTotal
+                            ? (progressDisplay.isDone ? 'bg-green-500/30' : 'bg-[#f5a623]/30') // Gold/Green for Total Project
+                            : 'bg-blue-600/40' // Blue for Daily Target
+                    }`}
                     style={{ width: `${progressDisplay.percent}%` }}
                  />
              )}
 
              {writingGoal.isActive && progressDisplay ? (
                  <>
-                    <div className={`z-10 ${progressDisplay.isDone ? 'text-green-500 animate-pulse' : 'text-[#f5a623]'}`}>
-                        <progressDisplay.icon size={14} />
+                    <div className={`z-10 ${
+                        progressDisplay.showTotal
+                            ? (progressDisplay.isDone ? 'text-green-500' : 'text-[#f5a623]') 
+                            : 'text-blue-400'
+                    }`}>
+                        {progressDisplay.isDone ? <CheckCircle2 size={14} /> : (progressDisplay.showTotal ? <Target size={14} /> : <TrendingUp size={14} />)}
                     </div>
                     <div className="flex flex-col items-start z-10">
-                        <span className={`text-[10px] font-black uppercase leading-none ${progressDisplay.isDone ? 'text-green-400' : 'text-gray-200'}`}>
+                        <div className="flex items-baseline gap-1">
+                            <span className={`text-[10px] font-black uppercase leading-none ${progressDisplay.showTotal ? 'text-gray-200' : 'text-blue-100'}`}>
+                                {progressDisplay.current.toLocaleString()}
+                            </span>
+                            <span className="text-[8px] font-bold text-gray-500 uppercase leading-none">
+                                / {progressDisplay.target.toLocaleString()} {progressDisplay.unit}
+                            </span>
+                        </div>
+                        <span className={`text-[8px] font-bold uppercase leading-none mt-0.5 ${progressDisplay.showTotal ? 'text-[#f5a623]' : 'text-blue-400'}`}>
                             {progressDisplay.label}
-                        </span>
-                        <span className="text-[8px] font-bold text-gray-500 uppercase leading-none mt-0.5">
-                            {progressDisplay.sub}
                         </span>
                     </div>
                  </>

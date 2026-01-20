@@ -80,7 +80,6 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [scale, setScale] = useState(INITIAL_STATE.scale);
   const [nextId, setNextId] = useState(INITIAL_STATE.nextId);
   const [nextAnnoId, setNextAnnoId] = useState(INITIAL_STATE.nextAnnoId);
-  /* Corrected state setters to match ProjectContextType interface */
   const [isTamilMode, setTamilMode] = useState(INITIAL_STATE.isTamilMode);
   const [tamilFontScale, setTamilFontScale] = useState(INITIAL_STATE.tamilFontScale);
   const [tamilFontFamily, setTamilFontFamily] = useState(INITIAL_STATE.tamilFontFamily);
@@ -163,7 +162,6 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   }, []);
 
   const login = (username: string) => {
-      // Legacy local login
       localStorage.setItem('currentUser', username);
       setCurrentUser(username);
   };
@@ -310,16 +308,10 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   ]);
 
   const loadProject = (data: ProjectState) => {
-      // Basic merge of top-level keys
       const merged = { ...INITIAL_STATE, ...data };
-      
-      // DEEP MERGE CONFIGS to ensure new properties from updated INITIAL_STATE are preserved if missing in data
       const mergedScratchpad = { ...INITIAL_STATE.scratchpadConfig, ...(data.scratchpadConfig || {}) };
-      
-      // Deep merge scriptConfig sub-objects
       const mergedScriptConfig = { ...INITIAL_STATE.scriptConfig, ...(data.scriptConfig || {}) };
       if (data.scriptConfig) {
-          // Merge slugline specially as it has many props
           mergedScriptConfig.slugline = { ...INITIAL_STATE.scriptConfig.slugline, ...(data.scriptConfig.slugline || {}) };
           mergedScriptConfig.action = { ...INITIAL_STATE.scriptConfig.action, ...(data.scriptConfig.action || {}) };
           mergedScriptConfig.character = { ...INITIAL_STATE.scriptConfig.character, ...(data.scriptConfig.character || {}) };
@@ -460,6 +452,67 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       captureSnapshot();
   };
 
+  const reorderBeats = useCallback((draggedId: number, targetId: number, side: 'top' | 'bottom') => {
+      setConnections(prev => {
+          let newConns = [...prev];
+          
+          // 1. Surgical edge mutation logic
+          // Find what points to dragged and what dragged points to
+          const incomingToDragged = newConns.filter(c => c.to === draggedId);
+          const outgoingFromDragged = newConns.filter(c => c.from === draggedId);
+          
+          // Remove old dragged connections
+          newConns = newConns.filter(c => c.from !== draggedId && c.to !== draggedId);
+          
+          // Bridge the old gap (Heal the chain if linear)
+          if (incomingToDragged.length === 1 && outgoingFromDragged.length === 1) {
+              const src = incomingToDragged[0].from;
+              const dst = outgoingFromDragged[0].to;
+              if (src !== dst) {
+                newConns.push({ from: src, to: dst });
+              }
+          }
+
+          // 2. Insert into new location
+          if (side === 'top') {
+              // Insert before targetId
+              // Find what points to target currently
+              const incomingToTarget = newConns.filter(c => c.to === targetId);
+              // Redirect incoming pointers from Target to Dragged
+              newConns = newConns.filter(c => c.to !== targetId);
+              incomingToTarget.forEach(c => {
+                  newConns.push({ from: c.from, to: draggedId });
+              });
+              // Connect Dragged -> Target
+              newConns.push({ from: draggedId, to: targetId });
+          } else {
+              // Insert after targetId
+              // Find what target points to currently
+              const outgoingFromTarget = newConns.filter(c => c.from === targetId);
+              // Redirect Target's outgoing pointer to Dragged
+              newConns = newConns.filter(c => c.from !== targetId);
+              newConns.push({ from: targetId, to: draggedId });
+              // Redirect Dragged to what Target was pointing to
+              outgoingFromTarget.forEach(c => {
+                  newConns.push({ from: draggedId, to: c.to });
+              });
+          }
+
+          return newConns;
+      });
+
+      // Spatial nudge: Move the dragged beat's X coordinate to be close to the target for visual logic
+      setBeats(prev => {
+          const tBeat = prev.find(b => b.id === targetId);
+          if (tBeat) {
+            return prev.map(b => b.id === draggedId ? { ...b, x: tBeat.x + (side === 'top' ? -100 : 100), y: tBeat.y } : b);
+          }
+          return prev;
+      });
+
+      captureSnapshot();
+  }, [captureSnapshot]);
+
   const addGroup = (group: Omit<Group, 'id'>) => {
       const id = nextId;
       setNextId(prev => prev + 1);
@@ -531,7 +584,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       setBeats, setGroups, setConnections, setAnnotations, setCharacterData, 
       setGeneratedShots, setScratchpad, setGlobalNotes, updateGeneratedShot, 
       addGeneratedShot, removeGeneratedShot, moveGeneratedShot, setPan, setScale, 
-      updateBeat, addBeat, addGroup, updateGroup, removeGroup, loadProject, 
+      updateBeat, addBeat, reorderBeats, addGroup, updateGroup, removeGroup, loadProject, 
       saveProject, setTamilMode, setTamilFontScale, setTamilFontFamily, 
       learnTamilWord, setOsInputMode, setOsInputShortcut, setScriptConfig, 
       setScriptViewMode, setScratchpadConfig, setStoryboardConfig, 

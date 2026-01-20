@@ -1,4 +1,3 @@
-
 import React, { useMemo, useState } from 'react';
 import { useProject } from '../../context/ProjectContext';
 import { 
@@ -7,9 +6,8 @@ import {
 } from 'recharts';
 import { 
     Activity, TrendingUp, Flame, Calendar, Clock, 
-    Layers, MousePointer2, FileText,
-    LayoutGrid, PenTool, Lock, BookOpen,
-    ToggleLeft, ToggleRight
+    MousePointer2, FileText,
+    LayoutGrid, PenTool, Lock, BookOpen
 } from 'lucide-react';
 
 // --- CONSTANTS ---
@@ -228,7 +226,6 @@ const CircadianHeatmap = ({ grid, type }: { grid: number[][], type: MetricType }
 const StatisticsView: React.FC = () => {
   const { dailyStats, beats } = useProject();
   const [metricScope, setMetricScope] = useState<MetricType>('writing');
-  const [showDemoData, setShowDemoData] = useState(false);
 
   // --- ANALYTICS ENGINE ---
   const analytics = useMemo(() => {
@@ -246,10 +243,8 @@ const StatisticsView: React.FC = () => {
 
       const currentTotalPages = Math.ceil(currentTotalWords / 250);
 
-      // 2. Data Source (Real vs Demo)
-      const dataToUse = showDemoData 
-        ? generateHumanLikeData() 
-        : Object.entries(dailyStats).map(([date, words]) => ({ date, words }));
+      // 2. Data Source (Real)
+      const dataToUse = Object.entries(dailyStats).map(([date, words]) => ({ date, words }));
 
       // Sort Date
       dataToUse.sort((a,b) => new Date(a.date).getTime() - new Date(b.date).getTime());
@@ -262,13 +257,14 @@ const StatisticsView: React.FC = () => {
 
       const fullHistory = [];
       // 7 days x 24 hours grid
-      const circadianData = Array(7).fill(null).map(() => Array(24).fill(0));
+      const circadianData: number[][] = Array(7).fill(null).map(() => Array(24).fill(0));
       
       let historicalTotalWords = 0;
       let totalFeatures = 0;
 
       // Map existing data for O(1) lookup
-      const dataMap = new Map(dataToUse.map(d => [d.date, d.words]));
+      // Fix: Added explicit type assertion for dailyStats mapping to satisfy Map constructor
+      const dataMap = new Map<string, number>(dataToUse.map(d => [d.date, d.words] as [string, number]));
 
       // Iterate last 365 days
       for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
@@ -278,16 +274,10 @@ const StatisticsView: React.FC = () => {
           let words = dataMap.get(dateStr) || 0;
           let features = 0;
 
-          // If Demo Mode, generate feature noise linked to words
-          if (showDemoData && words > 0) {
-              features = Math.floor(words / 50) + Math.floor(Math.random() * 10);
-          }
-
           // Generate Circadian Distribution
           if (words > 0) {
-              // Simulate "Evening Writer" vs "Weekend Warrior"
-              // Weekdays: 7PM - 11PM heavy
-              // Weekends: 10AM - 4PM heavy
+              // Simulate "Evening Writer" vs "Weekend Warrior" based on day type for visual purposes
+              // Since we don't have hourly timestamps in dailyStats, we estimate distribution.
               const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
               
               for (let h = 0; h < 24; h++) {
@@ -302,7 +292,7 @@ const StatisticsView: React.FC = () => {
                       else if (h >= 7 && h <= 8) prob = 0.4; // Quick morning session
                   }
                   
-                  // Add randomness
+                  // Add randomness to distribution
                   if (Math.random() < prob) {
                       circadianData[dayOfWeek][h] += (words / 10); // Distribute value
                   }
@@ -343,7 +333,7 @@ const StatisticsView: React.FC = () => {
           avgVelocity,
           totalFeatures
       };
-  }, [dailyStats, beats, showDemoData]);
+  }, [dailyStats, beats]);
 
   return (
     <div className="w-full h-full bg-[#050505] text-zinc-300 font-sans overflow-y-auto custom-scrollbar">
@@ -361,14 +351,6 @@ const StatisticsView: React.FC = () => {
             </div>
             
             <div className="flex items-center gap-4">
-                {/* Demo Data Toggle */}
-                <div className="flex items-center gap-2 mr-4 bg-zinc-900 rounded-full px-3 py-1 border border-zinc-800">
-                    <span className="text-[10px] font-bold text-zinc-500 uppercase">Demo Data</span>
-                    <button onClick={() => setShowDemoData(!showDemoData)} className={`transition-colors ${showDemoData ? 'text-[#f5a623]' : 'text-zinc-600'}`}>
-                        {showDemoData ? <ToggleRight size={20} /> : <ToggleLeft size={20} />}
-                    </button>
-                </div>
-
                 {/* Scope Toggles */}
                 <div className="bg-zinc-900 p-0.5 rounded-lg flex items-center border border-zinc-800">
                     <button onClick={() => setMetricScope('writing')} className={`px-3 py-1.5 rounded-md text-[10px] font-bold uppercase transition-all flex items-center gap-2 ${metricScope === 'writing' ? 'bg-[#f5a623] text-black shadow-lg' : 'text-zinc-500 hover:text-white'}`}>
@@ -424,7 +406,7 @@ const StatisticsView: React.FC = () => {
                 />
                 <StatCard 
                     label="Active Days" 
-                    value={Object.keys(dailyStats).length + (showDemoData ? 142 : 0)} 
+                    value={Object.keys(dailyStats).length} 
                     sub="Sessions Logged"
                     icon={Flame} 
                     colorClass="text-red-500"
@@ -526,63 +508,5 @@ const StatisticsView: React.FC = () => {
     </div>
   );
 };
-
-// --- DEMO DATA GENERATOR ---
-function generateHumanLikeData() {
-    const data = [];
-    const now = new Date();
-    // 365 days ago
-    const start = new Date(now);
-    start.setDate(now.getDate() - 365);
-
-    let projectPhase = 'dormant'; 
-    let momentum = 0;
-
-    for (let d = new Date(start); d <= now; d.setDate(d.getDate() + 1)) {
-        const dateStr = d.toISOString().split('T')[0];
-        
-        // Randomly switch phases occasionally
-        if (Math.random() < 0.05) {
-            const r = Math.random();
-            if (r < 0.3) projectPhase = 'dormant';
-            else if (r < 0.7) projectPhase = 'steady';
-            else projectPhase = 'crunch';
-        }
-
-        let baseWords = 0;
-        if (projectPhase === 'steady') baseWords = 500;
-        if (projectPhase === 'crunch') baseWords = 2000;
-
-        // Apply Momentum (Streaks)
-        if (baseWords > 0) {
-            momentum += Math.random() * 0.2;
-            if (momentum > 1.5) momentum = 1.5;
-        } else {
-            momentum *= 0.8;
-        }
-
-        // Calculate Daily Output
-        let words = baseWords * momentum;
-        
-        // Add noise
-        words += (Math.random() * 400) - 200;
-
-        // Weekend Factor
-        const day = d.getDay();
-        if (day === 0 || day === 6) { // Weekend
-            if (projectPhase === 'crunch') words *= 1.5; // Work harder on weekends during crunch
-            else words *= 0.2; // Relax on weekends otherwise
-        }
-
-        // Random Skip Days (Human Element)
-        if (Math.random() < 0.2) words = 0;
-
-        data.push({
-            date: dateStr,
-            words: Math.max(0, Math.floor(words))
-        });
-    }
-    return data;
-}
 
 export default StatisticsView;

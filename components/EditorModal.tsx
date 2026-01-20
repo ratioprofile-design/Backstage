@@ -1,3 +1,4 @@
+
 import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { useProject } from '../context/ProjectContext';
 import { ScriptEditor } from './ScriptEditor';
@@ -105,68 +106,82 @@ const HILITE_COLORS = [
     { label: 'Pink', value: '#fbcfe8' },
 ];
 
-const getSortedBeats = (beats: Beat[], connections: Connection[]): Beat[] => {
-    if (beats.length === 0) return [];
-
-    const adj: Record<number, number[]> = {};
+// Topological Sort Helper (Matches ScriptView logic for consistent numbering)
+const calculateGraphOrder = (beats: Beat[], connections: Connection[]) => {
+    const adjDir: Record<number, number[]> = {};
     const inDegree: Record<number, number> = {};
     const beatMap = new Map<number, Beat>();
-    
+    const connectedSet = new Set<number>();
+
+    // Init
     beats.forEach(b => {
-        adj[b.id] = [];
+        adjDir[b.id] = [];
         inDegree[b.id] = 0;
         beatMap.set(b.id, b);
     });
 
+    // Build Graph
     connections.forEach(c => {
-        if (adj[c.from] && inDegree[c.to] !== undefined) {
-            adj[c.from].push(c.to);
-            inDegree[c.to]++;
+        if (adjDir[c.from]) {
+            adjDir[c.from].push(c.to);
+            connectedSet.add(c.from);
+            connectedSet.add(c.to);
         }
+        if (inDegree[c.to] !== undefined) inDegree[c.to]++;
     });
 
-    let queue = beats.filter(b => inDegree[b.id] === 0).sort((a, b) => {
-        if (Math.abs(a.x - b.x) > 50) return a.x - b.x;
+    const orders: Record<number, number> = {};
+    const queue: number[] = [];
+    const currentInDegree = { ...inDegree };
+
+    // Find roots
+    const sortedBeats = [...beats].sort((a,b) => {
+        if (Math.abs(a.x - b.x) > 100) return a.x - b.x;
         return a.y - b.y;
     });
 
-    const resultIds: number[] = [];
-    const visited = new Set<number>();
+    sortedBeats.forEach(b => {
+        const hasManual = b.sceneNumber && !isNaN(parseInt(b.sceneNumber));
+        const isConnected = connectedSet.has(b.id);
+        
+        if (currentInDegree[b.id] === 0) {
+            if (isConnected || hasManual) {
+                queue.push(b.id);
+                orders[b.id] = hasManual ? parseInt(b.sceneNumber!) : 1;
+            }
+        }
+    });
 
     while (queue.length > 0) {
-        queue.sort((a, b) => {
-             if (Math.abs(a.x - b.x) > 100) return a.x - b.x; 
-             return a.y - b.y;
-        });
-
         const u = queue.shift()!;
-        if (visited.has(u.id)) continue;
-        
-        visited.add(u.id);
-        resultIds.push(u.id);
+        const currentOrder = orders[u];
 
-        if (adj[u.id]) {
-            adj[u.id].forEach(vId => {
-                inDegree[vId]--;
-                if (inDegree[vId] === 0) {
-                    const vBeat = beatMap.get(vId);
-                    if (vBeat) queue.push(vBeat);
+        if (adjDir[u]) {
+            const children = adjDir[u].sort((a, b) => {
+                const beatA = beatMap.get(a);
+                const beatB = beatMap.get(b);
+                if (!beatA || !beatB) return 0;
+                return beatA.y - beatB.y;
+            });
+
+            children.forEach(v => {
+                const nextOrder = currentOrder + 1;
+                if (!orders[v] || nextOrder > orders[v]) {
+                    orders[v] = nextOrder;
+                }
+                currentInDegree[v]--;
+                if (currentInDegree[v] <= 0) {
+                    queue.push(v);
                 }
             });
         }
     }
 
-    const unvisited = beats.filter(b => !visited.has(b.id));
-    if (unvisited.length > 0) {
-        unvisited.sort((a, b) => a.x - b.x || a.y - b.y);
-        unvisited.forEach(b => resultIds.push(b.id));
-    }
-
-    return resultIds.map(id => beatMap.get(id)!);
+    return { connectedSet, orders };
 };
 
 const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScript, onFocus, initialOffset = 0 }) => {
-  const { beats, updateBeat, scriptConfig, characterData, groups, connections, setConnections, scratchpadConfig } = useProject();
+  const { beats, updateBeat, scriptConfig, characterData, groups, connections, setConnections, scratchpadConfig, captureSnapshot } = useProject();
   
   // Data Retrieval
   const beat = beats.find(b => b.id === beatId);
@@ -239,54 +254,31 @@ const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScri
   const editorId = `modal-editor-${beatId}`;
   const scopeId = `editor-scope-${beatId}`;
   
-  // ... (Scene Order, Hierarchy, Refs, Stats logic - unchanged)
-  const sortedBeats = useMemo(() => getSortedBeats(beats, connections), [beats, connections]);
-  const sceneIndex = useMemo(() => sortedBeats.findIndex(b => b.id === beatId) + 1, [sortedBeats, beatId]);
+  // --- SCENE NUMBERING LOGIC ---
+  // Use graph topology to determine if we are in sequence or sandbox
+  const { orders } = useMemo(() => calculateGraphOrder(beats, connections), [beats, connections]);
   
-  const [tempSceneNum, setTempSceneNum] = useState(sceneIndex.toString());
+  const displayNum = useMemo(() => {
+      if (beat?.sceneNumber) return beat.sceneNumber; // Manual override
+      if (orders[beatId] !== undefined) return orders[beatId].toString(); // Computed Sequence
+      return '•'; // Sandbox
+  }, [beat?.sceneNumber, orders, beatId]);
 
+  const [tempSceneNum, setTempSceneNum] = useState(displayNum);
+
+  // Sync temp number when calculation changes
   useEffect(() => {
-      setTempSceneNum(sceneIndex.toString());
-  }, [sceneIndex]);
+      setTempSceneNum(displayNum);
+  }, [displayNum]);
 
-  const handleSceneReorder = (e: React.FocusEvent<HTMLInputElement> | React.KeyboardEvent<HTMLInputElement>) => {
-      const newIndex = parseInt(tempSceneNum);
-      if (isNaN(newIndex) || newIndex < 1 || newIndex > beats.length || newIndex === sceneIndex) {
-          setTempSceneNum(sceneIndex.toString()); // Revert if invalid or unchanged
-          return;
-      }
-
-      const otherBeats = sortedBeats.filter(b => b.id !== beatId);
-      
-      let newPredecessorId: number | null = null;
-      let newSuccessorId: number | null = null;
-
-      if (newIndex === 1) {
-          newSuccessorId = otherBeats.length > 0 ? otherBeats[0].id : null;
+  const handleManualSceneNumber = () => {
+      if (!beat) return;
+      // If user clears the input or enters bullet, treat as clearing manual number
+      if (!tempSceneNum || tempSceneNum.trim() === '' || tempSceneNum === '•') {
+          updateBeat(beatId, { sceneNumber: undefined });
       } else {
-          const pred = otherBeats[newIndex - 2];
-          if (pred) newPredecessorId = pred.id;
-          
-          const succ = otherBeats[newIndex - 1]; 
-          if (succ) newSuccessorId = succ.id;
+          updateBeat(beatId, { sceneNumber: tempSceneNum });
       }
-
-      let newConns = connections.filter(c => c.from !== beatId && c.to !== beatId);
-      
-      if (newPredecessorId !== null) {
-          const existingPredConn = connections.find(c => c.from === newPredecessorId);
-          if (existingPredConn && existingPredConn.to === newSuccessorId) {
-              newConns = newConns.filter(c => !(c.from === newPredecessorId && c.to === newSuccessorId));
-          }
-          
-          newConns.push({ from: newPredecessorId, to: beatId });
-      }
-
-      if (newSuccessorId !== null) {
-          newConns.push({ from: beatId, to: newSuccessorId });
-      }
-
-      setConnections(newConns);
   };
 
   const hierarchy = useMemo(() => {
@@ -602,12 +594,12 @@ const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScri
                   <div className="flex items-center gap-2 ml-1 bg-[#1a1a1a] rounded px-1.5 py-0.5 border border-[#333]">
                       <span className="text-[9px] font-bold text-[#666] uppercase">SCENE</span>
                       <input 
-                          className="bg-transparent text-white font-bold w-6 text-center focus:text-[#f5a623] outline-none text-[10px]"
+                          className="bg-transparent text-white font-bold w-12 text-center focus:text-[#f5a623] outline-none text-[10px]"
                           value={tempSceneNum}
                           onChange={(e) => setTempSceneNum(e.target.value)}
-                          onBlur={handleSceneReorder}
-                          onKeyDown={(e) => e.key === 'Enter' && handleSceneReorder(e as any)}
-                          title="Edit scene number to reorder"
+                          onBlur={handleManualSceneNumber}
+                          onKeyDown={(e) => e.key === 'Enter' && handleManualSceneNumber()}
+                          title="Override scene number (e.g. 15A)"
                       />
                       <div className="w-px h-3 bg-[#444]"></div>
                       <span className="text-[10px] font-bold text-white uppercase truncate max-w-[150px]" title={beat.title}>
@@ -855,7 +847,7 @@ const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScri
             {/* 1. SLUGLINE BAR (STICKY) */}
             <div className={`px-4 py-2 border-b border-[#333] flex items-center gap-2 z-30 shrink-0 shadow-lg transition-colors ${isReadOnly ? 'bg-[#151515] opacity-80' : 'bg-[#1e1e1e]'}`}>
                 <div className="w-full flex gap-2 items-center font-screenplay">
-                    <span className="text-gray-500 font-bold select-none text-xs">{sceneIndex}.</span>
+                    <span className="text-gray-500 font-bold select-none text-xs">{tempSceneNum}.</span>
                     {/* MODIFIED: Widths increased for Prefix and Time inputs */}
                     <SlugInput
                         id={prefixId}

@@ -1,4 +1,5 @@
 
+
 export interface ScratchpadConfig {
   fontFamily: string;
   fontSize: number;
@@ -210,7 +211,8 @@ export interface ProjectContextType extends ProjectState {
   setScale: (s: number) => void;
   updateBeat: (id: number, updates: Partial<Beat>) => void;
   addBeat: (x: number, y: number) => number; // Returns new ID
-  
+  reorderBeats: (draggedId: number, targetId: number, side: 'top' | 'bottom') => void;
+
   // Group Management
   addGroup: (group: Omit<Group, 'id'>) => void;
   updateGroup: (id: number, updates: Partial<Group>) => void;

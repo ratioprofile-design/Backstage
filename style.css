@@ -1,0 +1,142 @@
+
+/* --- BACKSTAGE STORY SEQUENCER CORE STYLES --- */
+
+/* 1. CUSTOM SCROLLBARS */
+.custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+.custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+.custom-scrollbar::-webkit-scrollbar-thumb { background: #333; border-radius: 10px; }
+.custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #444; }
+
+/* 2. SCREENPLAY FORMATTING ENGINE */
+.script-body {
+  line-height: 1.15;
+  outline: none;
+}
+
+.sc-line {
+  margin-bottom: 0.1rem;
+  min-height: 1.2em;
+  word-wrap: break-word;
+}
+
+.sc-action {
+  margin-left: var(--margin-action, 0%);
+  width: var(--width-action, 100%);
+  margin-top: var(--mt-action, 0.2rem);
+  margin-bottom: var(--mb-action, 1rem);
+  font-size: var(--size-action, 13px);
+  font-family: var(--font-action);
+  text-align: var(--align-action, left);
+  line-height: var(--lh-action, 1.2);
+  font-weight: var(--weight-action);
+  font-style: var(--style-action);
+  text-decoration: var(--dec-action);
+}
+
+.sc-character {
+  margin-left: var(--margin-character, 35%);
+  width: var(--width-character, 40%);
+  margin-top: var(--mt-character, 0.4rem);
+  font-size: var(--size-character, 13px);
+  font-family: var(--font-character);
+  font-weight: var(--weight-character, bold);
+  text-align: var(--align-character, left);
+}
+
+.sc-dialogue {
+  margin-left: var(--margin-dialogue, 20%);
+  width: var(--width-dialogue, 60%);
+  margin-bottom: var(--mb-dialogue, 0.2rem);
+  font-size: var(--size-dialogue, 13px);
+  font-family: var(--font-dialogue);
+  text-align: var(--align-dialogue, left);
+}
+
+.sc-parenthetical {
+  margin-left: var(--margin-parenthetical, 28%);
+  width: var(--width-parenthetical, 35%);
+  font-size: var(--size-parenthetical, 13px);
+  font-family: var(--font-parenthetical);
+  font-style: var(--style-parenthetical, italic);
+}
+
+.sc-transition {
+  margin-left: var(--margin-transition, 70%);
+  width: var(--width-transition, 30%);
+  margin-top: var(--mt-transition, 0rem);
+  margin-bottom: var(--mb-transition, 0rem);
+  font-size: var(--size-transition, 13px);
+  font-family: var(--font-transition, "Courier Prime", monospace);
+  text-align: var(--align-transition, right);
+  line-height: var(--lh-transition, 1.2);
+  font-weight: var(--weight-transition, bold);
+  font-style: var(--style-transition);
+  text-decoration: var(--dec-transition);
+}
+
+.sc-shot {
+  margin-left: var(--margin-shot, 0%);
+  width: var(--width-shot, 100%);
+  margin-top: var(--mt-shot, 0.1rem);
+  margin-bottom: var(--mb-shot, 0.1rem);
+  font-size: var(--size-shot, 13px);
+  font-family: var(--font-shot);
+  text-align: var(--align-shot, left);
+  line-height: var(--lh-shot, 1.2);
+  font-weight: var(--weight-shot, bold);
+  font-style: var(--style-shot);
+  text-decoration: var(--dec-shot);
+  text-transform: uppercase;
+}
+
+.sc-lyrics {
+  margin-left: var(--margin-lyrics, 25%);
+  width: var(--width-lyrics, 50%);
+  margin-top: var(--mt-lyrics, 0rem);
+  margin-bottom: var(--mb-lyrics, 0rem);
+  font-size: var(--size-lyrics, 13px);
+  font-family: var(--font-lyrics);
+  text-align: var(--align-lyrics, center);
+  line-height: var(--lh-lyrics, 1.2);
+  font-weight: var(--weight-lyrics);
+  font-style: var(--style-lyrics, italic);
+  text-decoration: var(--dec-lyrics);
+}
+
+/* 3. FADE/ZOOM ANIMATIONS FOR OVERLAYS */
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes zoomIn { from { transform: scale(0.95); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+@keyframes slideUp { from { transform: translateY(10px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+
+.animate-in { animation-duration: 0.3s; animation-fill-mode: forwards; }
+.fade-in { animation-name: fadeIn; }
+.zoom-in { animation-name: zoomIn; }
+.slide-in-from-bottom-2 { animation-name: slideUp; }
+
+/* 4. MISC PROJECT SPECIFIC UI */
+.board-wrapper {
+  background-image: radial-gradient(circle at 2px 2px, #2a2a2a 1px, transparent 0);
+  background-size: 50px 50px;
+}
+
+.window-drag-handle:active {
+  cursor: grabbing !important;
+}
+
+#selection-lasso {
+  position: fixed;
+  border: 1px solid rgba(245, 166, 35, 0.8);
+  background-color: rgba(245, 166, 35, 0.15);
+  display: none;
+  pointer-events: none;
+  z-index: 9999;
+}
+
+/* Print Overrides */
+@media print {
+  @page { margin: 1in; }
+  body { background: white !important; color: black !important; overflow: visible !important; height: auto !important; width: auto !important; }
+  #root, main { display: block !important; position: static !important; }
+  .no-print, header, .ui-layer { display: none !important; }
+  .bible-page { box-shadow: none !important; margin: 0 !important; border: none !important; }
+}
