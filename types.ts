@@ -1,5 +1,4 @@
 
-
 export interface ScratchpadConfig {
   fontFamily: string;
   fontSize: number;
@@ -91,15 +90,6 @@ export interface WritingGoal {
   dailyWritingMinutes: number; // e.g. 120 for 2 hours
 }
 
-export interface GoogleDriveConfig {
-  clientId: string;
-  apiKey: string;
-  enabled: boolean;
-  autoBackup: boolean;
-  lastBackup: number | null;
-  fileId?: string; // ID of the file on Google Drive if it exists
-}
-
 export interface ProjectMetadata {
   id: string;
   name: string;
@@ -127,6 +117,9 @@ export interface ProjectState {
   scale: number;
   nextId: number;
   nextAnnoId: number;
+
+  activeBoardId: number; // Multi-board support
+
   // Tamil Features
   isTamilMode: boolean;
   tamilFontScale: number; // Percentage (e.g., 75)
@@ -158,9 +151,6 @@ export interface ProjectState {
   // Writing Goals
   writingGoal: WritingGoal;
   
-  // Google Drive
-  googleDriveConfig: GoogleDriveConfig;
-  
   // AI Keys
   geminiApiKey: string;
   stabilityApiKey: string;
@@ -188,6 +178,8 @@ export interface ProjectContextType extends ProjectState {
 
   // Change Tracking
   hasUnsavedChanges: boolean;
+
+  setActiveBoardId: (id: number) => void;
 
   // State Setters (Operate on the currently loaded project)
   setBeats: (beats: Beat[] | ((prev: Beat[]) => Beat[])) => void;
@@ -252,14 +244,6 @@ export interface ProjectContextType extends ProjectState {
   // Goals
   setWritingGoal: (goal: WritingGoal) => void;
 
-  // Google Drive
-  setGoogleDriveConfig: (config: GoogleDriveConfig) => void;
-  connectToDrive: (apiKey?: string, clientId?: string) => Promise<void>;
-  disconnectFromDrive: () => void;
-  backupToDrive: (force?: boolean) => Promise<void>;
-  isDriveSyncing: boolean;
-  isDriveConnecting: boolean; 
-  
   // AI Keys
   setGeminiApiKey: (key: string) => void;
   setStabilityApiKey: (key: string) => void;
@@ -385,11 +369,13 @@ export interface Beat {
   breakdown?: BreakdownData; // Pre-production breakdown tags
   status?: BeatStatus; // Readiness status
   versions?: BeatVersion[]; // History of changes
+  boardId?: number; // Target Board Page
 }
 
 export interface Connection {
   from: number;
   to: number;
+  boardId?: number;
 }
 
 export interface Annotation {
@@ -408,6 +394,7 @@ export interface Annotation {
   fontSize?: number;
   imageUrl?: string; // Content for image annotations
   audioUrl?: string; // Content for audio annotations
+  boardId?: number;
 }
 
 export interface Group {
@@ -418,6 +405,7 @@ export interface Group {
   width: number;
   height: number;
   color: string;
+  boardId?: number;
 }
 
 export interface RelationshipEdge {

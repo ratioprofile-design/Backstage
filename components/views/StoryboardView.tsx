@@ -2,7 +2,6 @@
 import React, { useState, useEffect, useRef, memo } from 'react';
 import { useProject } from '../../context/ProjectContext';
 import { generateShotList, generateImage } from '../../services/gemini';
-import { createGoogleSheet } from '../../services/googleDrive';
 import { 
     Wand2, Image as ImageIcon, Film, Loader2, Download, 
     Plus, Trash2, RefreshCw, Play, Pause, Clock, 
@@ -59,7 +58,6 @@ const BufferedTextArea = ({ value, onChange, className, placeholder }: any) => {
     );
 };
 
-// ... (AdvancedShotInspector, SceneDivider, isValidImage, StoryCard, ShotRow remain unchanged)
 const AdvancedShotInspector = ({ shot, onClose, onUpdate, characterData }: { 
     shot: Shot, 
     onClose: () => void, 
@@ -104,7 +102,6 @@ const AdvancedShotInspector = ({ shot, onClose, onUpdate, characterData }: {
         </div>
     );
 
-    // Using BufferedInput to prevent OOM crash during typing
     const InputField = ({ label, value, onChange, placeholder }: any) => (
         <div className="mb-3">
             <label className="text-[9px] font-mono font-bold text-[#555] uppercase block mb-1">{label}</label>
@@ -128,8 +125,6 @@ const AdvancedShotInspector = ({ shot, onClose, onUpdate, characterData }: {
             </div>
 
             <div className="flex-1 overflow-y-auto custom-scrollbar">
-                
-                {/* 1. COMPOSITION */}
                 <AccordionHeader id="comp" label="Composition" icon={Aperture} />
                 {openSection === 'comp' && (
                     <div className="p-4 bg-[#1a1a1a]">
@@ -146,7 +141,6 @@ const AdvancedShotInspector = ({ shot, onClose, onUpdate, characterData }: {
                     </div>
                 )}
 
-                {/* 2. LIGHTING */}
                 <AccordionHeader id="light" label="Lighting & Mood" icon={Lightbulb} />
                 {openSection === 'light' && (
                     <div className="p-4 bg-[#1a1a1a]">
@@ -162,7 +156,6 @@ const AdvancedShotInspector = ({ shot, onClose, onUpdate, characterData }: {
                     </div>
                 )}
 
-                {/* 3. ART DIRECTION */}
                 <AccordionHeader id="art" label="Art & Environment" icon={Paintbrush} />
                 {openSection === 'art' && (
                     <div className="p-4 bg-[#1a1a1a]">
@@ -177,7 +170,6 @@ const AdvancedShotInspector = ({ shot, onClose, onUpdate, characterData }: {
                     </div>
                 )}
 
-                {/* 4. BLOCKING */}
                 <AccordionHeader id="block" label="Blocking & Action" icon={Users} />
                 {openSection === 'block' && (
                     <div className="p-4 bg-[#1a1a1a]">
@@ -192,7 +184,6 @@ const AdvancedShotInspector = ({ shot, onClose, onUpdate, characterData }: {
                         <InputField label="Subtext / Emotion" value={shot.blocking?.emotion} onChange={(v: string) => updateNested('blocking', 'emotion', v)} placeholder="e.g. Controlled rage" />
                     </div>
                 )}
-
             </div>
         </div>
     );
@@ -360,13 +351,12 @@ const ShotRow = memo(({ shot, index, total, onUpdate, onAddNext, onDelete, onMov
     );
 });
 
-// ... (StoryboardView wrapper implementation unchanged)
 const StoryboardView: React.FC = () => {
   const { 
       beats, generatedShots, setGeneratedShots, updateGeneratedShot, 
       addGeneratedShot, removeGeneratedShot, moveGeneratedShot, storyboardConfig, setStoryboardConfig,
       characterData, setAnnotations, panX, panY, scale,
-      geminiApiKey, stabilityApiKey, googleDriveConfig
+      geminiApiKey, stabilityApiKey
   } = useProject();
   
   // Range Analysis State
@@ -384,7 +374,7 @@ const StoryboardView: React.FC = () => {
   const [inspectorShotId, setInspectorShotId] = useState<string | null>(null);
   
   // View Customization
-  const [viewMode, setViewMode] = useState<'grid' | 'table'>('table');
+  const [viewMode, setViewType] = useState<'grid' | 'table'>('table');
   const [gridSize, setGridSize] = useState<'sm' | 'md' | 'lg'>('md');
   const [showSceneBreaks, setShowSceneBreaks] = useState(true);
   const [isExporting, setIsExporting] = useState(false);
@@ -435,7 +425,7 @@ const StoryboardView: React.FC = () => {
   };
 
   // --- EXPORT FUNCTION ---
-  const handleExport = async (format: 'csv' | 'excel' | 'sheet') => {
+  const handleExport = async (format: 'csv' | 'excel') => {
       setIsExporting(true);
       try {
           if (generatedShots.length === 0) {
@@ -473,17 +463,6 @@ const StoryboardView: React.FC = () => {
               XLSX.utils.book_append_sheet(workbook, worksheet, "ShotList");
               XLSX.writeFile(workbook, `${fileName}.xlsx`);
           }
-          else if (format === 'sheet') {
-              if (!googleDriveConfig.enabled) {
-                  alert("Google Drive not connected. Go to Backstage to connect.");
-                  return;
-              }
-              const worksheet = XLSX.utils.json_to_sheet(exportData);
-              const csvOutput = XLSX.utils.sheet_to_csv(worksheet);
-              await createGoogleSheet(fileName, csvOutput);
-              alert("Exported to Google Sheets (Drive root folder).");
-          }
-
       } catch (e) {
           console.error("Export failed", e);
           alert("Export failed. Check console for details.");
@@ -504,7 +483,6 @@ const StoryboardView: React.FC = () => {
           if (shot.composition.headroom) prompt += `Headroom: ${shot.composition.headroom}. `;
       }
       
-      // Basic continuity
       const subj = shot.subject || '';
       const desc = shot.description || '';
       const blockingChar = shot.blocking?.characterId || '';
@@ -537,7 +515,6 @@ const StoryboardView: React.FC = () => {
 
   // --- RENDER LOGIC (Single & Queue) ---
   const renderSingleShot = async (index: number) => {
-    // Check key based on provider
     if (storyboardConfig.provider === 'stability' && !stabilityApiKey) {
         alert("Please set Stability API Key in Backstage settings.");
         return;
@@ -570,7 +547,6 @@ const StoryboardView: React.FC = () => {
       }
     } catch (e: any) {
       console.error("Single render failed", e);
-      // Alert the user with the actual error message
       alert(`Image Generation Failed:\n${e.message || 'Unknown error'}`);
     } finally {
       setCurrentlyRenderingId(null);
@@ -608,7 +584,6 @@ const StoryboardView: React.FC = () => {
              }
         } catch (e: any) { 
             console.error(`Failed to render shot ${i + 1}`, e);
-            // We stop the queue on error to prevent burning quota on a broken loop
             alert(`Queue Stopped at Shot ${i+1}:\n${e.message || 'Unknown Error'}`);
             break;
         }
@@ -627,7 +602,6 @@ const StoryboardView: React.FC = () => {
       setCurrentlyRenderingId(null);
   };
 
-  // ... (generateCardDataUrl, downloadCard, handleBundleScene, handleAddToBoard, handleSceneToBoard, getGridClass - unchanged logic)
   const generateCardDataUrl = async (shot: Shot, scale = 2): Promise<string | null> => {
       if(!shot) return null;
       const container = document.createElement('div');
@@ -750,12 +724,9 @@ const StoryboardView: React.FC = () => {
   return (
     <div className="w-full h-full bg-[#181818] flex flex-col overflow-hidden relative">
       
-      {/* --- TOP CONTROL BAR (Revised Design) --- */}
       <div className="bg-[#111] h-14 border-b border-[#222] px-4 flex items-center justify-between shrink-0 shadow-sm z-20 gap-4">
         
-        {/* Left: Planning Section */}
         <div className="flex items-center gap-4">
-            {/* ... Existing Input ... */}
             <div className="flex items-center gap-2 bg-[#000] border border-[#333] rounded-md px-2 py-1">
                <span className="text-[10px] font-bold text-[#666] uppercase mr-1">SCENE</span>
                <input type="number" className="w-8 bg-transparent text-center text-xs font-bold text-white outline-none focus:text-[#f5a623]" value={startScene} onChange={e => setStartScene(parseInt(e.target.value))} min={1} />
@@ -786,20 +757,8 @@ const StoryboardView: React.FC = () => {
             </button>
         </div>
 
-        {/* Center: Exports & View */}
         <div className="flex items-center gap-4">
-            
-            {/* Exports Group */}
             <div className="flex bg-[#222] rounded-full border border-[#333] p-1 gap-1">
-                <button 
-                    onClick={() => handleExport('sheet')} 
-                    disabled={isExporting}
-                    className="px-3 py-1.5 rounded-full text-[10px] font-bold uppercase text-gray-400 hover:text-white hover:bg-[#333] transition-all flex items-center gap-2"
-                    title="Export to Google Sheets"
-                >
-                    <Table2 size={12} className="text-green-500" /> Sheet
-                </button>
-                <div className="w-px bg-[#333] my-1"></div>
                 <button 
                     onClick={() => handleExport('excel')} 
                     disabled={isExporting}
@@ -820,8 +779,8 @@ const StoryboardView: React.FC = () => {
             </div>
 
             <div className="flex bg-[#000] rounded-md p-1 border border-[#333] gap-1">
-               <button onClick={() => setViewMode('table')} className={`p-1.5 rounded flex items-center gap-2 text-[10px] font-bold uppercase transition-all ${viewMode === 'table' ? 'bg-[#333] text-white shadow-sm' : 'text-gray-500 hover:text-white'}`} title="List View"><List size={14} /></button>
-               <button onClick={() => setViewMode('grid')} className={`p-1.5 rounded flex items-center gap-2 text-[10px] font-bold uppercase transition-all ${viewMode === 'grid' ? 'bg-[#333] text-white shadow-sm' : 'text-gray-500 hover:text-white'}`} title="Grid View"><LayoutGrid size={14} /></button>
+               <button onClick={() => setViewType('table')} className={`p-1.5 rounded flex items-center gap-2 text-[10px] font-bold uppercase transition-all ${viewMode === 'table' ? 'bg-[#333] text-white shadow-sm' : 'text-gray-500 hover:text-white'}`} title="List View"><List size={14} /></button>
+               <button onClick={() => setViewType('grid')} className={`p-1.5 rounded flex items-center gap-2 text-[10px] font-bold uppercase transition-all ${viewMode === 'grid' ? 'bg-[#333] text-white shadow-sm' : 'text-gray-500 hover:text-white'}`} title="Grid View"><LayoutGrid size={14} /></button>
             </div>
 
             {viewMode === 'grid' && (
@@ -837,9 +796,7 @@ const StoryboardView: React.FC = () => {
             )}
         </div>
 
-        {/* Right: Rendering Engine */}
         <div className="flex items-center gap-3 justify-end">
-             {/* ... Existing Style Selectors ... */}
              <div className="flex items-center gap-2 bg-[#000] border border-[#333] rounded-md px-2 py-1 max-w-[150px]">
                  <ImageIcon size={12} className="text-[#666]" />
                  <select value={storyboardConfig.style || ''} onChange={(e) => setStoryboardConfig({...storyboardConfig, style: e.target.value})} disabled={isQueueRunning} className="bg-transparent text-white text-[10px] font-bold outline-none focus:text-[#f5a623] cursor-pointer w-full truncate">
@@ -879,7 +836,6 @@ const StoryboardView: React.FC = () => {
         </div>
       </div>
       
-      {/* ... (Progress Bar and Content) ... */}
       {isQueueRunning && (
           <div className="bg-[#111] border-b border-[#333] px-4 py-2 flex items-center gap-4 shrink-0">
              <div className="text-[10px] font-bold text-[#f5a623] uppercase animate-pulse shrink-0">Processing Queue... {queueProgress.current} / {queueProgress.total}</div>
@@ -888,7 +844,6 @@ const StoryboardView: React.FC = () => {
           </div>
       )}
 
-      {/* --- CONTENT AREA (FLEX ROW) --- */}
       <div className="flex-1 flex overflow-hidden">
           <div className="flex-1 overflow-y-auto bg-[#181818] custom-scrollbar">
             {generatedShots.length === 0 ? (
@@ -903,7 +858,6 @@ const StoryboardView: React.FC = () => {
             </div>
             ) : (
             <>
-                {/* GRID MODE */}
                 {viewMode === 'grid' && (
                     <div className={`grid gap-6 p-6 pb-20 ${getGridClass()}`}>
                         {generatedShots.map((shot, i) => {
@@ -937,7 +891,6 @@ const StoryboardView: React.FC = () => {
                     </div>
                 )}
 
-                {/* TABLE MODE */}
                 {viewMode === 'table' && (
                     <div className="min-w-[1000px] p-0 pb-20">
                         <table className="w-full text-left border-collapse">
@@ -976,7 +929,6 @@ const StoryboardView: React.FC = () => {
             )}
           </div>
 
-          {/* INSPECTOR PANEL (SLIDE IN) */}
           {activeShot && (
               <AdvancedShotInspector 
                   shot={activeShot} 

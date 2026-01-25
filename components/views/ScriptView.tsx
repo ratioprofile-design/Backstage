@@ -1,7 +1,7 @@
 
 import React, { useEffect, useRef, useState, useMemo, useLayoutEffect, useCallback } from 'react';
 import { useProject } from '../../context/ProjectContext';
-import { Search, Plus, Sun, Moon, Coffee, Eye, ZoomIn, ZoomOut, Lock, AlignLeft, User, MessageSquare, Parentheses, ArrowRightLeft, Camera, Music, Type, ListChecks, Sparkles, X, Package, Mic2, Shirt, Wand2, Users, Flame, Map as MapIcon, EyeOff, PanelLeft, History, StickyNote, RotateCcw, Save, Globe, Trash2, GripHorizontal, Bold, Italic, Heading, List, CheckSquare, Underline, Strikethrough, Quote, LayoutGrid, Palette, Check, Clock, MoreHorizontal, MousePointer2, Layers, Link2, AlertCircle } from 'lucide-react';
+import { Search, Plus, Sun, Moon, Coffee, Eye, ZoomIn, ZoomOut, Lock, AlignLeft, User, MessageSquare, Parentheses, ArrowRightLeft, Camera, Music, Type, ListChecks, Sparkles, X, Package, Mic2, Shirt, Wand2, Users, Flame, Map as MapIcon, EyeOff, PanelLeft, History, StickyNote, RotateCcw, Save, Globe, Trash2, GripHorizontal, Bold, Italic, Heading, List, CheckSquare, Underline, Strikethrough, Quote, LayoutGrid, Palette, Check, Clock, MoreHorizontal, MousePointer2, Layers, Link2, AlertCircle, ChevronRight, ChevronDown } from 'lucide-react';
 import { ScriptEditor, ScriptEditorHandle } from '../ScriptEditor';
 import { SlugInput } from '../SlugInput';
 import { generateBreakdown } from '../../services/gemini';
@@ -19,16 +19,16 @@ const MARGIN_TOP = 96;
 const MARGIN_BOTTOM = 96;
 const PAGE_GAP = 40; 
 const BEAT_SPACING = 0; 
-const CONTINUOUS_OVERSCROLL = 400; // Extra paper height at the bottom for "breathing room"
+const CONTINUOUS_OVERSCROLL = 400; 
 const SLUG_PREFIXES = ['INT.', 'EXT.', 'INT./EXT.', 'EXT./INT.', 'I./E.', 'E./I.'];
 const SLUG_TIMES = ['DAY', 'NIGHT', 'CONTINUOUS', 'MOMENTS LATER', 'MORNING', 'EVENING', 'LATER', 'SAME TIME', 'DAWN', 'DUSK'];
 
 const NOTE_COLORS = [
-    { bg: '#222', border: '#333' }, // Default Dark
-    { bg: '#3a2a1a', border: '#d97706' }, // Orange
-    { bg: '#1a2e1a', border: '#16a34a' }, // Green
-    { bg: '#1a2a3a', border: '#2563eb' }, // Blue
-    { bg: '#3a1a1a', border: '#dc2626' }, // Red
+    { bg: '#222', border: '#333' },
+    { bg: '#3a2a1a', border: '#d97706' },
+    { bg: '#1a2e1a', border: '#16a34a' },
+    { bg: '#1a2a3a', border: '#2563eb' },
+    { bg: '#3a1a1a', border: '#dc2626' },
 ];
 
 // --- HELPERS ---
@@ -38,21 +38,18 @@ function useDebounce<T extends (...args: any[]) => void>(func: T, delay: number)
   return useCallback((...args: Parameters<T>) => { if (timeoutRef.current) clearTimeout(timeoutRef.current); timeoutRef.current = setTimeout(() => { func(...args); }, delay); }, [func, delay]);
 }
 
-// Topological Sort Helper (Shared logic for Board Badge & Script Order)
 const calculateGraphOrder = (beats: Beat[], connections: Connection[]) => {
     const adjDir: Record<number, number[]> = {};
     const inDegree: Record<number, number> = {};
     const beatMap = new Map<number, Beat>();
     const connectedSet = new Set<number>();
 
-    // Init
     beats.forEach(b => {
         adjDir[b.id] = [];
         inDegree[b.id] = 0;
         beatMap.set(b.id, b);
     });
 
-    // Build Graph
     connections.forEach(c => {
         if (adjDir[c.from]) {
             adjDir[c.from].push(c.to);
@@ -66,8 +63,8 @@ const calculateGraphOrder = (beats: Beat[], connections: Connection[]) => {
     const queue: number[] = [];
     const currentInDegree = { ...inDegree };
 
-    // Find roots
     const sortedBeats = [...beats].sort((a,b) => {
+        if ((a.boardId || 0) !== (b.boardId || 0)) return (a.boardId || 0) - (b.boardId || 0);
         if (Math.abs(a.x - b.x) > 100) return a.x - b.x;
         return a.y - b.y;
     });
@@ -83,7 +80,6 @@ const calculateGraphOrder = (beats: Beat[], connections: Connection[]) => {
         }
     });
 
-    // BFS for Depth/Order
     while (queue.length > 0) {
         const u = queue.shift()!;
         const currentOrder = orders[u];
@@ -123,10 +119,7 @@ const runPaginationPass = (container: HTMLElement, paperLayer: HTMLElement, cont
     if (viewMode === 'continuous') {
         let currentY = MARGIN_TOP;
         beats.forEach((beat, i) => { const spacing = i === 0 ? 0 : BEAT_SPACING; beat.style.marginTop = `${spacing}px`; currentY += spacing + beat.offsetHeight; });
-        
-        // ADDED: CONTINUOUS_OVERSCROLL here to make paper grow further than the text
         const requiredHeight = Math.max(A4_HEIGHT, currentY + MARGIN_BOTTOM + CONTINUOUS_OVERSCROLL);
-        
         const existingPages = paperLayer.querySelectorAll('.bg-page');
         if (existingPages.length !== 1 || paperLayer.dataset.theme !== theme.bg || paperLayer.dataset.mode !== 'continuous') {
             paperLayer.innerHTML = ''; paperLayer.dataset.theme = theme.bg; paperLayer.dataset.mode = 'continuous';
@@ -154,7 +147,6 @@ const runPaginationPass = (container: HTMLElement, paperLayer: HTMLElement, cont
     }
 };
 
-// --- INTERACTIVE BOARD COMPONENT (VERTICAL MODE) ---
 const InteractiveBoardPanel = ({ 
     beats, connections, groups, activeBeatId, onBeatClick, updateBeat, setBeats, setConnections, captureSnapshot, reorderBeats
 }: { 
@@ -176,39 +168,36 @@ const InteractiveBoardPanel = ({
     const { connectedSet, orders } = useMemo(() => calculateGraphOrder(safeBeats, safeConnections), [safeBeats, safeConnections]);
 
     const sortedBeats = useMemo(() => {
-        const sequence: Beat[] = [];
-        const sandbox: Beat[] = [];
-        safeBeats.forEach(b => {
-            if (connectedSet.has(b.id) || (b.sceneNumber && b.sceneNumber.trim() !== '') || orders[b.id] !== undefined) {
-                sequence.push(b);
-            } else {
-                sandbox.push(b);
-            }
-        });
-        sequence.sort((a, b) => {
+        const list = [...safeBeats];
+        list.sort((a, b) => {
+            if ((a.boardId || 0) !== (b.boardId || 0)) return (a.boardId || 0) - (b.boardId || 0);
+            
+            const isSeqA = connectedSet.has(a.id) || (a.sceneNumber && a.sceneNumber !== '');
+            const isSeqB = connectedSet.has(b.id) || (b.sceneNumber && b.sceneNumber !== '');
+            if (isSeqA !== isSeqB) return isSeqA ? -1 : 1;
+
             const orderA = orders[a.id] ?? (parseInt(a.sceneNumber || '999999'));
             const orderB = orders[b.id] ?? (parseInt(b.sceneNumber || '999999'));
-            if (orderA !== orderB) return orderA - orderB;
+            if (orderA !== orderB) orderA - orderB;
+            
             if (Math.abs((a.x || 0) - (b.x || 0)) > 50) return (a.x || 0) - (b.x || 0); 
             return (a.y || 0) - (b.y || 0); 
         });
-        sandbox.sort((a, b) => {
-             if (Math.abs((a.x || 0) - (b.x || 0)) > 50) return (a.x || 0) - (b.x || 0); 
-             return (a.y || 0) - (b.y || 0); 
-        });
-        return [...sequence, ...sandbox];
+        return list;
     }, [safeBeats, connectedSet, orders]);
 
-    const beatGroupMap = useMemo(() => {
-        const map = new Map<number, Group>();
+    const beatHierarchyMap = useMemo(() => {
+        const map = new Map<number, Group[]>();
         safeBeats.forEach(beat => {
             const bx = (beat.x || 0) + 120; 
             const by = (beat.y || 0) + 70;
-            const containers = safeGroups.filter(g => 
+            const currentBoard = beat.boardId || 0;
+            const parents = safeGroups.filter(g => 
+                (g.boardId || 0) === currentBoard &&
                 bx >= (g.x || 0) && bx <= (g.x || 0) + (g.width || 0) &&
                 by >= (g.y || 0) && by <= (g.y || 0) + (g.height || 0)
-            ).sort((a,b) => ((a.width || 0) * (a.height || 0)) - ((b.width || 0) * (b.height || 0)));
-            if (containers.length > 0) map.set(beat.id, containers[0]);
+            ).sort((a, b) => (a.width * a.height) - (b.width * b.height));
+            map.set(beat.id, parents);
         });
         return map;
     }, [safeBeats, safeGroups]);
@@ -260,7 +249,7 @@ const InteractiveBoardPanel = ({
         e.preventDefault(); e.stopPropagation();
         setContextMenu(null);
         setTimeout(() => {
-            if (window.confirm("Permanently delete this scene and its connections?")) {
+            if (window.confirm("Permanently delete this scene?")) {
                 captureSnapshot();
                 setBeats((prev: Beat[]) => prev.filter(b => b.id !== idToDelete));
                 setConnections((prev: Connection[]) => prev.filter(c => c.from !== idToDelete && c.to !== idToDelete));
@@ -290,11 +279,9 @@ const InteractiveBoardPanel = ({
     const setStatus = (beatId: number, status: BeatStatus) => { updateBeat(beatId, { status }); setContextMenu(null); };
     const handleBeatDoubleClicks = (id: number) => { setEditingId(id); };
 
-    // --- REORDERING DRAG HANDLERS ---
     const handleDragStart = (e: React.DragEvent, id: number) => {
         e.dataTransfer.setData('application/backstage-beat-id', id.toString());
         e.dataTransfer.effectAllowed = 'move';
-        // Ghost style
         const target = e.currentTarget as HTMLElement;
         setTimeout(() => { target.style.opacity = '0.4'; }, 0);
     };
@@ -327,23 +314,25 @@ const InteractiveBoardPanel = ({
 
     return (
         <div 
-            className="w-full h-full bg-[#0a0a0a] overflow-y-auto custom-scrollbar relative px-4 pb-10"
+            className="w-full h-full bg-[#0a0a0a] overflow-y-auto custom-scrollbar relative pb-10"
             onClick={() => { setContextMenu(null); setEditingId(null); }}
         >
-            <div className="absolute left-[22px] top-4 bottom-0 w-[2px] bg-[#222] z-0"></div>
+            <div className="flex flex-col gap-3 pt-4 relative z-10 min-h-full px-4 pb-20">
+                {/* Fixed vertical line that grows with content */}
+                <div className="absolute left-[22px] top-4 bottom-0 w-[2px] bg-[#222] z-0"></div>
 
-            <div className="flex flex-col gap-3 pt-4 relative z-10">
-                {sortedBeats.map((beat, index) => {
+                {sortedBeats.map((beat) => {
                     const isActive = beat.id === activeBeatId;
                     const isReady = beat.status === 'ready';
                     const isEditing = editingId === beat.id;
                     const isDragOver = dragOverId === beat.id;
                     
-                    const group = beatGroupMap.get(beat.id);
+                    const hierarchy = beatHierarchyMap.get(beat.id) || [];
+                    const immediateParent = hierarchy[0];
                     const isConnected = connectionStatus[beat.id];
 
                     let displayColor = chainColors[beat.id] || '#444';
-                    if (group && group.color) displayColor = group.color;
+                    if (immediateParent && immediateParent.color) displayColor = immediateParent.color;
                     if (beat.color && beat.color !== '#444') displayColor = beat.color;
 
                     const isSandbox = !isConnected && (!beat.sceneNumber || beat.sceneNumber === '');
@@ -351,8 +340,8 @@ const InteractiveBoardPanel = ({
 
                     return (
                         <div 
-                            key={beat.id} 
-                            className={`flex gap-4 group/row transition-all duration-200 ${isDragOver && dropSide === 'top' ? 'pt-4' : ''} ${isDragOver && dropSide === 'bottom' ? 'pb-4' : ''}`}
+                            key={beat.id}
+                            className={`flex gap-4 group/row transition-all duration-200 relative ${isDragOver && dropSide === 'top' ? 'pt-4' : ''} ${isDragOver && dropSide === 'bottom' ? 'pb-4' : ''}`}
                             draggable={!isEditing}
                             onDragStart={(e) => handleDragStart(e, beat.id)}
                             onDragEnd={handleDragEnd}
@@ -385,17 +374,26 @@ const InteractiveBoardPanel = ({
                                 onContextMenu={(e) => handleContextMenu(e, beat.id)}
                                 style={{ backgroundColor: beat.tint || '#2d2d2d' }}
                             >
-                                {/* Insertion Indicator Overlay */}
                                 {isDragOver && (
                                     <div className={`absolute left-0 right-0 h-1 bg-[#f5a623] shadow-[0_0_10px_#f5a623] z-50 ${dropSide === 'top' ? '-top-[2px]' : '-bottom-[2px]'}`} />
                                 )}
 
                                 <div className="h-2 w-full flex items-center px-1 gap-1 rounded-t-md" style={{ backgroundColor: displayColor }}>
-                                    {group && (
-                                         <span className="text-[6px] font-black uppercase text-white px-1.5 py-0 rounded-full bg-black/60 shadow-sm border border-white/10 truncate max-w-[120px] flex items-center gap-1">
-                                            <Layers size={6} /> {group.title}
-                                         </span>
+                                    {hierarchy.length > 0 && (
+                                         <div className="flex items-center gap-1 overflow-hidden">
+                                            {[...hierarchy].reverse().map((g, i) => (
+                                                <React.Fragment key={g.id}>
+                                                    {i > 0 && <span className="text-white/40 text-[5px]">/</span>}
+                                                    <span className="text-[6px] font-black uppercase text-white truncate max-w-[80px]">
+                                                        {g.title}
+                                                    </span>
+                                                </React.Fragment>
+                                            ))}
+                                         </div>
                                     )}
+                                    <span className="ml-auto text-[7px] font-black uppercase text-white/50 bg-black/40 border border-white/10 px-1.5 py-0 rounded-full flex items-center gap-1 shadow-sm">
+                                        P{(beat.boardId || 0) + 1}
+                                    </span>
                                 </div>
 
                                 <div className="absolute -top-2 -left-2 flex gap-1 z-30">
@@ -431,7 +429,7 @@ const InteractiveBoardPanel = ({
                                 <div className="mt-auto border-t border-[#3d3d3d] bg-[#222] p-1 flex justify-between items-center rounded-b-md">
                                     <button 
                                         onClick={(e) => { e.stopPropagation(); updateBeat(beat.id, { status: isReady ? 'not-ready' : 'ready' }); }}
-                                        className={`flex items-center gap-1.5 text-[8px] font-bold uppercase px-2 py-0.5 rounded transition-colors ${isReady ? 'text-green-400 bg-green-900/20 hover:bg-green-900/30' : 'text-orange-400 bg-orange-900/20 hover:bg-orange-900/30'}`}
+                                        className={`flex items-center gap-1.5 text-[8px] font-bold uppercase px-2 py-1 rounded transition-colors ${isReady ? 'text-green-400 bg-green-900/20 hover:bg-green-900/30' : 'text-orange-400 bg-orange-900/20 hover:bg-orange-900/30'}`}
                                     >
                                         {isReady ? <Check size={8} /> : <Clock size={8} />}
                                         {isReady ? 'Ready' : 'WIP'}
@@ -516,7 +514,6 @@ const ScriptView: React.FC = () => {
   const contentRef = useRef<HTMLDivElement>(null);
   const paperLayerRef = useRef<HTMLDivElement>(null);
   const editorRefs = useRef<Record<number, ScriptEditorHandle | null>>({});
-  const sidebarRef = useRef<HTMLDivElement>(null);
   const isResizingRef = useRef(false);
   
   const getThemeStyles = () => {
@@ -543,24 +540,22 @@ const ScriptView: React.FC = () => {
 
   const sortedBeats = useMemo(() => {
       if (!beats || beats.length === 0) return [];
-      const sequence: Beat[] = [];
-      const sandbox: Beat[] = [];
-      beats.forEach(b => {
-          if (isSequenceBeat(b, connectedSet, beatOrder)) sequence.push(b);
-          else sandbox.push(b);
-      });
-      sequence.sort((a, b) => {
+      const list = [...beats];
+      list.sort((a, b) => {
+          if ((a.boardId || 0) !== (b.boardId || 0)) return (a.boardId || 0) - (b.boardId || 0);
+          
+          const isSeqA = isSequenceBeat(a, connectedSet, beatOrder);
+          const isSeqB = isSequenceBeat(b, connectedSet, beatOrder);
+          if (isSeqA !== isSeqB) return isSeqA ? -1 : 1;
+
           const orderA = beatOrder[a.id] ?? (parseInt(a.sceneNumber || '999999'));
           const orderB = beatOrder[b.id] ?? (parseInt(b.sceneNumber || '999999'));
           if (orderA !== orderB) return orderA - orderB;
-          if (Math.abs(a.x - b.x) > 50) return a.x - b.x; 
-          return a.y - b.y; 
+          
+          if (Math.abs((a.x || 0) - (b.x || 0)) > 50) return (a.x || 0) - (b.x || 0); 
+          return (a.y || 0) - (b.y || 0); 
       });
-      sandbox.sort((a, b) => {
-          if (Math.abs(a.x - b.x) > 50) return a.x - b.x; 
-          return a.y - b.y; 
-      });
-      return [...sequence, ...sandbox];
+      return list;
   }, [beats, connectedSet, beatOrder]);
 
   const sequenceCount = useMemo(() => {
@@ -630,7 +625,6 @@ const ScriptView: React.FC = () => {
   const handleNoteDrop = (e: React.DragEvent, dropIndex: number) => { e.preventDefault(); setDragOverIndex(null); if (draggedNoteIndex === null || draggedNoteIndex === dropIndex) return; const currentNotes = scratchpadMode === 'global' ? [...globalNotes] : [...(activeBeat?.notes || [])]; const draggedNote = currentNotes[draggedNoteIndex]; currentNotes.splice(draggedNoteIndex, 1); currentNotes.splice(dropIndex, 0, draggedNote); if (scratchpadMode === 'global') { setGlobalNotes(currentNotes); } else if (activeBeat) { updateBeat(activeBeat.id, { notes: currentNotes }); } setDraggedNoteIndex(null); };
   const editorStyle = { '--color-action': theme.text, '--color-character': theme.text, '--color-dialogue': theme.text, '--color-parenthetical': theme.text, '--color-transition': theme.text, } as React.CSSProperties;
   
-  // MODIFIED: Labels now only show the numbers for a professional compact feel
   const FORMAT_BUTTONS = [ 
     { id: 'action', label: '1', short: 'Opt+1', icon: AlignLeft }, 
     { id: 'character', label: '2', short: 'Opt+2', icon: User }, 
@@ -643,12 +637,12 @@ const ScriptView: React.FC = () => {
 
   const clearHighlight = () => { const editorEl = document.getElementById(`editor-${activeBeatId}`); if (!editorEl) return; const highlights = editorEl.querySelectorAll('.temp-source-highlight'); highlights.forEach(span => { const parent = span.parentNode; if (parent) { while (span.firstChild) { parent.insertBefore(span.firstChild, span); } parent.removeChild(span); parent.normalize(); } }); };
   const highlightSourceText = (text: string, category: keyof BreakdownData) => { if (!text || !activeBeatId || !showSourceHighlights) return; const editorEl = document.getElementById(`editor-${activeBeatId}`); if (!editorEl) return; clearHighlight(); const normalize = (s: string) => (s || '').trim().replace(/\s+/g, ' ').toLowerCase(); const search = normalize(text); if (!search) return; const walker = document.createTreeWalker(editorEl, NodeFilter.SHOW_TEXT, null); let node; while (node = walker.nextNode()) { const rawContent = node.textContent || ''; const rawIndex = rawContent.toLowerCase().indexOf(search); if (rawIndex !== -1) { const range = document.createRange(); range.setStart(node, rawIndex); range.setEnd(node, rawIndex + search.length); const span = document.createElement('span'); span.className = 'temp-source-highlight'; let rgb = '250, 204, 21'; switch(category) { case 'location': rgb = '251, 146, 60'; break; case 'vfx': rgb = '74, 222, 128'; break; case 'practical': rgb = '239, 68, 68'; break; case 'props': rgb = '248, 113, 113'; break; case 'sound': rgb = '96, 165, 250'; break; case 'costume': rgb = '244, 114, 182'; break; case 'cast': rgb = '250, 204, 21'; break; } const isDark = scriptConfig.paperTheme === 'dark' || scriptConfig.paperTheme === 'red'; const bgOpacity = isDark ? '0.3' : '0.5'; const borderOpacity = isDark ? '0.6' : '0.8'; span.style.backgroundColor = `rgba(${rgb}, ${bgOpacity})`; span.style.borderRadius = '2px'; span.style.padding = '0 2px'; span.style.borderBottom = `2px solid rgba(${rgb}, ${borderOpacity})`; span.style.color = 'inherit'; span.style.textShadow = 'none'; try { range.surroundContents(span); span.scrollIntoView({ behavior: 'smooth', block: 'center' }); return; } catch (e) { console.warn("Highlight failed:", e); } } } };
-  const handleDragStart = (e: React.DragEvent, category: keyof BreakdownData, item: string) => { e.dataTransfer.setData('text/plain', JSON.stringify({ category, item })); e.dataTransfer.effectAllowed = 'move'; };
-  const handleDragOver = (e: React.DragEvent, category: keyof BreakdownData) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setDragOverCategory(category); };
-  const handleDragLeave = (e: React.DragEvent) => { setDragOverCategory(null); };
-  const handleDrop = (e: React.DragEvent, targetCategory: keyof BreakdownData) => { e.preventDefault(); setDragOverCategory(null); const data = e.dataTransfer.getData('text/plain'); if (!data) return; try { const { category: sourceCategory, item: itemName } = JSON.parse(data); if (sourceCategory === targetCategory) return; if (activeBeat) { const current = activeBeat.breakdown || { props: [], sound: [], costume: [], vfx: [], practical: [], cast: [], location: [] }; const getName = (i: string | BreakdownItem) => typeof i === 'string' ? i : i.name; const sourceArray = current[sourceCategory as keyof BreakdownData] || []; const itemObj = sourceArray.find(i => getName(i) === itemName); const newSourceList = sourceArray.filter(i => getName(i) !== itemName); const targetList = current[targetCategory] || []; const newTargetList = targetList.some(i => getName(i) === itemName) ? targetList : [...targetList, itemObj || { name: itemName, source: '' }]; updateBeat(activeBeat.id, { breakdown: { ...current, [sourceCategory]: newSourceList, [targetCategory]: newTargetList } }); } } catch (err) { console.error("Drop failed", err); } };
+  const handleTagDragStart = (e: React.DragEvent, category: keyof BreakdownData, item: string) => { e.dataTransfer.setData('text/plain', JSON.stringify({ category, item })); e.dataTransfer.effectAllowed = 'move'; };
+  const handleTagDragOver = (e: React.DragEvent, category: keyof BreakdownData) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setDragOverCategory(category); };
+  const handleTagDragLeave = (e: React.DragEvent) => { setDragOverCategory(null); };
+  const handleTagDrop = (e: React.DragEvent, targetCategory: keyof BreakdownData) => { e.preventDefault(); setDragOverCategory(null); const data = e.dataTransfer.getData('text/plain'); if (!data) return; try { const { category: sourceCategory, item: itemName } = JSON.parse(data); if (sourceCategory === targetCategory) return; if (activeBeat) { const current = activeBeat.breakdown || { props: [], sound: [], costume: [], vfx: [], practical: [], cast: [], location: [] }; const getName = (i: string | BreakdownItem) => typeof i === 'string' ? i : i.name; const sourceArray = current[sourceCategory as keyof BreakdownData] || []; const itemObj = sourceArray.find(i => getName(i) === itemName); const newSourceList = sourceArray.filter(i => getName(i) !== itemName); const targetList = current[targetCategory] || []; const newTargetList = targetList.some(i => getName(i) === itemName) ? targetList : [...targetList, itemObj || { name: itemName, source: '' }]; updateBeat(activeBeat.id, { breakdown: { ...current, [sourceCategory]: newSourceList, [targetCategory]: newTargetList } }); } } catch (err) { console.error("Drop failed", err); } };
   const TagInput = ({ category }: { category: keyof BreakdownData }) => { const [val, setVal] = useState(''); return ( <div className="flex gap-1 mt-2"> <input value={val} onChange={e => setVal(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && val.trim()) { addTag(category, val.trim()); setVal(''); } }} className="flex-1 bg-[#111] border border-[#333] rounded px-2 py-1 text-[10px] text-white focus:border-[#f5a623] outline-none" placeholder="Add..." /> <button onClick={() => { if(val.trim()) { addTag(category, val.trim()); setVal(''); } }} className="px-2 bg-[#222] hover:bg-[#333] text-gray-400 rounded"><Plus size={10}/></button> </div> ); };
-  const BreakdownSection = ({ title, category, icon: Icon, color }: any) => { const items = activeBeat?.breakdown?.[category as keyof BreakdownData] || []; const isDragOver = dragOverCategory === category; return ( <div className={`mb-4 rounded-md transition-all ${isDragOver ? 'ring-2 ring-dashed ring-[#f5a623] bg-[#222]' : ''}`} onDragOver={(e) => handleDragOver(e, category)} onDragLeave={handleDragLeave} onDrop={(e) => handleDrop(e, category)}> <div className={`text-[10px] font-bold uppercase tracking-wider mb-2 flex items-center gap-2 ${color}`}><Icon size={12} /> {title}</div> <div className="flex flex-wrap gap-1.5 min-h-[30px]"> {items.length === 0 && <span className="text-[10px] text-gray-700 italic select-none">None</span>} {items.map((item, i) => { const name = typeof item === 'string' ? item : item.name; const source = typeof item === 'string' ? undefined : item.source; return ( <div key={i} draggable onDragStart={(e) => handleDragStart(e, category, name)} onMouseEnter={() => source && highlightSourceText(source, category)} onMouseLeave={clearHighlight} className={`flex items-center gap-1 bg-[#222] px-2 py-1 rounded text-[10px] text-gray-300 border border-[#333] group cursor-move hover:border-[#f5a623] transition-colors ${showSourceHighlights && source ? 'hover:bg-[#f5a623] hover:text-black' : ''}`} title={source ? `Source: "${source}"` : "No source info"} > {name} <button onClick={() => removeTag(category as keyof BreakdownData, name)} className="text-gray-600 hover:text-red-500 opacity-0 group-hover:opacity-100"><X size={10}/></button> </div> ); })} </div> <TagInput category={category as keyof BreakdownData} /> </div> ); };
+  const BreakdownSection = ({ title, category, icon: Icon, color }: any) => { const items = activeBeat?.breakdown?.[category as keyof BreakdownData] || []; const isDragOver = dragOverCategory === category; return ( <div className={`mb-4 rounded-md transition-all ${isDragOver ? 'ring-2 ring-dashed ring-[#f5a623] bg-[#222]' : ''}`} onDragOver={(e) => handleTagDragOver(e, category)} onDragLeave={handleTagDragLeave} onDrop={(e) => handleTagDrop(e, category)}> <div className={`text-[10px] font-bold uppercase tracking-wider mb-2 flex items-center gap-2 ${color}`}><Icon size={12} /> {title}</div> <div className="flex flex-wrap gap-1.5 min-h-[30px]"> {items.length === 0 && <span className="text-[10px] text-gray-700 italic select-none">None</span>} {items.map((item, i) => { const name = typeof item === 'string' ? item : item.name; const source = typeof item === 'string' ? undefined : item.source; return ( <div key={i} draggable onDragStart={(e) => handleTagDragStart(e, category, name)} onMouseEnter={() => source && highlightSourceText(source, category)} onMouseLeave={clearHighlight} className={`flex items-center gap-1 bg-[#222] px-2 py-1 rounded text-[10px] text-gray-300 border border-[#333] group cursor-move hover:border-[#f5a623] transition-colors ${showSourceHighlights && source ? 'hover:bg-[#f5a623] hover:text-black' : ''}`} title={source ? `Source: "${source}"` : "No source info"} > {name} <button onClick={() => removeTag(category as keyof BreakdownData, name)} className="text-gray-600 hover:text-red-500 opacity-0 group-hover:opacity-100"><X size={10}/></button> </div> ); })} </div> <TagInput category={category as keyof BreakdownData} /> </div> ); };
 
   return (
     <div className="flex w-full h-full bg-[#0c0c0c] overflow-hidden font-sans">
@@ -678,16 +672,27 @@ const ScriptView: React.FC = () => {
                             {filteredBeats.map((beat, i) => {
                                 const isSandbox = !isSequenceBeat(beat, connectedSet, beatOrder);
                                 const sceneNum = isSandbox ? '•' : (beat.sceneNumber || beatOrder[beat.id] || (i + 1).toString());
+                                const prevBeat = i > 0 ? filteredBeats[i - 1] : null;
+                                const showBoardHeader = !prevBeat || prevBeat.boardId !== beat.boardId;
+
                                 return (
-                                    <button key={beat.id} onClick={() => scrollToBeat(beat.id)} className={`w-full text-left p-2.5 rounded group transition-all flex items-center gap-3 border-l-2 ${activeBeatId === beat.id ? 'bg-[#1a1a1a] border-[#f5a623]' : 'border-transparent hover:bg-[#151515] hover:border-[#333]'}`}>
-                                        <span className={`text-[10px] font-bold font-mono w-5 shrink-0 text-right ${isSandbox ? 'text-gray-600' : 'text-[#444] group-hover:text-[#f5a623]'}`}>{sceneNum}</span>
-                                        <div className="flex-1 min-w-0">
-                                            <div className="flex items-center gap-2">
-                                                <div className={`text-xs font-bold truncate uppercase flex-1 ${isSandbox ? 'text-gray-500 italic' : 'text-gray-400 group-hover:text-white'}`}>{beat.slug.location || 'UNTITLED SCENE'}</div>
-                                                {beat.status === 'ready' && <Lock size={10} className="text-green-500" />}
+                                    <React.Fragment key={beat.id}>
+                                        {showBoardHeader && (
+                                            <div className="flex items-center gap-2 px-3 py-4 first:pt-2">
+                                                <span className="text-[10px] font-black text-gray-600 uppercase tracking-widest whitespace-nowrap">Page { (beat.boardId || 0) + 1 }</span>
+                                                <div className="h-px w-full bg-[#222]"></div>
                                             </div>
-                                        </div>
-                                    </button>
+                                        )}
+                                        <button onClick={() => scrollToBeat(beat.id)} className={`w-full text-left p-2.5 rounded group transition-all flex items-center gap-3 border-l-2 ${activeBeatId === beat.id ? 'bg-[#1a1a1a] border-[#f5a623]' : 'border-transparent hover:bg-[#151515] hover:border-[#333]'}`}>
+                                            <span className={`text-[10px] font-bold font-mono w-5 shrink-0 text-right ${isSandbox ? 'text-gray-600' : 'text-[#444] group-hover:text-[#f5a623]'}`}>{sceneNum}</span>
+                                            <div className="flex-1 min-w-0">
+                                                <div className="flex items-center gap-2">
+                                                    <div className={`text-xs font-bold truncate uppercase flex-1 ${isSandbox ? 'text-gray-500 italic' : 'text-gray-400 group-hover:text-white'}`}>{beat.slug.location || 'UNTITLED SCENE'}</div>
+                                                    {beat.status === 'ready' && <Lock size={10} className="text-green-500" />}
+                                                </div>
+                                            </div>
+                                        </button>
+                                    </React.Fragment>
                                 )
                             })}
                         </div>
@@ -769,6 +774,7 @@ const ScriptView: React.FC = () => {
                                 const isSandbox = !isSequenceBeat(beat, connectedSet, beatOrder);
                                 const isFirstSandbox = i === sequenceCount;
                                 const displayNumber = isSandbox ? '•' : (beat.sceneNumber || beatOrder[beat.id] || (i + 1).toString());
+
                                 return (
                                     <React.Fragment key={beat.id}>
                                         {isFirstSandbox && (

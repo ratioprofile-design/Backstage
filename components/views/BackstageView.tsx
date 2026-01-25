@@ -1,6 +1,4 @@
 
-// ... keep imports same until the component definition ...
-// I will provide the full file content to ensure consistency and correct nesting.
 import React, { useState, useRef, useEffect } from 'react';
 import { useProject } from '../../context/ProjectContext';
 import { ScriptConfig } from '../../types';
@@ -216,9 +214,8 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
     storyboardConfig, setStoryboardConfig, isStoryboardFeatureEnabled, setStoryboardFeatureEnabled,
     scratchpadConfig, setScratchpadConfig,
     boardLayerOrder = ['annotations', 'text', 'connections', 'groups', 'beats'], setBoardLayerOrder,
-    saveProject, loadProject, closeProject, downloadProject,
+    loadProject, closeProject, downloadProject,
     beats,
-    googleDriveConfig, setGoogleDriveConfig, connectToDrive, disconnectFromDrive, backupToDrive, isDriveSyncing, isDriveConnecting,
     geminiApiKey, setGeminiApiKey,
     stabilityApiKey, setStabilityApiKey,
     breakdownLanguage, setBreakdownLanguage,
@@ -235,8 +232,6 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
   
   // Install & API 
   const [installPrompt, setInstallPrompt] = useState<any>(null);
-  const [tempClientId, setTempClientId] = useState(googleDriveConfig.clientId || '');
-  const [tempApiKey, setTempApiKey] = useState(googleDriveConfig.apiKey || '');
   const [tempGeminiKey, setTempGeminiKey] = useState(geminiApiKey || '');
   const [tempStabilityKey, setTempStabilityKey] = useState(stabilityApiKey || '');
   const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'failed' | 'invalid'>('idle');
@@ -272,10 +267,6 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
     }
   };
 
-  const handleDriveConnect = () => {
-      connectToDrive(tempApiKey, tempClientId);
-  };
-
   const performTestConnection = async (key: string) => {
       const trimmedKey = key.trim();
 
@@ -287,7 +278,7 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
 
       if (trimmedKey.includes(".apps.googleusercontent.com") || trimmedKey.includes(".com")) {
           setTestStatus('invalid');
-          setStatusMsg("❌ You entered a Client ID. Use an API Key (starts with 'AIza').");
+          setStatusMsg("❌ Invalid Format. Use a Gemini API Key.");
           return;
       }
 
@@ -461,7 +452,6 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
 
   return (
     <div className="w-full h-full bg-[#050505] flex overflow-hidden font-sans">
-        
         <div className="w-60 bg-[#0a0a0a] border-r border-[#222] flex flex-col shrink-0 z-20 shadow-2xl">
            <div className="p-6">
               <h2 className="text-xs font-black text-[#f5a623] uppercase tracking-[0.2em] flex items-center gap-2 mb-1">
@@ -524,7 +514,6 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
         <div className="flex-1 bg-[#0c0c0c] flex flex-col overflow-hidden relative">
             <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-[#f5a623]/5 rounded-full blur-[120px] pointer-events-none -translate-y-1/2 translate-x-1/3"></div>
 
-            {/* PROJECT SETTINGS */}
             {activeCategory === 'project' && (
                 <ViewContainer title="Project Management" subtitle="Manage local data and export options.">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-4xl">
@@ -553,85 +542,10 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
                                 accent="text-green-500"
                             />
                         </div>
-
-                        {/* GOOGLE DRIVE CONFIG */}
-                        <div className="md:col-span-2 bg-[#111] p-6 rounded-sm border border-[#222] mt-4">
-                            <div className="flex items-center gap-3 mb-6">
-                                <div className={`p-2 rounded ${googleDriveConfig.enabled ? 'bg-green-500/10 text-green-500' : 'bg-[#222] text-gray-500'}`}>
-                                    <Cloud size={20} />
-                                </div>
-                                <div>
-                                    <h4 className="text-sm font-bold text-white uppercase tracking-wider">Google Drive Backup</h4>
-                                    <p className="text-[10px] text-gray-500">Auto-sync your project to a private Google Drive file.</p>
-                                </div>
-                            </div>
-
-                            {!googleDriveConfig.enabled && (
-                                <div className="grid grid-cols-2 gap-4 mb-4">
-                                    <div>
-                                        <Label>Client ID</Label>
-                                        <input 
-                                            type="text" 
-                                            className="w-full bg-[#0a0a0a] border border-[#333] rounded px-3 py-2 text-xs text-white focus:border-[#f5a623] outline-none"
-                                            value={tempClientId}
-                                            onChange={(e) => setTempClientId(e.target.value)}
-                                            placeholder="OAuth 2.0 Client ID"
-                                        />
-                                    </div>
-                                    <div>
-                                        <Label>API Key</Label>
-                                        <input 
-                                            type="text" 
-                                            className="w-full bg-[#0a0a0a] border border-[#333] rounded px-3 py-2 text-xs text-white focus:border-[#f5a623] outline-none"
-                                            value={tempApiKey}
-                                            onChange={(e) => setTempApiKey(e.target.value)}
-                                            placeholder="Drive API Key"
-                                        />
-                                    </div>
-                                </div>
-                            )}
-
-                            <div className="flex items-center gap-4 border-t border-[#222] pt-4">
-                                {googleDriveConfig.enabled ? (
-                                    <>
-                                        <div className="flex items-center gap-2">
-                                            <span className="text-[10px] font-bold text-green-500 uppercase flex items-center gap-1"><Check size={12}/> Connected</span>
-                                        </div>
-                                        <button 
-                                            onClick={() => backupToDrive(true)}
-                                            disabled={isDriveSyncing}
-                                            className="px-4 py-2 bg-[#222] hover:bg-[#333] text-white rounded text-xs font-bold uppercase flex items-center gap-2"
-                                        >
-                                            <RefreshCw size={12} className={isDriveSyncing ? "animate-spin" : ""} /> {isDriveSyncing ? "Syncing..." : "Sync Now"}
-                                        </button>
-                                        <div className="flex items-center gap-2 ml-auto">
-                                            <span className="text-[10px] font-bold text-gray-500 uppercase">Auto-Backup</span>
-                                            <Switch checked={googleDriveConfig.autoBackup} onChange={(v: boolean) => setGoogleDriveConfig({...googleDriveConfig, autoBackup: v})} />
-                                        </div>
-                                        <button 
-                                            onClick={disconnectFromDrive}
-                                            className="px-4 py-2 border border-red-900 bg-red-900/10 text-red-500 hover:bg-red-900/20 rounded text-xs font-bold uppercase flex items-center gap-2"
-                                        >
-                                            <XCircle size={12} /> Disconnect
-                                        </button>
-                                    </>
-                                ) : (
-                                    <button 
-                                        onClick={handleDriveConnect}
-                                        disabled={isDriveConnecting}
-                                        className="px-6 py-2 bg-[#f5a623] hover:bg-[#e09612] text-black rounded text-xs font-black uppercase tracking-wider disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                                    >
-                                        {isDriveConnecting && <RefreshCw size={12} className="animate-spin" />}
-                                        {isDriveConnecting ? 'Connecting...' : 'Connect Account'}
-                                    </button>
-                                )}
-                            </div>
-                        </div>
                     </div>
                 </ViewContainer>
             )}
 
-            {/* FORMATTING SETTINGS */}
             {activeCategory === 'formatting' && (
                 <div className="flex flex-col h-full animate-in fade-in duration-300">
                     <div className="px-8 py-6 shrink-0 z-10 bg-[#0c0c0c]/90 backdrop-blur-sm border-b border-[#222] flex items-center justify-between">
@@ -712,7 +626,6 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
                                                 </div>
                                             </div>
                                         </Section>
-                                        
                                         <Section title="Bounds Control" icon={BoxSelect}>
                                             <div className="flex items-center justify-between mb-4">
                                                 <Label>Show Bounds</Label>
@@ -765,7 +678,6 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
                                                 </div>
                                             </div>
                                         </Section>
-
                                         <Section title="Creative Modes" icon={Zap}>
                                             <div className="grid grid-cols-2 gap-2">
                                                 {['none', 'blueprint', 'cyber', 'glass'].map((mode) => (
@@ -800,7 +712,6 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
                                                         <ToggleBtn active={currentConfig?.italic} onClick={() => updateFormat(selectedFormatElement as any, 'italic', !currentConfig?.italic)} icon={Italic} title="Italic" />
                                                         <ToggleBtn active={currentConfig?.underline} onClick={() => updateFormat(selectedFormatElement as any, 'underline', !currentConfig?.underline)} icon={Underline} title="Underline" />
                                                     </div>
-                                                    
                                                     <div className="flex gap-1.5">
                                                         {TEXT_COLORS.map(c => (
                                                             <button 
@@ -818,7 +729,6 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
                                                 </div>
                                             </div>
                                         </Section>
-                                        
                                         <Section title="Layout & Spacing" icon={MoveVertical}>
                                             <div className="space-y-4">
                                                 <div className="flex items-center justify-between">
@@ -838,11 +748,9 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
                                                         ))}
                                                     </div>
                                                 </div>
-
                                                 <div className="space-y-1">
                                                     <NumberControl label="Margin Top" value={currentConfig?.marginTop} suffix="rem" step={0.1} min={0} max={5} onChange={(v: number) => updateFormat(selectedFormatElement as any, 'marginTop', v)} />
                                                     <NumberControl label="Margin Bottom" value={currentConfig?.marginBottom} suffix="rem" step={0.1} min={0} max={5} onChange={(v: number) => updateFormat(selectedFormatElement as any, 'marginBottom', v)} />
-                                                    
                                                     {selectedFormatElement !== 'slugline' && (
                                                         <>
                                                             <div className="h-px bg-[#222] my-2"></div>
@@ -857,11 +765,7 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
                                 )}
                             </div>
                         </div>
-
-                        {/* RIGHT: Live Preview (Simplified for this view) */}
                         <div className="flex-1 overflow-auto bg-[#0c0c0c] bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] relative">
-                            {/* ... Live Preview from previous step ... */}
-                            {/* Reusing existing preview logic for simplicity in this replacement */}
                             <div className="absolute top-6 right-6 z-20 flex bg-[#1a1a1a] rounded-full p-1 border border-[#333] shadow-xl">
                                 <div className="flex bg-[#111] rounded-full p-0.5 border border-[#333] mr-2">
                                     <button onClick={() => setPaperTheme('white')} className={`p-1.5 rounded-full transition-all ${scriptConfig.paperTheme === 'white' ? 'bg-white text-black' : 'text-gray-500 hover:text-white'}`} title="Light Theme"><Sun size={12}/></button>
@@ -891,7 +795,6 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
                                     <Eye size={12} /> Live Data
                                 </button>
                             </div>
-
                             <div className="min-h-full flex items-center justify-center p-12">
                                 <div 
                                     className="sc-paper-preview w-full max-w-[210mm] aspect-[210/297] shadow-2xl rounded-sm p-16 overflow-hidden relative transition-all duration-500 shrink-0 border border-black/5"
@@ -920,7 +823,6 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
                                                             </span>
                                                         </div>
                                                         <div dangerouslySetInnerHTML={{ __html: firstBeat.content }} className="mt-4" />
-                                                        
                                                         <style>{`
                                                             .real-content-view .sc-line.sc-${selectedFormatElement} {
                                                                 outline: ${blockBounds.enabled ? 'none' : '2px dashed #f5a623'};
@@ -949,7 +851,6 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
                 <ViewContainer title="Notes & Scratchpad" subtitle="Configure the global scratchpad appearance and behavior.">
                     <div className="flex h-full bg-[#0c0c0c]">
                         <div className="w-96 overflow-y-auto border-r border-[#222] bg-[#0f0f0f] p-6 space-y-8">
-                            
                             <Section title="General Behavior" icon={Sliders}>
                                 <div className="space-y-4">
                                     <div className="flex items-center justify-between">
@@ -966,7 +867,6 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
                                     </div>
                                 </div>
                             </Section>
-
                             <Section title="Typography" icon={Type}>
                                 <div className="space-y-4">
                                     <div>
@@ -979,89 +879,38 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
                                             {NOTE_FONTS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
                                         </select>
                                     </div>
-                                    
                                     <div>
-                                        <NumberControl 
-                                            label="Base Text Size (px)" 
-                                            value={scratchpadConfig.fontSize || 14} 
-                                            min={10} max={32} 
-                                            onChange={(v: number) => setScratchpadConfig({...scratchpadConfig, fontSize: v})} 
-                                        />
-                                        <NumberControl 
-                                            label="Line Height" 
-                                            value={scratchpadConfig.lineHeight || 1.6} 
-                                            step={0.1} min={1} max={2.5} 
-                                            onChange={(v: number) => setScratchpadConfig({...scratchpadConfig, lineHeight: v})} 
-                                        />
-                                        <NumberControl 
-                                            label="Block Spacing (px)" 
-                                            value={scratchpadConfig.blockSpacing || 2} 
-                                            min={0} max={20} 
-                                            onChange={(v: number) => setScratchpadConfig({...scratchpadConfig, blockSpacing: v})} 
-                                        />
+                                        <NumberControl label="Base Text Size (px)" value={scratchpadConfig.fontSize || 14} min={10} max={32} onChange={(v: number) => setScratchpadConfig({...scratchpadConfig, fontSize: v})} />
+                                        <NumberControl label="Line Height" value={scratchpadConfig.lineHeight || 1.6} step={0.1} min={1} max={2.5} onChange={(v: number) => setScratchpadConfig({...scratchpadConfig, lineHeight: v})} />
+                                        <NumberControl label="Block Spacing (px)" value={scratchpadConfig.blockSpacing || 2} min={0} max={20} onChange={(v: number) => setScratchpadConfig({...scratchpadConfig, blockSpacing: v})} />
                                     </div>
-
                                     <div className="flex items-center justify-between pt-2">
                                         <div className="w-1/2 pr-2">
-                                            <NumberControl 
-                                                label="H1 Size (px)" 
-                                                value={scratchpadConfig.h1FontSize || 24} 
-                                                min={16} max={48} 
-                                                onChange={(v: number) => setScratchpadConfig({...scratchpadConfig, h1FontSize: v})} 
-                                            />
+                                            <NumberControl label="H1 Size (px)" value={scratchpadConfig.h1FontSize || 24} min={16} max={48} onChange={(v: number) => setScratchpadConfig({...scratchpadConfig, h1FontSize: v})} />
                                         </div>
                                         <div className="w-1/2 pl-2">
-                                            <NumberControl 
-                                                label="H2 Size (px)" 
-                                                value={scratchpadConfig.h2FontSize || 18} 
-                                                min={14} max={36} 
-                                                onChange={(v: number) => setScratchpadConfig({...scratchpadConfig, h2FontSize: v})} 
-                                            />
+                                            <NumberControl label="H2 Size (px)" value={scratchpadConfig.h2FontSize || 18} min={14} max={36} onChange={(v: number) => setScratchpadConfig({...scratchpadConfig, h2FontSize: v})} />
                                         </div>
                                     </div>
                                 </div>
                             </Section>
-
                             <Section title="Lists & Todos" icon={List}>
                                 <div className="space-y-6">
-                                    {/* Numbered Lists */}
                                     <div className="space-y-4 pb-4 border-b border-[#222]">
                                         <div className="text-[10px] font-bold text-white uppercase tracking-widest bg-[#111] px-2 py-1 rounded inline-block">Numbered Lists</div>
-                                        <NumberControl 
-                                            label="Marker Size (%)" 
-                                            value={scratchpadConfig.listMarkerSize || 100} 
-                                            min={50} max={200} step={5}
-                                            onChange={(v: number) => setScratchpadConfig({...scratchpadConfig, listMarkerSize: v})} 
-                                        />
-                                        <NumberControl 
-                                            label="Vertical Offset (px)" 
-                                            value={scratchpadConfig.listMarkerTopOffset || 0} 
-                                            min={-10} max={20} step={1}
-                                            onChange={(v: number) => setScratchpadConfig({...scratchpadConfig, listMarkerTopOffset: v})} 
-                                        />
+                                        <NumberControl label="Marker Size (%)" value={scratchpadConfig.listMarkerSize || 100} min={50} max={200} step={5} onChange={(v: number) => setScratchpadConfig({...scratchpadConfig, listMarkerSize: v})} />
+                                        <NumberControl label="Vertical Offset (px)" value={scratchpadConfig.listMarkerTopOffset || 0} min={-10} max={20} step={1} onChange={(v: number) => setScratchpadConfig({...scratchpadConfig, listMarkerTopOffset: v})} />
                                         <div className="flex items-center justify-between">
                                             <Label>Marker Color</Label>
                                             <ColorPicker value={scratchpadConfig.listMarkerColor} onChange={(v) => setScratchpadConfig({...scratchpadConfig, listMarkerColor: v})} />
                                         </div>
                                     </div>
-
-                                    {/* Checkboxes */}
                                     <div className="space-y-4">
                                         <div className="text-[10px] font-bold text-white uppercase tracking-widest bg-[#111] px-2 py-1 rounded inline-block flex items-center gap-2">
                                             <CheckSquare size={12} /> Checkboxes
                                         </div>
-                                        <NumberControl 
-                                            label="Box Size (px)" 
-                                            value={scratchpadConfig.checkboxSize || 12} 
-                                            min={8} max={24} step={1}
-                                            onChange={(v: number) => setScratchpadConfig({...scratchpadConfig, checkboxSize: v})} 
-                                        />
-                                        <NumberControl 
-                                            label="Vertical Offset (px)" 
-                                            value={scratchpadConfig.checkboxTopOffset || 0} 
-                                            min={-10} max={20} step={1}
-                                            onChange={(v: number) => setScratchpadConfig({...scratchpadConfig, checkboxTopOffset: v})} 
-                                        />
+                                        <NumberControl label="Box Size (px)" value={scratchpadConfig.checkboxSize || 12} min={8} max={24} step={1} onChange={(v: number) => setScratchpadConfig({...scratchpadConfig, checkboxSize: v})} />
+                                        <NumberControl label="Vertical Offset (px)" value={scratchpadConfig.checkboxTopOffset || 0} min={-10} max={20} step={1} onChange={(v: number) => setScratchpadConfig({...scratchpadConfig, checkboxTopOffset: v})} />
                                         <div className="flex items-center justify-between">
                                             <Label>Border Color</Label>
                                             <ColorPicker value={scratchpadConfig.todoBorder} onChange={(v) => setScratchpadConfig({...scratchpadConfig, todoBorder: v})} />
@@ -1073,7 +922,6 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
                                     </div>
                                 </div>
                             </Section>
-
                             <Section title="Callouts & Quotes" icon={Quote}>
                                 <div className="space-y-4">
                                     <div className="flex items-center justify-between">
@@ -1086,10 +934,8 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
                                     </div>
                                 </div>
                             </Section>
-
                             <Section title="Markdown Styling" icon={Hash}>
                                 <div className="space-y-4">
-                                    {/* H1 Controls */}
                                     <div className="space-y-2 pb-4 border-b border-[#222]">
                                         <div className="flex items-center justify-between">
                                             <Label>Heading 1 Style</Label>
@@ -1103,8 +949,6 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
                                             <ColorPicker value={scratchpadConfig.h1Color} onChange={(v) => setScratchpadConfig({...scratchpadConfig, h1Color: v})} />
                                         </div>
                                     </div>
-
-                                    {/* H2 Controls */}
                                     <div className="space-y-2 pb-4 border-b border-[#222]">
                                         <div className="flex items-center justify-between">
                                             <Label>Heading 2 Style</Label>
@@ -1118,7 +962,6 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
                                             <ColorPicker value={scratchpadConfig.h2Color} onChange={(v) => setScratchpadConfig({...scratchpadConfig, h2Color: v})} />
                                         </div>
                                     </div>
-
                                     <div className="flex items-center justify-between">
                                         <Label>Bold Text Color</Label>
                                         <ColorPicker value={scratchpadConfig.boldColor} onChange={(v) => setScratchpadConfig({...scratchpadConfig, boldColor: v})} />
@@ -1130,7 +973,6 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
                                 </div>
                             </Section>
                         </div>
-
                         <div className="flex-1 overflow-auto bg-[#181818] p-10 flex justify-center items-start">
                             <div className="w-full max-w-md bg-[#111] border border-white/10 rounded-lg p-6 shadow-2xl">
                                 <div className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-4 flex items-center gap-2">
@@ -1152,7 +994,6 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
                 </ViewContainer>
             )}
 
-            {/* ... Remaining sections (board, storyboard, features, project) ... */}
             {activeCategory === 'board' && (
                 <ViewContainer title="Board Layers" subtitle="Adjust the visual stacking order of elements on the board.">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
@@ -1184,7 +1025,6 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
             {activeCategory === 'storyboard' && (
                 <ViewContainer title="Storyboard AI" subtitle="Configure generative models for shot visualization.">
                     <div className="grid grid-cols-1 gap-6 max-w-4xl">
-                        
                         <div className="bg-[#1e1e1e] p-6 rounded-sm border border-[#222]">
                             <h4 className="text-sm font-bold text-white uppercase mb-4">AI Provider Engine</h4>
                             <div className="space-y-4">
@@ -1205,7 +1045,6 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
                                         </button>
                                     </div>
                                 </div>
-
                                 {storyboardConfig.provider === 'stability' && (
                                     <div className="animate-in slide-in-from-top-2">
                                         <Label>Stability API Key</Label>
@@ -1228,7 +1067,6 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
                                 )}
                             </div>
                         </div>
-
                         <div className="bg-[#1e1e1e] p-6 rounded-sm border border-[#222]">
                             <h4 className="text-sm font-bold text-white uppercase mb-4">Model Configuration</h4>
                             <div className="space-y-4">
@@ -1259,7 +1097,6 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
                                 )}
                             </div>
                         </div>
-                        
                         <div className="bg-[#1e1e1e] p-6 rounded-sm border border-[#222]">
                             <h4 className="text-sm font-bold text-white uppercase mb-4">Visual Defaults</h4>
                              <div className="grid grid-cols-2 gap-4">
@@ -1296,7 +1133,6 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
             {activeCategory === 'features' && (
                 <ViewContainer title="System Features" subtitle="Enable experimental tools and accessibility options.">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        
                         <div className="md:col-span-2 bg-[#1e1e1e] p-6 rounded-sm border border-[#f5a623] shadow-[0_0_15px_rgba(245,166,35,0.2)]">
                             <div className="flex items-center gap-4 mb-4">
                                 <div className="w-10 h-10 rounded-sm flex items-center justify-center bg-[#f5a623] text-black">
@@ -1307,7 +1143,6 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
                                     <p className="text-xs text-gray-400 mt-1">Required for Script Analysis (Gemini) and Default Image Generation.</p>
                                 </div>
                             </div>
-                            
                             <div className="bg-[#151515] p-4 rounded border border-[#333]">
                                 <Label>Gemini API Key</Label>
                                 <div className="flex gap-2 mb-2 relative">
@@ -1363,7 +1198,6 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
                                 )}
                             </div>
                         </div>
-
                         {installPrompt && (
                             <div 
                                 className="bg-[#1e1e1e] p-5 rounded-sm border border-[#f5a623] shadow-[0_0_15px_rgba(245,166,35,0.2)] flex items-center justify-between group cursor-pointer hover:bg-[#252525] transition-colors"
@@ -1380,7 +1214,6 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
                                 </div>
                             </div>
                         )}
-
                         <div className="bg-[#111] p-5 rounded-sm border border-[#222] flex items-center justify-between group hover:border-[#444] transition-colors">
                             <div className="flex items-center gap-4">
                                 <div className={`w-10 h-10 rounded-sm flex items-center justify-center bg-[#000] border border-[#333] text-gray-500`}>
@@ -1392,46 +1225,14 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
                                 </div>
                             </div>
                             <div className="flex bg-[#000] rounded p-0.5 border border-[#333]">
-                                <button 
-                                    onClick={() => setBreakdownLanguage('english')}
-                                    className={`px-3 py-1.5 rounded text-[10px] font-bold uppercase transition-all ${breakdownLanguage === 'english' ? 'bg-[#f5a623] text-black' : 'text-gray-500 hover:text-white'}`}
-                                >English</button>
-                                <button 
-                                    onClick={() => setBreakdownLanguage('tamil')}
-                                    className={`px-3 py-1.5 rounded text-[10px] font-bold uppercase transition-all ${breakdownLanguage === 'tamil' ? 'bg-[#f5a623] text-black' : 'text-gray-500 hover:text-white'}`}
-                                >Tamil</button>
+                                <button onClick={() => setBreakdownLanguage('english')} className={`px-3 py-1.5 rounded text-[10px] font-bold uppercase transition-all ${breakdownLanguage === 'english' ? 'bg-[#f5a623] text-black' : 'text-gray-500 hover:text-white'}`}>English</button>
+                                <button onClick={() => setBreakdownLanguage('tamil')} className={`px-3 py-1.5 rounded text-[10px] font-bold uppercase transition-all ${breakdownLanguage === 'tamil' ? 'bg-[#f5a623] text-black' : 'text-gray-500 hover:text-white'}`}>Tamil</button>
                             </div>
                         </div>
-
-                        <FeatureCard 
-                            title="Tamil Transliteration" 
-                            desc="Type phonetically in English to generate Tamil script automatically."
-                            icon={Globe}
-                            isActive={isTamilMode}
-                            onToggle={setTamilMode}
-                        />
-                        <FeatureCard 
-                            title="Storyboard AI" 
-                            desc="Enable Generative AI features for creating storyboard visuals."
-                            icon={ImageIcon}
-                            isActive={isStoryboardFeatureEnabled}
-                            onToggle={setStoryboardFeatureEnabled}
-                        />
-                        <FeatureCard 
-                            title="PDF Drag-and-Drop Import" 
-                            desc="Enable experimental PDF parsing. Drag a PDF onto the board to convert to beats."
-                            icon={FileText}
-                            isActive={isPdfDropEnabled}
-                            onToggle={setPdfDropEnabled}
-                        />
-                        <FeatureCard 
-                            title="Redo Support" 
-                            desc="Enable Ctrl+Y redo functionality (Experimental)."
-                            icon={RotateCw}
-                            isActive={isRedoEnabled}
-                            onToggle={setRedoEnabled}
-                        />
-                        
+                        <FeatureCard title="Tamil Transliteration" desc="Type phonetically in English to generate Tamil script automatically." icon={Globe} isActive={isTamilMode} onToggle={setTamilMode} />
+                        <FeatureCard title="Storyboard AI" desc="Enable Generative AI features for creating storyboard visuals." icon={ImageIcon} isActive={isStoryboardFeatureEnabled} onToggle={setStoryboardFeatureEnabled} />
+                        <FeatureCard title="PDF Drag-and-Drop Import" desc="Enable experimental PDF parsing. Drag a PDF onto the board to convert to beats." icon={FileText} isActive={isPdfDropEnabled} onToggle={setPdfDropEnabled} />
+                        <FeatureCard title="Redo Support" desc="Enable Ctrl+Y redo functionality (Experimental)." icon={RotateCw} isActive={isRedoEnabled} onToggle={setRedoEnabled} />
                         <div className="md:col-span-2 bg-[#111] p-6 rounded-sm border border-[#222]">
                             <div className="flex items-center justify-between mb-6">
                                 <div className="flex gap-4">
@@ -1446,11 +1247,7 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
                             {isOsInputMode && (
                                 <div className="border-t border-[#222] pt-6 mt-4">
                                     <Label>Trigger Key Configuration</Label>
-                                    <select 
-                                        value={osInputShortcut} 
-                                        onChange={(e) => setOsInputShortcut(e.target.value)}
-                                        className="mt-2 w-full max-w-xs bg-[#1a1a1a] border border-[#333] rounded-sm px-4 py-2.5 text-xs font-bold text-white focus:border-blue-500 outline-none uppercase tracking-wide"
-                                    >
+                                    <select value={osInputShortcut} onChange={(e) => setOsInputShortcut(e.target.value)} className="mt-2 w-full max-w-xs bg-[#1a1a1a] border border-[#333] rounded-sm px-4 py-2.5 text-xs font-bold text-white focus:border-blue-500 outline-none uppercase tracking-wide">
                                         <option value="NumLock">Num Lock</option>
                                         <option value="ScrollLock">Scroll Lock</option>
                                         <option value="F1">F1</option>
@@ -1463,7 +1260,6 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
                     </div>
                 </ViewContainer>
             )}
-
         </div>
     </div>
   );

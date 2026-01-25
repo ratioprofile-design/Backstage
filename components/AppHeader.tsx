@@ -2,7 +2,7 @@
 import React, { useMemo } from 'react';
 import { ViewMode } from '../types';
 import { useProject } from '../context/ProjectContext';
-import { Target, Zap, Clock, Film, RotateCcw, RotateCw, CheckCircle2, TrendingUp } from 'lucide-react';
+import { Target, Zap, Clock, Film, RotateCcw, RotateCw, CheckCircle2, TrendingUp, Save } from 'lucide-react';
 
 interface AppHeaderProps {
   currentView: ViewMode;
@@ -15,7 +15,8 @@ const AppHeader: React.FC<AppHeaderProps> = ({ currentView, onViewChange, onRefr
   const { 
       isStoryboardFeatureEnabled, writingGoal, dailyStats, beats,
       projectList, currentProjectId,
-      undo, redo, canUndo, canRedo
+      undo, redo, canUndo, canRedo,
+      saveProject, hasUnsavedChanges
   } = useProject();
 
   const activeProjectName = useMemo(() => {
@@ -56,7 +57,6 @@ const AppHeader: React.FC<AppHeaderProps> = ({ currentView, onViewChange, onRefr
       const targetTotal = writingGoal.targetAmount;
 
       // 3. Calculate Daily Progress
-      // FIX: Use toISOString to match ProjectContext's storage key format
       const todayKey = new Date().toISOString().split('T')[0];
       const todayWords = dailyStats[todayKey] || 0;
       // UPDATED: Use floor to count only complete pages
@@ -77,13 +77,10 @@ const AppHeader: React.FC<AppHeaderProps> = ({ currentView, onViewChange, onRefr
       if (writingGoal.mode === 'habit') {
           dailyTarget = writingGoal.dailyTarget;
       } else {
-          // If we are ahead of schedule, daily target might be 0, but usually we want to keep momentum
           dailyTarget = unitsLeft > 0 ? Math.ceil(unitsLeft / daysLeft) : 0;
       }
 
       // 5. Determine Display State
-      // If user hit daily target, switch to Total Project Progress (Gold)
-      // Otherwise show Daily Progress (Blue)
       const isDailyDone = currentDaily >= dailyTarget && dailyTarget > 0;
       const isProjectDone = currentTotal >= targetTotal;
 
@@ -111,8 +108,8 @@ const AppHeader: React.FC<AppHeaderProps> = ({ currentView, onViewChange, onRefr
     <>
       <header className="fixed top-0 left-0 w-full h-[50px] bg-[#111] border-b border-[#3d3d3d] flex items-center justify-between px-5 z-[500] select-none shadow-[0_2px_10px_rgba(0,0,0,0.3)] font-['Helvetica_Neue',Helvetica,Arial,sans-serif]">
         
-        {/* LEFT: Cinematic Logo -> Settings */}
-        <div className="flex items-center gap-5 h-full flex-1">
+        {/* LEFT: Cinematic Logo -> Settings + Quick Save */}
+        <div className="flex items-center gap-4 h-full flex-1">
           <div 
               onClick={() => onViewChange('backstage')}
               className="flex items-center gap-3 cursor-pointer group select-none h-full"
@@ -130,6 +127,24 @@ const AppHeader: React.FC<AppHeaderProps> = ({ currentView, onViewChange, onRefr
                   </span>
               </div>
           </div>
+
+          <div className="h-4 w-px bg-[#333] mx-1"></div>
+
+          {/* Quick Save Button */}
+          <button
+              onClick={() => saveProject()}
+              className={`relative p-2 rounded-md transition-all duration-300 border flex items-center justify-center group ${
+                  hasUnsavedChanges 
+                  ? 'bg-[#f5a623]/5 border-[#f5a623]/30 text-[#f5a623] hover:bg-[#f5a623]/10 hover:border-[#f5a623]' 
+                  : 'bg-[#1a1a1a] border-[#333] text-gray-500 hover:text-gray-300'
+              }`}
+              title={hasUnsavedChanges ? "Save Unsaved Changes" : "Project Saved"}
+          >
+              <Save size={16} className={hasUnsavedChanges ? "animate-pulse" : ""} />
+              {hasUnsavedChanges && (
+                  <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-[#f5a623] rounded-full border border-[#111] shadow-[0_0_8px_#f5a623]"></span>
+              )}
+          </button>
         </div>
 
         {/* CENTER: View Switcher */}

@@ -3,7 +3,6 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useProject } from '../../context/ProjectContext';
 import { BreakdownData } from '../../types';
 import { generateBreakdown } from '../../services/gemini';
-import { createGoogleSheet } from '../../services/googleDrive';
 import { 
     ListChecks, Users, Package, Mic2, Shirt, Wand2, Flame, Map as MapIcon, 
     Search, LayoutGrid, List as ListIcon, Eye, 
@@ -24,7 +23,7 @@ const CATEGORIES = [
 ];
 
 const BreakdownView: React.FC = () => {
-    const { beats, updateBeat, geminiApiKey, breakdownLanguage, breakdownLockedOnly, setBreakdownLockedOnly, googleDriveConfig, scriptConfig, scratchpadConfig } = useProject();
+    const { beats, updateBeat, geminiApiKey, breakdownLanguage, breakdownLockedOnly, setBreakdownLockedOnly, scriptConfig, scratchpadConfig } = useProject();
     const [selectedCategory, setSelectedCategory] = useState<string>('all');
     const [searchTerm, setSearchTerm] = useState('');
     const [viewType, setViewType] = useState<'by-category' | 'by-scene'>('by-scene');
@@ -204,10 +203,9 @@ const BreakdownView: React.FC = () => {
     };
 
     // --- EXPORT FUNCTION ---
-    const handleExport = async (format: 'csv' | 'excel' | 'sheet') => {
+    const handleExport = async (format: 'csv' | 'excel') => {
         setIsExporting(true);
         try {
-            // Prepare Data: Flatten Items
             const exportData = itemsData.map(item => ({
                 Category: item.category.toUpperCase(),
                 Item: item.name,
@@ -241,17 +239,6 @@ const BreakdownView: React.FC = () => {
                 XLSX.utils.book_append_sheet(workbook, worksheet, "Breakdown");
                 XLSX.writeFile(workbook, `${fileName}.xlsx`);
             }
-            else if (format === 'sheet') {
-                if (!googleDriveConfig.enabled) {
-                    alert("Google Drive not connected. Go to Backstage to connect.");
-                    return;
-                }
-                const worksheet = XLSX.utils.json_to_sheet(exportData);
-                const csvOutput = XLSX.utils.sheet_to_csv(worksheet);
-                await createGoogleSheet(fileName, csvOutput);
-                alert("Exported to Google Sheets (Drive root folder).");
-            }
-
         } catch (e) {
             console.error("Export failed", e);
             alert("Export failed. Check console for details.");
@@ -267,8 +254,6 @@ const BreakdownView: React.FC = () => {
 
     return (
         <div className="flex w-full h-full bg-[#121212] overflow-hidden font-sans text-gray-300">
-            
-            {/* LEFT: MANIFEST SIDEBAR */}
             <div className="w-72 bg-[#1a1a1a] border-r border-[#333] flex flex-col shrink-0 z-20 shadow-xl relative">
                 <div className="p-6 border-b border-[#333] bg-[#1a1a1a]">
                     <h2 className="text-sm font-black text-white uppercase tracking-wide flex items-center gap-2 mb-1">
@@ -309,13 +294,8 @@ const BreakdownView: React.FC = () => {
                 </div>
             </div>
 
-            {/* MAIN CONTENT */}
             <div className="flex-1 flex flex-col overflow-hidden relative bg-[#121212]">
-                
-                {/* --- HEADER TOOLBAR (Revised Design) --- */}
                 <div className="bg-[#111] h-14 border-b border-[#222] px-4 flex items-center justify-between shrink-0 shadow-sm z-20 gap-4">
-                    
-                    {/* Left: Planning Section */}
                     <div className="flex items-center gap-4">
                         <div className="flex items-center gap-2 bg-[#000] border border-[#333] rounded-md px-2 py-1">
                            <span className="text-[10px] font-bold text-[#666] uppercase mr-1">SCENE</span>
@@ -354,20 +334,8 @@ const BreakdownView: React.FC = () => {
                         )}
                     </div>
 
-                    {/* Center: Exports & View */}
                     <div className="flex items-center gap-4">
-                        
-                        {/* Exports Group */}
                         <div className="flex bg-[#222] rounded-full border border-[#333] p-1 gap-1">
-                            <button 
-                                onClick={() => handleExport('sheet')} 
-                                disabled={isExporting}
-                                className="px-3 py-1.5 rounded-full text-[10px] font-bold uppercase text-gray-400 hover:text-white hover:bg-[#333] transition-all flex items-center gap-2"
-                                title="Export to Google Sheets"
-                            >
-                                <Table2 size={12} className="text-green-500" /> Sheet
-                            </button>
-                            <div className="w-px bg-[#333] my-1"></div>
                             <button 
                                 onClick={() => handleExport('excel')} 
                                 disabled={isExporting}
@@ -387,14 +355,12 @@ const BreakdownView: React.FC = () => {
                             </button>
                         </div>
 
-                        {/* View Toggles */}
                         <div className="flex bg-[#000] rounded-md p-1 border border-[#333] gap-1">
                            <button onClick={() => setViewType('by-category')} className={`p-1.5 rounded flex items-center gap-2 text-[10px] font-bold uppercase transition-all ${viewType === 'by-category' ? 'bg-[#333] text-white shadow-sm' : 'text-gray-500 hover:text-white'}`} title="Category Grid"><LayoutGrid size={14} /></button>
                            <button onClick={() => setViewType('by-scene')} className={`p-1.5 rounded flex items-center gap-2 text-[10px] font-bold uppercase transition-all ${viewType === 'by-scene' ? 'bg-[#333] text-white shadow-sm' : 'text-gray-500 hover:text-white'}`} title="Scene List"><ListIcon size={14} /></button>
                         </div>
                     </div>
 
-                    {/* Right: Search & Config */}
                     <div className="flex items-center gap-3 justify-end">
                          <div className="relative w-64 group">
                             <Search className="absolute left-2.5 top-2 text-[#555] group-focus-within:text-[#f5a623] transition-colors" size={14} />
@@ -418,7 +384,6 @@ const BreakdownView: React.FC = () => {
                     </div>
                 </div>
 
-                {/* --- STATS RIBBON --- */}
                 <div className="h-12 bg-[#161616] border-b border-[#333] flex items-center px-8 gap-8 shadow-sm">
                     <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider text-[#666]">
                         <Layers size={14} />
@@ -436,7 +401,6 @@ const BreakdownView: React.FC = () => {
                     </div>
                 </div>
 
-                {/* --- PROGRESS BAR --- */}
                 {isAnalyzing && (
                     <div className="bg-[#1a1a1a] border-b border-[#f5a623]/30 px-8 py-3 flex items-center gap-4 shrink-0 shadow-lg z-20">
                         <div className="text-[10px] font-bold text-[#f5a623] uppercase animate-pulse flex items-center gap-2 shrink-0 min-w-[200px]">
@@ -452,9 +416,7 @@ const BreakdownView: React.FC = () => {
                     </div>
                 )}
 
-                {/* --- CONTENT STAGE --- */}
                 <div className="flex-1 overflow-y-auto custom-scrollbar p-8">
-                    
                     {viewType === 'by-category' ? (
                         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-6 animate-in fade-in slide-in-from-bottom-2 duration-500">
                             {filteredData.map((item, idx) => {
@@ -475,8 +437,6 @@ const BreakdownView: React.FC = () => {
                                                 {item.scenes.length}
                                             </span>
                                         </div>
-                                        
-                                        {/* Scene Tags */}
                                         <div className="flex flex-wrap gap-1.5 mt-auto max-h-24 overflow-y-auto custom-scrollbar">
                                             {item.scenes.map((scene, sIdx) => (
                                                 <div 
@@ -491,7 +451,6 @@ const BreakdownView: React.FC = () => {
                                     </div>
                                 );
                             })}
-                            
                             {filteredData.length === 0 && (
                                 <div className="col-span-full h-96 flex flex-col items-center justify-center text-[#333] border-2 border-dashed border-[#222] rounded-2xl bg-[#161616]">
                                     <Sparkles size={48} className="mb-4 opacity-30" />
@@ -501,11 +460,9 @@ const BreakdownView: React.FC = () => {
                             )}
                         </div>
                     ) : (
-                        // BY SCENE VIEW
                         <div className="space-y-4 max-w-5xl mx-auto animate-in fade-in duration-300">
                             {sceneData.filter(s => searchTerm ? (s.beat.slug.location || '').toLowerCase().includes(searchTerm.toLowerCase()) : true).map((item) => (
                                 <div key={item.beat.id} className="bg-[#1a1a1a] border border-[#333] rounded-xl overflow-hidden hover:border-[#555] transition-colors group shadow-sm">
-                                    {/* Header */}
                                     <div className="bg-[#222] px-6 py-4 border-b border-[#333] flex justify-between items-center group-hover:bg-[#252525] transition-colors">
                                         <div className="flex items-center gap-5">
                                             <div className="flex flex-col items-center justify-center w-12 h-12 bg-[#151515] rounded-lg border border-[#333] shadow-inner">
@@ -528,8 +485,6 @@ const BreakdownView: React.FC = () => {
                                             {item.totalItems === 0 && <span className="text-[9px] font-bold text-red-400 bg-red-900/10 px-2 py-1 rounded border border-red-900/20 flex items-center gap-1.5"><AlertCircle size={12}/> No Data</span>}
                                         </div>
                                     </div>
-                                    
-                                    {/* Content Grid */}
                                     {item.totalItems > 0 ? (
                                         <div className="p-6 grid grid-cols-2 md:grid-cols-4 gap-8">
                                             {CATEGORIES.filter(c => c.id !== 'all').map(cat => {
@@ -564,7 +519,6 @@ const BreakdownView: React.FC = () => {
                             ))}
                         </div>
                     )}
-
                 </div>
             </div>
         </div>

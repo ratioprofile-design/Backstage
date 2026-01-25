@@ -24,7 +24,6 @@ interface EditorModalProps {
   initialOffset?: number;
 }
 
-// ... (Helper components ColorDropdown, useDebounce, TEXT_COLORS, HILITE_COLORS, getSortedBeats)
 const ColorDropdown = ({ icon: Icon, type, title, options, onSelect }: any) => {
     const [isOpen, setIsOpen] = useState(false);
     const containerRef = useRef<HTMLDivElement>(null);
@@ -106,21 +105,18 @@ const HILITE_COLORS = [
     { label: 'Pink', value: '#fbcfe8' },
 ];
 
-// Topological Sort Helper (Matches ScriptView logic for consistent numbering)
 const calculateGraphOrder = (beats: Beat[], connections: Connection[]) => {
     const adjDir: Record<number, number[]> = {};
     const inDegree: Record<number, number> = {};
     const beatMap = new Map<number, Beat>();
     const connectedSet = new Set<number>();
 
-    // Init
     beats.forEach(b => {
         adjDir[b.id] = [];
         inDegree[b.id] = 0;
         beatMap.set(b.id, b);
     });
 
-    // Build Graph
     connections.forEach(c => {
         if (adjDir[c.from]) {
             adjDir[c.from].push(c.to);
@@ -134,9 +130,12 @@ const calculateGraphOrder = (beats: Beat[], connections: Connection[]) => {
     const queue: number[] = [];
     const currentInDegree = { ...inDegree };
 
-    // Find roots
     const sortedBeats = [...beats].sort((a,b) => {
+        // Priority 1: Board Page
+        if ((a.boardId || 0) !== (b.boardId || 0)) return (a.boardId || 0) - (b.boardId || 0);
+        // Priority 2: X-Pos
         if (Math.abs(a.x - b.x) > 100) return a.x - b.x;
+        // Priority 3: Y-Pos
         return a.y - b.y;
     });
 
@@ -183,18 +182,13 @@ const calculateGraphOrder = (beats: Beat[], connections: Connection[]) => {
 const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScript, onFocus, initialOffset = 0 }) => {
   const { beats, updateBeat, scriptConfig, characterData, groups, connections, setConnections, scratchpadConfig, captureSnapshot } = useProject();
   
-  // Data Retrieval
   const beat = beats.find(b => b.id === beatId);
   const isReady = beat?.status === 'ready';
   const isReadOnly = isReady; 
   
-  // Diff Modal State
   const [diffVersion, setDiffVersion] = useState<BeatVersion | null>(null);
-  
-  // Note Deletion Confirmation State
   const [confirmDeleteNoteId, setConfirmDeleteNoteId] = useState<string | null>(null);
 
-  // ... (Drag implementation remains same)
   const modalRef = useRef<HTMLDivElement>(null);
   const summaryRef = useRef<HTMLTextAreaElement>(null);
   const [showSidebar, setShowSidebar] = useState(false);
@@ -247,33 +241,28 @@ const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScri
       document.onmousemove = null;
   };
 
-  // IDs
   const prefixId = `modal-prefix-${beatId}`;
   const locationId = `modal-location-${beatId}`;
   const timeId = `modal-time-${beatId}`;
   const editorId = `modal-editor-${beatId}`;
   const scopeId = `editor-scope-${beatId}`;
   
-  // --- SCENE NUMBERING LOGIC ---
-  // Use graph topology to determine if we are in sequence or sandbox
   const { orders } = useMemo(() => calculateGraphOrder(beats, connections), [beats, connections]);
   
   const displayNum = useMemo(() => {
-      if (beat?.sceneNumber) return beat.sceneNumber; // Manual override
-      if (orders[beatId] !== undefined) return orders[beatId].toString(); // Computed Sequence
-      return '•'; // Sandbox
+      if (beat?.sceneNumber) return beat.sceneNumber; 
+      if (orders[beatId] !== undefined) return orders[beatId].toString(); 
+      return '•'; 
   }, [beat?.sceneNumber, orders, beatId]);
 
   const [tempSceneNum, setTempSceneNum] = useState(displayNum);
 
-  // Sync temp number when calculation changes
   useEffect(() => {
       setTempSceneNum(displayNum);
   }, [displayNum]);
 
   const handleManualSceneNumber = () => {
       if (!beat) return;
-      // If user clears the input or enters bullet, treat as clearing manual number
       if (!tempSceneNum || tempSceneNum.trim() === '' || tempSceneNum === '•') {
           updateBeat(beatId, { sceneNumber: undefined });
       } else {
@@ -285,7 +274,9 @@ const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScri
       if (!beat) return [];
       const bx = beat.x + 120;
       const by = beat.y + 70; 
+      const currentBoard = beat.boardId || 0;
       const parents = groups.filter(g => 
+          (g.boardId || 0) === currentBoard &&
           bx >= g.x && bx <= g.x + g.width &&
           by >= g.y && by <= g.y + g.height
       );
@@ -329,7 +320,6 @@ const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScri
       setSaveStatus('saved'); 
   };
 
-  // TRIGGER DIFF MODAL
   const handleRestoreClick = (v: BeatVersion) => {
       if (!beat) return;
       setDiffVersion(v);
@@ -357,7 +347,7 @@ const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScri
       calculateStats(diffVersion.content);
       setEditorKey(prev => prev + 1);
       setShowVersionMenu(false);
-      setDiffVersion(null); // Close modal
+      setDiffVersion(null); 
   };
 
   useEffect(() => {
@@ -373,7 +363,6 @@ const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScri
       }
   }, []);
 
-  // ... (uniqueLocations, uniqueCharacters, style check, auto-save logic - unchanged)
   const uniqueLocations = useMemo(() => {
     const locs = new Set<string>();
     ['HOUSE', 'KITCHEN', 'BEDROOM', 'OFFICE', 'PARK', 'STREET', 'CAR', 'APARTMENT', 'SCHOOL', 'HOSPITAL'].forEach(l => locs.add(l));
@@ -497,7 +486,6 @@ const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScri
       document.execCommand(command, false, value || 'inherit');
   };
 
-  // --- SCRATCHPAD LOGIC ---
   const addNote = () => {
       if (!beat) return;
       const newNote: Note = {
@@ -602,6 +590,9 @@ const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScri
                           title="Override scene number (e.g. 15A)"
                       />
                       <div className="w-px h-3 bg-[#444]"></div>
+                      <span className="text-[9px] font-bold text-[#666] uppercase">PAGE</span>
+                      <span className="text-[10px] font-bold text-[#f5a623]">{(beat.boardId || 0) + 1}</span>
+                      <div className="w-px h-3 bg-[#444]"></div>
                       <span className="text-[10px] font-bold text-white uppercase truncate max-w-[150px]" title={beat.title}>
                           {beat.title || <span className="text-[#555] italic">UNTITLED</span>}
                       </span>
@@ -633,7 +624,6 @@ const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScri
         {/* --- LEFT SIDEBAR (STATS & META) --- */}
         {showSidebar && (
             <div className="w-72 bg-[#111] border-r border-[#333] p-4 flex flex-col shrink-0 relative overflow-y-auto custom-scrollbar animate-in slide-in-from-left-4 fade-in duration-200">
-             {/* ... (Sidebar contents same as before) ... */}
              <div className="flex flex-col gap-2 mb-4">
                 {hierarchy.length > 0 && (
                     <div className="flex items-center flex-wrap gap-1">
@@ -841,14 +831,12 @@ const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScri
             </div>
         )}
 
-        {/* --- RIGHT SIDE (EDITOR) --- */}
         <div className="flex-1 flex flex-col bg-[#1e1e1e] relative min-w-0">
             
             {/* 1. SLUGLINE BAR (STICKY) */}
             <div className={`px-4 py-2 border-b border-[#333] flex items-center gap-2 z-30 shrink-0 shadow-lg transition-colors ${isReadOnly ? 'bg-[#151515] opacity-80' : 'bg-[#1e1e1e]'}`}>
                 <div className="w-full flex gap-2 items-center font-screenplay">
                     <span className="text-gray-500 font-bold select-none text-xs">{tempSceneNum}.</span>
-                    {/* MODIFIED: Widths increased for Prefix and Time inputs */}
                     <SlugInput
                         id={prefixId}
                         value={beat.slug.prefix}
@@ -927,7 +915,7 @@ const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScri
                         id={scopeId}
                         className={`bg-white shadow-xl py-10 pl-12 pr-16 text-black transition-opacity ${isReadOnly ? 'opacity-80' : ''}`}
                         style={{
-                            width: '650px', // Slightly wider for comfort
+                            width: '650px', 
                             minHeight: '800px',
                             maxWidth: '95%' 
                         }}
@@ -941,7 +929,7 @@ const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScri
                             onActiveFormatChange={setActiveFormat}
                             readOnly={isReadOnly}
                             className="script-body outline-none font-screenplay text-[14px] leading-tight w-full break-words"
-                            isActive={true} // Modal is always the active editing context when open
+                            isActive={true} 
                         />
                     </div>
                 </div>

@@ -55,7 +55,7 @@ export const SB_EYELINE = ['Direct to Camera', 'Just Off Camera', 'Looking Up', 
 export const CHARACTER_GENDERS = ['Male', 'Female', 'Non-Binary', 'Transgender', 'Agender', 'Genderfluid', 'Unknown', 'Android', 'Cyborg', 'Ethereal', 'Beast'];
 export const CHARACTER_HAIR = ['Black', 'Brown', 'Dark Brown', 'Blonde', 'Dirty Blonde', 'Platinum Blonde', 'Red', 'Auburn', 'Grey', 'Silver', 'White', 'Bald', 'Shaved', 'Dyed (Green)', 'Dyed (Blue)', 'Dyed (Pink)', 'Multicolored'];
 export const CHARACTER_EYES = ['Brown', 'Dark Brown', 'Blue', 'Ice Blue', 'Green', 'Emerald', 'Hazel', 'Amber', 'Grey', 'Black', 'Red', 'Violet', 'Heterochromia', 'Cybernetic', 'White (Blind)', 'Glowing'];
-export const CHARACTER_BUILDS = ['Average', 'Athletic', 'Muscular', 'Bodybuilder', 'Slim', 'Skinny', 'Lean', 'Heavy', 'Overweight', 'Obese', 'Petite', 'Tall', 'Giant', 'Stocky', 'Curvy', 'Lanky', 'Robotic', 'Decrepit'];
+export const CHARACTER_BUILDS = ['Average', 'Athletic', 'Muscular', 'Bodybuilder', 'Slim', 'Skinny', 'Lean', 'Heavy', 'Obese', 'Petite', 'Tall', 'Giant', 'Stocky', 'Curvy', 'Lanky', 'Robotic', 'Decrepit'];
 export const CHARACTER_ARCHETYPES = [
     'Hero', 'Villain', 'Anti-Hero', 'Mentor', 'Sidekick', 
     'Threshold Guardian', 'Herald', 'Shapeshifter', 'Shadow', 'Trickster',
@@ -143,7 +143,8 @@ export const INITIAL_STATE: ProjectState = {
       shots: [], 
       status: 'not-ready', 
       versions: [],
-      notes: [] // Init scene notes
+      notes: [], // Init scene notes
+      boardId: 0
     }
   ],
   groups: [],
@@ -160,6 +161,7 @@ export const INITIAL_STATE: ProjectState = {
   scale: 1,
   nextId: 1,
   nextAnnoId: 1,
+  activeBoardId: 0,
   isTamilMode: false,
   tamilFontScale: 120, // 120% matches Courier Prime 12pt best for Vijaya
   tamilFontFamily: 'Vijaya',
@@ -257,13 +259,6 @@ export const INITIAL_STATE: ProjectState = {
     dailyTarget: 500, // Habit mode default
     includeWeekends: true,
     dailyWritingMinutes: 120 // 2 hours default
-  },
-  googleDriveConfig: {
-    clientId: '',
-    apiKey: '',
-    enabled: false,
-    autoBackup: false,
-    lastBackup: null
   },
   geminiApiKey: '',
   stabilityApiKey: '',

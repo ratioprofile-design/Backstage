@@ -41,6 +41,7 @@
   font-family: var(--font-character);
   font-weight: var(--weight-character, bold);
   text-align: var(--align-character, left);
+  text-transform: uppercase;
 }
 
 .sc-dialogue {
@@ -72,6 +73,7 @@
   font-weight: var(--weight-transition, bold);
   font-style: var(--style-transition);
   text-decoration: var(--dec-transition);
+  text-transform: uppercase;
 }
 
 .sc-shot {

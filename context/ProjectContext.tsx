@@ -3,11 +3,10 @@ import React, { createContext, useContext, useState, useEffect, useCallback, use
 import { 
   ProjectState, ProjectContextType, Beat, Group, Connection, Annotation, 
   CharacterData, Shot, Note, ScriptConfig, ScratchpadConfig, StoryboardConfig, 
-  WritingGoal, GoogleDriveConfig, ProjectMetadata, BeatStatus, BeatVersion,
+  WritingGoal, ProjectMetadata, BeatStatus, BeatVersion,
   BoardLayer
 } from '../types';
 import { INITIAL_STATE } from '../constants';
-import { initializeGapi, requestAccessToken, createDriveFile, updateDriveFile, findDriveFile } from '../services/googleDrive';
 import { updateGeminiConfig } from '../services/gemini';
 import { supabase, upsertProject, fetchProjectData, fetchUserProjects } from '../services/supabase';
 
@@ -80,6 +79,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [scale, setScale] = useState(INITIAL_STATE.scale);
   const [nextId, setNextId] = useState(INITIAL_STATE.nextId);
   const [nextAnnoId, setNextAnnoId] = useState(INITIAL_STATE.nextAnnoId);
+  const [activeBoardId, setActiveBoardId] = useState(INITIAL_STATE.activeBoardId);
   const [isTamilMode, setTamilMode] = useState(INITIAL_STATE.isTamilMode);
   const [tamilFontScale, setTamilFontScale] = useState(INITIAL_STATE.tamilFontScale);
   const [tamilFontFamily, setTamilFontFamily] = useState(INITIAL_STATE.tamilFontFamily);
@@ -96,7 +96,6 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [isPdfDropEnabled, setPdfDropEnabled] = useState(INITIAL_STATE.isPdfDropEnabled);
   const [isRedoEnabled, setRedoEnabled] = useState(INITIAL_STATE.isRedoEnabled);
   const [writingGoal, setWritingGoal] = useState<WritingGoal>(INITIAL_STATE.writingGoal);
-  const [googleDriveConfig, setGoogleDriveConfig] = useState<GoogleDriveConfig>(INITIAL_STATE.googleDriveConfig);
   const [geminiApiKey, setGeminiApiKey] = useState(INITIAL_STATE.geminiApiKey);
   const [stabilityApiKey, setStabilityApiKey] = useState(INITIAL_STATE.stabilityApiKey);
   const [dailyStats, setDailyStats] = useState(INITIAL_STATE.dailyStats);
@@ -105,8 +104,6 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [boardLayerOrder, setBoardLayerOrder] = useState<BoardLayer[]>(INITIAL_STATE.boardLayerOrder);
 
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
-  const [isDriveSyncing, setIsDriveSyncing] = useState(false);
-  const [isDriveConnecting, setIsDriveConnecting] = useState(false);
 
   const historyRef = useRef<string[]>([]);
   const historyIndexRef = useRef<number>(-1);
@@ -236,12 +233,12 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       
       const projectData: ProjectState = {
           beats, groups, connections, annotations, characterData, generatedShots, 
-          scratchpad, globalNotes, panX, panY, scale, nextId, nextAnnoId,
+          scratchpad, globalNotes, panX, panY, scale, nextId, nextAnnoId, activeBoardId,
           isTamilMode, tamilFontScale, tamilFontFamily, userDictionary,
           isOsInputMode, osInputShortcut, scriptConfig, scriptViewMode,
           scratchpadConfig, storyboardConfig, isStoryboardFeatureEnabled,
           breakdownLanguage, breakdownLockedOnly, isPdfDropEnabled, isRedoEnabled, 
-          writingGoal, googleDriveConfig, geminiApiKey, stabilityApiKey, 
+          writingGoal, geminiApiKey, stabilityApiKey, 
           dailyStats, sessionStartCount, lastSessionDate, boardLayerOrder
       };
 
@@ -260,16 +257,12 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       }
       
       setHasUnsavedChanges(false);
-
-      if (googleDriveConfig.enabled && googleDriveConfig.autoBackup) {
-          backupToDrive(false);
-      }
   }, [
       currentProjectId, projectList, beats, groups, connections, annotations, characterData, 
-      generatedShots, scratchpad, globalNotes, panX, panY, scale, nextId, nextAnnoId,
+      generatedShots, scratchpad, globalNotes, panX, panY, scale, nextId, nextAnnoId, activeBoardId,
       isTamilMode, tamilFontScale, tamilFontFamily, userDictionary, isOsInputMode, osInputShortcut,
       scriptConfig, scriptViewMode, scratchpadConfig, storyboardConfig, isStoryboardFeatureEnabled,
-      breakdownLanguage, breakdownLockedOnly, isPdfDropEnabled, isRedoEnabled, writingGoal, googleDriveConfig, geminiApiKey, stabilityApiKey,
+      breakdownLanguage, breakdownLockedOnly, isPdfDropEnabled, isRedoEnabled, writingGoal, geminiApiKey, stabilityApiKey,
       dailyStats, sessionStartCount, lastSessionDate, boardLayerOrder, supabaseUser
   ]);
 
@@ -277,12 +270,12 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       if (!currentProjectId) return;
       const projectData: ProjectState = {
           beats, groups, connections, annotations, characterData, generatedShots, 
-          scratchpad, globalNotes, panX, panY, scale, nextId, nextAnnoId,
+          scratchpad, globalNotes, panX, panY, scale, nextId, nextAnnoId, activeBoardId,
           isTamilMode, tamilFontScale, tamilFontFamily, userDictionary,
           isOsInputMode, osInputShortcut, scriptConfig, scriptViewMode,
           scratchpadConfig, storyboardConfig, isStoryboardFeatureEnabled,
           breakdownLanguage, breakdownLockedOnly, isPdfDropEnabled, isRedoEnabled, 
-          writingGoal, googleDriveConfig, geminiApiKey, stabilityApiKey, 
+          writingGoal, geminiApiKey, stabilityApiKey, 
           dailyStats, sessionStartCount, lastSessionDate, boardLayerOrder
       };
       const dataStr = JSON.stringify(projectData, null, 2);
@@ -300,10 +293,10 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       saveProject();
   }, [
       currentProjectId, projectList, beats, groups, connections, annotations, characterData, 
-      generatedShots, scratchpad, globalNotes, panX, panY, scale, nextId, nextAnnoId,
+      generatedShots, scratchpad, globalNotes, panX, panY, scale, nextId, nextAnnoId, activeBoardId,
       isTamilMode, tamilFontScale, tamilFontFamily, userDictionary, isOsInputMode, osInputShortcut,
       scriptConfig, scriptViewMode, scratchpadConfig, storyboardConfig, isStoryboardFeatureEnabled,
-      breakdownLanguage, breakdownLockedOnly, isPdfDropEnabled, isRedoEnabled, writingGoal, googleDriveConfig, geminiApiKey, stabilityApiKey,
+      breakdownLanguage, breakdownLockedOnly, isPdfDropEnabled, isRedoEnabled, writingGoal, geminiApiKey, stabilityApiKey,
       dailyStats, sessionStartCount, lastSessionDate, boardLayerOrder, saveProject
   ]);
 
@@ -336,6 +329,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       setScale(merged.scale);
       setNextId(merged.nextId);
       setNextAnnoId(merged.nextAnnoId);
+      setActiveBoardId(merged.activeBoardId ?? 0);
       setTamilMode(merged.isTamilMode);
       setTamilFontScale(merged.tamilFontScale);
       setTamilFontFamily(merged.tamilFontFamily);
@@ -352,7 +346,6 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       setPdfDropEnabled(merged.isPdfDropEnabled);
       setRedoEnabled(merged.isRedoEnabled ?? false);
       setWritingGoal(merged.writingGoal);
-      setGoogleDriveConfig(merged.googleDriveConfig);
       setGeminiApiKey(merged.geminiApiKey);
       setStabilityApiKey(merged.stabilityApiKey);
       setDailyStats(merged.dailyStats);
@@ -365,58 +358,6 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       setHasUnsavedChanges(false);
   };
 
-  const connectToDrive = async (apiKey?: string, clientId?: string) => {
-      if (!apiKey || !clientId) {
-          alert("API Key and Client ID required.");
-          return;
-      }
-      setIsDriveConnecting(true);
-      try {
-          await initializeGapi(apiKey, clientId);
-          await requestAccessToken();
-          setGoogleDriveConfig(prev => ({ ...prev, enabled: true, apiKey, clientId }));
-          alert("Connected to Google Drive!");
-      } catch (err) {
-          console.error(err);
-          alert("Failed to connect to Google Drive: " + err);
-      } finally {
-          setIsDriveConnecting(false);
-      }
-  };
-
-  const disconnectFromDrive = () => {
-      setGoogleDriveConfig(prev => ({ ...prev, enabled: false, fileId: undefined }));
-  };
-
-  const backupToDrive = async (force: boolean = false) => {
-      if (!googleDriveConfig.enabled || !currentProjectId) return;
-      if (!force && Date.now() - (googleDriveConfig.lastBackup || 0) < 300000) return; 
-
-      setIsDriveSyncing(true);
-      try {
-          const project = projectList.find(p => p.id === currentProjectId);
-          const fileName = `Backstage_Backup_${project?.name || 'Untitled'}.bst`;
-          const content = localStorage.getItem(`project_data_${currentProjectId}`) || '{}';
-          if (googleDriveConfig.fileId) {
-              await updateDriveFile(googleDriveConfig.fileId, content);
-          } else {
-              const existingId = await findDriveFile(fileName);
-              if (existingId) {
-                  await updateDriveFile(existingId, content);
-                  setGoogleDriveConfig(prev => ({ ...prev, fileId: existingId }));
-              } else {
-                  const newId = await createDriveFile(fileName, content);
-                  setGoogleDriveConfig(prev => ({ ...prev, fileId: newId }));
-              }
-          }
-          setGoogleDriveConfig(prev => ({ ...prev, lastBackup: Date.now() }));
-      } catch (err) {
-          console.error("Backup failed", err);
-      } finally {
-          setIsDriveSyncing(false);
-      }
-  };
-
   const setPan = (x: number, y: number) => { setPanX(x); setPanY(y); };
   
   const addBeat = (x: number, y: number) => {
@@ -425,7 +366,8 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const newBeat: Beat = {
           id, x, y, title: '', slug: { prefix: '', location: '', time: '' },
           content: '<div class="sc-line sc-action"><br></div>',
-          color: '#444', shots: [], status: 'not-ready', versions: [], notes: []
+          color: '#444', shots: [], status: 'not-ready', versions: [], notes: [],
+          boardId: activeBoardId
       };
       setBeats(prev => [...prev, newBeat]);
       captureSnapshot();
@@ -469,7 +411,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
               const src = incomingToDragged[0].from;
               const dst = outgoingFromDragged[0].to;
               if (src !== dst) {
-                newConns.push({ from: src, to: dst });
+                newConns.push({ from: src, to: dst, boardId: activeBoardId });
               }
           }
 
@@ -481,20 +423,20 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
               // Redirect incoming pointers from Target to Dragged
               newConns = newConns.filter(c => c.to !== targetId);
               incomingToTarget.forEach(c => {
-                  newConns.push({ from: c.from, to: draggedId });
+                  newConns.push({ from: c.from, to: draggedId, boardId: activeBoardId });
               });
               // Connect Dragged -> Target
-              newConns.push({ from: draggedId, to: targetId });
+              newConns.push({ from: draggedId, to: targetId, boardId: activeBoardId });
           } else {
               // Insert after targetId
               // Find what target points to currently
               const outgoingFromTarget = newConns.filter(c => c.from === targetId);
               // Redirect Target's outgoing pointer to Dragged
               newConns = newConns.filter(c => c.from !== targetId);
-              newConns.push({ from: targetId, to: draggedId });
+              newConns.push({ from: targetId, to: draggedId, boardId: activeBoardId });
               // Redirect Dragged to what Target was pointing to
               outgoingFromTarget.forEach(c => {
-                  newConns.push({ from: draggedId, to: c.to });
+                  newConns.push({ from: draggedId, to: c.to, boardId: activeBoardId });
               });
           }
 
@@ -511,12 +453,12 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       });
 
       captureSnapshot();
-  }, [captureSnapshot]);
+  }, [captureSnapshot, activeBoardId]);
 
   const addGroup = (group: Omit<Group, 'id'>) => {
       const id = nextId;
       setNextId(prev => prev + 1);
-      setGroups(prev => [...prev, { ...group, id }]);
+      setGroups(prev => [...prev, { ...group, id, boardId: activeBoardId }]);
       captureSnapshot();
   };
 
@@ -571,27 +513,25 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const value: ProjectContextType = {
       beats, groups, connections, annotations, characterData, generatedShots,
-      scratchpad, globalNotes, panX, panY, scale, nextId, nextAnnoId,
+      scratchpad, globalNotes, panX, panY, scale, nextId, nextAnnoId, activeBoardId,
       isTamilMode, tamilFontScale, tamilFontFamily, userDictionary,
       isOsInputMode, osInputShortcut, scriptConfig, scriptViewMode,
       scratchpadConfig, storyboardConfig, isStoryboardFeatureEnabled,
       breakdownLanguage, breakdownLockedOnly, isPdfDropEnabled, isRedoEnabled, 
-      writingGoal, googleDriveConfig,
+      writingGoal,
       geminiApiKey, stabilityApiKey, dailyStats, sessionStartCount, lastSessionDate,
       boardLayerOrder, currentUser, currentProjectId, projectList, hasUnsavedChanges,
-      isDriveSyncing, isDriveConnecting,
       login, logout, selectProject, createProject, deleteProject, closeProject,
       setBeats, setGroups, setConnections, setAnnotations, setCharacterData, 
       setGeneratedShots, setScratchpad, setGlobalNotes, updateGeneratedShot, 
       addGeneratedShot, removeGeneratedShot, moveGeneratedShot, setPan, setScale, 
       updateBeat, addBeat, reorderBeats, addGroup, updateGroup, removeGroup, loadProject, 
-      saveProject, setTamilMode, setTamilFontScale, setTamilFontFamily, 
+      saveProject, setActiveBoardId, setTamilMode, setTamilFontScale, setTamilFontFamily, 
       learnTamilWord, setOsInputMode, setOsInputShortcut, setScriptConfig, 
       setScriptViewMode, setScratchpadConfig, setStoryboardConfig, 
       setStoryboardFeatureEnabled, setBreakdownLanguage, setBreakdownLockedOnly, 
       setPdfDropEnabled, setRedoEnabled,
-      setWritingGoal, setGoogleDriveConfig, connectToDrive, disconnectFromDrive, 
-      backupToDrive, setGeminiApiKey, setStabilityApiKey, setBoardLayerOrder,
+      setWritingGoal, setGeminiApiKey, setStabilityApiKey, setBoardLayerOrder,
       undo, redo, canUndo: historyIndexRef.current > 0, canRedo: historyIndexRef.current < historyRef.current.length - 1, captureSnapshot,
       downloadProject
   };
