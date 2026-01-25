@@ -251,6 +251,9 @@ export interface ProjectContextType extends ProjectState {
   // Board Layers
   setBoardLayerOrder: (order: BoardLayer[]) => void;
 
+  // ID Management
+  setNextId: (val: number | ((prev: number) => number)) => void;
+
   // HISTORY
   undo: () => void;
   redo: () => void;
@@ -546,6 +549,17 @@ export interface BlockBoundsConfig {
   funMode: 'none' | 'blueprint' | 'cyber' | 'glass';
 }
 
+export interface LanguageConfig {
+  action: string;
+  character: string;
+  dialogue: string;
+  parenthetical: string;
+  transition: string;
+  shot: string;
+  lyrics: string;
+  slugline: string;
+}
+
 export interface ScriptConfig {
   paperTheme: 'white' | 'dark' | 'sepia' | 'red'; // New global theme setting
   action: ScriptElementConfig;
@@ -559,4 +573,5 @@ export interface ScriptConfig {
   blockBounds: BlockBoundsConfig; // Global layout visualization settings
   noteFont: string; // Font family for scratchpad notes
   noteFontSize: number; // Font size for scratchpad notes
+  languageConfig: LanguageConfig; // Mapping elements to languages
 }

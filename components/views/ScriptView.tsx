@@ -1,14 +1,24 @@
 
 import React, { useEffect, useRef, useState, useMemo, useLayoutEffect, useCallback } from 'react';
 import { useProject } from '../../context/ProjectContext';
-import { Search, Plus, Sun, Moon, Coffee, Eye, ZoomIn, ZoomOut, Lock, AlignLeft, User, MessageSquare, Parentheses, ArrowRightLeft, Camera, Music, Type, ListChecks, Sparkles, X, Package, Mic2, Shirt, Wand2, Users, Flame, Map as MapIcon, EyeOff, PanelLeft, History, StickyNote, RotateCcw, Save, Globe, Trash2, GripHorizontal, Bold, Italic, Heading, List, CheckSquare, Underline, Strikethrough, Quote, LayoutGrid, Palette, Check, Clock, MoreHorizontal, MousePointer2, Layers, Link2, AlertCircle, ChevronRight, ChevronDown } from 'lucide-react';
+import { 
+  Search, Plus, Sun, Moon, Coffee, Eye, ZoomIn, ZoomOut, Lock, Unlock, 
+  AlignLeft, User, MessageSquare, Parentheses, ArrowRightLeft, Camera, 
+  Music, Type, ListChecks, Sparkles, X, Package, Mic2, Shirt, Wand2, 
+  Users, Flame, Map as MapIcon, EyeOff, PanelLeft, History, StickyNote, 
+  RotateCcw, Save, Globe, Trash2, GripHorizontal, Bold, Italic, Heading, 
+  List, CheckSquare, Underline, Strikethrough, Quote, LayoutGrid, Palette, 
+  Check, Clock, MoreHorizontal, MousePointer2, Layers, Link2, AlertCircle, 
+  ChevronRight, ChevronDown, Settings, Copy, PlusSquare, ArrowUp, ArrowDown,
+  Highlighter, Tag, Scissors, ExternalLink, RefreshCw, FileText
+} from 'lucide-react';
 import { ScriptEditor, ScriptEditorHandle } from '../ScriptEditor';
 import { SlugInput } from '../SlugInput';
 import { generateBreakdown } from '../../services/gemini';
 import { BreakdownData, BreakdownItem, BeatVersion, Note, Beat, Group, Connection, BeatStatus } from '../../types';
 import { BlockEditor } from '../BlockEditor';
 import DiffModal from '../DiffModal';
-import { STORYLINE_COLORS } from '../../constants';
+import { STORYLINE_COLORS, SUPPORTED_LANGUAGES } from '../../constants';
 
 // --- CONSTANTS ---
 const A4_WIDTH = 794;  
@@ -23,12 +33,22 @@ const CONTINUOUS_OVERSCROLL = 400;
 const SLUG_PREFIXES = ['INT.', 'EXT.', 'INT./EXT.', 'EXT./INT.', 'I./E.', 'E./I.'];
 const SLUG_TIMES = ['DAY', 'NIGHT', 'CONTINUOUS', 'MOMENTS LATER', 'MORNING', 'EVENING', 'LATER', 'SAME TIME', 'DAWN', 'DUSK'];
 
-const NOTE_COLORS = [
-    { bg: '#222', border: '#333' },
-    { bg: '#3a2a1a', border: '#d97706' },
-    { bg: '#1a2e1a', border: '#16a34a' },
-    { bg: '#1a2a3a', border: '#2563eb' },
-    { bg: '#3a1a1a', border: '#dc2626' },
+const TEXT_COLORS = [
+    { name: 'White', value: '#ffffff' },
+    { name: 'Amber', value: '#f5a623' },
+    { name: 'Red', value: '#ef4444' },
+    { name: 'Blue', value: '#3b82f6' },
+    { name: 'Green', value: '#22c55e' },
+    { name: 'Purple', value: '#a855f7' },
+];
+
+const HILITE_COLORS = [
+    { name: 'None', value: 'transparent' },
+    { name: 'Gray', value: 'rgba(120,120,120,0.3)' },
+    { name: 'Yellow', value: 'rgba(245,166,35,0.3)' },
+    { name: 'Red', value: 'rgba(239,68,68,0.3)' },
+    { name: 'Green', value: 'rgba(34,197,94,0.3)' },
+    { name: 'Blue', value: 'rgba(59,130,246,0.3)' },
 ];
 
 // --- HELPERS ---
@@ -178,7 +198,7 @@ const InteractiveBoardPanel = ({
 
             const orderA = orders[a.id] ?? (parseInt(a.sceneNumber || '999999'));
             const orderB = orders[b.id] ?? (parseInt(b.sceneNumber || '999999'));
-            if (orderA !== orderB) orderA - orderB;
+            if (orderA !== orderB) return orderA - orderB;
             
             if (Math.abs((a.x || 0) - (b.x || 0)) > 50) return (a.x || 0) - (b.x || 0); 
             return (a.y || 0) - (b.y || 0); 
@@ -426,7 +446,7 @@ const InteractiveBoardPanel = ({
                                     />
                                 </div>
 
-                                <div className="mt-auto border-t border-[#3d3d3d] bg-[#222] p-1 flex justify-between items-center rounded-b-md">
+                                <div className="mt-auto border-t border-[#333] bg-[#222] p-1 flex justify-between items-center rounded-b-md">
                                     <button 
                                         onClick={(e) => { e.stopPropagation(); updateBeat(beat.id, { status: isReady ? 'not-ready' : 'ready' }); }}
                                         className={`flex items-center gap-1.5 text-[8px] font-bold uppercase px-2 py-1 rounded transition-colors ${isReady ? 'text-green-400 bg-green-900/20 hover:bg-green-900/30' : 'text-orange-400 bg-orange-900/20 hover:bg-orange-900/30'}`}
@@ -490,8 +510,89 @@ const InteractiveBoardPanel = ({
     );
 };
 
+const LanguageSettingsPopover = ({ 
+  config, 
+  onUpdate, 
+  onClose 
+}: { 
+  config: any, 
+  onUpdate: (elm: string, lang: string) => void, 
+  onClose: () => void 
+}) => {
+  const elements = [
+    { id: 'slugline', label: 'Slugline' },
+    { id: 'action', label: 'Action' },
+    { id: 'character', label: 'Character' },
+    { id: 'dialogue', label: 'Dialogue' },
+    { id: 'parenthetical', label: 'Parenthetical' },
+    { id: 'transition', label: 'Transition' },
+    { id: 'shot', label: 'Shot' },
+    { id: 'lyrics', label: 'Lyrics' },
+  ];
+
+  return (
+    <div className="absolute top-full left-0 mt-2 w-64 bg-[#1a1a1a] border border-[#333] rounded-lg shadow-2xl z-[1000] p-3 animate-in fade-in zoom-in duration-150">
+      <div className="flex items-center justify-between mb-3 pb-2 border-b border-[#333]">
+        <span className="text-[10px] font-black text-[#f5a623] uppercase tracking-wider flex items-center gap-2">
+          <Globe size={12} /> Typing Languages
+        </span>
+        <button onClick={onClose} className="text-gray-500 hover:text-white"><X size={14} /></button>
+      </div>
+      <div className="space-y-2.5">
+        {elements.map(elm => (
+          <div key={elm.id} className="flex items-center justify-between">
+            <span className="text-[10px] font-bold text-gray-400 uppercase">{elm.label}</span>
+            <select 
+              value={config[elm.id] || 'default'} 
+              onChange={(e) => onUpdate(elm.id, e.target.value)}
+              className="bg-[#0a0a0a] border border-[#333] text-[9px] font-bold text-gray-300 rounded px-2 py-1 outline-none focus:border-[#f5a623]"
+            >
+              {SUPPORTED_LANGUAGES.map(lang => (
+                <option key={lang.value} value={lang.value}>{lang.label}</option>
+              ))}
+            </select>
+          </div>
+        ))}
+      </div>
+      <div className="mt-4 pt-2 border-t border-[#333]">
+        <p className="text-[8px] text-gray-600 leading-tight italic">Mappings for later macOS/Electron language API integration.</p>
+      </div>
+    </div>
+  );
+};
+
+// --- SUB-COMPONENTS FOR NESTED CONTEXT MENU ---
+const ContextMenuItem = ({ icon: Icon, label, onClick, danger, submenu, active }: any) => {
+    const [isHovered, setIsHovered] = useState(false);
+    return (
+        <div 
+            className="relative"
+            onMouseEnter={() => setIsHovered(true)}
+            onMouseLeave={() => setIsHovered(false)}
+        >
+            <button 
+                onClick={(e) => { 
+                    if (onClick) { e.stopPropagation(); onClick(); }
+                }}
+                className={`w-full text-left px-3 py-2 text-[11px] font-bold flex items-center justify-between transition-colors ${danger ? 'text-red-400 hover:bg-red-900/20' : active ? 'bg-[#f5a623] text-black' : 'text-gray-300 hover:bg-[#333] hover:text-white'}`}
+            >
+                <span className="flex items-center gap-2">
+                    {Icon && <Icon size={14} className={danger ? 'text-red-500/50' : ''} />}
+                    {label}
+                </span>
+                {submenu && <ChevronRight size={10} className="opacity-50" />}
+            </button>
+            {submenu && isHovered && (
+                <div className="absolute left-full top-0 ml-px bg-[#1a1a1a] border border-[#333] rounded-lg shadow-2xl py-1 w-48 animate-in slide-in-from-left-1 duration-100 backdrop-blur-md">
+                    {submenu}
+                </div>
+            )}
+        </div>
+    );
+};
+
 const ScriptView: React.FC = () => {
-  const { beats, groups, connections, updateBeat, addBeat, setBeats, setConnections, scriptViewMode, scriptConfig, setScriptConfig, scratchpadConfig, characterData, geminiApiKey, breakdownLanguage, setBreakdownLanguage, scratchpad, setScratchpad, globalNotes, setGlobalNotes, captureSnapshot, reorderBeats } = useProject();
+  const { beats, groups, connections, updateBeat, addBeat, setBeats, setConnections, scriptViewMode, scriptConfig, setScriptConfig, scratchpadConfig, characterData, breakdownLanguage, setBreakdownLanguage, scratchpad, setScratchpad, globalNotes, setGlobalNotes, captureSnapshot, reorderBeats, setActiveBoardId } = useProject();
   
   const [searchTerm, setSearchTerm] = useState('');
   const [zoom, setZoom] = useState(1.0);
@@ -509,6 +610,9 @@ const ScriptView: React.FC = () => {
   const [dragOverCategory, setDragOverCategory] = useState<string | null>(null);
   const [showSourceHighlights, setShowSourceHighlights] = useState(false);
   const [diffVersion, setDiffVersion] = useState<BeatVersion | null>(null);
+  const [showLanguageConfig, setShowLanguageConfig] = useState(false);
+  
+  const [scriptContextMenu, setScriptContextMenu] = useState<{ x: number, y: number, beatId: number, selectionText?: string } | null>(null);
 
   const scrollerRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -518,7 +622,7 @@ const ScriptView: React.FC = () => {
   
   const getThemeStyles = () => {
       switch(scriptConfig.paperTheme) {
-          case 'dark': return { bg: '#1a1a1a', text: '#e5e5e5', slug: '#bbbbbb', accent: '#333333', pageNum: '#555', shadow: '0 0 0 1px #333', slugBg: '#2a2a2a' };
+          case 'dark': return { bg: '#1a1a1a', text: '#e5e7eb', slug: '#bbbbbb', accent: '#333333', pageNum: '#555', shadow: '0 0 0 1px #333', slugBg: '#2a2a2a' };
           case 'sepia': return { bg: '#fdf6e3', text: '#586e75', slug: '#b58900', accent: '#eee8d5', pageNum: '#93a1a1', shadow: '0 2px 10px rgba(0,0,0,0.1)', slugBg: '#eee8d5' };
           case 'red': return { bg: '#000000', text: '#ff5555', slug: '#ff0000', accent: '#1a0000', pageNum: '#330000', shadow: '0 0 0 1px #330000', slugBg: '#111111' };
           default: return { bg: 'white', text: 'black', slug: '#555555', accent: '#f5f5f5', pageNum: '#ccc', shadow: '0 4px 12px rgba(0,0,0,0.15)', slugBg: '#e5e7eb' }; 
@@ -532,9 +636,7 @@ const ScriptView: React.FC = () => {
   };
 
   const { connectedSet, beatOrder } = useMemo(() => {
-      const safeBeats = beats || [];
-      const safeConnections = connections || [];
-      const res = calculateGraphOrder(safeBeats, safeConnections);
+      const res = calculateGraphOrder(beats || [], connections || []);
       return { connectedSet: res.connectedSet, beatOrder: res.orders };
   }, [beats, connections]);
 
@@ -543,15 +645,12 @@ const ScriptView: React.FC = () => {
       const list = [...beats];
       list.sort((a, b) => {
           if ((a.boardId || 0) !== (b.boardId || 0)) return (a.boardId || 0) - (b.boardId || 0);
-          
           const isSeqA = isSequenceBeat(a, connectedSet, beatOrder);
           const isSeqB = isSequenceBeat(b, connectedSet, beatOrder);
           if (isSeqA !== isSeqB) return isSeqA ? -1 : 1;
-
           const orderA = beatOrder[a.id] ?? (parseInt(a.sceneNumber || '999999'));
           const orderB = beatOrder[b.id] ?? (parseInt(b.sceneNumber || '999999'));
           if (orderA !== orderB) return orderA - orderB;
-          
           if (Math.abs((a.x || 0) - (b.x || 0)) > 50) return (a.x || 0) - (b.x || 0); 
           return (a.y || 0) - (b.y || 0); 
       });
@@ -599,7 +698,43 @@ const ScriptView: React.FC = () => {
 
   const handleFitZoom = () => { if (scrollerRef.current) { const w = scrollerRef.current.clientWidth; const fit = (w - 60) / A4_WIDTH; setZoom(Math.min(1.5, Math.max(0.2, fit))); } };
   const toggleFitZoom = () => { if (zoom === 1.0) handleFitZoom(); else setZoom(1.0); };
-  const handleAddScene = () => { let maxX = -Infinity; let maxY = 0; beats.forEach(b => { if (b.x > maxX) { maxX = b.x; maxY = b.y; } }); if (maxX === -Infinity) { maxX = 25000; maxY = 25000; } const newId = addBeat(maxX + 300, maxY); setTimeout(() => { const prefixInput = document.getElementById(`beat-prefix-${newId}`); if (prefixInput) prefixInput.focus(); const card = document.getElementById(`beat-${newId}`); card?.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, 100); };
+  const handleAddScene = () => { 
+    captureSnapshot();
+    let maxX = -Infinity; let maxY = 0; beats.forEach(b => { if (b.x > maxX) { maxX = b.x; maxY = b.y; } }); if (maxX === -Infinity) { maxX = 25000; maxY = 25000; } const newId = addBeat(maxX + 300, maxY); setTimeout(() => { const prefixInput = document.getElementById(`beat-prefix-${newId}`); if (prefixInput) prefixInput.focus(); const card = document.getElementById(`beat-${newId}`); card?.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, 100); 
+  };
+
+  const handleInsertScene = (referenceId: number, direction: 'above' | 'below') => {
+    captureSnapshot();
+    const refBeat = beats.find(b => b.id === referenceId);
+    if (!refBeat) return;
+    const newId = addBeat(refBeat.x + (direction === 'above' ? -100 : 100), refBeat.y + (direction === 'above' ? -100 : 100));
+    setScriptContextMenu(null);
+    setTimeout(() => scrollToBeat(newId), 100);
+  };
+
+  const handleDuplicateScene = (id: number) => {
+    captureSnapshot();
+    const source = beats.find(b => b.id === id);
+    if (!source) return;
+    const nextIdVal = Date.now();
+    const clone: Beat = JSON.parse(JSON.stringify(source));
+    clone.id = nextIdVal;
+    clone.x += 40; clone.y += 40;
+    clone.title += " (Copy)";
+    setBeats(prev => [...prev, clone]);
+    setScriptContextMenu(null);
+    setTimeout(() => scrollToBeat(nextIdVal), 100);
+  };
+
+  const handleDeleteScene = (id: number) => {
+    if (window.confirm("Permanently delete this scene?")) {
+        captureSnapshot();
+        setBeats(prev => prev.filter(b => b.id !== id));
+        setConnections(prev => prev.filter(c => c.from !== id && c.to !== id));
+        setScriptContextMenu(null);
+    }
+  };
+
   const handleSlugChange = (id: number, field: string, val: string) => { const beat = beats.find(b => b.id === id); if (beat) updateBeat(id, { slug: { ...beat.slug, [field]: val } }); };
   const handleContentUpdate = useCallback((id: number, content: string) => { updateBeat(id, { content }); }, [updateBeat]);
   const handleFormat = (type: string) => { setActiveFormat(type); if (activeBeatId !== null && editorRefs.current[activeBeatId]) { editorRefs.current[activeBeatId]?.executeFormat(type); } };
@@ -610,13 +745,46 @@ const ScriptView: React.FC = () => {
       setActiveBeatId(id);
   };
 
-  const handleAnalyzeBreakdown = async () => { if (!activeBeat || !geminiApiKey) return; setIsAnalyzing(true); const div = document.createElement('div'); div.innerHTML = activeBeat.content; const text = div.innerText; const result = await generateBreakdown(text, 'gemini-3-flash-preview', geminiApiKey, breakdownLanguage); if (result) { updateBeat(activeBeat.id, { breakdown: result }); } else { alert("Failed to analyze breakdown. Check API key."); } setIsAnalyzing(false); };
-  const addTag = (category: keyof BreakdownData, tag: string) => { if (!activeBeat) return; const current = activeBeat.breakdown || { props: [], sound: [], costume: [], vfx: [], practical: [], cast: [], location: [] }; const list = current[category] || []; const newItem: BreakdownItem = { name: tag, source: '' }; const exists = list.some(i => (typeof i === 'string' ? i : i.name) === tag); if (!exists) { updateBeat(activeBeat.id, { breakdown: { ...current, [category]: [...list, newItem] } }); } };
+  const updateLanguageConfig = (elmId: string, lang: string) => {
+    setScriptConfig({
+      ...scriptConfig,
+      languageConfig: {
+        ...scriptConfig.languageConfig,
+        [elmId]: lang
+      }
+    });
+  };
+
+  const handleAnalyzeBreakdown = async () => { if (!activeBeat) return; setIsAnalyzing(true); const div = document.createElement('div'); div.innerHTML = activeBeat.content; const text = div.innerText; const result = await generateBreakdown(text, 'gemini-3-flash-preview', breakdownLanguage); if (result) { updateBeat(activeBeat.id, { breakdown: result }); } else { alert("Failed to analyze breakdown."); } setIsAnalyzing(false); };
+  
+  const addTag = (targetBeatId: number, category: keyof BreakdownData, tag: string, source: string = '') => { 
+    const targetBeat = beats.find(b => b.id === targetBeatId);
+    if (!targetBeat) return; 
+    
+    const current = targetBeat.breakdown || { props: [], sound: [], costume: [], vfx: [], practical: [], cast: [], location: [] }; 
+    const list = current[category] || []; 
+    const newItem: BreakdownItem = { name: tag, source: source }; 
+    
+    const exists = list.some(i => (typeof i === 'string' ? i : i.name).toLowerCase() === tag.toLowerCase()); 
+    if (!exists) { 
+        updateBeat(targetBeatId, { breakdown: { ...current, [category]: [...list, newItem] } }); 
+    } 
+  };
+
   const removeTag = (category: keyof BreakdownData, tag: string) => { if (!activeBeat) return; const current = activeBeat.breakdown || { props: [], sound: [], costume: [], vfx: [], practical: [], cast: [], location: [] }; const list = current[category] || []; const newList = list.filter(i => (typeof i === 'string' ? i : i.name) !== tag); updateBeat(activeBeat.id, { breakdown: { ...current, [category]: newList } }); };
   const handleCreateSnapshot = () => { if (!activeBeat) return; const newVersion: BeatVersion = { id: `v-${Date.now()}`, timestamp: Date.now(), title: activeBeat.title || 'Untitled', content: activeBeat.content, summary: activeBeat.summary }; const currentVersions = activeBeat.versions || []; updateBeat(activeBeat.id, { versions: [...currentVersions, newVersion] }); };
   const handleRestoreClick = (v: BeatVersion) => { if (!activeBeat) return; setDiffVersion(v); };
   const confirmRestoreVersion = () => { if (!activeBeat || !diffVersion) return; const backupVersion: BeatVersion = { id: `backup-${Date.now()}`, timestamp: Date.now(), title: activeBeat.title, content: activeBeat.content, summary: activeBeat.summary }; updateBeat(activeBeat.id, { title: diffVersion.title, content: diffVersion.content, summary: diffVersion.summary, versions: [...(activeBeat.versions || []), backupVersion] }); setDiffVersion(null); };
-  const addNote = () => { const newNote: Note = { id: `note-${Date.now()}`, content: '<div class="nl-block"><br></div>', color: '#d97706', timestamp: Date.now() }; if (scratchpadMode === 'global') { setGlobalNotes([...globalNotes, newNote]); } else if (activeBeat) { const currentNotes = activeBeat.notes || []; updateBeat(activeBeat.id, { notes: [...currentNotes, newNote] }); } };
+  const addNote = (content?: string) => { 
+    const newNote: Note = { 
+        id: `note-${Date.now()}`, 
+        content: content || '<div class="nl-block"><br></div>', 
+        color: '#d97706', 
+        timestamp: Date.now() 
+    }; 
+    if (scratchpadMode === 'global') { setGlobalNotes([...globalNotes, newNote]); } 
+    else if (activeBeat) { const currentNotes = activeBeat.notes || []; updateBeat(activeBeat.id, { notes: [...currentNotes, newNote] }); } 
+  };
   const updateNote = (id: string, updates: Partial<Note>) => { if (scratchpadMode === 'global') { setGlobalNotes(globalNotes.map(n => n.id === id ? { ...n, ...updates } : n)); } else if (activeBeat) { const currentNotes = activeBeat.notes || []; updateBeat(activeBeat.id, { notes: currentNotes.map(n => n.id === id ? { ...n, ...updates } : n) }); } };
   const deleteNote = (id: string) => { if (scratchpadMode === 'global') { setGlobalNotes(globalNotes.filter(n => n.id !== id)); } else if (activeBeat) { const currentNotes = activeBeat.notes || []; updateBeat(activeBeat.id, { notes: currentNotes.filter(n => n.id !== id) }); } setConfirmDeleteNoteId(null); };
   const handleNoteDragStart = (e: React.DragEvent, index: number) => { setDraggedNoteIndex(index); e.dataTransfer.effectAllowed = 'move'; };
@@ -641,11 +809,43 @@ const ScriptView: React.FC = () => {
   const handleTagDragOver = (e: React.DragEvent, category: keyof BreakdownData) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setDragOverCategory(category); };
   const handleTagDragLeave = (e: React.DragEvent) => { setDragOverCategory(null); };
   const handleTagDrop = (e: React.DragEvent, targetCategory: keyof BreakdownData) => { e.preventDefault(); setDragOverCategory(null); const data = e.dataTransfer.getData('text/plain'); if (!data) return; try { const { category: sourceCategory, item: itemName } = JSON.parse(data); if (sourceCategory === targetCategory) return; if (activeBeat) { const current = activeBeat.breakdown || { props: [], sound: [], costume: [], vfx: [], practical: [], cast: [], location: [] }; const getName = (i: string | BreakdownItem) => typeof i === 'string' ? i : i.name; const sourceArray = current[sourceCategory as keyof BreakdownData] || []; const itemObj = sourceArray.find(i => getName(i) === itemName); const newSourceList = sourceArray.filter(i => getName(i) !== itemName); const targetList = current[targetCategory] || []; const newTargetList = targetList.some(i => getName(i) === itemName) ? targetList : [...targetList, itemObj || { name: itemName, source: '' }]; updateBeat(activeBeat.id, { breakdown: { ...current, [sourceCategory]: newSourceList, [targetCategory]: newTargetList } }); } } catch (err) { console.error("Drop failed", err); } };
-  const TagInput = ({ category }: { category: keyof BreakdownData }) => { const [val, setVal] = useState(''); return ( <div className="flex gap-1 mt-2"> <input value={val} onChange={e => setVal(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && val.trim()) { addTag(category, val.trim()); setVal(''); } }} className="flex-1 bg-[#111] border border-[#333] rounded px-2 py-1 text-[10px] text-white focus:border-[#f5a623] outline-none" placeholder="Add..." /> <button onClick={() => { if(val.trim()) { addTag(category, val.trim()); setVal(''); } }} className="px-2 bg-[#222] hover:bg-[#333] text-gray-400 rounded"><Plus size={10}/></button> </div> ); };
+  const TagInput = ({ category }: { category: keyof BreakdownData }) => { const [val, setVal] = useState(''); return ( <div className="flex gap-1 mt-2"> <input value={val} onChange={e => setVal(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && val.trim()) { addTag(activeBeatId!, category, val.trim()); setVal(''); } }} className="flex-1 bg-[#111] border border-[#333] rounded px-2 py-1 text-[10px] text-white focus:border-[#f5a623] outline-none" placeholder="Add..." /> <button onClick={() => { if(val.trim()) { addTag(activeBeatId!, category, val.trim()); setVal(''); } }} className="px-2 bg-[#222] hover:bg-[#333] text-gray-400 rounded"><Plus size={10}/></button> </div> ); };
   const BreakdownSection = ({ title, category, icon: Icon, color }: any) => { const items = activeBeat?.breakdown?.[category as keyof BreakdownData] || []; const isDragOver = dragOverCategory === category; return ( <div className={`mb-4 rounded-md transition-all ${isDragOver ? 'ring-2 ring-dashed ring-[#f5a623] bg-[#222]' : ''}`} onDragOver={(e) => handleTagDragOver(e, category)} onDragLeave={handleTagDragLeave} onDrop={(e) => handleTagDrop(e, category)}> <div className={`text-[10px] font-bold uppercase tracking-wider mb-2 flex items-center gap-2 ${color}`}><Icon size={12} /> {title}</div> <div className="flex flex-wrap gap-1.5 min-h-[30px]"> {items.length === 0 && <span className="text-[10px] text-gray-700 italic select-none">None</span>} {items.map((item, i) => { const name = typeof item === 'string' ? item : item.name; const source = typeof item === 'string' ? undefined : item.source; return ( <div key={i} draggable onDragStart={(e) => handleTagDragStart(e, category, name)} onMouseEnter={() => source && highlightSourceText(source, category)} onMouseLeave={clearHighlight} className={`flex items-center gap-1 bg-[#222] px-2 py-1 rounded text-[10px] text-gray-300 border border-[#333] group cursor-move hover:border-[#f5a623] transition-colors ${showSourceHighlights && source ? 'hover:bg-[#f5a623] hover:text-black' : ''}`} title={source ? `Source: "${source}"` : "No source info"} > {name} <button onClick={() => removeTag(category as keyof BreakdownData, name)} className="text-gray-600 hover:text-red-500 opacity-0 group-hover:opacity-100"><X size={10}/></button> </div> ); })} </div> <TagInput category={category as keyof BreakdownData} /> </div> ); };
 
+  // --- EDITOR CONTEXT MENU HANDLERS ---
+  const handleScriptContextMenu = (e: React.MouseEvent, beatId: number) => {
+    e.preventDefault();
+    const selection = window.getSelection();
+    const selectedText = selection ? selection.toString().trim() : '';
+    setScriptContextMenu({ x: e.clientX, y: e.clientY, beatId, selectionText: selectedText });
+  };
+
+  const applyInlineStyle = (command: string, value?: string) => {
+      document.execCommand(command, false, value);
+      setScriptContextMenu(null);
+  };
+
+  const applyTagging = (category: keyof BreakdownData) => {
+      if (!scriptContextMenu?.selectionText || !scriptContextMenu?.beatId) return;
+      
+      // Update active beat focus to the tagged beat
+      setActiveBeatId(scriptContextMenu.beatId);
+      
+      addTag(scriptContextMenu.beatId, category, scriptContextMenu.selectionText, scriptContextMenu.selectionText);
+      setActiveSidebar('breakdown');
+      setScriptContextMenu(null);
+  };
+
+  const handleSendSelectionToNote = () => {
+      if (!scriptContextMenu?.selectionText) return;
+      const html = `<div class="nl-block">${scriptContextMenu.selectionText}</div>`;
+      addNote(html);
+      setActiveSidebar('scratchpad');
+      setScriptContextMenu(null);
+  };
+
   return (
-    <div className="flex w-full h-full bg-[#0c0c0c] overflow-hidden font-sans">
+    <div className="flex w-full h-full bg-[#0c0c0c] overflow-hidden font-sans" onClick={() => setScriptContextMenu(null)}>
       
       {showNav && (
         <div 
@@ -725,7 +925,7 @@ const ScriptView: React.FC = () => {
             <div className="flex items-center justify-between px-4 py-2 h-12 border-b border-[#222]">
                 <div className="flex items-center gap-4">
                     <button onClick={() => setShowNav(!showNav)} className={`w-8 h-8 flex items-center justify-center rounded border transition-all ${showNav ? 'bg-[#222] border-[#333] text-[#f5a623]' : 'bg-[#1a1a1a] border-[#333] text-gray-400 hover:text-white'}`} title="Toggle Navigation"><PanelLeft size={14} /></button>
-                    <div className="flex items-center bg-[#1a1a1a] rounded border border-[#333] p-0.5 gap-0.5">
+                    <div className="flex items-center bg-[#1a1a1a] rounded border border-[#333] p-0.5 gap-0.5 relative">
                         {FORMAT_BUTTONS.map((btn) => (
                             <button 
                                 key={btn.id} 
@@ -737,6 +937,21 @@ const ScriptView: React.FC = () => {
                                 <span className="font-black opacity-80">{btn.label}</span>
                             </button>
                         ))}
+                        <div className="w-px h-4 bg-[#333] mx-1"></div>
+                        <button 
+                            onClick={() => setShowLanguageConfig(!showLanguageConfig)}
+                            className={`p-1.5 rounded transition-all flex items-center justify-center ${showLanguageConfig ? 'bg-[#f5a623] text-black' : 'text-gray-500 hover:text-white'}`}
+                            title="Configure Element Languages"
+                        >
+                            <Settings size={14} />
+                        </button>
+                        {showLanguageConfig && (
+                          <LanguageSettingsPopover 
+                            config={scriptConfig.languageConfig} 
+                            onUpdate={updateLanguageConfig} 
+                            onClose={() => setShowLanguageConfig(false)}
+                          />
+                        )}
                     </div>
                 </div>
                 <div className="flex items-center gap-4">
@@ -784,7 +999,7 @@ const ScriptView: React.FC = () => {
                                                 <div className="h-px bg-dashed bg-gray-500 w-32 ml-4 border-b border-dashed border-gray-500"></div>
                                             </div>
                                         )}
-                                        <div id={`beat-${beat.id}`} className={`beat-block group relative ${activeBeatId === beat.id ? 'z-20' : 'z-10'}`} onFocusCapture={() => setActiveBeatId(beat.id)} onClick={() => setActiveBeatId(beat.id)}>
+                                        <div id={`beat-${beat.id}`} className={`beat-block group relative ${activeBeatId === beat.id ? 'z-20' : 'z-10'}`} onFocusCapture={() => setActiveBeatId(beat.id)} onClick={() => setActiveBeatId(beat.id)} onContextMenu={(e) => handleScriptContextMenu(e, beat.id)}>
                                             <div className={`absolute -left-16 top-0.5 w-12 text-right font-mono text-xs font-bold select-none opacity-50 group-hover:opacity-100 transition-opacity ${isSandbox ? 'text-gray-600' : ''}`} style={{ color: isSandbox ? undefined : theme.pageNum }}>{displayNumber}</div>
                                             <div className="flex items-center gap-2 mb-2 px-2 py-0.5 transition-colors -ml-2 -mr-2" style={{ backgroundColor: activeBeatId === beat.id ? '#f5a623' : theme.slugBg }}>
                                                 <div className="flex-1 flex items-center gap-2 font-bold uppercase font-screenplay text-sm">
@@ -815,13 +1030,166 @@ const ScriptView: React.FC = () => {
                         <div className="flex gap-2 ml-4">{activeSidebar === 'breakdown' && (<button onClick={() => { setShowSourceHighlights(!showSourceHighlights); clearHighlight(); }} className={`p-1.5 rounded transition-colors ${showSourceHighlights ? 'bg-[#f5a623] text-black' : 'text-gray-500 hover:text-white'}`} title="Highlight source text in script on hover"><Eye size={14}/></button>)}<button onClick={() => { setActiveSidebar('none'); clearHighlight(); }} className="text-gray-500 hover:text-white"><X size={14}/></button></div>
                     </div>
                     <div className="flex-1 relative overflow-hidden">
-                        {activeSidebar === 'breakdown' && (<div className="absolute inset-0 overflow-y-auto custom-scrollbar p-4">{activeBeat ? (<><div className="mb-6 pb-4 border-b border-[#333]"><h4 className="text-sm font-bold text-white uppercase mb-4">{activeBeat.slug.location || 'Untitled Scene'}</h4><div className="flex items-center justify-between mb-2"><span className="text-[10px] font-bold text-gray-500 uppercase">Output Language</span><div className="flex bg-[#111] rounded border border-[#333] p-0.5"><button onClick={() => setBreakdownLanguage('english')} className={`px-2 py-0.5 text-[9px] font-bold uppercase rounded ${breakdownLanguage === 'english' ? 'bg-[#f5a623] text-black' : 'text-gray-500 hover:text-white'}`}>ENG</button><button onClick={() => setBreakdownLanguage('tamil')} className={`px-2 py-0.5 text-[9px] font-bold uppercase rounded ${breakdownLanguage === 'tamil' ? 'bg-[#f5a623] text-black' : 'text-gray-500 hover:text-white'}`}>TAM</button></div></div><button onClick={handleAnalyzeBreakdown} disabled={isAnalyzing || !geminiApiKey} className={`w-full py-2 font-bold text-xs uppercase rounded flex items-center justify-center gap-2 transition-all ${!geminiApiKey ? 'bg-[#222] text-gray-600 cursor-not-allowed' : 'bg-[#f5a623] hover:bg-[#e09612] text-black disabled:opacity-50'}`}>{isAnalyzing ? <Sparkles size={14} className="animate-spin" /> : <Sparkles size={14} />} {isAnalyzing ? 'Analyzing...' : (geminiApiKey ? 'Auto-Analyze' : 'API Key Missing')}</button></div><BreakdownSection title="Location Scenario" category="location" icon={MapIcon} color="text-orange-400" /><BreakdownSection title="Visual Effects" category="vfx" icon={Wand2} color="text-green-400" /><BreakdownSection title="Practical Effects" category="practical" icon={Flame} color="text-red-500" /><BreakdownSection title="Props" category="props" icon={Package} color="text-red-400" /><BreakdownSection title="Sound / SFX" category="sound" icon={Mic2} color="text-blue-400" /><BreakdownSection title="Wardrobe" category="costume" icon={Shirt} color="text-pink-400" /><BreakdownSection title="Cast / Extras" category="cast" icon={Users} color="text-yellow-400" /></>) : (<div className="flex flex-col items-center justify-center h-full text-gray-500 gap-2"><ListChecks size={32} opacity={0.2} /><span className="text-xs text-center px-4">Select a scene to view or create breakdown items.</span></div>)}</div>)}
-                        {activeSidebar === 'scratchpad' && (<div className="absolute inset-0 flex flex-col"><div className="px-4 py-3 border-b border-[#333] bg-[#161616]"><div className="flex bg-black/40 p-1 rounded-lg border border-[#333] relative"><button onClick={() => setScratchpadMode('global')} className={`flex-1 py-1.5 text-[10px] font-bold uppercase rounded-md transition-all relative z-10 flex items-center justify-center gap-2 ${scratchpadMode === 'global' ? 'bg-[#f5a623] text-black shadow-sm' : 'text-gray-500 hover:text-gray-300'}`}><Globe size={10} /> Global Notes</button><button onClick={() => setScratchpadMode('scene')} className={`flex-1 py-1.5 text-[10px] font-bold uppercase rounded-md transition-all relative z-10 flex items-center justify-center gap-2 ${scratchpadMode === 'scene' ? 'bg-[#f5a623] text-black shadow-sm' : 'text-gray-500 hover:text-gray-300'}`}><StickyNote size={10} /> Scene Notes</button></div></div><div className="flex-1 p-4 overflow-y-auto custom-scrollbar bg-[#111]">{(scratchpadMode === 'global' ? globalNotes : (activeBeat?.notes || [])).map((note, index) => { const isConfirming = confirmDeleteNoteId === note.id; const borderColor = note.color; const subtleBorder = `${borderColor}40`; const subtleBg = `${borderColor}05`; return (<div key={note.id} draggable={false} onDragOver={(e) => handleNoteDragOver(e, index)} onDrop={(e) => handleNoteDrop(e, index)} onDragLeave={handleNoteDragLeave} className={`mb-4 rounded-md overflow-hidden transition-all shadow-sm group relative ${scratchpadConfig.glassEffect ? 'backdrop-blur-md' : ''}`} style={{ transition: 'transform 0.2s, opacity 0.2s', transform: dragOverIndex === index && scratchpadConfig.enableDragAnimations ? `scale(${scratchpadConfig.dragScale})` : 'scale(1)', opacity: dragOverIndex === index && scratchpadConfig.enableDragAnimations ? scratchpadConfig.dragOpacity : 1, border: `1px solid ${subtleBorder}`, backgroundColor: subtleBg, boxShadow: `0 1px 3px rgba(0,0,0,0.3), 0 0 2px ${subtleBorder}` }}><div draggable={true} onDragStart={(e) => handleNoteDragStart(e, index)} className="flex justify-between items-center px-2 py-1 border-b border-white/5 cursor-grab active:cursor-grabbing hover:bg-white/5 transition-colors" style={{ backgroundColor: 'rgba(0,0,0,0.2)' }}><div className="flex gap-1 items-center"><GripHorizontal size={12} className="text-gray-600 mr-2" />{NOTE_COLORS.map(c => (<div key={c.bg} className={`w-2 h-2 rounded-full cursor-pointer transition-transform hover:scale-125 ${note.color === c.border ? 'ring-1 ring-white' : 'opacity-50 hover:opacity-100'}`} style={{ backgroundColor: c.border }} onMouseDown={(e) => { e.stopPropagation(); updateNote(note.id, { color: c.border }); }}></div>))}</div><button onMouseDown={(e) => { e.stopPropagation(); if(isConfirming) deleteNote(note.id); else { setConfirmDeleteNoteId(note.id); setTimeout(() => setConfirmDeleteNoteId(null), 3000); } }} className={`transition-colors ${isConfirming ? 'text-red-500 animate-pulse bg-red-900/20 px-1 rounded' : 'text-white/30 hover:text-white'}`} title={isConfirming ? "Click again to delete" : "Delete Note"}><Trash2 size={10} /></button></div><div style={{ backgroundColor: 'transparent' }}><BlockEditor value={note.content} onChange={(val) => updateNote(note.id, { content: val })} className="bg-transparent border-none rounded-none" minHeight="80px" placeholder="Note content..." config={scratchpadConfig} style={{ lineHeight: scratchpadConfig.lineHeight }} /></div></div>); })} {(scratchpadMode === 'scene' && !activeBeat) ? (<div className="flex flex-col items-center justify-center h-full text-gray-500 gap-2"><StickyNote size={32} opacity={0.2} /><span className="text-xs text-center px-4">Select a scene to add notes.</span></div>) : (<button onClick={addNote} className="w-full py-3 mt-2 border border-dashed border-[#333] hover:border-[#f5a623] hover:bg-[#f5a623]/10 text-gray-500 hover:text-[#f5a623] rounded-none text-xs font-bold uppercase transition-all flex items-center justify-center gap-2"><Plus size={14} /> Add Note</button>)}</div></div>)}
+                        {activeSidebar === 'breakdown' && (<div className="absolute inset-0 overflow-y-auto custom-scrollbar p-4">{activeBeat ? (<><div className="mb-6 pb-4 border-b border-[#333]"><h4 className="text-sm font-bold text-white uppercase mb-4">{activeBeat.slug.location || 'Untitled Scene'}</h4><div className="flex items-center justify-between mb-2"><span className="text-[10px] font-bold text-gray-500 uppercase">Output Language</span><div className="flex bg-[#111] rounded border border-[#333] p-0.5"><button onClick={() => setBreakdownLanguage('english')} className={`px-2 py-0.5 text-[9px] font-bold uppercase rounded ${breakdownLanguage === 'english' ? 'bg-[#f5a623] text-black' : 'text-gray-500 hover:text-white'}`}>ENG</button><button onClick={() => setBreakdownLanguage('tamil')} className={`px-2 py-0.5 text-[9px] font-bold uppercase rounded ${breakdownLanguage === 'tamil' ? 'bg-[#f5a623] text-black' : 'text-gray-500 hover:text-white'}`}>TAM</button></div></div><button onClick={handleAnalyzeBreakdown} disabled={isAnalyzing} className={`w-full py-2 font-bold text-xs uppercase rounded flex items-center justify-center gap-2 transition-all bg-[#f5a623] hover:bg-[#e09612] text-black disabled:opacity-50`}>{isAnalyzing ? <Sparkles size={14} className="animate-spin" /> : <Sparkles size={14} />} {isAnalyzing ? 'Analyzing...' : 'Auto-Analyze'}</button></div><BreakdownSection title="Location Scenario" category="location" icon={MapIcon} color="text-orange-400" /><BreakdownSection title="Visual Effects" category="vfx" icon={Wand2} color="text-green-400" /><BreakdownSection title="Practical Effects" category="practical" icon={Flame} color="text-red-500" /><BreakdownSection title="Props" category="props" icon={Package} color="text-red-400" /><BreakdownSection title="Sound / SFX" category="sound" icon={Mic2} color="text-blue-400" /><BreakdownSection title="Wardrobe" category="costume" icon={Shirt} color="text-pink-400" /><BreakdownSection title="Cast / Extras" category="cast" icon={Users} color="text-yellow-400" /></>) : (<div className="flex flex-col items-center justify-center h-full text-gray-500 gap-2"><ListChecks size={32} opacity={0.2} /><span className="text-xs text-center px-4">Select a scene to view or create breakdown items.</span></div>)}</div>)}
+                        {activeSidebar === 'scratchpad' && (<div className="absolute inset-0 flex flex-col"><div className="px-4 py-3 border-b border-[#333] bg-[#161616]"><div className="flex bg-black/40 p-1 rounded-lg border border-[#333] relative"><button onClick={() => setScratchpadMode('global')} className={`flex-1 py-1.5 text-[10px] font-bold uppercase rounded-md transition-all relative z-10 flex items-center justify-center gap-2 ${scratchpadMode === 'global' ? 'bg-[#f5a623] text-black shadow-sm' : 'text-gray-500 hover:text-gray-300'}`}><Globe size={10} /> Global Notes</button><button onClick={() => setScratchpadMode('scene')} className={`flex-1 py-1.5 text-[10px] font-bold uppercase rounded-md transition-all relative z-10 flex items-center justify-center gap-2 ${scratchpadMode === 'scene' ? 'bg-[#f5a623] text-black shadow-sm' : 'text-gray-500 hover:text-gray-300'}`}><StickyNote size={10} /> Scene Notes</button></div></div><div className="flex-1 p-4 overflow-y-auto custom-scrollbar bg-[#111]">{(scratchpadMode === 'global' ? globalNotes : (activeBeat?.notes || [])).map((note, index) => { const isConfirming = confirmDeleteNoteId === note.id; const borderColor = note.color; const subtleBorder = `${borderColor}40`; const subtleBg = `${borderColor}05`; return (<div key={note.id} draggable={false} onDragOver={(e) => handleNoteDragOver(e, index)} onDrop={(e) => handleNoteDrop(e, index)} onDragLeave={handleNoteDragLeave} className={`mb-4 rounded-md overflow-hidden transition-all shadow-sm group relative ${scratchpadConfig.glassEffect ? 'backdrop-blur-md' : ''}`} style={{ transition: 'transform 0.2s, opacity 0.2s', transform: dragOverIndex === index && scratchpadConfig.enableDragAnimations ? `scale(${scratchpadConfig.dragScale})` : 'scale(1)', opacity: dragOverIndex === index && scratchpadConfig.enableDragAnimations ? scratchpadConfig.dragOpacity : 1, border: `1px solid ${subtleBorder}`, backgroundColor: subtleBg, boxShadow: `0 1px 3px rgba(0,0,0,0.3), 0 0 2px ${subtleBorder}` }}><div draggable={true} onDragStart={(e) => handleNoteDragStart(e, index)} className="flex justify-between items-center px-2 py-1 border-b border-white/5 cursor-grab active:cursor-grabbing hover:bg-white/5 transition-colors" style={{ backgroundColor: 'rgba(0,0,0,0.2)' }}><div className="flex gap-1 items-center"><GripHorizontal size={12} className="text-gray-600 mr-2" />{STORYLINE_COLORS.slice(0,5).map(c => (<div key={c} className={`w-2 h-2 rounded-full cursor-pointer transition-transform hover:scale-125 ${note.color === c ? 'ring-1 ring-white' : 'opacity-50 hover:opacity-100'}`} style={{ backgroundColor: c }} onMouseDown={(e) => { e.stopPropagation(); updateNote(note.id, { color: c }); }}></div>))}</div><button onMouseDown={(e) => { e.stopPropagation(); if(isConfirming) deleteNote(note.id); else { setConfirmDeleteNoteId(note.id); setTimeout(() => setConfirmDeleteNoteId(null), 3000); } }} className={`transition-colors ${isConfirming ? 'text-red-500 animate-pulse bg-red-900/20 px-1 rounded' : 'text-white/30 hover:text-white'}`} title={isConfirming ? "Click again to delete" : "Delete Note"}><Trash2 size={10} /></button></div><div style={{ backgroundColor: 'transparent' }}><BlockEditor value={note.content} onChange={(val) => updateNote(note.id, { content: val })} className="bg-transparent border-none rounded-none" minHeight="80px" placeholder="Note content..." config={scratchpadConfig} style={{ lineHeight: scratchpadConfig.lineHeight }} /></div></div>); })} {(scratchpadMode === 'scene' && !activeBeat) ? (<div className="flex flex-col items-center justify-center h-full text-gray-500 gap-2"><StickyNote size={32} opacity={0.2} /><span className="text-xs text-center px-4">Select a scene to add notes.</span></div>) : (<button onClick={() => addNote()} className="w-full py-3 mt-2 border border-dashed border-[#333] hover:border-[#f5a623] hover:bg-[#f5a623]/10 text-gray-500 hover:text-[#f5a623] rounded-none text-xs font-bold uppercase transition-all flex items-center justify-center gap-2"><Plus size={14} /> Add Note</button>)}</div></div>)}
                         {activeSidebar === 'history' && (<div className="absolute inset-0 overflow-y-auto custom-scrollbar p-4">{activeBeat ? (<div className="flex flex-col h-full"><div className="mb-4 bg-[#111] p-3 rounded border border-[#333]"><h4 className="text-xs font-bold text-white uppercase mb-1">{activeBeat.slug.location || 'Untitled'}</h4><div className="text-[10px] text-gray-500 font-mono">Current Version</div></div><button onClick={handleCreateSnapshot} className="w-full py-2 mb-6 bg-[#222] hover:bg-[#333] border border-[#333] text-gray-300 text-xs font-bold uppercase rounded flex items-center justify-center gap-2 transition-all"><Save size={12} /> Create Snapshot</button><div className="space-y-2">{activeBeat.versions && activeBeat.versions.length > 0 ? ([...activeBeat.versions].reverse().map((v, i) => (<div key={v.id} className="bg-[#111] border border-[#222] rounded p-3 group hover:border-[#444] transition-colors"><div className="flex items-center justify-between mb-2"><span className="text-[10px] font-bold text-[#f5a623] uppercase">v{activeBeat.versions!.length - i}</span><span className="text-[9px] text-gray-500 font-mono">{new Date(v.timestamp).toLocaleString()}</span></div><div className="text-[10px] text-gray-400 mb-3 line-clamp-2 italic opacity-70">{v.summary || "No summary provided."}</div><button onClick={() => handleRestoreClick(v)} className="w-full py-1.5 bg-[#1a1a1a] hover:bg-[#252525] text-gray-400 hover:text-white border border-[#333] rounded text-[9px] font-bold uppercase flex items-center justify-center gap-2 transition-colors"><RotateCcw size={10} /> Restore</button></div>))) : (<div className="text-center py-10 text-gray-600"><History size={32} className="mx-auto mb-2 opacity-20" /><span className="text-xs">No snapshots yet.</span></div>)}</div></div>) : (<div className="flex flex-col items-center justify-center h-full text-gray-500 gap-2"><History size={32} opacity={0.2} /><span className="text-xs text-center px-4">Select a scene to view version history.</span></div>)}</div>)}
                     </div>
                 </div>
             )}
         </div>
+
+        {/* --- DYNAMIC SCRIPT CONTEXT MENU (TIERED) --- */}
+        {scriptContextMenu && (
+          <div 
+            className="fixed bg-[#1a1a1a] border border-[#333] rounded-lg shadow-[0_20px_50px_rgba(0,0,0,0.8)] z-[9999] py-1 w-56 animate-in fade-in zoom-in duration-100 backdrop-blur-xl"
+            style={{ left: scriptContextMenu.x, top: scriptContextMenu.y }}
+            onClick={(e) => e.stopPropagation()} 
+          >
+            {/* Header: Scene Context */}
+            <div className="px-3 py-2 border-b border-[#222] mb-1 flex items-center justify-between bg-black/20">
+                <span className="text-[9px] font-black text-gray-500 uppercase tracking-widest">Script Terminal</span>
+                <span className="text-[9px] font-mono text-[#f5a623]">SCN: {scriptContextMenu.beatId}</span>
+            </div>
+
+            {/* SELECTION-SPECIFIC SECTION */}
+            {scriptContextMenu.selectionText && (
+                <>
+                    <div className="px-3 py-1.5">
+                        <span className="text-[8px] font-black text-[#555] uppercase tracking-wider">Selection: "{scriptContextMenu.selectionText.substring(0,15)}..."</span>
+                    </div>
+
+                    {/* 1. Styling Submenu */}
+                    <ContextMenuItem 
+                        icon={Highlighter} 
+                        label="Format Selection" 
+                        submenu={
+                            <>
+                                <ContextMenuItem icon={Bold} label="Bold" onClick={() => applyInlineStyle('bold')} />
+                                <ContextMenuItem icon={Italic} label="Italic" onClick={() => applyInlineStyle('italic')} />
+                                <ContextMenuItem icon={Underline} label="Underline" onClick={() => applyInlineStyle('underline')} />
+                                <ContextMenuItem icon={X} label="Clear Styling" onClick={() => applyInlineStyle('removeFormat')} />
+                            </>
+                        }
+                    />
+
+                    {/* 2. Color Submenu */}
+                    <ContextMenuItem 
+                        icon={Palette} 
+                        label="Color Palette" 
+                        submenu={
+                            <>
+                                <div className="px-3 py-1 text-[8px] font-bold uppercase text-[#555]">Text Tone</div>
+                                {TEXT_COLORS.map(c => (
+                                    <ContextMenuItem key={c.value} label={c.name} onClick={() => applyInlineStyle('foreColor', c.value)} />
+                                ))}
+                                <div className="h-px bg-[#222] mx-2 my-1"></div>
+                                <div className="px-3 py-1 text-[8px] font-bold uppercase text-[#555]">Highlighter</div>
+                                {HILITE_COLORS.map(c => (
+                                    <ContextMenuItem key={c.value} label={c.name} onClick={() => applyInlineStyle('hiliteColor', c.value)} />
+                                ))}
+                            </>
+                        }
+                    />
+
+                    {/* 3. Breakdown Submenu */}
+                    <ContextMenuItem 
+                        icon={Tag} 
+                        label="Production Tags" 
+                        submenu={
+                            <>
+                                <ContextMenuItem icon={MapIcon} label="Location Scenario" onClick={() => applyTagging('location')} />
+                                <ContextMenuItem icon={Wand2} label="Visual Effects" onClick={() => applyTagging('vfx')} />
+                                <ContextMenuItem icon={Flame} label="Special Effects" onClick={() => applyTagging('practical')} />
+                                <ContextMenuItem icon={Package} label="Prop" onClick={() => applyTagging('props')} />
+                                <ContextMenuItem icon={Mic2} label="Audio / SFX" onClick={() => applyTagging('sound')} />
+                                <ContextMenuItem icon={Shirt} label="Wardrobe" onClick={() => applyTagging('costume')} />
+                                <ContextMenuItem icon={Users} label="Cast / Extras" onClick={() => applyTagging('cast')} />
+                            </>
+                        }
+                    />
+
+                    <ContextMenuItem icon={StickyNote} label="Send to Note Block" onClick={handleSendSelectionToNote} />
+                    <div className="h-px bg-[#222] mx-2 my-1"></div>
+                </>
+            )}
+
+            {/* SCENE OPERATIONS SECTION */}
+            <div className="px-3 py-1.5">
+                <span className="text-[8px] font-black text-[#555] uppercase tracking-wider">Scene Control</span>
+            </div>
+
+            <ContextMenuItem 
+                icon={beats.find(b => b.id === scriptContextMenu.beatId)?.status === 'ready' ? Unlock : Lock} 
+                label={beats.find(b => b.id === scriptContextMenu.beatId)?.status === 'ready' ? 'Unlock Scene' : 'Lock Scene'} 
+                onClick={() => { 
+                    const b = beats.find(b => b.id === scriptContextMenu.beatId);
+                    if (b) updateBeat(scriptContextMenu.beatId, { status: b.status === 'ready' ? 'not-ready' : 'ready' });
+                    setScriptContextMenu(null);
+                }} 
+            />
+
+            <ContextMenuItem 
+                icon={PlusSquare} 
+                label="Insert Content" 
+                submenu={
+                    <>
+                        <ContextMenuItem icon={ArrowUp} label="Insert Above" onClick={() => handleInsertScene(scriptContextMenu.beatId, 'above')} />
+                        <ContextMenuItem icon={ArrowDown} label="Insert Below" onClick={() => handleInsertScene(scriptContextMenu.beatId, 'below')} />
+                        <ContextMenuItem icon={Copy} label="Duplicate Scene" onClick={() => handleDuplicateScene(scriptContextMenu.beatId)} />
+                    </>
+                }
+            />
+
+            <ContextMenuItem 
+                icon={History} 
+                label="Restore Snapshot" 
+                submenu={
+                    <>
+                        <div className="px-3 py-1 text-[8px] font-bold uppercase text-[#555]">Historical Versions</div>
+                        {beats.find(b => b.id === scriptContextMenu.beatId)?.versions?.length ? (
+                            [...(beats.find(b => b.id === scriptContextMenu.beatId)?.versions || [])].reverse().slice(0, 10).map((v, i) => (
+                                <ContextMenuItem 
+                                    key={v.id} 
+                                    icon={Clock}
+                                    label={`v${(beats.find(b => b.id === scriptContextMenu.beatId)?.versions?.length || 0) - i} - ${new Date(v.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}`} 
+                                    onClick={() => handleRestoreClick(v)} 
+                                />
+                            ))
+                        ) : (
+                            <div className="px-3 py-2 text-[9px] text-gray-600 italic">No snapshots saved</div>
+                        )}
+                        <div className="h-px bg-[#222] mx-2 my-1"></div>
+                        <ContextMenuItem icon={Save} label="Create Current Snapshot" onClick={() => { setActiveBeatId(scriptContextMenu.beatId); handleCreateSnapshot(); setScriptContextMenu(null); }} />
+                    </>
+                }
+            />
+
+            <ContextMenuItem 
+                icon={Layers} 
+                label="Project Navigation" 
+                submenu={
+                    <>
+                        <ContextMenuItem icon={MousePointer2} label="Focus on Board" onClick={() => { 
+                            const b = beats.find(b => b.id === scriptContextMenu.beatId);
+                            if (b) setActiveBoardId(b.boardId || 0);
+                            setScriptContextMenu(null);
+                        }} />
+                        <ContextMenuItem icon={StickyNote} label="Open Scene Notes" onClick={() => { setActiveBeatId(scriptContextMenu.beatId); setScratchpadMode('scene'); setActiveSidebar('scratchpad'); setScriptContextMenu(null); }} />
+                        <ContextMenuItem icon={ListChecks} label="View Scene Breakdown" onClick={() => { setActiveBeatId(scriptContextMenu.beatId); setActiveSidebar('breakdown'); setScriptContextMenu(null); }} />
+                    </>
+                }
+            />
+
+            <div className="h-px bg-[#222] mx-2 my-1"></div>
+            
+            <ContextMenuItem 
+                danger 
+                icon={Trash2} 
+                label="Delete Scene" 
+                onClick={() => handleDeleteScene(scriptContextMenu.beatId)} 
+            />
+          </div>
+        )}
       </div>
       {diffVersion && activeBeat && (<DiffModal currentContent={activeBeat.content} snapshotContent={diffVersion.content} timestamp={diffVersion.timestamp} snapshotTitle={diffVersion.summary} onRestore={confirmRestoreVersion} onClose={() => setDiffVersion(null)} />)}
     </div>

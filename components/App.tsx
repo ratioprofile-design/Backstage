@@ -68,7 +68,7 @@ const StyleInjector: React.FC = () => {
         --mb-slug: ${slugline.marginBottom}rem;
     `;
 
-    // Scratchpad Variables - Added safety checks/defaults to prevent invalid CSS
+    // Scratchpad Variables
     const spVars = `
         --sp-base-size: ${scratchpadConfig.fontSize || 14}px;
         --sp-h1-size: ${scratchpadConfig.h1FontSize || 24}px;
@@ -158,13 +158,17 @@ const AppContent: React.FC = () => {
   // Global Keyboard Shortcuts for Undo/Redo
   useEffect(() => {
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
+        // Industry standard shortcuts
+        const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+        const cmd = isMac ? e.metaKey : e.ctrlKey;
+
         // Undo: Ctrl+Z / Cmd+Z
-        if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+        if (cmd && e.key.toLowerCase() === 'z' && !e.shiftKey) {
             e.preventDefault();
             undo();
         }
         // Redo: Ctrl+Y / Cmd+Y / Ctrl+Shift+Z / Cmd+Shift+Z
-        if (((e.ctrlKey || e.metaKey) && e.key === 'y') || ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'z')) {
+        if ((cmd && e.key.toLowerCase() === 'y') || (cmd && e.shiftKey && e.key.toLowerCase() === 'z')) {
             e.preventDefault();
             redo();
         }

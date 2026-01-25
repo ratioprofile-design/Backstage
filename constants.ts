@@ -129,6 +129,12 @@ export const NOTE_FONTS = [
     { label: 'Roboto Mono (Code)', value: '"Roboto Mono", monospace' },
 ];
 
+export const SUPPORTED_LANGUAGES = [
+    { label: 'Default', value: 'default' },
+    { label: 'English', value: 'en' },
+    { label: 'Tamil', value: 'ta' },
+];
+
 export const INITIAL_STATE: ProjectState = {
   beats: [
     { 
@@ -171,11 +177,8 @@ export const INITIAL_STATE: ProjectState = {
   scriptConfig: {
     // Default to Dark Mode as requested
     paperTheme: 'dark',
-    // STANDARD A4 FORMATTING (12pt / 16px base)
-    // A4 Width: 8.27in. Margins: Left 1.5, Right 1.0. Printable Width ~ 5.77in.
-    // We use percentages relative to that printable area or just standard screenplay CSS rules.
-    // Default changed to 13px for body text, 14px for sluglines.
-    action: { marginLeft: 0, width: 100, marginTop: 0.2, marginBottom: 1.0, fontSize: 13, fontFamily: 'Courier Prime', textAlign: 'left', lineHeight: 1.2, letterSpacing: 0, bold: false, italic: true, underline: false, color: '#000000', highlightColor: null },
+    // Action set to NOT italic by default
+    action: { marginLeft: 0, width: 100, marginTop: 0.2, marginBottom: 1.0, fontSize: 13, fontFamily: 'Courier Prime', textAlign: 'left', lineHeight: 1.2, letterSpacing: 0, bold: false, italic: false, underline: false, color: '#000000', highlightColor: null },
     dialogue: { marginLeft: 20, width: 60, marginTop: 0, marginBottom: 0.2, fontSize: 13, fontFamily: 'Courier Prime', textAlign: 'left', lineHeight: 1.2, letterSpacing: 0, bold: false, italic: false, underline: false, color: '#000000', highlightColor: null },
     character: { marginLeft: 35, width: 40, marginTop: 0.4, marginBottom: 0, fontSize: 13, fontFamily: 'Courier Prime', textAlign: 'left', lineHeight: 1.2, letterSpacing: 0, bold: true, italic: false, underline: false, color: '#000000', highlightColor: null },
     parenthetical: { marginLeft: 28, width: 35, marginTop: 0, marginBottom: 0, fontSize: 13, fontFamily: 'Courier Prime', textAlign: 'left', lineHeight: 1.2, letterSpacing: 0, bold: false, italic: true, underline: false, color: '#000000', highlightColor: null },
@@ -193,7 +196,17 @@ export const INITIAL_STATE: ProjectState = {
       funMode: 'none' 
     },
     noteFont: '"Merriweather", serif', // DEFAULT UPDATED
-    noteFontSize: 12 // Default 12px
+    noteFontSize: 12, // Default 12px
+    languageConfig: {
+      action: 'default',
+      character: 'default',
+      dialogue: 'default',
+      parenthetical: 'default',
+      transition: 'default',
+      shot: 'default',
+      lyrics: 'default',
+      slugline: 'default'
+    }
   },
   scriptViewMode: 'continuous', // Default to Continuous
   

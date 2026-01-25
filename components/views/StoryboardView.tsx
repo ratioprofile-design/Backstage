@@ -356,7 +356,7 @@ const StoryboardView: React.FC = () => {
       beats, generatedShots, setGeneratedShots, updateGeneratedShot, 
       addGeneratedShot, removeGeneratedShot, moveGeneratedShot, storyboardConfig, setStoryboardConfig,
       characterData, setAnnotations, panX, panY, scale,
-      geminiApiKey, stabilityApiKey
+      stabilityApiKey
   } = useProject();
   
   // Range Analysis State
@@ -385,7 +385,6 @@ const StoryboardView: React.FC = () => {
   // Helper: Get Script Text
   const getScriptSegment = () => {
     const sorted = [...beats].sort((a, b) => a.x - b.x);
-    // Be robust about scene numbers
     const validStart = Math.max(1, Math.min(startScene, sorted.length));
     const validEnd = Math.min(sorted.length, Math.max(validStart, endScene));
     
@@ -396,14 +395,14 @@ const StoryboardView: React.FC = () => {
 
   // --- 1. ANALYSIS (TEXT -> SHOTS) ---
   const handlePlanShots = async () => {
-    if (!geminiApiKey) { alert("Analysis requires Gemini API Key. Please set it in Backstage settings."); return; }
+    // Fix: Remove manual check for geminiApiKey as it's handled via process.env.API_KEY
     setAnalyzing(true);
     try {
       const text = getScriptSegment();
       if (!text.trim()) { alert("No scenes found in that range."); return; }
       
-      const shots = await generateShotList(text, storyboardConfig.textModel || 'gemini-3-flash-preview', geminiApiKey);
-      // Map to internal format with unique IDs
+      // Fix: Removed geminiApiKey as generateShotList uses global ai client
+      const shots = await generateShotList(text, storyboardConfig.textModel || 'gemini-3-flash-preview');
       const mappedShots: Shot[] = shots.map((s, i) => ({
           id: `${Date.now()}-${i}`,
           shotSize: s.shotSize || 'WIDE',
@@ -418,7 +417,7 @@ const StoryboardView: React.FC = () => {
       setGeneratedShots(mappedShots);
     } catch (e) {
       console.error(e);
-      alert("Analysis failed. Please check your API key and connection.");
+      alert("Analysis failed. Please check your connection.");
     } finally {
       setAnalyzing(false);
     }
@@ -519,10 +518,6 @@ const StoryboardView: React.FC = () => {
         alert("Please set Stability API Key in Backstage settings.");
         return;
     }
-    if (storyboardConfig.provider !== 'stability' && !geminiApiKey) {
-        alert("Please set Gemini API Key in Backstage settings.");
-        return;
-    }
 
     const shot = generatedShots[index];
     if (!shot) return;
@@ -531,11 +526,11 @@ const StoryboardView: React.FC = () => {
     try {
       const prompt = buildEnhancedPrompt(shot);
       
+      // Fix: Removed 'apiKey' from GenerateImageOptions to match definition
       const url = await generateImage({
           prompt, 
           aspectRatio: storyboardConfig.aspectRatio || '16:9',
           model: storyboardConfig.imageModel || 'gemini-2.5-flash-image',
-          apiKey: geminiApiKey,
           provider: storyboardConfig.provider,
           stabilityApiKey: stabilityApiKey
       });
@@ -555,7 +550,6 @@ const StoryboardView: React.FC = () => {
 
   const handleRenderAll = async () => {
     if (storyboardConfig.provider === 'stability' && !stabilityApiKey) { alert("Please set Stability API Key."); return; }
-    if (storyboardConfig.provider !== 'stability' && !geminiApiKey) { alert("Please set Gemini API Key."); return; }
 
     if (generatedShots.length === 0) return;
     setIsQueueRunning(true);
@@ -569,11 +563,11 @@ const StoryboardView: React.FC = () => {
         setCurrentlyRenderingId(shot.id);
         try {
              const prompt = buildEnhancedPrompt(shot);
+             // Fix: Removed 'apiKey' from GenerateImageOptions to match definition
              const url = await generateImage({
                  prompt, 
                  aspectRatio: storyboardConfig.aspectRatio || '16:9',
                  model: storyboardConfig.imageModel || 'gemini-2.5-flash-image',
-                 apiKey: geminiApiKey,
                  provider: storyboardConfig.provider,
                  stabilityApiKey: stabilityApiKey
              });
@@ -719,7 +713,8 @@ const StoryboardView: React.FC = () => {
   };
 
   const activeShot = inspectorShotId ? generatedShots.find(s => s.id === inspectorShotId) : null;
-  const isApiConnected = !!(geminiApiKey || stabilityApiKey);
+  // Fix: isApiConnected now only checks for stabilityApiKey if provider is stability
+  const isApiConnected = storyboardConfig.provider === 'stability' ? !!stabilityApiKey : true;
 
   return (
     <div className="w-full h-full bg-[#181818] flex flex-col overflow-hidden relative">
@@ -740,15 +735,10 @@ const StoryboardView: React.FC = () => {
 
             <button 
                 onClick={handlePlanShots} 
-                disabled={analyzing || isQueueRunning || !geminiApiKey} 
-                className={`flex items-center gap-2 border border-[#333] px-3 py-1.5 rounded-md text-xs font-bold uppercase transition-all group ${
-                    geminiApiKey 
-                    ? 'bg-[#222] hover:bg-[#f5a623] hover:text-black text-gray-300' 
-                    : 'bg-[#151515] text-gray-600 cursor-not-allowed opacity-50'
-                }`}
-                title={geminiApiKey ? "Analyze Script Segment" : "Gemini API Key Required"}
+                disabled={analyzing || isQueueRunning} 
+                className={`flex items-center gap-2 border border-[#333] px-3 py-1.5 rounded-md text-xs font-bold uppercase transition-all group bg-[#222] hover:bg-[#f5a623] hover:text-black text-gray-300`}
             >
-              {analyzing ? <Loader2 className="animate-spin" size={14} /> : <Wand2 size={14} className={geminiApiKey ? "text-[#f5a623] group-hover:text-black" : "text-gray-600"} />} 
+              {analyzing ? <Loader2 className="animate-spin" size={14} /> : <Wand2 size={14} className="text-[#f5a623] group-hover:text-black" />} 
               Analyze
             </button>
             

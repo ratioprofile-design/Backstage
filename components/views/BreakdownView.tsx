@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useProject } from '../../context/ProjectContext';
-import { BreakdownData } from '../../types';
+import { BreakdownData, BreakdownItem } from '../../types';
 import { generateBreakdown } from '../../services/gemini';
 import { 
     ListChecks, Users, Package, Mic2, Shirt, Wand2, Flame, Map as MapIcon, 
@@ -23,7 +23,7 @@ const CATEGORIES = [
 ];
 
 const BreakdownView: React.FC = () => {
-    const { beats, updateBeat, geminiApiKey, breakdownLanguage, breakdownLockedOnly, setBreakdownLockedOnly, scriptConfig, scratchpadConfig } = useProject();
+    const { beats, updateBeat, breakdownLanguage, breakdownLockedOnly, setBreakdownLockedOnly, scriptConfig, scratchpadConfig } = useProject();
     const [selectedCategory, setSelectedCategory] = useState<string>('all');
     const [searchTerm, setSearchTerm] = useState('');
     const [viewType, setViewType] = useState<'by-category' | 'by-scene'>('by-scene');
@@ -126,11 +126,6 @@ const BreakdownView: React.FC = () => {
 
     // --- HANDLERS ---
     const handleAnalyze = async () => {
-        if (!geminiApiKey) {
-            alert("API KEY MISSING\n\nPlease go to Backstage > System Features > Generative AI Configuration and enter your Google Gemini API Key.");
-            return;
-        }
-
         const sortedBeats = [...beats].sort((a, b) => a.x - b.x);
         const startIndex = Math.max(0, startScene - 1);
         const endIndex = Math.min(sortedBeats.length, endScene);
@@ -177,7 +172,7 @@ const BreakdownView: React.FC = () => {
                 const text = div.innerText || '';
 
                 try {
-                    const result = await generateBreakdown(text, 'gemini-3-flash-preview', geminiApiKey, breakdownLanguage);
+                    const result = await generateBreakdown(text, 'gemini-3-flash-preview', breakdownLanguage);
                     if (result && isMounted.current) {
                         updateBeat(beat.id, { breakdown: result });
                     }
@@ -202,7 +197,6 @@ const BreakdownView: React.FC = () => {
         setIsAnalyzing(false);
     };
 
-    // --- EXPORT FUNCTION ---
     const handleExport = async (format: 'csv' | 'excel') => {
         setIsExporting(true);
         try {
@@ -315,15 +309,10 @@ const BreakdownView: React.FC = () => {
 
                         <button 
                             onClick={handleAnalyze} 
-                            disabled={isAnalyzing || !geminiApiKey} 
-                            className={`flex items-center gap-2 border border-[#333] px-3 py-1.5 rounded-md text-xs font-bold uppercase transition-all group ${
-                                geminiApiKey 
-                                ? 'bg-[#222] hover:bg-[#f5a623] hover:text-black text-gray-300' 
-                                : 'bg-[#151515] text-gray-600 cursor-not-allowed opacity-50'
-                            }`}
-                            title={geminiApiKey ? "Start Analysis" : "API Key Missing"}
+                            disabled={isAnalyzing} 
+                            className={`flex items-center gap-2 border border-[#333] px-3 py-1.5 rounded-md text-xs font-bold uppercase transition-all bg-[#222] hover:bg-[#f5a623] hover:text-black text-gray-300`}
                         >
-                          {isAnalyzing ? <Loader2 className="animate-spin" size={14} /> : <Wand2 size={14} className={geminiApiKey ? "text-[#f5a623] group-hover:text-black" : "text-gray-600"} />} 
+                          {isAnalyzing ? <Loader2 className="animate-spin" size={14} /> : <Wand2 size={14} className="text-[#f5a623] group-hover:text-black" />} 
                           {isAnalyzing ? 'Analyzing...' : 'Analyze'}
                         </button>
 
@@ -511,8 +500,9 @@ const BreakdownView: React.FC = () => {
                                             })}
                                         </div>
                                     ) : (
-                                        <div className="p-8 flex justify-center bg-[#181818]">
-                                            <p className="text-xs text-[#444] font-medium italic">Waiting for analysis...</p>
+                                        <div className="p-10 flex flex-col items-center justify-center text-[#333]">
+                                            <Tag size={24} className="mb-2 opacity-10" />
+                                            <span className="text-[10px] uppercase font-bold tracking-widest opacity-30">No elements derived</span>
                                         </div>
                                     )}
                                 </div>

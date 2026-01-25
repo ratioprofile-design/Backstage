@@ -2,35 +2,16 @@
 import { GoogleGenAI } from "@google/genai";
 import { BreakdownData, Beat } from "../types";
 
-let ai: GoogleGenAI | null = null;
+/* Fix: Always use process.env.API_KEY exclusively as per guidelines */
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
-// Allow the app to inject the key at runtime (from LocalStorage/User Input)
-export function updateGeminiConfig(apiKey: string) {
-    if (!apiKey) {
-        // Only clear if explicitly empty, don't clear if undefined passed by accident
-        if (apiKey === '') ai = null;
-        return;
-    }
-    ai = new GoogleGenAI({ apiKey });
-}
+/* Fix: Removed updateGeminiConfig and getClient as API key management is handled externally */
 
-// Helper to get client, prioritizing temp key, then global instance
-const getClient = (tempApiKey?: string) => {
-    if (tempApiKey) {
-        return new GoogleGenAI({ apiKey: tempApiKey });
-    }
-    if (!ai) {
-        throw new Error("Gemini API Key not set. Please go to Backstage > Features and enter your API Key.");
-    }
-    return ai;
-};
-
-// Modified to accept an optional temporary key for testing purposes
-export async function generateText(prompt: string, model: string = 'gemini-3-flash-preview', tempApiKey?: string): Promise<string> {
+// Modified to use the global ai instance
+export async function generateText(prompt: string, model: string = 'gemini-3-flash-preview'): Promise<string> {
   try {
-    const client = getClient(tempApiKey);
-    
-    const response = await client.models.generateContent({
+    /* Fix: Using global ai instance with process.env.API_KEY */
+    const response = await ai.models.generateContent({
       model: model,
       contents: prompt,
     });
@@ -99,12 +80,9 @@ function createSmartChunks(text: string, maxChars: number): string[] {
 
 export async function convertTextToScript(
     rawText: string, 
-    model: string = 'gemini-3-flash-preview', 
-    apiKey?: string
+    model: string = 'gemini-3-flash-preview'
 ): Promise<Beat[]> {
     // 1. Smart Chunking
-    // We'll split roughly by 30,000 characters to ensure the Model's OUTPUT limit (usually 8k tokens) isn't exceeded by a massive JSON response.
-    // 30k chars input usually results in <8k token output for screenplays.
     const chunkSize = 30000;
     const chunks = createSmartChunks(rawText, chunkSize);
 
@@ -157,10 +135,8 @@ export async function convertTextToScript(
         `;
 
         try {
-            const client = getClient(apiKey);
-            
-            // Use responseMimeType to encourage valid JSON output
-            const response = await client.models.generateContent({
+            /* Fix: Using global ai instance with process.env.API_KEY */
+            const response = await ai.models.generateContent({
                 model: model,
                 contents: prompt,
                 config: { responseMimeType: 'application/json' }
@@ -195,7 +171,6 @@ export async function convertTextToScript(
 
         } catch (e) {
             console.error("AI Parse Error for chunk:", e);
-            // Continue to next chunk even if one fails
         }
     }
 
@@ -204,15 +179,13 @@ export async function convertTextToScript(
 
 export async function analyzeScriptBatch(
     scenes: { id: number, content: string }[], 
-    model: string = 'gemini-3-flash-preview', 
-    apiKey?: string
+    model: string = 'gemini-3-flash-preview'
 ): Promise<any[]> {
     if (scenes.length === 0) return [];
 
-    // Strip HTML tags for token efficiency, keep structure roughly
     const simplifiedInput = scenes.map(s => ({
         id: s.id,
-        text: s.content.replace(/<[^>]+>/g, ' ').substring(0, 1000) // Limit context per scene to avoid overflow
+        text: s.content.replace(/<[^>]+>/g, ' ').substring(0, 1000)
     }));
 
     const prompt = `
@@ -244,8 +217,8 @@ export async function analyzeScriptBatch(
     `;
 
     try {
-        const client = getClient(apiKey);
-        const response = await client.models.generateContent({
+        /* Fix: Using global ai instance with process.env.API_KEY */
+        const response = await ai.models.generateContent({
             model: model,
             contents: prompt,
             config: { responseMimeType: 'application/json' }
@@ -258,7 +231,7 @@ export async function analyzeScriptBatch(
     }
 }
 
-export async function generateShotList(scriptSegment: string, model: string = 'gemini-3-flash-preview', apiKey?: string): Promise<any[]> {
+export async function generateShotList(scriptSegment: string, model: string = 'gemini-3-flash-preview'): Promise<any[]> {
   const prompt = `
     You are an expert cinematographer. 
     Analyze the following screenplay text.
@@ -284,9 +257,9 @@ export async function generateShotList(scriptSegment: string, model: string = 'g
     ${scriptSegment}
   `;
   
-  const client = getClient(apiKey);
   try {
-      const response = await client.models.generateContent({
+      /* Fix: Using global ai instance with process.env.API_KEY */
+      const response = await ai.models.generateContent({
           model: model,
           contents: prompt,
           config: { responseMimeType: 'application/json' }
@@ -299,7 +272,7 @@ export async function generateShotList(scriptSegment: string, model: string = 'g
   }
 }
 
-export async function generateBreakdown(scriptText: string, model: string = 'gemini-3-flash-preview', apiKey?: string, language: 'english' | 'tamil' = 'english'): Promise<BreakdownData | null> {
+export async function generateBreakdown(scriptText: string, model: string = 'gemini-3-flash-preview', language: 'english' | 'tamil' = 'english'): Promise<BreakdownData | null> {
   const langInstruction = language === 'tamil' 
     ? "IMPORTANT: Provide the 'name' in Tamil language (Tamil script). Keep the keys in English. The 'source' text must remain in English (exactly as it appears in the script)."
     : "Provide the values in English.";
@@ -340,8 +313,8 @@ export async function generateBreakdown(scriptText: string, model: string = 'gem
   `;
 
   try {
-      const client = getClient(apiKey);
-      const response = await client.models.generateContent({
+      /* Fix: Using global ai instance with process.env.API_KEY */
+      const response = await ai.models.generateContent({
           model: model,
           contents: prompt,
           config: { responseMimeType: 'application/json' }
@@ -349,7 +322,6 @@ export async function generateBreakdown(scriptText: string, model: string = 'gem
       const text = response.text || '{}';
       const data = safeJSONParse(text);
       
-      // Helper to normalize legacy string arrays to objects if model hallucinates or for robust handling
       const normalize = (arr: any[]) => {
           if (!Array.isArray(arr)) return [];
           return arr.map(item => {
@@ -377,8 +349,6 @@ export async function generateBreakdown(scriptText: string, model: string = 'gem
 async function generateStabilityImage(prompt: string, model: string, apiKey: string): Promise<string | null> {
     if (!apiKey) throw new Error("Stability API Key is missing.");
 
-    // Mapped Dimensions for SDXL v1 API (1024x1024 base)
-    // We are using the text-to-image v1 endpoint for simplicity with base64 return
     const engineId = model || 'stable-diffusion-xl-1024-v1-0';
     const apiHost = 'https://api.stability.ai';
     const url = `${apiHost}/v1/generation/${engineId}/text-to-image`;
@@ -396,7 +366,7 @@ async function generateStabilityImage(prompt: string, model: string, apiKey: str
             ],
             cfg_scale: 7,
             height: 1024,
-            width: 1024, // Default to square, Aspect Ratio logic would need crop or specific dims
+            width: 1024, 
             steps: 30,
             samples: 1,
         }),
@@ -418,23 +388,19 @@ export interface GenerateImageOptions {
     prompt: string;
     aspectRatio?: string;
     model?: string;
-    apiKey?: string;
     provider?: 'google' | 'stability';
-    stabilityApiKey?: string; // Explicit separate key for Stability
+    stabilityApiKey?: string; 
 }
 
 export async function generateImage(
     promptOrOptions: string | GenerateImageOptions, 
     aspectRatioArg: string = '16:9', 
-    modelArg: string = 'gemini-2.5-flash-image', 
-    apiKeyArg?: string
+    modelArg: string = 'gemini-2.5-flash-image'
 ): Promise<string | null> {
   
-  // Normalize Arguments
   let prompt: string;
   let aspectRatio = aspectRatioArg;
   let model = modelArg;
-  let apiKey = apiKeyArg;
   let provider = 'google';
   let stabilityKey = '';
 
@@ -442,25 +408,20 @@ export async function generateImage(
       prompt = promptOrOptions.prompt;
       aspectRatio = promptOrOptions.aspectRatio || '16:9';
       model = promptOrOptions.model || 'gemini-2.5-flash-image';
-      apiKey = promptOrOptions.apiKey;
       provider = promptOrOptions.provider || 'google';
       stabilityKey = promptOrOptions.stabilityApiKey || '';
   } else {
       prompt = promptOrOptions;
   }
 
-  // --- ROUTING ---
   if (provider === 'stability') {
       return generateStabilityImage(prompt, model, stabilityKey);
   }
 
-  // --- GOOGLE DEFAULT ---
   try {
-    const client = getClient(apiKey);
-    
     if (model.includes('imagen')) {
-        // --- IMAGEN PATH ---
-        const response = await client.models.generateImages({
+        /* Fix: Using global ai instance with process.env.API_KEY */
+        const response = await ai.models.generateImages({
             model: model,
             prompt: prompt,
             config: {
@@ -474,15 +435,14 @@ export async function generateImage(
         return base64EncodeString ? `data:image/jpeg;base64,${base64EncodeString}` : null;
 
     } else {
-        // --- GEMINI IMAGE PATH (Flash Image, Pro Image) ---
-        // Uses generateContent
-        const response = await client.models.generateContent({
+        /* Fix: Using global ai instance with process.env.API_KEY and correct generateContent pattern for images */
+        const response = await ai.models.generateContent({
             model: model,
             contents: {
                 parts: [{ text: prompt }],
             },
             config: {
-                // @ts-ignore - The SDK types might lag, but this fits the Gemini Image spec
+                // @ts-ignore - imageConfig is supported by nano banana models
                 imageConfig: {
                     aspectRatio: aspectRatio
                 }
@@ -501,6 +461,6 @@ export async function generateImage(
     }
   } catch (error) {
     console.error("Image Generation Error:", error);
-    throw error; // Re-throw to allow UI to catch and alert
+    throw error;
   }
 }

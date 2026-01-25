@@ -20,7 +20,6 @@ import {
     AVAILABLE_IMAGE_MODELS, AVAILABLE_TEXT_MODELS,
     VISUAL_STYLES, NOTE_FONTS, AVAILABLE_ENGLISH_FONTS
 } from '../../constants';
-import { updateGeminiConfig, generateText } from '../../services/gemini';
 import { BlockEditor } from '../BlockEditor';
 
 const TEXT_COLORS = [
@@ -216,7 +215,6 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
     boardLayerOrder = ['annotations', 'text', 'connections', 'groups', 'beats'], setBoardLayerOrder,
     loadProject, closeProject, downloadProject,
     beats,
-    geminiApiKey, setGeminiApiKey,
     stabilityApiKey, setStabilityApiKey,
     breakdownLanguage, setBreakdownLanguage,
     isPdfDropEnabled, setPdfDropEnabled,
@@ -232,16 +230,11 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
   
   // Install & API 
   const [installPrompt, setInstallPrompt] = useState<any>(null);
-  const [tempGeminiKey, setTempGeminiKey] = useState(geminiApiKey || '');
   const [tempStabilityKey, setTempStabilityKey] = useState(stabilityApiKey || '');
-  const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'failed' | 'invalid'>('idle');
-  const [statusMsg, setStatusMsg] = useState('');
-  const [keyUpdateStatus, setKeyUpdateStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
 
   useEffect(() => {
-      setTempGeminiKey(geminiApiKey || '');
       setTempStabilityKey(stabilityApiKey || '');
-  }, [geminiApiKey, stabilityApiKey]);
+  }, [stabilityApiKey]);
 
   const blockBounds = scriptConfig.blockBounds;
   const updateBlockBounds = (updates: any) => setScriptConfig({ 
@@ -265,64 +258,6 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
     if (outcome === 'accepted') {
       setInstallPrompt(null);
     }
-  };
-
-  const performTestConnection = async (key: string) => {
-      const trimmedKey = key.trim();
-
-      if (!trimmedKey) {
-          setTestStatus('invalid');
-          setStatusMsg("Please enter a key.");
-          return;
-      }
-
-      if (trimmedKey.includes(".apps.googleusercontent.com") || trimmedKey.includes(".com")) {
-          setTestStatus('invalid');
-          setStatusMsg("❌ Invalid Format. Use a Gemini API Key.");
-          return;
-      }
-
-      if (!trimmedKey.startsWith("AIza")) {
-          setTestStatus('invalid');
-          setStatusMsg("❌ Invalid Format. Google API Keys start with 'AIza'.");
-          return;
-      }
-      
-      setTestStatus('testing');
-      try {
-          const result = await generateText("Reply with the specific word: OK", 'gemini-3-flash-preview', trimmedKey);
-          
-          if (result && result.trim().toUpperCase().includes("OK")) {
-              setTestStatus('success');
-              setStatusMsg("✅ Connection Successful!");
-              setGeminiApiKey(trimmedKey);
-              updateGeminiConfig(trimmedKey); 
-          } else {
-              setTestStatus('failed');
-              setStatusMsg("Connection Failed. Key may be expired.");
-          }
-      } catch (error) {
-          console.error("Test failed", error);
-          setTestStatus('failed');
-          setStatusMsg("Connection Failed. Check internet or key validity.");
-      }
-  };
-
-  const handleTestConnection = () => {
-      performTestConnection(tempGeminiKey);
-  };
-  
-  const handleUpdateKey = async () => {
-      setKeyUpdateStatus('saving');
-      setGeminiApiKey(tempGeminiKey);
-      updateGeminiConfig(tempGeminiKey);
-      
-      await performTestConnection(tempGeminiKey);
-
-      setKeyUpdateStatus('saved');
-      setTimeout(() => {
-          setKeyUpdateStatus('idle');
-      }, 2000); 
   };
 
   const handleFileLoad = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1133,71 +1068,19 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
             {activeCategory === 'features' && (
                 <ViewContainer title="System Features" subtitle="Enable experimental tools and accessibility options.">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div className="md:col-span-2 bg-[#1e1e1e] p-6 rounded-sm border border-[#f5a623] shadow-[0_0_15px_rgba(245,166,35,0.2)]">
+                        {/* Fix: Removed Gemini API Key Management UI as per guidelines */}
+                        <div className="md:col-span-2 bg-[#1e1e1e] p-6 rounded-sm border border-[#222]">
                             <div className="flex items-center gap-4 mb-4">
                                 <div className="w-10 h-10 rounded-sm flex items-center justify-center bg-[#f5a623] text-black">
                                     <Sparkles size={20} />
                                 </div>
                                 <div>
-                                    <h4 className="text-base font-bold text-white uppercase tracking-wider">Generative AI Configuration</h4>
-                                    <p className="text-xs text-gray-400 mt-1">Required for Script Analysis (Gemini) and Default Image Generation.</p>
+                                    <h4 className="text-base font-bold text-white uppercase tracking-wider">Generative AI</h4>
+                                    <p className="text-xs text-gray-400 mt-1">AI capabilities are powered by Google Gemini using project environment variables.</p>
                                 </div>
-                            </div>
-                            <div className="bg-[#151515] p-4 rounded border border-[#333]">
-                                <Label>Gemini API Key</Label>
-                                <div className="flex gap-2 mb-2 relative">
-                                    <Key size={14} className="absolute left-3 top-3 text-gray-500" />
-                                    <input 
-                                        type="password"
-                                        value={tempGeminiKey}
-                                        onChange={(e) => setTempGeminiKey(e.target.value)}
-                                        placeholder="AIza..."
-                                        className={`flex-1 bg-[#0a0a0a] border rounded px-3 py-2 pl-9 text-xs text-white outline-none font-mono transition-colors ${
-                                            testStatus === 'invalid' ? 'border-red-500 focus:border-red-500' : 'border-[#333] focus:border-[#f5a623]'
-                                        }`}
-                                    />
-                                    <button 
-                                        onClick={handleTestConnection}
-                                        className={`px-3 py-2 rounded text-xs font-bold uppercase border transition-all flex items-center gap-2 ${
-                                            testStatus === 'success' ? 'bg-green-900/30 border-green-600 text-green-500' :
-                                            testStatus === 'failed' || testStatus === 'invalid' ? 'bg-red-900/30 border-red-600 text-red-500' :
-                                            testStatus === 'testing' ? 'bg-[#222] border-[#444] text-white' :
-                                            'bg-[#222] border-[#333] text-gray-400 hover:bg-[#333] hover:text-white'
-                                        }`}
-                                        title="Test Connection"
-                                        disabled={testStatus === 'testing' || !tempGeminiKey}
-                                    >
-                                        {testStatus === 'testing' ? <RefreshCw size={12} className="animate-spin"/> : 
-                                         testStatus === 'success' ? <ShieldCheck size={12}/> : 
-                                         testStatus === 'failed' || testStatus === 'invalid' ? <ShieldAlert size={12}/> :
-                                         <Wifi size={12}/>}
-                                        {testStatus === 'testing' ? 'Testing...' : 'Test'}
-                                    </button>
-                                    <button 
-                                        onClick={handleUpdateKey}
-                                        disabled={keyUpdateStatus !== 'idle'}
-                                        className={`px-4 py-2 rounded text-xs font-bold uppercase flex items-center gap-2 transition-all min-w-[100px] justify-center ${
-                                            keyUpdateStatus === 'saved' ? 'bg-green-500 text-black' : 
-                                            keyUpdateStatus === 'saving' ? 'bg-[#333] text-white' :
-                                            'bg-[#f5a623] hover:bg-[#e09612] text-black'
-                                        }`}
-                                    >
-                                        {keyUpdateStatus === 'saving' && <RefreshCw size={14} className="animate-spin" />}
-                                        {keyUpdateStatus === 'saved' && <Check size={14} />}
-                                        {keyUpdateStatus === 'idle' && 'Update'}
-                                        {keyUpdateStatus === 'saving' && 'Saving...'}
-                                        {keyUpdateStatus === 'saved' && 'Saved!'}
-                                    </button>
-                                </div>
-                                {statusMsg && (
-                                    <p className={`text-[10px] mt-1 font-bold flex items-center gap-1.5 ${
-                                        testStatus === 'success' ? 'text-green-500' : 'text-red-500'
-                                    }`}>
-                                        {testStatus !== 'success' && <AlertTriangle size={10}/>} {statusMsg}
-                                    </p>
-                                )}
                             </div>
                         </div>
+
                         {installPrompt && (
                             <div 
                                 className="bg-[#1e1e1e] p-5 rounded-sm border border-[#f5a623] shadow-[0_0_15px_rgba(245,166,35,0.2)] flex items-center justify-between group cursor-pointer hover:bg-[#252525] transition-colors"
@@ -1214,6 +1097,7 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
                                 </div>
                             </div>
                         )}
+
                         <div className="bg-[#111] p-5 rounded-sm border border-[#222] flex items-center justify-between group hover:border-[#444] transition-colors">
                             <div className="flex items-center gap-4">
                                 <div className={`w-10 h-10 rounded-sm flex items-center justify-center bg-[#000] border border-[#333] text-gray-500`}>
@@ -1229,6 +1113,7 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
                                 <button onClick={() => setBreakdownLanguage('tamil')} className={`px-3 py-1.5 rounded text-[10px] font-bold uppercase transition-all ${breakdownLanguage === 'tamil' ? 'bg-[#f5a623] text-black' : 'text-gray-500 hover:text-white'}`}>Tamil</button>
                             </div>
                         </div>
+
                         <FeatureCard title="Tamil Transliteration" desc="Type phonetically in English to generate Tamil script automatically." icon={Globe} isActive={isTamilMode} onToggle={setTamilMode} />
                         <FeatureCard title="Storyboard AI" desc="Enable Generative AI features for creating storyboard visuals." icon={ImageIcon} isActive={isStoryboardFeatureEnabled} onToggle={setStoryboardFeatureEnabled} />
                         <FeatureCard title="PDF Drag-and-Drop Import" desc="Enable experimental PDF parsing. Drag a PDF onto the board to convert to beats." icon={FileText} isActive={isPdfDropEnabled} onToggle={setPdfDropEnabled} />
