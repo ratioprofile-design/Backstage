@@ -7,7 +7,8 @@ import {
     ListChecks, Users, Package, Mic2, Shirt, Wand2, Flame, Map as MapIcon, 
     Search, LayoutGrid, List as ListIcon, Eye, 
     Sparkles, Loader2, StopCircle, Trash2, Clock, Hash,
-    Lock, Unlock, Layers, Box, Tag, AlertCircle, Play, Download, Table2, FileSpreadsheet
+    Lock, Unlock, Layers, Box, Tag, AlertCircle, Play, Download, Table2, FileSpreadsheet,
+    X, ChevronRight, Settings2, ChevronsRight
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
@@ -51,7 +52,7 @@ const BreakdownView: React.FC = () => {
         if (!isAnalyzing) {
             setEndScene(beats.length || 1);
         }
-    }, [beats.length]);
+    }, [beats.length, isAnalyzing]);
 
     // --- AGGREGATION LOGIC ---
     const { itemsData, categoryCounts } = useMemo(() => {
@@ -248,6 +249,7 @@ const BreakdownView: React.FC = () => {
 
     return (
         <div className="flex w-full h-full bg-[#121212] overflow-hidden font-sans text-gray-300">
+            {/* Left Sidebar */}
             <div className="w-72 bg-[#1a1a1a] border-r border-[#333] flex flex-col shrink-0 z-20 shadow-xl relative">
                 <div className="p-6 border-b border-[#333] bg-[#1a1a1a]">
                     <h2 className="text-sm font-black text-white uppercase tracking-wide flex items-center gap-2 mb-1">
@@ -288,7 +290,9 @@ const BreakdownView: React.FC = () => {
                 </div>
             </div>
 
-            <div className="flex-1 flex flex-col overflow-hidden relative bg-[#121212]">
+            {/* Main Manifest Area */}
+            <div className="flex-1 flex flex-col min-h-0 overflow-hidden relative bg-[#121212]">
+                {/* Top Control Bar */}
                 <div className="bg-[#111] h-14 border-b border-[#222] px-4 flex items-center justify-between shrink-0 shadow-sm z-20 gap-4">
                     <div className="flex items-center gap-4">
                         <div className="flex items-center gap-2 bg-[#000] border border-[#333] rounded-md px-2 py-1">
@@ -373,7 +377,8 @@ const BreakdownView: React.FC = () => {
                     </div>
                 </div>
 
-                <div className="h-12 bg-[#161616] border-b border-[#333] flex items-center px-8 gap-8 shadow-sm">
+                {/* Sub-Header KPI */}
+                <div className="h-12 bg-[#161616] border-b border-[#333] flex items-center px-8 gap-8 shadow-sm shrink-0">
                     <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider text-[#666]">
                         <Layers size={14} />
                         <span>Total Assets: <span className="text-white ml-1 text-sm">{categoryCounts['all']}</span></span>
@@ -390,6 +395,7 @@ const BreakdownView: React.FC = () => {
                     </div>
                 </div>
 
+                {/* Analysis Progress Overlay */}
                 {isAnalyzing && (
                     <div className="bg-[#1a1a1a] border-b border-[#f5a623]/30 px-8 py-3 flex items-center gap-4 shrink-0 shadow-lg z-20">
                         <div className="text-[10px] font-bold text-[#f5a623] uppercase animate-pulse flex items-center gap-2 shrink-0 min-w-[200px]">
@@ -405,7 +411,8 @@ const BreakdownView: React.FC = () => {
                     </div>
                 )}
 
-                <div className="flex-1 overflow-y-auto custom-scrollbar p-8">
+                {/* Scrollable Manifest Content */}
+                <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar p-8">
                     {viewType === 'by-category' ? (
                         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-6 animate-in fade-in slide-in-from-bottom-2 duration-500">
                             {filteredData.map((item, idx) => {

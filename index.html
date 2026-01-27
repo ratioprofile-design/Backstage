@@ -51,6 +51,11 @@
       }
     </script>
 
+    <!-- Global Shim: Prevents "process is not defined" crash on static hosts like Netlify -->
+    <script>
+      window.process = window.process || { env: { NODE_ENV: 'production' } };
+    </script>
+
     <link rel="stylesheet" href="./style.css">
 
     <!-- Fonts -->
@@ -75,18 +80,15 @@
     }
     </script>
 
-    <!-- Service Worker Registration -->
     <script>
-      // Optimized SW registration to prevent origin errors in cloud IDEs
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
           const swPath = './sw.js';
-          // Only register if the origin is the same to avoid security exceptions
           navigator.serviceWorker.register(swPath, { scope: './' })
             .then(reg => console.log('SW Registration Success:', reg.scope))
             .catch(err => {
               if (err.name === 'SecurityError') {
-                 console.warn('SW Security Restriction: Service workers usually require HTTPS and same-origin access.');
+                 console.warn('SW Security Restriction: Service workers usually require HTTPS.');
               } else {
                  console.error('SW Registration Error:', err);
               }
