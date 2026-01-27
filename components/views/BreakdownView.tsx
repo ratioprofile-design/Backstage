@@ -29,16 +29,14 @@ const BreakdownView: React.FC = () => {
     const [searchTerm, setSearchTerm] = useState('');
     const [viewType, setViewType] = useState<'by-category' | 'by-scene'>('by-scene');
 
-    // --- ANALYSIS CONFIG ---
     const [startScene, setStartScene] = useState(1);
     const [endScene, setEndScene] = useState(beats.length || 1);
     const [delay, setDelay] = useState(2); 
 
-    // Analysis State
     const [isAnalyzing, setIsAnalyzing] = useState(false);
     const [progress, setProgress] = useState({ current: 0, total: 0, currentScene: '' });
-    const abortRef = React.useRef(false);
-    const isMounted = React.useRef(true);
+    const abortRef = useRef(false);
+    const isMounted = useRef(true);
 
     const [isExporting, setIsExporting] = useState(false);
 
@@ -54,7 +52,6 @@ const BreakdownView: React.FC = () => {
         }
     }, [beats.length, isAnalyzing]);
 
-    // --- AGGREGATION LOGIC ---
     const { itemsData, categoryCounts } = useMemo(() => {
         const itemsMap = new Map<string, { 
             name: string, 
@@ -98,7 +95,6 @@ const BreakdownView: React.FC = () => {
         return { itemsData: list, categoryCounts: counts };
     }, [beats]);
 
-    // --- FILTERING ---
     const filteredData = useMemo(() => {
         let result = itemsData;
         if (selectedCategory !== 'all') {
@@ -111,7 +107,6 @@ const BreakdownView: React.FC = () => {
         return result;
     }, [itemsData, selectedCategory, searchTerm]);
 
-    // --- SCENE-BASED DATA ---
     const sceneData = useMemo(() => {
         const sortedBeats = [...beats].sort((a, b) => a.x - b.x);
         return sortedBeats.map((beat, idx) => {
@@ -125,7 +120,6 @@ const BreakdownView: React.FC = () => {
 
     const getCategoryMeta = (cat: string) => CATEGORIES.find(c => c.id === cat);
 
-    // --- HANDLERS ---
     const handleAnalyze = async () => {
         const sortedBeats = [...beats].sort((a, b) => a.x - b.x);
         const startIndex = Math.max(0, startScene - 1);
@@ -156,22 +150,14 @@ const BreakdownView: React.FC = () => {
         try {
             for (let i = 0; i < validBeats.length; i++) {
                 if (abortRef.current || !isMounted.current) break;
-
                 const beat = validBeats[i];
                 const sceneName = beat.slug.location || `Scene ${beat.sceneNumber || '?'}`;
-                
                 if (isMounted.current) {
-                    setProgress({ 
-                        current: i + 1, 
-                        total: validBeats.length,
-                        currentScene: sceneName
-                    });
+                    setProgress({ current: i + 1, total: validBeats.length, currentScene: sceneName });
                 }
-
                 const div = document.createElement('div');
                 div.innerHTML = beat.content || '';
                 const text = div.innerText || '';
-
                 try {
                     const result = await generateBreakdown(text, 'gemini-3-flash-preview', breakdownLanguage);
                     if (result && isMounted.current) {
@@ -180,22 +166,15 @@ const BreakdownView: React.FC = () => {
                 } catch (err) {
                     console.error(`Failed to analyze beat ${beat.id}`, err);
                 }
-
                 if (i < validBeats.length - 1) {
                     await new Promise(r => setTimeout(r, delay * 1000));
                 }
             }
         } catch (globalErr) {
             console.error(globalErr);
-            alert("Analysis stopped due to an unexpected error.");
         } finally {
             if (isMounted.current) setIsAnalyzing(false);
         }
-    };
-
-    const handleStopAnalysis = () => {
-        abortRef.current = true;
-        setIsAnalyzing(false);
     };
 
     const handleExport = async (format: 'csv' | 'excel') => {
@@ -208,14 +187,8 @@ const BreakdownView: React.FC = () => {
                 Source_Text: item.scenes.map(s => s.source || '').filter(Boolean).join(' | '),
                 Count: item.scenes.length
             }));
-
-            if (exportData.length === 0) {
-                alert("No breakdown data to export.");
-                return;
-            }
-
+            if (exportData.length === 0) { alert("No breakdown data to export."); return; }
             const fileName = `Breakdown_Export_${new Date().toISOString().slice(0,10)}`;
-
             if (format === 'csv') {
                 const worksheet = XLSX.utils.json_to_sheet(exportData);
                 const csvOutput = XLSX.utils.sheet_to_csv(worksheet);
@@ -227,8 +200,7 @@ const BreakdownView: React.FC = () => {
                 document.body.appendChild(link);
                 link.click();
                 document.body.removeChild(link);
-            } 
-            else if (format === 'excel') {
+            } else {
                 const workbook = XLSX.utils.book_new();
                 const worksheet = XLSX.utils.json_to_sheet(exportData);
                 XLSX.utils.book_append_sheet(workbook, worksheet, "Breakdown");
@@ -236,7 +208,6 @@ const BreakdownView: React.FC = () => {
             }
         } catch (e) {
             console.error("Export failed", e);
-            alert("Export failed. Check console for details.");
         } finally {
             setIsExporting(false);
         }
@@ -249,50 +220,33 @@ const BreakdownView: React.FC = () => {
 
     return (
         <div className="flex w-full h-full bg-[#121212] overflow-hidden font-sans text-gray-300">
-            {/* Left Sidebar */}
             <div className="w-72 bg-[#1a1a1a] border-r border-[#333] flex flex-col shrink-0 z-20 shadow-xl relative">
                 <div className="p-6 border-b border-[#333] bg-[#1a1a1a]">
                     <h2 className="text-sm font-black text-white uppercase tracking-wide flex items-center gap-2 mb-1">
                         <ListChecks size={16} className="text-[#f5a623]" /> Breakdown Manifest
                     </h2>
-                    <p className="text-[10px] text-[#777] font-medium">Production Asset List</p>
+                    <p className="text-[10px] text-[#777] font-medium uppercase">Asset Tracker</p>
                 </div>
-
                 <div className="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-2">
                     {CATEGORIES.map(cat => {
                         const count = categoryCounts[cat.id] || 0;
                         const isActive = selectedCategory === cat.id;
                         return (
-                            <button
-                                key={cat.id}
-                                onClick={() => setSelectedCategory(cat.id)}
-                                className={`
-                                    w-full text-left px-4 py-3 rounded-xl flex items-center justify-between transition-all duration-200 group
-                                    ${isActive 
-                                        ? 'bg-[#2a2a2a] shadow-inner text-white' 
-                                        : 'hover:bg-[#222] text-[#888]'}
-                                `}
-                            >
+                            <button key={cat.id} onClick={() => setSelectedCategory(cat.id)} className={`w-full text-left px-4 py-3 rounded-xl flex items-center justify-between transition-all duration-200 group ${isActive ? 'bg-[#2a2a2a] shadow-inner text-white' : 'hover:bg-[#222] text-[#888]'}`}>
                                 <div className="flex items-center gap-3">
                                     <div className={`p-1.5 rounded-lg ${isActive ? cat.bg : 'bg-[#222] group-hover:bg-[#2a2a2a]'} transition-colors`}>
                                         <cat.icon size={16} className={isActive ? cat.color : 'text-gray-500'} />
                                     </div>
                                     <span className="text-xs font-bold">{cat.label}</span>
                                 </div>
-                                {count > 0 && (
-                                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${isActive ? 'bg-[#f5a623] text-black' : 'bg-[#333] text-gray-500'}`}>
-                                        {count}
-                                    </span>
-                                )}
+                                {count > 0 && <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${isActive ? 'bg-[#f5a623] text-black' : 'bg-[#333] text-gray-500'}`}>{count}</span>}
                             </button>
                         );
                     })}
                 </div>
             </div>
 
-            {/* Main Manifest Area */}
             <div className="flex-1 flex flex-col min-h-0 overflow-hidden relative bg-[#121212]">
-                {/* Top Control Bar */}
                 <div className="bg-[#111] h-14 border-b border-[#222] px-4 flex items-center justify-between shrink-0 shadow-sm z-20 gap-4">
                     <div className="flex items-center gap-4">
                         <div className="flex items-center gap-2 bg-[#000] border border-[#333] rounded-md px-2 py-1">
@@ -301,221 +255,90 @@ const BreakdownView: React.FC = () => {
                            <span className="text-gray-600 font-bold text-xs">-</span>
                            <input type="number" className="w-8 bg-transparent text-center text-xs font-bold text-white outline-none focus:text-[#f5a623]" value={endScene} onChange={e => setEndScene(Math.max(1, parseInt(e.target.value)))} min={1} disabled={isAnalyzing} />
                         </div>
-
-                        <button 
-                            onClick={() => setBreakdownLockedOnly(!breakdownLockedOnly)}
-                            disabled={isAnalyzing}
-                            className={`flex items-center justify-center w-8 h-8 rounded-md border border-[#333] transition-all ${breakdownLockedOnly ? 'bg-green-900/20 text-green-500 border-green-900/50' : 'bg-[#1a1a1a] text-gray-500 hover:text-white hover:bg-[#333]'}`}
-                            title={breakdownLockedOnly ? "Only Analyze Locked Scenes" : "Analyze All Scenes"}
-                        >
-                            {breakdownLockedOnly ? <Lock size={14} /> : <Unlock size={14} />}
-                        </button>
-
-                        <button 
-                            onClick={handleAnalyze} 
-                            disabled={isAnalyzing} 
-                            className={`flex items-center gap-2 border border-[#333] px-3 py-1.5 rounded-md text-xs font-bold uppercase transition-all bg-[#222] hover:bg-[#f5a623] hover:text-black text-gray-300`}
-                        >
-                          {isAnalyzing ? <Loader2 className="animate-spin" size={14} /> : <Wand2 size={14} className="text-[#f5a623] group-hover:text-black" />} 
-                          {isAnalyzing ? 'Analyzing...' : 'Analyze'}
-                        </button>
-
-                        {isAnalyzing && (
-                             <button onClick={handleStopAnalysis} className="h-8 w-8 flex items-center justify-center bg-red-600 hover:bg-red-700 text-white rounded-md transition-all shadow-lg animate-pulse">
-                                <StopCircle size={14} />
-                             </button>
-                        )}
+                        <button onClick={() => setBreakdownLockedOnly(!breakdownLockedOnly)} disabled={isAnalyzing} className={`flex items-center justify-center w-8 h-8 rounded-md border border-[#333] transition-all ${breakdownLockedOnly ? 'bg-green-900/20 text-green-500 border-green-900/50' : 'bg-[#1a1a1a] text-gray-500 hover:text-white hover:bg-[#333]'}`}>{breakdownLockedOnly ? <Lock size={14} /> : <Unlock size={14} />}</button>
+                        <button onClick={handleAnalyze} disabled={isAnalyzing} className="flex items-center gap-2 border border-[#333] px-3 py-1.5 rounded-md text-xs font-bold uppercase transition-all bg-[#222] hover:bg-[#f5a623] hover:text-black text-gray-300">{isAnalyzing ? <Loader2 className="animate-spin" size={14} /> : <Wand2 size={14} className="text-[#f5a623]" />} {isAnalyzing ? 'Analyzing...' : 'Analyze'}</button>
                     </div>
-
                     <div className="flex items-center gap-4">
                         <div className="flex bg-[#222] rounded-full border border-[#333] p-1 gap-1">
-                            <button 
-                                onClick={() => handleExport('excel')} 
-                                disabled={isExporting}
-                                className="px-3 py-1.5 rounded-full text-[10px] font-bold uppercase text-gray-400 hover:text-white hover:bg-[#333] transition-all flex items-center gap-2"
-                                title="Export to Excel (.xlsx)"
-                            >
-                                <FileSpreadsheet size={12} className="text-green-400" /> Excel
-                            </button>
-                            <div className="w-px bg-[#333] my-1"></div>
-                            <button 
-                                onClick={() => handleExport('csv')} 
-                                disabled={isExporting}
-                                className="px-3 py-1.5 rounded-full text-[10px] font-bold uppercase text-gray-400 hover:text-white hover:bg-[#333] transition-all flex items-center gap-2"
-                                title="Download CSV"
-                            >
-                                <Download size={12} /> CSV
-                            </button>
+                            <button onClick={() => handleExport('excel')} className="px-3 py-1.5 rounded-full text-[10px] font-bold uppercase text-gray-400 hover:text-white transition-all flex items-center gap-2"><FileSpreadsheet size={12} className="text-green-400" /> Excel</button>
+                            <button onClick={() => handleExport('csv')} className="px-3 py-1.5 rounded-full text-[10px] font-bold uppercase text-gray-400 hover:text-white transition-all flex items-center gap-2"><Download size={12} /> CSV</button>
                         </div>
-
                         <div className="flex bg-[#000] rounded-md p-1 border border-[#333] gap-1">
-                           <button onClick={() => setViewType('by-category')} className={`p-1.5 rounded flex items-center gap-2 text-[10px] font-bold uppercase transition-all ${viewType === 'by-category' ? 'bg-[#333] text-white shadow-sm' : 'text-gray-500 hover:text-white'}`} title="Category Grid"><LayoutGrid size={14} /></button>
-                           <button onClick={() => setViewType('by-scene')} className={`p-1.5 rounded flex items-center gap-2 text-[10px] font-bold uppercase transition-all ${viewType === 'by-scene' ? 'bg-[#333] text-white shadow-sm' : 'text-gray-500 hover:text-white'}`} title="Scene List"><ListIcon size={14} /></button>
+                           <button onClick={() => setViewType('by-category')} className={`p-1.5 rounded ${viewType === 'by-category' ? 'bg-[#333] text-white' : 'text-gray-500'}`}><LayoutGrid size={14} /></button>
+                           <button onClick={() => setViewType('by-scene')} className={`p-1.5 rounded ${viewType === 'by-scene' ? 'bg-[#333] text-white' : 'text-gray-500'}`}><ListIcon size={14} /></button>
                         </div>
                     </div>
-
-                    <div className="flex items-center gap-3 justify-end">
-                         <div className="relative w-64 group">
-                            <Search className="absolute left-2.5 top-2 text-[#555] group-focus-within:text-[#f5a623] transition-colors" size={14} />
-                            <input 
-                                type="text" 
-                                placeholder="Search assets..." 
-                                value={searchTerm}
-                                onChange={(e) => setSearchTerm(e.target.value)}
-                                className="w-full bg-[#000] border border-[#333] rounded-md pl-8 pr-3 py-1.5 text-xs font-medium text-white placeholder-gray-600 outline-none focus:border-[#f5a623] transition-all" 
-                            />
-                        </div>
-
-                         <div className="flex items-center gap-2 bg-[#000] px-2 py-1 rounded-md border border-[#333]">
-                             <Clock size={12} className="text-[#666]" />
-                             <select value={delay} onChange={(e) => setDelay(parseInt(e.target.value))} disabled={isAnalyzing} className="bg-transparent text-white text-[10px] font-bold outline-none focus:text-[#f5a623] cursor-pointer">
-                                 <option value={1}>1s DELAY</option>
-                                 <option value={2}>2s DELAY</option>
-                                 <option value={5}>5s DELAY</option>
-                             </select>
-                         </div>
+                    <div className="relative w-64">
+                        <Search className="absolute left-2.5 top-2 text-[#555]" size={14} />
+                        <input type="text" placeholder="Filter Manifest..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full bg-[#000] border border-[#333] rounded-md pl-8 pr-3 py-1.5 text-xs text-white outline-none focus:border-[#f5a623]" />
                     </div>
                 </div>
 
-                {/* Sub-Header KPI */}
-                <div className="h-12 bg-[#161616] border-b border-[#333] flex items-center px-8 gap-8 shadow-sm shrink-0">
-                    <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider text-[#666]">
-                        <Layers size={14} />
-                        <span>Total Assets: <span className="text-white ml-1 text-sm">{categoryCounts['all']}</span></span>
-                    </div>
-                    <div className="w-px h-4 bg-[#333]"></div>
-                    <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider text-[#666]">
-                        <Wand2 size={14} className="text-green-500/80" />
-                        <span>VFX Shots: <span className="text-white ml-1 text-sm">{categoryCounts['vfx'] || 0}</span></span>
-                    </div>
-                    <div className="w-px h-4 bg-[#333]"></div>
-                    <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider text-[#666]">
-                        <Users size={14} className="text-yellow-500/80" />
-                        <span>Cast: <span className="text-white ml-1 text-sm">{categoryCounts['cast'] || 0}</span></span>
-                    </div>
-                </div>
-
-                {/* Analysis Progress Overlay */}
-                {isAnalyzing && (
-                    <div className="bg-[#1a1a1a] border-b border-[#f5a623]/30 px-8 py-3 flex items-center gap-4 shrink-0 shadow-lg z-20">
-                        <div className="text-[10px] font-bold text-[#f5a623] uppercase animate-pulse flex items-center gap-2 shrink-0 min-w-[200px]">
-                            <Loader2 size={14} className="animate-spin" />
-                            Processing: <span className="text-white truncate max-w-[200px]">{progress.currentScene || `Scene ${startScene + progress.current - 1}`}</span>
-                        </div>
-                        <div className="flex-1 h-1.5 bg-[#333] rounded-full overflow-hidden">
-                            <div className="h-full bg-[#f5a623] transition-all duration-300 ease-out" style={{ width: `${(progress.current / progress.total) * 100}%` }} />
-                        </div>
-                        <div className="text-[10px] text-gray-400 font-mono shrink-0">
-                            {Math.round((progress.current / progress.total) * 100)}%
-                        </div>
-                    </div>
-                )}
-
-                {/* Scrollable Manifest Content */}
-                <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar p-8">
-                    {viewType === 'by-category' ? (
-                        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-6 animate-in fade-in slide-in-from-bottom-2 duration-500">
-                            {filteredData.map((item, idx) => {
-                                const catMeta = getCategoryMeta(item.category);
-                                return (
-                                    <div key={idx} className="bg-[#1a1a1a] border border-[#333] rounded-xl p-5 flex flex-col hover:border-[#555] transition-all group hover:-translate-y-1 hover:shadow-xl">
-                                        <div className="flex justify-between items-start mb-4">
-                                            <div className="flex items-center gap-3">
-                                                <div className={`p-2 rounded-lg ${catMeta?.bg} border ${catMeta?.border}`}>
-                                                    {catMeta && <catMeta.icon size={18} className={catMeta.color} />}
-                                                </div>
-                                                <div>
-                                                    <h3 className="text-sm font-bold text-gray-200 group-hover:text-white transition-colors" style={fontStyle}>{item.name}</h3>
-                                                    <div className="text-[10px] text-[#666] font-medium uppercase mt-0.5">{catMeta?.label}</div>
-                                                </div>
-                                            </div>
-                                            <span className="text-[10px] font-bold bg-[#252525] text-gray-400 px-2.5 py-1 rounded-full border border-[#333] group-hover:bg-[#333] group-hover:text-white transition-colors">
-                                                {item.scenes.length}
-                                            </span>
-                                        </div>
-                                        <div className="flex flex-wrap gap-1.5 mt-auto max-h-24 overflow-y-auto custom-scrollbar">
-                                            {item.scenes.map((scene, sIdx) => (
-                                                <div 
-                                                    key={sIdx} 
-                                                    className="text-[9px] font-bold bg-[#222] text-[#888] px-2 py-1 rounded-md border border-[#333] hover:bg-[#333] hover:text-white hover:border-[#555] cursor-help transition-colors"
-                                                    title={`SCENE ${scene.sceneNum}: ${scene.slug}\n\nSOURCE: "${scene.source || 'N/A'}"`}
-                                                >
-                                                    SC {scene.sceneNum}
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </div>
-                                );
-                            })}
-                            {filteredData.length === 0 && (
-                                <div className="col-span-full h-96 flex flex-col items-center justify-center text-[#333] border-2 border-dashed border-[#222] rounded-2xl bg-[#161616]">
-                                    <Sparkles size={48} className="mb-4 opacity-30" />
-                                    <p className="text-sm font-bold uppercase tracking-widest text-[#555]">No Assets Found</p>
-                                    <p className="text-xs text-[#444] mt-2 font-medium">Run analysis to populate the manifest.</p>
-                                </div>
-                            )}
-                        </div>
-                    ) : (
-                        <div className="space-y-4 max-w-5xl mx-auto animate-in fade-in duration-300">
-                            {sceneData.filter(s => searchTerm ? (s.beat.slug.location || '').toLowerCase().includes(searchTerm.toLowerCase()) : true).map((item) => (
-                                <div key={item.beat.id} className="bg-[#1a1a1a] border border-[#333] rounded-xl overflow-hidden hover:border-[#555] transition-colors group shadow-sm">
-                                    <div className="bg-[#222] px-6 py-4 border-b border-[#333] flex justify-between items-center group-hover:bg-[#252525] transition-colors">
-                                        <div className="flex items-center gap-5">
-                                            <div className="flex flex-col items-center justify-center w-12 h-12 bg-[#151515] rounded-lg border border-[#333] shadow-inner">
-                                                <span className="text-[9px] font-bold text-[#555] uppercase">SCENE</span>
-                                                <span className="text-lg font-black text-white">{item.beat.sceneNumber || item.sceneIndex}</span>
-                                            </div>
-                                            <div>
-                                                <h4 className="text-base font-bold text-gray-200 group-hover:text-white transition-colors" style={fontStyle}>
-                                                    {item.beat.slug.location || 'UNKNOWN LOCATION'}
-                                                </h4>
-                                                <div className="flex items-center gap-2 text-[10px] font-medium text-[#666] mt-1 bg-[#1a1a1a] px-2 py-0.5 rounded w-fit">
-                                                    <span>{item.beat.slug.prefix}</span>
-                                                    <span className="text-[#333]">|</span>
-                                                    <span>{item.beat.slug.time}</span>
-                                                </div>
-                                            </div>
-                                        </div>
-                                        <div className="flex items-center gap-3">
-                                            {item.beat.status === 'ready' && <div className="px-2 py-1 bg-green-900/20 text-green-500 rounded border border-green-900/30 flex items-center gap-1.5"><Lock size={12} /><span className="text-[9px] font-bold uppercase">Locked</span></div>}
-                                            {item.totalItems === 0 && <span className="text-[9px] font-bold text-red-400 bg-red-900/10 px-2 py-1 rounded border border-red-900/20 flex items-center gap-1.5"><AlertCircle size={12}/> No Data</span>}
-                                        </div>
-                                    </div>
-                                    {item.totalItems > 0 ? (
-                                        <div className="p-6 grid grid-cols-2 md:grid-cols-4 gap-8">
-                                            {CATEGORIES.filter(c => c.id !== 'all').map(cat => {
-                                                const items = item.beat.breakdown?.[cat.id as keyof BreakdownData] || [];
-                                                if (items.length === 0) return null;
-                                                return (
-                                                    <div key={cat.id} className="space-y-3">
-                                                        <div className={`text-[10px] font-bold uppercase flex items-center gap-2 pb-2 border-b border-[#333] ${cat.color}`}>
-                                                            <cat.icon size={12} /> {cat.label}
-                                                        </div>
-                                                        <div className="flex flex-col gap-1.5">
-                                                            {items.map((i, idx) => {
-                                                                const name = typeof i === 'string' ? i : i.name;
-                                                                const src = typeof i === 'string' ? null : i.source;
-                                                                return (
-                                                                    <div key={idx} className="text-[11px] text-gray-400 pl-2 border-l-2 border-[#333] hover:border-[#f5a623] hover:text-white transition-all cursor-default py-0.5" title={src ? `Source: "${src}"` : undefined} style={fontStyle}>
-                                                                        {name}
-                                                                    </div>
-                                                                );
-                                                            })}
-                                                        </div>
-                                                    </div>
-                                                );
-                                            })}
-                                        </div>
-                                    ) : (
-                                        <div className="p-10 flex flex-col items-center justify-center text-[#333]">
-                                            <Tag size={24} className="mb-2 opacity-10" />
-                                            <span className="text-[10px] uppercase font-bold tracking-widest opacity-30">No elements derived</span>
-                                        </div>
-                                    )}
-                                </div>
-                            ))}
+                <div className="flex-1 flex flex-col min-h-0">
+                    {isAnalyzing && (
+                        <div className="bg-[#1a1a1a] border-b border-[#f5a623]/30 px-8 py-3 flex items-center gap-4 shrink-0 shadow-lg z-20">
+                            <div className="text-[10px] font-bold text-[#f5a623] uppercase animate-pulse flex items-center gap-2 shrink-0 min-w-[200px]"><Loader2 size={14} className="animate-spin" /> Processing: <span className="text-white truncate max-w-[200px]">{progress.currentScene || `Scene ${startScene + progress.current - 1}`}</span></div>
+                            <div className="flex-1 h-1.5 bg-[#333] rounded-full overflow-hidden"><div className="h-full bg-[#f5a623] transition-all duration-300" style={{ width: `${(progress.current / progress.total) * 100}%` }} /></div>
                         </div>
                     )}
+
+                    <div className="flex-1 overflow-y-auto custom-scrollbar p-8">
+                        {viewType === 'by-category' ? (
+                            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-6 animate-in fade-in slide-in-from-bottom-2 duration-500">
+                                {filteredData.map((item, idx) => {
+                                    const catMeta = getCategoryMeta(item.category);
+                                    return (
+                                        <div key={idx} className="bg-[#1a1a1a] border border-[#333] rounded-xl p-5 flex flex-col hover:border-[#555] transition-all group shadow-sm">
+                                            <div className="flex justify-between items-start mb-4">
+                                                <div className="flex items-center gap-3">
+                                                    <div className={`p-2 rounded-lg ${catMeta?.bg} border ${catMeta?.border}`}>{catMeta && <catMeta.icon size={18} className={catMeta.color} />}</div>
+                                                    <div><h3 className="text-sm font-bold text-gray-200 group-hover:text-white transition-colors" style={fontStyle}>{item.name}</h3><div className="text-[10px] text-[#666] font-medium uppercase mt-0.5">{catMeta?.label}</div></div>
+                                                </div>
+                                                <span className="text-[10px] font-bold bg-[#252525] text-gray-400 px-2.5 py-1 rounded-full border border-[#333]">{item.scenes.length}</span>
+                                            </div>
+                                            <div className="flex flex-wrap gap-1.5 mt-auto max-h-24 overflow-y-auto custom-scrollbar">
+                                                {item.scenes.map((scene, sIdx) => <div key={sIdx} className="text-[9px] font-bold bg-[#222] text-[#888] px-2 py-1 rounded-md border border-[#333]">SC {scene.sceneNum}</div>)}
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                                {filteredData.length === 0 && <div className="col-span-full h-96 flex flex-col items-center justify-center text-[#333] border-2 border-dashed border-[#222] rounded-2xl bg-[#161616]"><Sparkles size={48} className="mb-4 opacity-10" /><p className="text-sm font-bold uppercase tracking-widest text-[#555]">Manifest Empty</p></div>}
+                            </div>
+                        ) : (
+                            <div className="space-y-4 max-w-5xl mx-auto animate-in fade-in duration-300">
+                                {sceneData.filter(s => searchTerm ? (s.beat.slug.location || '').toLowerCase().includes(searchTerm.toLowerCase()) : true).map((item) => (
+                                    <div key={item.beat.id} className="bg-[#1a1a1a] border border-[#333] rounded-xl overflow-hidden hover:border-[#555] transition-colors group shadow-sm">
+                                        <div className="bg-[#222] px-6 py-4 border-b border-[#333] flex justify-between items-center">
+                                            <div className="flex items-center gap-5">
+                                                <div className="flex flex-col items-center justify-center w-12 h-12 bg-[#151515] rounded-lg border border-[#333] shadow-inner"><span className="text-[9px] font-bold text-[#555] uppercase">SCENE</span><span className="text-lg font-black text-white">{item.beat.sceneNumber || item.sceneIndex}</span></div>
+                                                <div><h4 className="text-base font-bold text-gray-200" style={fontStyle}>{item.beat.slug.location || 'UNKNOWN LOCATION'}</h4><div className="flex items-center gap-2 text-[10px] font-medium text-[#666] mt-1 bg-[#1a1a1a] px-2 py-0.5 rounded w-fit"><span>{item.beat.slug.prefix}</span><span className="text-[#333]">|</span><span>{item.beat.slug.time}</span></div></div>
+                                            </div>
+                                            <div className="flex items-center gap-3">{item.beat.status === 'ready' && <div className="px-2 py-1 bg-green-900/20 text-green-500 rounded border border-green-900/30 flex items-center gap-1.5"><Lock size={12} /><span className="text-[9px] font-bold uppercase">Locked</span></div>}{item.totalItems === 0 && <span className="text-[9px] font-bold text-red-400 bg-red-900/10 px-2 py-1 rounded border border-red-900/20 flex items-center gap-1.5"><AlertCircle size={12}/> No Data</span>}</div>
+                                        </div>
+                                        {item.totalItems > 0 && (
+                                            <div className="p-6 grid grid-cols-2 md:grid-cols-4 gap-8">
+                                                {CATEGORIES.filter(c => c.id !== 'all').map(cat => {
+                                                    const items = item.beat.breakdown?.[cat.id as keyof BreakdownData] || [];
+                                                    if (items.length === 0) return null;
+                                                    return (
+                                                        <div key={cat.id} className="space-y-3">
+                                                            <div className={`text-[10px] font-bold uppercase flex items-center gap-2 pb-2 border-b border-[#333] ${cat.color}`}><cat.icon size={12} /> {cat.label}</div>
+                                                            <div className="flex flex-col gap-1.5">
+                                                                {items.map((i, idx) => {
+                                                                    const name = typeof i === 'string' ? i : i.name;
+                                                                    return <div key={idx} className="text-[11px] text-gray-400 pl-2 border-l-2 border-[#333] hover:border-[#f5a623] hover:text-white transition-all py-0.5" style={fontStyle}>{name}</div>;
+                                                                })}
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
                 </div>
             </div>
         </div>

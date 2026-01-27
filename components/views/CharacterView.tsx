@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { useProject } from '../../context/ProjectContext';
 import { generateImage } from '../../services/gemini';
@@ -56,7 +55,7 @@ const CINEMATIC_TEMPLATES: Partial<CharacterData>[] = [
     { name: 'DR. KING SCHULTZ', age: 50, gender: 'Male', ethnicity: 'German', hair: 'Grey, Beard', eyes: 'Blue', build: 'Small', occupation: 'Dentist / Hunter', archetype: 'The Mentor', physiology: 'Dapper suit, articulate.', sociology: 'Bounty hunter.', psychology: 'Detests slavery, pragmatic.', backstory: 'Former dentist turned bounty hunter.' },
     { name: 'CALVIN CANDIE', age: 35, gender: 'Male', ethnicity: 'Caucasian', hair: 'Brown', eyes: 'Blue', build: 'Slim', occupation: 'Plantation Owner', archetype: 'The Villain', physiology: 'Rotting teeth, flamboyant suits.', sociology: 'Francophile, brutal slave owner.', psychology: 'Narcissistic, cruel, charming.', backstory: 'Owner of Candyland.' },
     { name: 'BROOMHILDA', age: 25, gender: 'Female', ethnicity: 'African-American', hair: 'Black', eyes: 'Brown', build: 'Slim', occupation: 'Slave', archetype: 'The Damsel', physiology: 'Scars, fearful but resilient.', sociology: 'German speaking.', psychology: 'Enduring hope.', backstory: 'Django\'s wife.' },
-    { name: 'STEPHEN', age: 70, gender: 'Male', ethnicity: 'African-American', hair: 'White', eyes: 'Cloudy', build: 'Frail', occupation: 'House Slave', archetype: 'The Shadow', physiology: 'Limps, uses cane.', sociology: 'Head house slave.', psychology: 'Manipulative, loyal to master.', backstory: 'Lifetime servant at Candyland.' },
+    { name: 'STEPHEN', age: 70, gender: 'Male', ethnicity: 'African-American', hair: 'White', eyes: 'Cloudy', build: 'Frail', occupation: 'House Slave', archetype: 'The Shadow', physiology: 'Limps, uses scale.', sociology: 'Head house slave.', psychology: 'Manipulative, loyal to master.', backstory: 'Lifetime servant at Candyland.' },
 
     // THE PRESTIGE
     { name: 'ROBERT ANGIER', age: 35, gender: 'Male', ethnicity: 'Caucasian', hair: 'Brown', eyes: 'Brown', build: 'Tall', occupation: 'Magician', archetype: 'The Showman', physiology: 'Charismatic stage presence.', sociology: 'Aristocrat (Lord Caldlow).', psychology: 'Obsessed with status and revenge.', backstory: 'Blames Borden for wife\'s death.' },
@@ -443,7 +442,8 @@ const CharacterView: React.FC = () => {
       Vibe: ${char.archetype || 'Portrait'}, ${char.occupation || 'Character'}. 
       Style: Hyper-realistic, shallow depth of field, detailed texture.`;
     
-    const img = await generateImage(prompt, '1:1'); 
+    // Fix: generateImage expects a single options object for multiple parameters. Resolves "Expected 1 arguments, but got 2" error on line 446.
+    const img = await generateImage({ prompt, aspectRatio: '1:1' }); 
     if (img) {
       updateCharacter(char.name, { images: [img, ...char.images] });
     }

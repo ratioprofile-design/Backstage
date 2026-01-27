@@ -10,7 +10,6 @@
     <link rel="manifest" href="./manifest.json" />
     <link rel="apple-touch-icon" href="https://cdn.lucide.dev/icon/film.svg">
     
-    <!-- Critical CSS: Prevent White Flash and define system colors immediately -->
     <style>
       :root {
         --page-bg: #050505;
@@ -27,8 +26,21 @@
         width: 100vw; 
         font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
       }
-      /* Pre-styling for the root to avoid jumping */
       #root { width: 100%; height: 100%; display: flex; flex-direction: column; }
+      
+      /* Emergency Error Overlay */
+      #error-overlay {
+        display: none;
+        position: fixed;
+        inset: 0;
+        background: #000;
+        color: #ff4444;
+        padding: 40px;
+        z-index: 9999;
+        font-family: monospace;
+        line-height: 1.5;
+        overflow: auto;
+      }
     </style>
 
     <script src="https://cdn.tailwindcss.com"></script>
@@ -53,51 +65,64 @@
 
     <!-- Global Shim: Prevents "process is not defined" crash on static hosts like Netlify -->
     <script>
-      window.process = window.process || { env: { NODE_ENV: 'production' } };
+      window.process = { 
+        env: { 
+          NODE_ENV: 'production',
+          API_KEY: "" // Prevents SDK crash on init if key is missing
+        } 
+      };
+      
+      // Global Error Handler for Deployment Debugging
+      window.addEventListener('error', (event) => {
+        const overlay = document.getElementById('error-overlay');
+        if (overlay) {
+          overlay.style.display = 'block';
+          overlay.innerHTML = `
+            <h1 style="color: white; margin-bottom: 20px;">[Backstage] Critical Boot Error</h1>
+            <p>The application failed to start on this environment.</p>
+            <hr style="border-color: #333; margin: 20px 0;" />
+            <pre>${event.message}\nat ${event.filename}:${event.lineno}:${event.colno}</pre>
+            <p style="color: #666; font-size: 12px; margin-top: 20px;">Check your browser console for more details.</p>
+          `;
+        }
+      });
     </script>
 
     <link rel="stylesheet" href="./style.css">
-
-    <!-- Fonts -->
     <link href="https://fonts.googleapis.com/css2?family=Courier+Prime:ital,wght@0,400;0,700;1,400;1,700&family=Inter:wght@400;700;900&family=Merriweather:ital,wght@0,400;0,700;1,400&family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
     
     <script type="importmap">
-    {
-      "imports": {
-        "react": "https://esm.sh/react@^19.2.3",
-        "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
-        "react/": "https://esm.sh/react@^19.2.3/",
-        "@google/genai": "https://esm.sh/@google/genai@^1.34.0",
-        "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@^2.39.7",
-        "lucide-react": "https://esm.sh/lucide-react@^0.562.0",
-        "recharts": "https://esm.sh/recharts@^3.6.0",
-        "html2canvas": "https://esm.sh/html2canvas@^1.4.1",
-        "jspdf": "https://esm.sh/jspdf@^2.5.1",
-        "react-dom": "https://esm.sh/react-dom@^19.2.3",
-        "pdfjs-dist": "https://esm.sh/pdfjs-dist@3.11.174",
-        "xlsx": "https://esm.sh/xlsx@0.18.5"
-      }
-    }
-    </script>
+{
+  "imports": {
+    "react": "https://esm.sh/react@19.0.0",
+    "react-dom": "https://esm.sh/react-dom@19.0.0",
+    "react-dom/client": "https://esm.sh/react-dom@19.0.0/client",
+    "@google/genai": "https://esm.sh/@google/genai@1.3.0",
+    "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@2.39.7",
+    "lucide-react": "https://esm.sh/lucide-react@0.460.0",
+    "recharts": "https://esm.sh/recharts@2.13.3",
+    "html2canvas": "https://esm.sh/html2canvas@1.4.1",
+    "jspdf": "https://esm.sh/jspdf@2.5.1",
+    "pdfjs-dist": "https://esm.sh/pdfjs-dist@3.11.174",
+    "xlsx": "https://esm.sh/xlsx@0.18.5",
+    "react/": "https://esm.sh/react@^19.2.4/",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.4/"
+  }
+}
+</script>
 
     <script>
-      if ('serviceWorker' in navigator) {
+      if ('serviceWorker' in navigator && window.location.protocol === 'https:') {
         window.addEventListener('load', () => {
-          const swPath = './sw.js';
-          navigator.serviceWorker.register(swPath, { scope: './' })
-            .then(reg => console.log('SW Registration Success:', reg.scope))
-            .catch(err => {
-              if (err.name === 'SecurityError') {
-                 console.warn('SW Security Restriction: Service workers usually require HTTPS.');
-              } else {
-                 console.error('SW Registration Error:', err);
-              }
-            });
+          navigator.serviceWorker.register('./sw.js')
+            .then(reg => console.log('SW Registered'))
+            .catch(err => console.warn('SW Failed:', err));
         });
       }
     </script>
   </head>
   <body>
+    <div id="error-overlay"></div>
     <div id="root"></div>
     <script type="module" src="./index.tsx"></script>
   </body>
