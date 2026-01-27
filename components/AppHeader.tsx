@@ -1,8 +1,13 @@
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { ViewMode } from '../types';
 import { useProject } from '../context/ProjectContext';
-import { Target, Zap, Clock, Film, RotateCcw, RotateCw, CheckCircle2, TrendingUp, Save } from 'lucide-react';
+import { 
+    Target, Zap, Clock, Film, RotateCcw, RotateCw, CheckCircle2, 
+    TrendingUp, Save, Cloud, CloudOff, Wifi, WifiOff, CloudUpload,
+    Loader2, Check, FileCode
+} from 'lucide-react';
+import { isSupabaseConfigured } from '../services/supabase';
 
 interface AppHeaderProps {
   currentView: ViewMode;
@@ -16,13 +21,17 @@ const AppHeader: React.FC<AppHeaderProps> = ({ currentView, onViewChange, onRefr
       isStoryboardFeatureEnabled, writingGoal, dailyStats, beats,
       projectList, currentProjectId,
       undo, redo, canUndo, canRedo,
-      saveProject, hasUnsavedChanges
+      saveProject, saveProjectAs, hasUnsavedChanges, currentUser, isCloudMode, isSaving, fileHandle
   } = useProject();
+
+  const [showSavedConfirmation, setShowSavedConfirmation] = useState(false);
 
   const activeProjectName = useMemo(() => {
       const proj = projectList.find(p => p.id === currentProjectId);
       return proj ? proj.name : 'SEQUENCER';
   }, [projectList, currentProjectId]);
+
+  const isCloudActive = isCloudMode;
 
   const views = [
     { id: 'board', label: 'Board' },
@@ -33,14 +42,34 @@ const AppHeader: React.FC<AppHeaderProps> = ({ currentView, onViewChange, onRefr
     { id: 'statistics', label: 'Statistics' }
   ].filter(v => !v.hidden);
 
-  // Live Progress Calculation (Smart Daily/Total Switch)
+  // Handle saved confirmation effect
+  useEffect(() => {
+      if (!isSaving && !hasUnsavedChanges) {
+          setShowSavedConfirmation(true);
+          const timer = setTimeout(() => setShowSavedConfirmation(false), 2000);
+          return () => clearTimeout(timer);
+      }
+  }, [isSaving, hasUnsavedChanges]);
+
+  // Handle Save Action (Final Draft Logic)
+  const handleSaveClick = async () => {
+      if (isCloudActive) {
+          saveProject();
+      } else {
+          if (!fileHandle) {
+              // First time saving locally, pick location
+              await saveProjectAs();
+          } else {
+              saveProject();
+          }
+      }
+  };
+
+  // Live Progress Calculation
   const progressDisplay = useMemo(() => {
       if (!writingGoal.isActive) return null;
-
-      // 1. Calculate Total Volume
       let totalWords = 0;
       beats.forEach(b => {
-          // Robust HTML strip to get pure text content
           const div = document.createElement('div');
           div.innerHTML = b.content;
           const text = (div.textContent || '').trim();
@@ -48,100 +77,95 @@ const AppHeader: React.FC<AppHeaderProps> = ({ currentView, onViewChange, onRefr
               totalWords += text.split(/\s+/).filter(w => w.length > 0).length;
           }
       });
-      // UPDATED: Use floor to count only complete pages
       const totalPages = Math.floor(totalWords / 250);
-
-      // 2. Determine Units
       const isPages = writingGoal.type === 'pages';
       const currentTotal = isPages ? totalPages : totalWords;
       const targetTotal = writingGoal.targetAmount;
-
-      // 3. Calculate Daily Progress
       const todayKey = new Date().toISOString().split('T')[0];
       const todayWords = dailyStats[todayKey] || 0;
-      // UPDATED: Use floor to count only complete pages
       const todayPages = Math.floor(todayWords / 250);
       const currentDaily = isPages ? todayPages : todayWords;
-
-      // 4. Calculate Dynamic Daily Goal
       const today = new Date();
       today.setHours(0,0,0,0);
       const dueDate = new Date(writingGoal.deadline);
       dueDate.setHours(0,0,0,0);
-      
       const diffTime = dueDate.getTime() - today.getTime();
       const daysLeft = Math.max(1, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
       const unitsLeft = Math.max(0, targetTotal - currentTotal);
-      
-      let dailyTarget = 0;
-      if (writingGoal.mode === 'habit') {
-          dailyTarget = writingGoal.dailyTarget;
-      } else {
-          dailyTarget = unitsLeft > 0 ? Math.ceil(unitsLeft / daysLeft) : 0;
-      }
-
-      // 5. Determine Display State
+      let dailyTarget = writingGoal.mode === 'habit' ? writingGoal.dailyTarget : (unitsLeft > 0 ? Math.ceil(unitsLeft / daysLeft) : 0);
       const isDailyDone = currentDaily >= dailyTarget && dailyTarget > 0;
       const isProjectDone = currentTotal >= targetTotal;
-
       const showTotal = isDailyDone || isProjectDone;
-
       const currentDisplay = showTotal ? currentTotal : currentDaily;
       const targetDisplay = showTotal ? targetTotal : dailyTarget;
-      
-      const percent = targetDisplay > 0 
-          ? Math.min(100, Math.round((currentDisplay / targetDisplay) * 100))
-          : (currentDisplay > 0 ? 100 : 0);
-
-      return {
-          current: currentDisplay,
-          target: targetDisplay,
-          unit: isPages ? 'Pgs' : 'Wds',
-          percent,
-          isDone: isProjectDone,
-          showTotal, // true = Gold (Project), false = Blue (Daily)
-          label: showTotal ? (isProjectDone ? 'Done' : 'Project') : 'Today'
-      };
+      const percent = targetDisplay > 0 ? Math.min(100, Math.round((currentDisplay / targetDisplay) * 100)) : (currentDisplay > 0 ? 100 : 0);
+      return { current: currentDisplay, target: targetDisplay, unit: isPages ? 'Pgs' : 'Wds', percent, iDone: isProjectDone, showTotal, label: showTotal ? (isProjectDone ? 'Done' : 'Project') : 'Today' };
   }, [writingGoal, dailyStats, beats]);
+
+  const saveTitle = useMemo(() => {
+      if (isSaving) return "Writing to Disk...";
+      if (showSavedConfirmation) return "Successfully Saved";
+      if (isCloudActive) return hasUnsavedChanges ? "Syncing to Production" : "Synced to Production";
+      if (fileHandle) return hasUnsavedChanges ? `Save changes to ${fileHandle.name}` : `${fileHandle.name} is up to date`;
+      return "Linked to Local Storage (Click to save to disk file)";
+  }, [isSaving, showSavedConfirmation, isCloudActive, hasUnsavedChanges, fileHandle]);
 
   return (
     <>
       <header className="fixed top-0 left-0 w-full h-[50px] bg-[#111] border-b border-[#3d3d3d] flex items-center justify-between px-5 z-[500] select-none shadow-[0_2px_10px_rgba(0,0,0,0.3)] font-['Helvetica_Neue',Helvetica,Arial,sans-serif]">
         
-        {/* LEFT: Cinematic Logo -> Settings + Quick Save */}
+        {/* LEFT: Cinematic Logo */}
         <div className="flex items-center gap-4 h-full flex-1">
           <div 
               onClick={() => onViewChange('backstage')}
               className="flex items-center gap-3 cursor-pointer group select-none h-full"
               title="Open Backstage (Settings)"
           >
-              <div className="w-8 h-8 rounded bg-gradient-to-br from-[#222] to-[#111] border border-[#333] flex items-center justify-center group-hover:border-[#f5a623] transition-all shadow-sm">
+              <div className="w-8 h-8 rounded bg-gradient-to-br from-[#222] to-[#111] border border-[#333] flex items-center justify-center group-hover:border-[#f5a623] transition-all shadow-sm relative">
                   <Film size={16} className="text-[#f5a623] group-hover:scale-110 transition-transform duration-300" />
               </div>
-              <div className="flex flex-col justify-center pt-0.5">
-                  <span className="text-[13px] font-black tracking-tight text-white uppercase leading-none group-hover:text-[#f5a623] transition-colors duration-300">
-                      Backstage
-                  </span>
-                  <span className="text-[7px] font-bold tracking-[0.2em] text-[#555] uppercase leading-none mt-0.5 group-hover:text-white transition-colors duration-300 ml-[1px] truncate max-w-[120px]">
-                      {activeProjectName}
-                  </span>
+              
+              <div className="flex items-center gap-2 transition-all">
+                  <div className="flex flex-col justify-center pt-0.5">
+                      <span className="text-[13px] font-black tracking-tight text-white uppercase leading-none group-hover:text-[#f5a623] transition-colors duration-300">
+                          Backstage
+                      </span>
+                      <span className="text-[7px] font-bold tracking-[0.2em] text-[#555] uppercase leading-none mt-0.5 group-hover:text-white transition-colors duration-300 ml-[1px] truncate max-w-[120px]">
+                          {fileHandle ? fileHandle.name : activeProjectName}
+                      </span>
+                  </div>
               </div>
           </div>
 
           <div className="h-4 w-px bg-[#333] mx-1"></div>
 
-          {/* Quick Save Button */}
+          {/* Quick Save Button - Muted Subtle Feedback */}
           <button
-              onClick={() => saveProject()}
-              className={`relative p-2 rounded-md transition-all duration-300 border flex items-center justify-center group ${
-                  hasUnsavedChanges 
+              onClick={handleSaveClick}
+              disabled={isSaving}
+              className={`relative p-2 rounded-md transition-all duration-500 border flex items-center justify-center group ${
+                  isSaving 
+                  ? 'bg-transparent border-[#3d3d3d] text-blue-500/60 cursor-wait'
+                  : showSavedConfirmation
+                  ? 'bg-transparent border-[#3d3d3d] text-green-500/60'
+                  : hasUnsavedChanges 
                   ? 'bg-[#f5a623]/5 border-[#f5a623]/30 text-[#f5a623] hover:bg-[#f5a623]/10 hover:border-[#f5a623]' 
                   : 'bg-[#1a1a1a] border-[#333] text-gray-500 hover:text-gray-300'
               }`}
-              title={hasUnsavedChanges ? "Save Unsaved Changes" : "Project Saved"}
+              title={saveTitle}
           >
-              <Save size={16} className={hasUnsavedChanges ? "animate-pulse" : ""} />
-              {hasUnsavedChanges && (
+              {isSaving ? (
+                <Loader2 size={16} className="animate-spin" />
+              ) : showSavedConfirmation ? (
+                <Check size={16} className="animate-in zoom-in duration-300" />
+              ) : isCloudActive ? (
+                <CloudUpload size={16} className={hasUnsavedChanges ? "animate-pulse" : ""} />
+              ) : fileHandle ? (
+                <FileCode size={16} className={hasUnsavedChanges ? "animate-pulse text-[#f5a623]" : ""} />
+              ) : (
+                <Save size={16} className={hasUnsavedChanges ? "animate-pulse" : ""} />
+              )}
+              {hasUnsavedChanges && !isSaving && (
                   <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-[#f5a623] rounded-full border border-[#111] shadow-[0_0_8px_#f5a623]"></span>
               )}
           </button>
@@ -205,8 +229,8 @@ const AppHeader: React.FC<AppHeaderProps> = ({ currentView, onViewChange, onRefr
                  <div 
                     className={`absolute left-0 top-0 bottom-0 transition-all duration-500 ease-out pointer-events-none ${
                         progressDisplay.showTotal
-                            ? (progressDisplay.isDone ? 'bg-green-500/30' : 'bg-[#f5a623]/30') // Gold/Green for Total Project
-                            : 'bg-blue-600/40' // Blue for Daily Target
+                            ? (progressDisplay.iDone ? 'bg-green-500/30' : 'bg-[#f5a623]/30') 
+                            : 'bg-blue-600/40' 
                     }`}
                     style={{ width: `${progressDisplay.percent}%` }}
                  />
@@ -216,10 +240,10 @@ const AppHeader: React.FC<AppHeaderProps> = ({ currentView, onViewChange, onRefr
                  <>
                     <div className={`z-10 ${
                         progressDisplay.showTotal
-                            ? (progressDisplay.isDone ? 'text-green-500' : 'text-[#f5a623]') 
+                            ? (progressDisplay.iDone ? 'text-green-500' : 'text-[#f5a623]') 
                             : 'text-blue-400'
                     }`}>
-                        {progressDisplay.isDone ? <CheckCircle2 size={14} /> : (progressDisplay.showTotal ? <Target size={14} /> : <TrendingUp size={14} />)}
+                        {progressDisplay.iDone ? <CheckCircle2 size={14} /> : (progressDisplay.showTotal ? <Target size={14} /> : <TrendingUp size={14} />)}
                     </div>
                     <div className="flex flex-col items-start z-10">
                         <div className="flex items-baseline gap-1">

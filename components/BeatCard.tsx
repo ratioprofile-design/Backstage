@@ -1,4 +1,3 @@
-
 import React, { useEffect, useRef, useState } from 'react';
 import { Beat, BeatVersion } from '../types';
 import { useProject } from '../context/ProjectContext';
@@ -9,6 +8,7 @@ interface BeatCardProps {
   isSelected: boolean;
   onMouseDown: (e: React.MouseEvent, id: number) => void;
   onDoubleClick: (id: number) => void;
+  onViewInScript?: (id: number) => void;
   onLinkStart: (e: React.MouseEvent, id: number) => void;
   sceneNumber: number | null;
   isError?: boolean;
@@ -25,6 +25,19 @@ const BeatCard: React.FC<BeatCardProps> = ({
   const summaryInputRef = useRef<HTMLTextAreaElement>(null);
   const [activeDropdown, setActiveDropdown] = useState<'status' | 'version' | null>(null);
   const footerRef = useRef<HTMLDivElement>(null);
+
+  // Local state to prevent immediate global updates
+  const [localTitle, setLocalTitle] = useState(beat.title);
+  const [localSummary, setLocalSummary] = useState(beat.summary || '');
+
+  // Sync local state when the beat prop changes (e.g. from external undo/redo)
+  useEffect(() => {
+    setLocalTitle(beat.title);
+  }, [beat.title]);
+
+  useEffect(() => {
+    setLocalSummary(beat.summary || '');
+  }, [beat.summary]);
 
   // Close dropdowns when clicking outside
   useEffect(() => {
@@ -46,9 +59,22 @@ const BeatCard: React.FC<BeatCardProps> = ({
     }
   }, [creationStep]);
 
+  const commitTitle = () => {
+    if (localTitle !== beat.title) {
+        updateBeat(beat.id, { title: localTitle });
+    }
+  };
+
+  const commitSummary = () => {
+    if (localSummary !== (beat.summary || '')) {
+        updateBeat(beat.id, { summary: localSummary });
+    }
+  };
+
   const handleNameKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
       e.preventDefault();
+      commitTitle();
       if (onCreationStepChange) onCreationStepChange('summary');
     }
   };
@@ -56,7 +82,22 @@ const BeatCard: React.FC<BeatCardProps> = ({
   const handleSummaryKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
       e.preventDefault();
+      commitSummary();
       if (onCreationStepChange) onCreationStepChange(null);
+    }
+  };
+
+  const handleNameBlur = () => {
+    commitTitle();
+    if (onCreationStepChange && creationStep === 'name') {
+        onCreationStepChange('summary');
+    }
+  };
+
+  const handleSummaryBlur = () => {
+    commitSummary();
+    if (onCreationStepChange && creationStep === 'summary') {
+        onCreationStepChange(null);
     }
   };
 
@@ -102,9 +143,10 @@ const BeatCard: React.FC<BeatCardProps> = ({
           <input
             ref={nameInputRef}
             className="font-bold text-sm mb-2 px-1 rounded bg-[#111] text-white border border-[#f5a623] outline-none w-full animate-pulse"
-            value={beat.title}
-            onChange={(e) => updateBeat(beat.id, { title: e.target.value })}
+            value={localTitle}
+            onChange={(e) => setLocalTitle(e.target.value)}
             onKeyDown={handleNameKeyDown}
+            onBlur={handleNameBlur}
             placeholder="Name your beat..."
             onMouseDown={(e) => e.stopPropagation()}
             autoFocus
@@ -119,14 +161,15 @@ const BeatCard: React.FC<BeatCardProps> = ({
           {(!beat.slug.prefix && !beat.slug.location && !beat.slug.time) ? 'INT. LOCATION - DAY' : `${beat.slug.prefix} ${beat.slug.location} - ${beat.slug.time}`}
         </div>
         
-        {/* SUMMARY (Replaces Content Snippet during editing or if summary exists) */}
+        {/* SUMMARY */}
         {creationStep === 'summary' ? (
            <textarea 
              ref={summaryInputRef}
              className="font-sans text-[11px] text-white bg-[#111] border border-[#f5a623] outline-none w-full resize-none p-1 rounded leading-relaxed h-20 animate-pulse"
-             value={beat.summary || ''}
-             onChange={(e) => updateBeat(beat.id, { summary: e.target.value })}
+             value={localSummary}
+             onChange={(e) => setLocalSummary(e.target.value)}
              onKeyDown={handleSummaryKeyDown}
+             onBlur={handleSummaryBlur}
              placeholder="Write a short summary..."
              onMouseDown={(e) => e.stopPropagation()}
              autoFocus
@@ -209,7 +252,7 @@ const BeatCard: React.FC<BeatCardProps> = ({
                                   </div>
                                   <div className="text-[9px] text-gray-600 font-mono mt-0.5">
                                       {new Date(v.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
-                                      {new Date(v.timestamp).toLocaleDateString([], {month: 'short', day: 'numeric'}) && ` - ${new Date(v.timestamp).toLocaleDateString([], {month: 'short', day: 'numeric'})}`}
+                                      {new Date(v.timestamp).toLocaleDateString([], {month: 'short', day: 'numeric'})}
                                   </div>
                               </button>
                           ))

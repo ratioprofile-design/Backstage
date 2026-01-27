@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useEffect } from 'react';
 import { useProject } from '../../context/ProjectContext';
 import { ScriptConfig } from '../../types';
@@ -13,7 +12,8 @@ import {
   MousePointer2, ALargeSmall, Globe, Video, Music,
   BoxSelect, Scan, Grid, Zap, Cloud, AlertTriangle, RefreshCw, Wand2,
   Moon, Sun, Coffee, Download, XCircle, Sparkles, Wifi, ShieldCheck, ShieldAlert,
-  Key, Cpu, ListChecks, StickyNote, List, Hash, RotateCw, CheckSquare, Quote, MousePointer
+  Key, Cpu, ListChecks, StickyNote, List, Hash, RotateCw, CheckSquare, Quote, WifiOff,
+  FileCode
 } from 'lucide-react';
 import PrintPreviewModal from '../PrintPreviewModal';
 import { 
@@ -21,6 +21,7 @@ import {
     VISUAL_STYLES, NOTE_FONTS, AVAILABLE_ENGLISH_FONTS
 } from '../../constants';
 import { BlockEditor } from '../BlockEditor';
+import { isSupabaseConfigured } from '../../services/supabase';
 
 const TEXT_COLORS = [
   { name: 'Black', value: '#000000', class: 'bg-black' },
@@ -96,18 +97,23 @@ const ViewContainer = ({ title, subtitle, children }: any) => (
   </div>
 );
 
-const LargeActionCard = ({ onClick, icon: Icon, title, desc, accent }: any) => (
-  <div onClick={onClick} className="bg-[#111] p-6 rounded-sm border border-[#222] hover:border-[#444] cursor-pointer transition-all hover:bg-[#151515] group h-full flex flex-col relative overflow-hidden">
-    <div className={`absolute top-0 right-0 p-4 opacity-10 transition-opacity group-hover:opacity-20 ${accent ? accent.replace('text-', 'text-') : 'text-gray-500'}`}>
-        <Icon size={64} />
-    </div>
+const LargeActionCard = ({ onClick, icon: Icon, title, desc, accent, disabled }: any) => (
+  <div 
+    onClick={disabled ? undefined : onClick} 
+    className={`bg-[#111] p-6 rounded-sm border border-[#222] transition-all relative overflow-hidden ${disabled ? 'opacity-50 cursor-not-allowed' : 'hover:border-[#444] cursor-pointer hover:bg-[#151515] group h-full flex flex-col'}`}
+  >
+    {!disabled && (
+        <div className={`absolute top-0 right-0 p-4 opacity-10 transition-opacity group-hover:opacity-20 ${accent ? accent.replace('text-', 'text-') : 'text-gray-500'}`}>
+            <Icon size={64} />
+        </div>
+    )}
     <div className="flex items-center gap-4 mb-4 relative z-10">
       <div className={`p-2 bg-[#000] border border-[#333] rounded-sm transition-colors`}>
-        <Icon size={20} className={`text-[#666] ${accent ? `group-hover:${accent}` : 'group-hover:text-white'}`} />
+        <Icon size={20} className={`${disabled ? 'text-gray-700' : 'text-[#666]'} ${!disabled && accent ? `group-hover:${accent}` : 'group-hover:text-white'}`} />
       </div>
-      <span className="text-sm font-bold text-gray-200 uppercase tracking-wider">{title}</span>
+      <span className={`text-sm font-bold uppercase tracking-wider ${disabled ? 'text-gray-600' : 'text-gray-200'}`}>{title}</span>
     </div>
-    <p className="text-[10px] text-gray-500 font-mono leading-relaxed relative z-10">{desc}</p>
+    <p className={`text-[10px] font-mono leading-relaxed relative z-10 ${disabled ? 'text-gray-700' : 'text-gray-500'}`}>{desc}</p>
   </div>
 );
 
@@ -206,6 +212,7 @@ interface BackstageViewProps {
 }
 
 const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
+  /* Fix: Add isCloudMode to destructuring to fix "Cannot find name 'isCloudMode'" error on line 482. */
   const { 
     scriptConfig, setScriptConfig, scriptViewMode, setScriptViewMode,
     isTamilMode, setTamilMode, 
@@ -213,8 +220,8 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
     storyboardConfig, setStoryboardConfig, isStoryboardFeatureEnabled, setStoryboardFeatureEnabled,
     scratchpadConfig, setScratchpadConfig,
     boardLayerOrder = ['annotations', 'text', 'connections', 'groups', 'beats'], setBoardLayerOrder,
-    loadProject, closeProject, downloadProject,
-    beats,
+    loadProject, closeProject, downloadProject, saveProjectAs, fileHandle,
+    beats, currentUser, isCloudMode,
     stabilityApiKey, setStabilityApiKey,
     breakdownLanguage, setBreakdownLanguage,
     isPdfDropEnabled, setPdfDropEnabled,
@@ -280,10 +287,6 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
       reader.readAsText(file);
     }
     e.target.value = ''; 
-  };
-
-  const handleDownloadBackup = () => {
-      downloadProject();
   };
 
   const updateFormat = (elm: keyof ScriptConfig, prop: string, val: any) => {
@@ -452,19 +455,58 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
             {activeCategory === 'project' && (
                 <ViewContainer title="Project Management" subtitle="Manage local data and export options.">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-4xl">
+                        {/* CLOUD STATUS CARD */}
+                        <div className="md:col-span-2 bg-[#1a1a1a] p-6 rounded-sm border border-[#222] mb-4">
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-4">
+                                    <div className={`p-3 rounded-full ${isSupabaseConfigured ? 'bg-green-500/10 text-green-500' : 'bg-gray-500/10 text-gray-500'}`}>
+                                        {isSupabaseConfigured ? <Wifi size={24} /> : <WifiOff size={24} />}
+                                    </div>
+                                    <div>
+                                        <h4 className="text-lg font-bold text-white uppercase tracking-tight">
+                                            {isSupabaseConfigured ? 'Cloud Sync Active' : 'Local Storage Mode'}
+                                        </h4>
+                                        <p className="text-xs text-gray-500 font-mono mt-1">
+                                            {isSupabaseConfigured 
+                                                ? `Synchronizing with production servers as ${currentUser}` 
+                                                : 'Running isolated on this browser. Use native file handling for auto-disk-save.'}
+                                        </p>
+                                    </div>
+                                </div>
+                                <div className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest ${isSupabaseConfigured ? 'bg-green-900/30 text-green-400 border border-green-800' : 'bg-gray-800 text-gray-500 border border-gray-700'}`}>
+                                    {isSupabaseConfigured ? 'CONNECTED' : 'OFFLINE'}
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* NATIVE FILE HANDLING (FINAL DRAFT STYLE) */}
+                        {!isCloudMode && (
+                            <>
+                                <div className="md:col-span-2 text-xs font-bold text-[#666] uppercase tracking-widest mb-1 mt-4">Native OS Workflow</div>
+                                <LargeActionCard 
+                                    onClick={saveProjectAs}
+                                    icon={FileCode}
+                                    title={fileHandle ? "Change Project File" : "Save Project to Disk"}
+                                    desc={fileHandle ? `Currently linked to: ${fileHandle.name}` : "Pick a location on your computer. Auto-save will update this file directly."}
+                                    accent="text-[#f5a623]"
+                                />
+                            </>
+                        )}
+
+                        <div className="md:col-span-2 text-xs font-bold text-[#666] uppercase tracking-widest mb-1 mt-4">Legacy Export</div>
                         <LargeActionCard 
-                            onClick={handleDownloadBackup}
-                            icon={Save}
-                            title="Save Project"
-                            desc="Download a .bst (Backstage Story File) backup."
-                            accent="text-[#f5a623]"
+                            onClick={downloadProject}
+                            icon={Download}
+                            title="Download .BST Backup"
+                            desc="Export a standalone JSON file of your project."
+                            accent="text-blue-400"
                         />
                         <LargeActionCard 
                             onClick={() => fileInputRef.current?.click()}
                             icon={Upload}
-                            title="Load Project"
-                            desc="Restore from a previously saved .json or .bst file."
-                            accent="text-blue-500"
+                            title="Open Local File"
+                            desc="Import a .bst or .json file into the workspace."
+                            accent="text-purple-500"
                         />
                         <input type="file" ref={fileInputRef} className="hidden" accept=".json,.bst" onChange={handleFileLoad} />
                         
@@ -1068,7 +1110,6 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
             {activeCategory === 'features' && (
                 <ViewContainer title="System Features" subtitle="Enable experimental tools and accessibility options.">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        {/* Fix: Removed Gemini API Key Management UI as per guidelines */}
                         <div className="md:col-span-2 bg-[#1e1e1e] p-6 rounded-sm border border-[#222]">
                             <div className="flex items-center gap-4 mb-4">
                                 <div className="w-10 h-10 rounded-sm flex items-center justify-center bg-[#f5a623] text-black">
@@ -1109,8 +1150,8 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
                                 </div>
                             </div>
                             <div className="flex bg-[#000] rounded p-0.5 border border-[#333]">
-                                <button onClick={() => setBreakdownLanguage('english')} className={`px-3 py-1.5 rounded text-[10px] font-bold uppercase transition-all ${breakdownLanguage === 'english' ? 'bg-[#f5a623] text-black' : 'text-gray-500 hover:text-white'}`}>English</button>
-                                <button onClick={() => setBreakdownLanguage('tamil')} className={`px-3 py-1.5 rounded text-[10px] font-bold uppercase transition-all ${breakdownLanguage === 'tamil' ? 'bg-[#f5a623] text-black' : 'text-gray-500 hover:text-white'}`}>Tamil</button>
+                                <button onClick={() => setBreakdownLanguage('english')} className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase transition-all ${breakdownLanguage === 'english' ? 'bg-[#f5a623] text-black' : 'text-gray-500 hover:text-white'}`}>English</button>
+                                <button onClick={() => setBreakdownLanguage('tamil')} className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase transition-all ${breakdownLanguage === 'tamil' ? 'bg-[#f5a623] text-black' : 'text-gray-500 hover:text-white'}`}>Tamil</button>
                             </div>
                         </div>
 

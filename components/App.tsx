@@ -1,4 +1,3 @@
-
 import React, { useEffect, useMemo, useState } from 'react';
 import { ProjectProvider, useProject } from '../context/ProjectContext';
 import AppHeader from './AppHeader';
@@ -14,6 +13,7 @@ import EditorModal from './EditorModal';
 import PrintPreviewModal from './PrintPreviewModal';
 import WelcomeScreen from './WelcomeScreen';
 import { ViewMode, ScriptConfig } from '../types';
+import { Loader2, Film } from 'lucide-react';
 
 const StyleInjector: React.FC = () => {
   const { scriptConfig, scratchpadConfig } = useProject();
@@ -149,7 +149,7 @@ const StyleInjector: React.FC = () => {
 };
 
 const AppContent: React.FC = () => {
-  const { currentUser, currentProjectId, undo, redo } = useProject();
+  const { currentUser, currentProjectId, undo, redo, isInitialLoading } = useProject();
   const [currentView, setCurrentView] = useState<ViewMode>('board');
   const [openBeatIds, setOpenBeatIds] = useState<number[]>([]);
   const [showPrintPreview, setShowPrintPreview] = useState(false);
@@ -197,6 +197,23 @@ const AppContent: React.FC = () => {
           return [...prev.filter(i => i !== id), id];
       });
   };
+
+  // SYSTEM BOOTSTRAP VIEW
+  if (isInitialLoading) {
+      return (
+          <div className="fixed inset-0 bg-[#050505] flex flex-col items-center justify-center font-sans">
+              <div className="relative mb-8">
+                  <div className="w-16 h-16 bg-[#111] border border-white/10 rounded-2xl flex items-center justify-center animate-pulse">
+                      <Film className="text-[#f5a623]" size={32} />
+                  </div>
+              </div>
+              <div className="flex items-center gap-3">
+                  <Loader2 className="animate-spin text-gray-600" size={14} />
+                  <span className="text-[10px] font-black text-gray-500 uppercase tracking-[0.4em]">Restoring Session...</span>
+              </div>
+          </div>
+      );
+  }
 
   if (!currentUser || !currentProjectId) {
       return <WelcomeScreen />;

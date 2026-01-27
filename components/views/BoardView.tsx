@@ -1,4 +1,3 @@
-
 import React, { useEffect, useRef, useState, useMemo, useCallback } from 'react';
 import { useProject } from '../../context/ProjectContext';
 import { BeatStatus, Group, Annotation, Beat, Connection } from '../../types';
@@ -13,7 +12,6 @@ import { STORYLINE_COLORS } from '../../constants';
 import { extractRawTextFromPdf } from '../../services/pdfImport';
 import { analyzeScriptBatch, convertTextToScript } from '../../services/gemini';
 
-// Fix: Define missing ANNOTATION_COLORS constant
 const ANNOTATION_COLORS = ['#f5a623', '#ef4444', '#22c55e', '#3b82f6', '#a855f7', '#ffffff'];
 
 interface BoardViewProps {
@@ -39,6 +37,7 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
   const [drawColor, setDrawColor] = useState('#f5a623');
   const [strokeWidth, setStrokeWidth] = useState(3);
   const [strokeStyle, setStrokeStyle] = useState<'solid' | 'dashed'>('solid'); 
+  const [isPageTransitioning, setIsPageTransitioning] = useState(false);
   
   // Clipboard state for copy/paste
   const [clipboard, setClipboard] = useState<Beat[]>([]);
@@ -69,7 +68,6 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
 
   // Engine Ref (Mutable state for high-perf interactions)
   const engine = useRef({
-    // State Mirrors
     beats: [] as Beat[],
     groups: [] as Group[],
     connections: [] as Connection[],
@@ -78,7 +76,6 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
     panX: 0,
     panY: 0,
     
-    // Interaction State
     selectedBeatIds: new Set<number>(),
     selectedAnnoId: null as number | null,
     dragTarget: null as number | null,
@@ -86,7 +83,6 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
     dragGroupChildIds: new Set<number>(),
     groupResizeTarget: null as number | null,
     
-    // Image Resizing
     imageResizeTarget: null as { 
         id: number, 
         corner: 'nw' | 'ne' | 'sw' | 'se',
@@ -99,10 +95,8 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
         aspectRatio: number
     } | null,
     
-    // Annotation Dragging
     dragAnnotationId: null as number | null,
 
-    // Scrubbing
     isScrubbing: false,
     scrubBeatId: null as number | null,
     scrubStartX: 0,
@@ -113,34 +107,28 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
     lastMouseX: 0,
     lastMouseY: 0,
     
-    // Creation Flow
     creationState: null as { id: number, step: 'title' | 'summary' } | null,
 
-    // Lasso
     isLassoing: false,
     hasLassoMoved: false, 
     lassoStart: { x: 0, y: 0 },
     
-    // Linking
     isLinking: false,
     linkingSourceId: null as number | null,
     tempLinkEndX: 0,
     tempLinkEndY: 0,
     relinkData: null as { type: 'source' | 'target', fixedBeatId: number } | null,
     
-    // Drawing / Annotations
     isDrawing: false,
     drawStart: { x: 0, y: 0 },
     currentPoints: [] as {x: number, y: number}[], 
     currentAnnoId: null as number | null,
 
-    // Graph Analysis (internal)
     sceneMap: {} as Record<number, number>,
     componentMap: {} as Record<number, string>,
     errorIds: new Set<number>(),
   });
 
-  // --- STYLES ---
   const styles = `
     :root {
         --bg-canvas: #1e1e1e;
@@ -166,6 +154,20 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
     #annotations-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 15; overflow: visible; }
     #text-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 20; }
     #beats-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 100; }
+    
+    /* --- PAGE TRANSITION ANIMATION --- */
+    @keyframes boardPageIn {
+        0% { opacity: 0; transform: translateX(30px) scale(0.99); filter: blur(8px); }
+        100% { opacity: 1; transform: translateX(0) scale(1); filter: blur(0); }
+    }
+    .is-transitioning #beats-layer, 
+    .is-transitioning #groups-layer, 
+    .is-transitioning #connections-layer, 
+    .is-transitioning #annotations-layer, 
+    .is-transitioning #text-layer {
+        animation: boardPageIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+
     .group-container, .beat-card, .annotation-hit-area, .handle-hit-area, .connection-line, .image-resize-handle { pointer-events: auto !important; }
     .text-annotation-card { pointer-events: auto !important; }
     .tool-pencil #annotations-layer, .tool-rect #annotations-layer, .tool-circle #annotations-layer, .tool-line #annotations-layer, .tool-arrow #annotations-layer, .tool-eraser #annotations-layer, .tool-text #annotations-layer, .tool-bigtext #annotations-layer { pointer-events: auto !important; }
@@ -205,7 +207,7 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
     .seq-badge { background: rgba(0,0,0,0.5); color: #fff; font-size: 10px; font-weight: 800; padding: 2px 6px; border-radius: 10px; margin-top: -8px; margin-right: -4px; box-shadow: 0 2px 4px rgba(0,0,0,0.4); pointer-events: auto; cursor: ew-resize; z-index: 200; border: 1px solid rgba(255,255,255,0.2); transition: all 0.2s; }
     .seq-badge.error { background-color: #ef4444; border-color: #fca5a5; animation: pulse-red 2s infinite; }
     .seq-badge:hover { transform: scale(1.1); background-color: #f5a623; color: black; border-color: white; }
-    .seq-badge.scrubbing { transform: scale(1.2); background-color: white; color: black; border-color: #f5a623; z-index: 1000; }
+    .seq-badge.scrubbing { transform: scale(1.1); background-color: #f5a623; color: black; border-color: white; z-index: 1000; }
     @keyframes pulse-red { 0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); } 70% { box-shadow: 0 0 0 4px rgba(239, 68, 68, 0); } 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); } }
     .beat-content { padding: 8px 8px 4px 8px; flex-grow: 1; display: flex; flex-direction: column; }
     .beat-title { font-weight: 700; font-size: 13px; margin-bottom: 6px; padding: 2px 4px; border-radius: 3px; min-height: 20px; color: #ffffff; letter-spacing: 0.3px; text-shadow: 0 1px 2px rgba(0,0,0,0.5); }
@@ -262,45 +264,48 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
 
     .board-switcher {
       position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
-      background: rgba(18,18,18,0.8); backdrop-filter: blur(10px); border: 1px solid #333;
-      padding: 4px; border-radius: 12px; display: flex; gap: 4px; z-index: 2000;
-      box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+      background: rgba(20,20,20,0.6); backdrop-filter: blur(8px); border: 1px solid rgba(255,255,255,0.05);
+      padding: 3px; border-radius: 10px; display: flex; gap: 2px; z-index: 2000;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.4);
     }
     .board-tab {
-      padding: 6px 12px; font-size: 10px; font-weight: 900; text-transform: uppercase;
-      letter-spacing: 0.05em; border-radius: 8px; color: #666; transition: all 0.2s;
-      display: flex; align-items: center; gap: 6px;
+      padding: 5px 10px; font-size: 9px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.05em; border-radius: 7px; color: #555; transition: all 0.25s ease;
+      display: flex; align-items: center; gap: 5px; border: 1px solid transparent;
     }
-    .board-tab:hover { color: #aaa; background: rgba(255,255,255,0.05); }
-    .board-tab.active { background: #f5a623; color: black; box-shadow: 0 2px 8px rgba(245, 166, 35, 0.3); }
+    .board-tab:hover { color: #999; background: rgba(255,255,255,0.03); }
+    .board-tab.active { 
+      background: rgba(245, 166, 35, 0.08); 
+      color: #f5a623; 
+      border-color: rgba(245, 166, 35, 0.2);
+    }
 
-    /* TIMELINE SCRUBBER STYLES */
     .scrub-timeline-container {
-        position: absolute; width: 600px; height: 60px; background: #0a0a0a; border: 2px solid #f5a623; border-radius: 12px;
-        transform: translate(-50%, -100%); pointer-events: none; z-index: 2500;
-        box-shadow: 0 20px 50px rgba(0,0,0,0.8), 0 0 20px rgba(245, 166, 35, 0.2);
+        position: absolute; width: 300px; height: 40px; background: rgba(10, 10, 10, 0.9); border: 1px solid rgba(245, 166, 35, 0.4); border-radius: 8px;
+        transform: translate(-50%, -125%); pointer-events: none; z-index: 2500;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.6);
         display: flex; flex-direction: column; align-items: center; justify-content: center;
-        padding: 10px 20px;
+        padding: 5px 12px;
+        backdrop-filter: blur(4px);
     }
     .scrub-track {
-        position: relative; width: 100%; height: 6px; background: #222; border-radius: 3px; margin-top: 15px;
+        position: relative; width: 100%; height: 2px; background: rgba(255,255,255,0.1); border-radius: 1px; margin-top: 8px;
     }
     .scrub-notch {
-        position: absolute; top: -4px; width: 2px; height: 14px; background: rgba(255,255,255,0.15); border-radius: 1px;
+        position: absolute; top: -2px; width: 1px; height: 6px; background: rgba(255,255,255,0.1); border-radius: 0.5px;
     }
-    .scrub-notch.filled { background: #555; }
+    .scrub-notch.filled { background: rgba(255,255,255,0.3); }
     .scrub-indicator {
-        position: absolute; top: -10px; width: 2px; height: 26px; background: #f5a623; border-radius: 1px;
-        box-shadow: 0 0 10px #f5a623; transform: translateX(-50%);
+        position: absolute; top: -6px; width: 1.5px; height: 14px; background: #f5a623; border-radius: 1px;
+        box-shadow: 0 0 8px #f5a623; transform: translateX(-50%);
     }
     .scrub-label {
-        font-size: 14px; font-weight: 900; color: #f5a623; text-transform: uppercase; letter-spacing: 2px;
+        font-size: 11px; font-weight: 800; color: #f5a623; text-transform: uppercase; letter-spacing: 1px;
     }
     .scrub-sub {
-        font-size: 8px; font-weight: bold; color: #444; margin-top: 2px;
+        font-size: 7px; font-weight: bold; color: #555; margin-top: 2px; text-transform: uppercase;
     }
 
-    /* SELECTION FEEDBACK */
     g[data-selected="true"] .annotation-hit-area {
         stroke: rgba(245, 166, 35, 0.8) !important;
         stroke-width: 2px !important;
@@ -311,9 +316,8 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
     }
   `;
 
-  // --- INITIALIZATION ---
+  // --- INITIALIZATION & RE-RENDER ---
   useEffect(() => {
-    // Mirror filtered items for current board page
     engine.current.beats = JSON.parse(JSON.stringify(beats.filter(b => (b.boardId || 0) === activeBoardId))); 
     engine.current.groups = JSON.parse(JSON.stringify((groups || []).filter(g => (g.boardId || 0) === activeBoardId)));
     engine.current.connections = JSON.parse(JSON.stringify(connections.filter(c => (c.boardId || 0) === activeBoardId)));
@@ -328,6 +332,14 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
     renderConnections(); 
   }, [beats, groups, connections, scale, panX, panY, annotations, activeBoardId]);
 
+  // --- PAGE TRANSITION TRIGGER ---
+  // Isolate transition state so it only runs when activeBoardId changes
+  useEffect(() => {
+    setIsPageTransitioning(true);
+    const timer = setTimeout(() => setIsPageTransitioning(false), 450);
+    return () => clearTimeout(timer);
+  }, [activeBoardId]);
+
   useEffect(() => {
       if (toolMode === 'text' || toolMode === 'bigtext') {
           engine.current.selectedBeatIds.clear();
@@ -337,7 +349,6 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
       }
   }, [toolMode]);
 
-  // --- RENDER FUNCTIONS ---
   const renderCanvas = () => {
     const surface = containerRef.current?.querySelector('#canvas-surface') as HTMLElement;
     if (surface) {
@@ -386,7 +397,6 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
         }
         header.appendChild(badge);
 
-        // Add board indicator chip on right top of card header
         const boardIndicator = document.createElement('span');
         boardIndicator.className = 'absolute top-1 right-1 text-[6px] font-black uppercase text-white/40 px-1.5 py-0 rounded-full bg-black/40 border border-white/5';
         boardIndicator.innerText = `P${(beat.boardId || 0) + 1}`;
@@ -401,12 +411,22 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
             input.value = beat.title;
             input.placeholder = "Beat Name...";
             input.onmousedown = (e) => e.stopPropagation();
+            // Removed oninput to only update on Enter or Blur
+            input.onblur = () => {
+                // Advance to summary on blur
+                const val = input.value.trim();
+                updateBeat(beat.id, { title: val });
+                if (engine.current.creationState?.id === beat.id) {
+                    engine.current.creationState = { id: beat.id, step: 'summary' };
+                    renderBeats();
+                }
+            };
             input.onkeydown = (e) => {
                 if (e.key === 'Enter') {
                     e.preventDefault();
                     e.stopPropagation();
-                    beat.title = input.value;
-                    updateBeat(beat.id, { title: input.value });
+                    const val = input.value.trim();
+                    updateBeat(beat.id, { title: val });
                     engine.current.creationState = { id: beat.id, step: 'summary' };
                     renderBeats();
                 }
@@ -438,12 +458,24 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
             textarea.value = beat.summary || '';
             textarea.placeholder = "Scene summary...";
             textarea.onmousedown = (e) => e.stopPropagation();
+            // Removed oninput to only update on Enter or Blur
+            textarea.onblur = () => {
+                // Commit summary and exit creation mode on blur
+                const val = textarea.value.trim();
+                updateBeat(beat.id, { summary: val });
+                if (engine.current.creationState?.id === beat.id) {
+                    engine.current.creationState = null;
+                    engine.current.selectedBeatIds.clear();
+                    engine.current.selectedBeatIds.add(beat.id);
+                    renderBeats();
+                }
+            };
             textarea.onkeydown = (e) => {
                 if (e.key === 'Enter') {
                     e.preventDefault();
                     e.stopPropagation();
-                    beat.summary = textarea.value;
-                    updateBeat(beat.id, { summary: textarea.value });
+                    const val = textarea.value.trim();
+                    updateBeat(beat.id, { summary: val });
                     engine.current.creationState = null;
                     engine.current.selectedBeatIds.clear();
                     engine.current.selectedBeatIds.add(beat.id);
@@ -502,7 +534,6 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
         card.onmousedown = (e) => onBeatMouseDown(e, beat.id);
         card.ondblclick = (e) => { e.stopPropagation(); onEditBeat(beat.id); };
         
-        // Scrubbing Handler
         badge.onmousedown = (e) => onBadgeMouseDown(e, beat.id, parseInt(displayNum) || 1);
 
         beatsLayer.appendChild(card);
@@ -648,7 +679,6 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
       annotationsLayer.innerHTML = '';
 
       const defs = document.createElementNS("http://www.w3.org/2000/svg", "defs");
-      // Fix: ANNOTATION_COLORS now defined
       ANNOTATION_COLORS.forEach(color => {
           const hex = color.replace('#', '');
           const marker = document.createElementNS("http://www.w3.org/2000/svg", "marker");
@@ -791,13 +821,10 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
                   if(toolMode !== 'none' && toolMode !== 'eraser') return;
                   if(e.button !== 0) return;
                   e.stopPropagation();
-                  
-                  // Handle Selection
                   engine.current.selectedAnnoId = anno.id;
                   engine.current.selectedBeatIds.clear();
                   renderBeats();
                   renderConnections();
-
                   engine.current.dragAnnotationId = anno.id;
                   engine.current.isDragging = true;
                   engine.current.lastMouseX = e.clientX;
@@ -805,7 +832,7 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
               };
               hitEl = hitRect;
               const handleSize = 10;
-              const addHandle = (cx: number, cy: number, cursor: string, corner: 'nw' | 'ne' | 'se' | 'sw') => {
+              const addHandle = (cx: number, cy: number, cursor: string, corner: 'nw' | 'ne' | 'sw' | 'se') => {
                   const r = document.createElementNS("http://www.w3.org/2000/svg", "rect");
                   r.setAttribute("x", (cx - handleSize/2).toString());
                   r.setAttribute("y", (cy - handleSize/2).toString());
@@ -1157,16 +1184,13 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
       // @ts-ignore
       if(e.target.classList.contains('beat-title') || e.target.classList.contains('link-handle') || e.target.classList.contains('input-handle-visual') || e.target.classList.contains('seq-badge') || e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
       e.stopPropagation();
-      
-      // Select beat, deselect annotation
       engine.current.selectedAnnoId = null;
-
       if (e.ctrlKey || e.metaKey) {
           if (engine.current.selectedBeatIds.has(id)) engine.current.selectedBeatIds.delete(id);
           else engine.current.selectedBeatIds.add(id);
           renderBeats(); renderConnections(); return;
       } else {
-          if (!engine.current.selectedBeatIds.has(id)) { engine.current.selectedBeatIds.clear(); engine.current.selectedBeatIds.add(id); renderBeats(); renderConnections(); }
+          if (!engine.current.selectedBeatIds.has(id)) { engine.current.selectedBeatIds.clear(); engine.current.selectedBeatIds.add(id); engine.current.selectedAnnoId = null; renderBeats(); renderConnections(); }
       }
       engine.current.dragTarget = id; engine.current.isDragging = true;
       engine.current.lastMouseX = e.clientX; engine.current.lastMouseY = e.clientY;
@@ -1223,7 +1247,6 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
       engine.current.selectedBeatIds.clear();
       renderBeats();
       renderConnections();
-
       engine.current.dragAnnotationId = id; engine.current.isDragging = true;
       engine.current.lastMouseX = e.clientX; engine.current.lastMouseY = e.clientY;
   };
@@ -1280,7 +1303,7 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
   const handleDuplicate = () => {
     const targets = engine.current.selectedBeatIds.size > 0 
         ? Array.from(engine.current.selectedBeatIds) 
-        : (ctxMenu?.beatId ? [ctxMenu.beatId] : []);
+        : (ctxMenu?.beatId !== null && ctxMenu?.beatId !== undefined ? [ctxMenu.beatId] : []);
     
     if (targets.length === 0) return;
     captureSnapshot();
@@ -1299,7 +1322,6 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
     setNextId(prev => prev + clones.length);
     setBeats(prev => [...prev, ...clones]);
     
-    // Select new clones
     engine.current.selectedBeatIds.clear();
     clones.forEach(c => engine.current.selectedBeatIds.add(c.id));
     
@@ -1311,7 +1333,6 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
     if (clipboard.length === 0 || !ctxMenu) return;
     captureSnapshot();
 
-    // Find top-left of clipboard set to paste relatively
     let minX = Infinity, minY = Infinity;
     clipboard.forEach(b => {
       if (b.x < minX) minX = b.x;
@@ -1330,7 +1351,6 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
     setNextId(prev => prev + pasted.length);
     setBeats(prev => [...prev, ...pasted]);
 
-    // Select pasted items
     engine.current.selectedBeatIds.clear();
     pasted.forEach(p => engine.current.selectedBeatIds.add(p.id));
 
@@ -1374,7 +1394,7 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
 
   const getStatusAction = () => {
       if (ctxMenu?.beatId === null && engine.current.selectedBeatIds.size === 0) return null;
-      const targets = engine.current.selectedBeatIds.size > 0 ? Array.from(engine.current.selectedBeatIds) : (ctxMenu?.beatId ? [ctxMenu.beatId] : []);
+      const targets = engine.current.selectedBeatIds.size > 0 ? Array.from(engine.current.selectedBeatIds) : (ctxMenu?.beatId !== null && ctxMenu?.beatId !== undefined ? [ctxMenu.beatId] : []);
       const allReady = targets.every(tid => beats.find(b => b.id === tid)?.status === 'ready');
       return allReady ? { label: 'Mark W.I.P.', status: 'not-ready' as BeatStatus, color: '#f5a623' } : { label: 'Mark Ready', status: 'ready' as BeatStatus, color: '#4caf50' };
   };
@@ -1392,11 +1412,9 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
           for (const file of files) {
               if (file.type === 'application/pdf') {
                   if (!isPdfDropEnabled) { alert("PDF Import is disabled. Enable it in Backstage > System Features."); continue; }
-                  // Fix: removed manual check for geminiApiKey as it's provided by environment
                   setIsImporting(true); setIsEnhancing(true);
                   try {
                       const rawText = await extractRawTextFromPdf(file);
-                      // Fix: removed geminiApiKey argument as convertTextToScript uses process.env.API_KEY
                       const newBeats = await convertTextToScript(rawText, 'gemini-3-flash-preview');
                       let maxX = -Infinity; let maxY = -Infinity;
                       if (engine.current.beats.length > 0) engine.current.beats.forEach(b => { if (b.x > maxX) maxX = b.x; if (b.y > maxY) maxY = b.y; });
@@ -1433,7 +1451,6 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
       }
   }, [setBeats, setConnections, setPan, scale, captureSnapshot, isPdfDropEnabled, activeBoardId, setAnnotations]);
 
-  // --- GLOBAL MOUSE HANDLERS ---
   useEffect(() => {
       const container = containerRef.current;
       if (!container) return;
@@ -1511,14 +1528,12 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
                   }
               }
           }
-          if (engine.current.isScrubbing && engine.current.scrubBeatId) {
-              const deltaX = (e.clientX - engine.current.scrubStartX) / 5; // Sensitivity
+          if (engine.current.isScrubbing && engine.current.scrubBeatId !== null) {
+              const deltaX = (e.clientX - engine.current.scrubStartX) / 5;
               let newVal = Math.round(engine.current.scrubStartVal + deltaX);
               newVal = Math.max(1, Math.min(80, newVal));
-              
               const badge = document.getElementById(`badge-${engine.current.scrubBeatId}`);
               if (badge) badge.innerText = newVal.toString();
-              
               setScrubbingData(prev => prev ? { ...prev, currentVal: newVal } : null);
               return;
           }
@@ -1567,7 +1582,7 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
                   const anno = engine.current.annotations.find(a => a.id === target.id);
                   if (anno) {
                       const deltaX = (e.clientX - target.startMouseX) / engine.current.scale;
-                      let nX = target.startX, nY = target.startY, nW = target.startW, nH = target.startH, ratio = target.aspectRatio;
+                      let nX = target.startX, nY = target.startY, nW = target.startW, nH = target.startW / target.aspectRatio, ratio = target.aspectRatio;
                       if (target.corner === 'se') { nW = Math.max(50, target.startW + deltaX); nH = nW / ratio; } 
                       else if (target.corner === 'sw') { nW = Math.max(50, target.startW - deltaX); nH = nW / ratio; nX = target.startX + (target.startW - nW); } 
                       else if (target.corner === 'ne') { nW = Math.max(50, target.startW + deltaX); nH = nW / ratio; nY = target.startY - (nH - target.startH); } 
@@ -1608,13 +1623,11 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
       };
 
       const handleMouseUp = (e: MouseEvent) => {
-          if (engine.current.isScrubbing && engine.current.scrubBeatId) {
+          if (engine.current.isScrubbing && engine.current.scrubBeatId !== null) {
               const deltaX = (e.clientX - engine.current.scrubStartX) / 5;
               let newVal = Math.round(engine.current.scrubStartVal + deltaX);
               newVal = Math.max(1, Math.min(80, newVal));
-              
               updateBeat(engine.current.scrubBeatId, { sceneNumber: newVal.toString() });
-              
               engine.current.isScrubbing = false;
               engine.current.scrubBeatId = null;
               setScrubbingData(null);
@@ -1651,38 +1664,31 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
           }
           if (engine.current.isDragging) {
               engine.current.isDragging = false;
-              
               const updatedBeats = beats.map(b => {
                 const local = engine.current.beats.find(x => x.id === b.id);
                 return local ? { ...b, x: local.x, y: local.y } : b;
               });
-
               const updatedGroups = groups.map(g => {
                 const local = engine.current.groups.find(x => x.id === g.id);
                 return local ? { ...g, x: local.x, y: local.y, width: local.width, height: local.height } : g;
               });
-
               const updatedAnnos = annotations.map(a => {
                 const local = engine.current.annotations.find(x => x.id === a.id);
                 return local ? { ...a, x: local.x, y: local.y, w: local.w, h: local.h, rx: local.rx } : a;
               });
-
               if (engine.current.dragGroupTarget !== null || engine.current.groupResizeTarget !== null || engine.current.dragTarget !== null) {
                 setBeats(updatedBeats);
                 setGroups(updatedGroups);
               }
-              
               if (engine.current.dragAnnotationId !== null || engine.current.imageResizeTarget !== null) {
                 setAnnotations(updatedAnnos);
               }
-              
               engine.current.dragGroupTarget = null; 
               engine.current.dragGroupChildIds.clear(); 
               engine.current.groupResizeTarget = null; 
               engine.current.dragTarget = null;
               engine.current.dragAnnotationId = null;
               engine.current.imageResizeTarget = null;
-              
               minimapContainerRef.current?.classList.remove('active'); 
           }
       };
@@ -1747,7 +1753,6 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
           if (!engine.current.creationState && !isTyping) {
               if (e.key === 'Enter' && engine.current.selectedBeatIds.size === 1) { if (toolMode === 'text') return; e.preventDefault(); onEditBeat(Array.from(engine.current.selectedBeatIds)[0]); }
               if (e.key === 'Delete' || e.key === 'Backspace') { if (engine.current.selectedBeatIds.size > 0 || engine.current.selectedAnnoId !== null) { e.preventDefault(); handleDelete(); } }
-              
               if ((e.ctrlKey || e.metaKey) && e.key === 'd') {
                 e.preventDefault();
                 handleDuplicate();
@@ -1775,7 +1780,7 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
   const setToolModeSafe = (mode: any) => { setToolMode(mode); };
 
   return (
-    <div className={`board-wrapper tool-${toolMode}`} ref={containerRef} onClick={hideContextMenu} tabIndex={-1}>
+    <div className={`board-wrapper tool-${toolMode} ${isPageTransitioning ? 'is-transitioning' : ''}`} ref={containerRef} onClick={hideContextMenu} tabIndex={-1}>
       <style>{styles}</style>
       
       <div className="zoom-controls">
@@ -1789,7 +1794,7 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
       {scrubbingData && (
           <div className="scrub-timeline-container" style={{ left: scrubbingData.x, top: scrubbingData.y }}>
               <div className="scrub-label">SCENE {scrubbingData.currentVal}</div>
-              <div className="scrub-sub">HORIZONTAL DRAG TO RENUMBER (1-80)</div>
+              <div className="scrub-sub">Horizontal drag to renumber</div>
               <div className="scrub-track">
                   {scrubbingData.existingNums.map(num => (
                       <div 
@@ -1866,7 +1871,7 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
               onClick={() => setActiveBoardId(id)}
               className={`board-tab ${activeBoardId === id ? 'active' : ''}`}
             >
-              <Layers size={12} />
+              <Layers size={11} />
               Page {id + 1}
             </button>
           ))}

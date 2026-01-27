@@ -101,6 +101,29 @@ export type ViewMode = 'board' | 'script' | 'characters' | 'breakdown' | 'storyb
 
 export type BoardLayer = 'beats' | 'groups' | 'connections' | 'annotations' | 'text';
 
+// Fix: Defined the missing CharacterData interface to resolve errors in multiple files.
+export interface CharacterData {
+  id: string;
+  name: string;
+  age: number;
+  gender: string;
+  ethnicity: string;
+  hair: string;
+  eyes: string;
+  build: string;
+  occupation: string;
+  archetype: string;
+  physiology: string;
+  sociology: string;
+  psychology: string;
+  backstory: string;
+  images: string[];
+  relationships: { target: string; type: string; description: string }[];
+  aliases?: string[];
+  isImplicit?: boolean;
+  templateDefaults?: any;
+}
+
 export interface ProjectState {
   beats: Beat[];
   groups: Group[]; // Visual groupings for beats
@@ -169,12 +192,21 @@ export interface ProjectContextType extends ProjectState {
   currentUser: string | null;
   currentProjectId: string | null;
   projectList: ProjectMetadata[];
+  schemaError: string | null;
+  isCloudMode: boolean;
+  isSaving: boolean;
+  isInitialLoading: boolean;
+  
+  // File System Handles (Final Draft Mode)
+  fileHandle: any | null; 
+  
   login: (username: string) => void;
   logout: () => void;
   selectProject: (id: string) => void;
   createProject: (name: string) => void;
   deleteProject: (id: string) => void;
   closeProject: () => void;
+  clearSchemaError: () => void;
 
   // Change Tracking
   hasUnsavedChanges: boolean;
@@ -187,13 +219,13 @@ export interface ProjectContextType extends ProjectState {
   setConnections: (conns: Connection[] | ((prev: Connection[]) => Connection[])) => void;
   setAnnotations: (annos: Annotation[] | ((prev: Annotation[]) => Annotation[])) => void;
   setCharacterData: (data: Record<string, CharacterData> | ((prev: Record<string, CharacterData>) => Record<string, CharacterData>)) => void;
-  setGeneratedShots: (shots: Shot[] | ((prev: Shot[]) => Shot[])) => void;
   
   // Scratchpad
   setScratchpad: (content: string) => void;
   setGlobalNotes: (notes: Note[]) => void;
 
   // Shot Management Helpers
+  setGeneratedShots: (shots: Shot[] | ((prev: Shot[]) => Shot[])) => void;
   updateGeneratedShot: (id: string, updates: Partial<Shot>) => void;
   addGeneratedShot: (index: number) => void;
   removeGeneratedShot: (id: string) => void;
@@ -212,6 +244,7 @@ export interface ProjectContextType extends ProjectState {
 
   loadProject: (data: ProjectState) => void;
   saveProject: () => void;
+  saveProjectAs: () => Promise<void>;
   downloadProject: () => void;
   
   // Tamil Utils
@@ -260,6 +293,86 @@ export interface ProjectContextType extends ProjectState {
   canUndo: boolean;
   canRedo: boolean;
   captureSnapshot: () => void;
+}
+
+export interface TextStyleConfig {
+  bold: boolean;
+  italic: boolean;
+  underline: boolean;
+  highlightColor: string | null; // Hex code or null
+}
+
+export interface ScriptElementConfig {
+  marginLeft: number; // percentage
+  width: number; // percentage
+  marginTop: number; // rem
+  marginBottom: number; // rem
+  fontSize: number; // px
+  fontFamily: string; // Font Family
+  textAlign: string; // 'left' | 'center' | 'right' | 'justify'
+  lineHeight: number; // multiplier
+  letterSpacing: number; // px
+  bold: boolean;
+  italic: boolean;
+  underline: boolean;
+  color: string; // Hex color for text
+  highlightColor: string | null; // Background color
+  useMusicDecorations?: boolean; // For Lyrics: add ♫ symbols
+}
+
+export interface SluglineConfig {
+  fontSize: number; // px
+  fontFamily: string; // Font Family
+  textAlign: string;
+  lineHeight: number;
+  letterSpacing: number; // px
+  paddingVertical: number; // px
+  paddingHorizontal: number; // px
+  paddingEnabled: boolean; // toggle for box look
+  sceneNumberFontSize: number; // px
+  marginTop: number; // rem
+  marginBottom: number; // rem
+  bold: boolean;
+  italic: boolean;
+  underline: boolean;
+  color: string;
+  highlightColor: string | null;
+}
+
+export interface BlockBoundsConfig {
+  enabled: boolean;
+  mode: 'active' | 'all'; // 'active' = only current paragraph, 'all' = x-ray mode
+  color: string; // Hex Color
+  opacity: number; // 0 to 100
+  outlineStyle: 'none' | 'dashed' | 'dotted' | 'solid';
+  funMode: 'none' | 'blueprint' | 'cyber' | 'glass';
+}
+
+export interface LanguageConfig {
+  action: string;
+  character: string;
+  dialogue: string;
+  parenthetical: string;
+  transition: string;
+  shot: string;
+  lyrics: string;
+  slugline: string;
+}
+
+export interface ScriptConfig {
+  paperTheme: 'white' | 'dark' | 'sepia' | 'red'; // New global theme setting
+  action: ScriptElementConfig;
+  character: ScriptElementConfig;
+  dialogue: ScriptElementConfig;
+  parenthetical: ScriptElementConfig;
+  transition: ScriptElementConfig;
+  shot: ScriptElementConfig;
+  lyrics: ScriptElementConfig;
+  slugline: SluglineConfig;
+  blockBounds: BlockBoundsConfig; // Global layout visualization settings
+  noteFont: string; // Font family for scratchpad notes
+  noteFontSize: number; // Font size for scratchpad notes
+  languageConfig: LanguageConfig; // Mapping elements to languages
 }
 
 export interface Slugline {
@@ -409,169 +522,4 @@ export interface Group {
   height: number;
   color: string;
   boardId?: number;
-}
-
-export interface RelationshipEdge {
-  targetId: string; // Target Character ID
-  targetName: string; // Cached Name
-  type: string; // e.g. 'Sibling', 'Rival'
-  powerDynamic: number; // -100 (Dominated by) to 100 (Dominates)
-  emotion: string; // e.g. 'Guilt', 'Envy'
-  notes?: string;
-}
-
-export interface CharacterArc {
-  startState: string;
-  incitingShift: string;
-  midpointChange: string;
-  lowestPoint: string;
-  finalState: string;
-}
-
-export interface CharacterData {
-  id: string;
-  name: string;
-  aliases: string[];
-  
-  // 1. Identity (Hard Anchors)
-  role: 'Protagonist' | 'Antagonist' | 'Ally' | 'Foil' | 'Mentor' | 'Extra' | 'Unknown';
-  narrativeFunction: string; // "Moral compass", "Chaos agent"
-  firstAppearance?: string; // Scene Number or "Ep 1"
-  lastAppearance?: string;
-  screenTimeWeight: number; // 0-100
-
-  // 2. Psychological Core
-  coreDesire: string;
-  coreFear: string;
-  internalLie: string;
-  truth: string; // Realization
-  moralAlignment: number; // 0 (Selfish) - 100 (Selfless)
-  temperament: string; // 'Calm', 'Volatile', 'Cold'
-
-  // 3. Backstory
-  definingEvent: string;
-  emotionalScar: string;
-  unresolvedRelationship: string;
-  socioEconomicOrigin: string;
-
-  // 4. External Characterization
-  age: string; // String to allow ranges "30s"
-  physicalTraits: string[]; // "Limp", "Scar", "Tall"
-  costumeStyle: string;
-  colorPalette: string[];
-  movementStyle: string;
-  signatureProp: string;
-  images: string[];
-
-  // 5. Behavioral Patterns
-  defaultReaction: string; // Under pressure
-  conflictStyle: string; // 'Avoid', 'Attack', 'Manipulate'
-  decisionSpeed: 'Impulsive' | 'Deliberate' | 'Frozen' | 'Unknown';
-  powerStrategy: string; // 'Intimidation', 'Charm'
-
-  // 6. Dialogue & Voice
-  speechRhythm: string;
-  vocabularyLevel: string; // 'Street', 'Poetic'
-  silenceTendency: 'Talkative' | 'Guarded' | 'Silent' | 'Unknown';
-  verbalWeapon: string; // 'Sarcasm', 'Logic'
-  catchphrase: string;
-
-  // 7. Relationships (Matrix)
-  relationships: RelationshipEdge[];
-
-  // 8. Arc
-  arc: CharacterArc;
-
-  // Legacy Fields (For compatibility)
-  physiology?: string;
-  sociology?: string;
-  psychology?: string;
-  backstory?: string;
-  occupation?: string;
-  gender?: string;
-  archetype?: string;
-  hair?: string;
-  eyes?: string;
-  build?: string;
-  templateDefaults?: any;
-}
-
-export interface TextStyleConfig {
-  bold: boolean;
-  italic: boolean;
-  underline: boolean;
-  highlightColor: string | null; // Hex code or null
-}
-
-export interface ScriptElementConfig {
-  marginLeft: number; // percentage
-  width: number; // percentage
-  marginTop: number; // rem
-  marginBottom: number; // rem
-  fontSize: number; // px
-  fontFamily: string; // Font Family
-  textAlign: string; // 'left' | 'center' | 'right' | 'justify'
-  lineHeight: number; // multiplier
-  letterSpacing: number; // px
-  bold: boolean;
-  italic: boolean;
-  underline: boolean;
-  color: string; // Hex color for text
-  highlightColor: string | null; // Background color
-  useMusicDecorations?: boolean; // For Lyrics: add ♫ symbols
-}
-
-export interface SluglineConfig {
-  fontSize: number; // px
-  fontFamily: string; // Font Family
-  textAlign: string;
-  lineHeight: number;
-  letterSpacing: number; // px
-  paddingVertical: number; // px
-  paddingHorizontal: number; // px
-  paddingEnabled: boolean; // toggle for box look
-  sceneNumberFontSize: number; // px
-  marginTop: number; // rem
-  marginBottom: number; // rem
-  bold: boolean;
-  italic: boolean;
-  underline: boolean;
-  color: string;
-  highlightColor: string | null;
-}
-
-export interface BlockBoundsConfig {
-  enabled: boolean;
-  mode: 'active' | 'all'; // 'active' = only current paragraph, 'all' = x-ray mode
-  color: string; // Hex Color
-  opacity: number; // 0 to 100
-  outlineStyle: 'none' | 'dashed' | 'dotted' | 'solid';
-  funMode: 'none' | 'blueprint' | 'cyber' | 'glass';
-}
-
-export interface LanguageConfig {
-  action: string;
-  character: string;
-  dialogue: string;
-  parenthetical: string;
-  transition: string;
-  shot: string;
-  lyrics: string;
-  slugline: string;
-}
-
-export interface ScriptConfig {
-  paperTheme: 'white' | 'dark' | 'sepia' | 'red'; // New global theme setting
-  action: ScriptElementConfig;
-  character: ScriptElementConfig;
-  dialogue: ScriptElementConfig;
-  parenthetical: ScriptElementConfig;
-  transition: ScriptElementConfig;
-  shot: ScriptElementConfig;
-  lyrics: ScriptElementConfig;
-  slugline: SluglineConfig;
-  blockBounds: BlockBoundsConfig; // Global layout visualization settings
-  noteFont: string; // Font family for scratchpad notes
-  noteFontSize: number; // Font size for scratchpad notes
-  languageConfig: LanguageConfig; // Mapping elements to languages
 }

@@ -11,7 +11,10 @@ import {
   AlignLeft, Hash, Type, History, RotateCcw,
   Check, CircleDashed, ArchiveRestore, Plus,
   Layers, ChevronRight, GripHorizontal, Calendar,
-  PanelLeft, Lock, StickyNote, Trash2
+  PanelLeft, Lock, StickyNote, Trash2, Columns2, Split,
+  FileText,
+  PenTool,
+  GripVertical
 } from 'lucide-react';
 import DiffModal from './DiffModal';
 import { BlockEditor } from './BlockEditor';
@@ -23,6 +26,24 @@ interface EditorModalProps {
   onFocus?: () => void;
   initialOffset?: number;
 }
+
+const TEXT_COLORS = [
+    { label: 'White', value: '#ffffff' },
+    { label: 'Amber', value: '#f5a623' },
+    { label: 'Red', value: '#ef4444' },
+    { label: 'Blue', value: '#3b82f6' },
+    { label: 'Green', value: '#22c55e' },
+    { label: 'Purple', value: '#a855f7' },
+];
+
+const HILITE_COLORS = [
+    { label: 'None', value: 'transparent' },
+    { label: 'Gray', value: 'rgba(120,120,120,0.3)' },
+    { label: 'Yellow', value: 'rgba(245,166,35,0.3)' },
+    { label: 'Red', value: 'rgba(239,68,68,0.3)' },
+    { label: 'Green', value: 'rgba(34,197,94,0.3)' },
+    { label: 'Blue', value: 'rgba(59,130,246,0.3)' },
+];
 
 const ColorDropdown = ({ icon: Icon, type, title, options, onSelect }: any) => {
     const [isOpen, setIsOpen] = useState(false);
@@ -76,35 +97,6 @@ const ColorDropdown = ({ icon: Icon, type, title, options, onSelect }: any) => {
     );
 };
 
-const useDebounce = (callback: Function, delay: number) => {
-  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const debouncedFunc = useCallback((...args: any[]) => {
-    if (timeoutRef.current) clearTimeout(timeoutRef.current);
-    timeoutRef.current = setTimeout(() => {
-      callback(...args);
-    }, delay);
-  }, [callback, delay]);
-  return debouncedFunc;
-};
-
-const TEXT_COLORS = [
-    { label: 'Default', value: 'black' },
-    { label: 'Red', value: '#ef4444' },
-    { label: 'Blue', value: '#3b82f6' },
-    { label: 'Green', value: '#22c55e' },
-    { label: 'Purple', value: '#a855f7' },
-];
-
-const HILITE_COLORS = [
-    { label: 'None', value: 'transparent' },
-    { label: 'Light Gray', value: '#f3f4f6' },
-    { label: 'Gray', value: '#d1d5db' },
-    { label: 'Yellow', value: '#fef08a' },
-    { label: 'Green', value: '#bbf7d0' },
-    { label: 'Blue', value: '#bfdbfe' },
-    { label: 'Pink', value: '#fbcfe8' },
-];
-
 const calculateGraphOrder = (beats: Beat[], connections: Connection[]) => {
     const adjDir: Record<number, number[]> = {};
     const inDegree: Record<number, number> = {};
@@ -131,18 +123,14 @@ const calculateGraphOrder = (beats: Beat[], connections: Connection[]) => {
     const currentInDegree = { ...inDegree };
 
     const sortedBeats = [...beats].sort((a,b) => {
-        // Priority 1: Board Page
         if ((a.boardId || 0) !== (b.boardId || 0)) return (a.boardId || 0) - (b.boardId || 0);
-        // Priority 2: X-Pos
         if (Math.abs(a.x - b.x) > 100) return a.x - b.x;
-        // Priority 3: Y-Pos
         return a.y - b.y;
     });
 
     sortedBeats.forEach(b => {
         const hasManual = b.sceneNumber && !isNaN(parseInt(b.sceneNumber));
         const isConnected = connectedSet.has(b.id);
-        
         if (currentInDegree[b.id] === 0) {
             if (isConnected || hasManual) {
                 queue.push(b.id);
@@ -154,7 +142,6 @@ const calculateGraphOrder = (beats: Beat[], connections: Connection[]) => {
     while (queue.length > 0) {
         const u = queue.shift()!;
         const currentOrder = orders[u];
-
         if (adjDir[u]) {
             const children = adjDir[u].sort((a, b) => {
                 const beatA = beatMap.get(a);
@@ -162,7 +149,6 @@ const calculateGraphOrder = (beats: Beat[], connections: Connection[]) => {
                 if (!beatA || !beatB) return 0;
                 return beatA.y - beatB.y;
             });
-
             children.forEach(v => {
                 const nextOrder = currentOrder + 1;
                 if (!orders[v] || nextOrder > orders[v]) {
@@ -175,7 +161,6 @@ const calculateGraphOrder = (beats: Beat[], connections: Connection[]) => {
             });
         }
     }
-
     return { connectedSet, orders };
 };
 
@@ -186,8 +171,20 @@ const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScri
   const isReady = beat?.status === 'ready';
   const isReadOnly = isReady; 
   
+  const [localTitle, setLocalTitle] = useState(beat?.title || '');
+  const [localSummary, setLocalSummary] = useState(beat?.summary || '');
+
+  useEffect(() => {
+    if (beat) {
+        setLocalTitle(beat.title);
+        setLocalSummary(beat.summary || '');
+    }
+  }, [beat?.title, beat?.summary]);
+
   const [diffVersion, setDiffVersion] = useState<BeatVersion | null>(null);
   const [confirmDeleteNoteId, setConfirmDeleteNoteId] = useState<string | null>(null);
+  const [isDualView, setIsDualView] = useState(false);
+  const [isDraggingWindow, setIsDraggingWindow] = useState(false);
 
   const modalRef = useRef<HTMLDivElement>(null);
   const summaryRef = useRef<HTMLTextAreaElement>(null);
@@ -208,37 +205,42 @@ const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScri
           summaryRef.current.style.height = 'auto';
           summaryRef.current.style.height = summaryRef.current.scrollHeight + 'px';
       }
-  }, [beat?.summary, showSidebar]);
+  }, [localSummary, showSidebar]);
+
+  const elementDrag = useCallback((e: MouseEvent) => {
+    e.preventDefault();
+    dragInfo.current.pos1 = dragInfo.current.pos3 - e.clientX;
+    dragInfo.current.pos2 = dragInfo.current.pos4 - e.clientY;
+    dragInfo.current.pos3 = e.clientX;
+    dragInfo.current.pos4 = e.clientY;
+    
+    if (modalRef.current) {
+        // Direct style manipulation for performance
+        modalRef.current.style.top = (modalRef.current.offsetTop - dragInfo.current.pos2) + "px";
+        modalRef.current.style.left = (modalRef.current.offsetLeft - dragInfo.current.pos1) + "px";
+    }
+  }, []);
+
+  const closeDragElement = useCallback(() => {
+    setIsDraggingWindow(false);
+    window.removeEventListener('mousemove', elementDrag);
+    window.removeEventListener('mouseup', closeDragElement);
+    document.body.classList.remove('select-none');
+  }, [elementDrag]);
 
   const dragMouseDown = (e: React.MouseEvent) => {
-      // @ts-ignore
-      if (e.target.closest('button') || e.target.closest('input')) return;
-      e.preventDefault();
+      if (e.target instanceof HTMLButtonElement || e.target instanceof HTMLInputElement || (e.target as HTMLElement).closest('button') || (e.target as HTMLElement).closest('input')) return;
+      
+      setIsDraggingWindow(true);
       if (onFocus) onFocus();
       modalRef.current?.focus();
+      
       dragInfo.current.pos3 = e.clientX;
       dragInfo.current.pos4 = e.clientY;
-      document.onmouseup = closeDragElement;
-      document.onmousemove = elementDrag;
-  };
-
-  // @ts-ignore
-  const elementDrag = (e) => {
-      e = e || window.event;
-      e.preventDefault();
-      dragInfo.current.pos1 = dragInfo.current.pos3 - e.clientX;
-      dragInfo.current.pos2 = dragInfo.current.pos4 - e.clientY;
-      dragInfo.current.pos3 = e.clientX;
-      dragInfo.current.pos4 = e.clientY;
-      if (modalRef.current) {
-          modalRef.current.style.top = (modalRef.current.offsetTop - dragInfo.current.pos2) + "px";
-          modalRef.current.style.left = (modalRef.current.offsetLeft - dragInfo.current.pos1) + "px";
-      }
-  };
-
-  const closeDragElement = () => {
-      document.onmouseup = null;
-      document.onmousemove = null;
+      
+      window.addEventListener('mousemove', elementDrag);
+      window.addEventListener('mouseup', closeDragElement);
+      document.body.classList.add('select-none');
   };
 
   const prefixId = `modal-prefix-${beatId}`;
@@ -246,6 +248,7 @@ const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScri
   const timeId = `modal-time-${beatId}`;
   const editorId = `modal-editor-${beatId}`;
   const scopeId = `editor-scope-${beatId}`;
+  const legacyScopeId = `legacy-editor-scope-${beatId}`;
   
   const { orders } = useMemo(() => calculateGraphOrder(beats, connections), [beats, connections]);
   
@@ -311,13 +314,14 @@ const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScri
       const newVersion: BeatVersion = {
           id: `v-${Date.now()}`,
           timestamp: Date.now(),
-          title: beat.title || 'Untitled',
+          title: localTitle || 'Untitled',
           content: currentContent,
-          summary: beat.summary
+          summary: localSummary
       };
       const currentVersions = beat.versions || [];
       updateBeat(beat.id, { versions: [...currentVersions, newVersion] });
       setSaveStatus('saved'); 
+      return newVersion;
   };
 
   const handleRestoreClick = (v: BeatVersion) => {
@@ -327,16 +331,14 @@ const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScri
 
   const confirmRestoreVersion = () => {
       if (!beat || !diffVersion) return;
-      
       const currentContent = contentRef.current;
       const backupVersion: BeatVersion = {
           id: `backup-${Date.now()}`,
           timestamp: Date.now(),
-          title: beat.title,
+          title: localTitle,
           content: currentContent,
-          summary: beat.summary
+          summary: localSummary
       };
-      
       updateBeat(beat.id, {
           title: diffVersion.title,
           content: diffVersion.content,
@@ -350,12 +352,28 @@ const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScri
       setDiffVersion(null); 
   };
 
+  const toggleDualView = () => {
+    if (!isDualView && (!beat?.versions || beat.versions.length === 0)) {
+        if (confirm("You don't have any previous versions yet. Would you like to save your current progress as a baseline snapshot and enter dual view?")) {
+            handleManualBackup();
+            setIsDualView(true);
+        }
+    } else {
+        setIsDualView(!isDualView);
+    }
+  };
+
+  const lastVersion = useMemo(() => {
+    if (!beat?.versions || beat.versions.length === 0) return null;
+    return beat.versions[beat.versions.length - 1];
+  }, [beat?.versions]);
+
   useEffect(() => {
       if (!beat || isReadOnly) return;
       const div = document.createElement('div');
       div.innerHTML = beat.content;
       const text = div.textContent?.trim() || '';
-      if (text.length === 0 || (!beat.slug.location && !beat.slug.prefix)) {
+      if (text.length === 0 && (!beat.slug.location && !beat.slug.prefix)) {
           setTimeout(() => {
               const el = document.getElementById(prefixId);
               if (el) (el as HTMLElement).focus();
@@ -406,27 +424,24 @@ const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScri
       if (beat?.content) calculateStats(beat.content);
   }, [beat?.content]);
 
-  const saveToContext = useDebounce((id: number, data: any) => {
-    setSaveStatus('saving');
-    updateBeat(id, data);
-    setTimeout(() => setSaveStatus('saved'), 500);
-  }, 1000); 
+  const commitTitle = () => {
+    if (beat && localTitle !== beat.title) {
+        updateBeat(beat.id, { title: localTitle });
+    }
+  };
 
-  const handleTitleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!beat) return;
-    updateBeat(beat.id, { title: e.target.value }); 
+  const commitSummary = () => {
+    if (beat && localSummary !== (beat.summary || '')) {
+        updateBeat(beat.id, { summary: localSummary });
+    }
   };
 
   const handleTitleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
       if (e.key === 'Enter') {
           e.preventDefault();
+          commitTitle();
           summaryRef.current?.focus();
       }
-  };
-
-  const handleSummaryChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    if (!beat) return;
-    updateBeat(beat.id, { summary: e.target.value }); 
   };
 
   const handleSlugChange = (field: string, val: string) => {
@@ -440,7 +455,9 @@ const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScri
     if (!beat || isReadOnly) return;
     contentRef.current = html;
     calculateStats(html);
-    saveToContext(beat.id, { content: html });
+    setSaveStatus('saving');
+    updateBeat(beat.id, { content: html });
+    setTimeout(() => setSaveStatus('saved'), 500);
   };
 
   const executeFormat = (type: string) => {
@@ -527,10 +544,10 @@ const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScri
     <div 
         ref={modalRef}
         tabIndex={-1}
-        className="fixed bg-[#1e1e1e] rounded-lg shadow-[0_30px_60px_rgba(0,0,0,0.9)] flex flex-col overflow-hidden ring-1 ring-white/10 outline-none"
+        className={`fixed bg-[#1e1e1e] rounded-lg shadow-[0_30px_60px_rgba(0,0,0,0.9)] flex flex-col overflow-hidden ring-1 ring-white/10 outline-none ease-in-out ${isDraggingWindow ? 'z-[6000] opacity-90' : ''}`}
         style={{ 
-            width: showSidebar ? 1000 : 720,
-            height: 550,
+            width: isDualView ? 1350 : (showSidebar ? 1000 : 720),
+            height: isDualView ? 700 : 550,
         }}
         onMouseDown={(e) => { 
             if(onFocus) onFocus();
@@ -541,15 +558,22 @@ const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScri
         onKeyDown={handleKeyDown}
     >
       <style>{`
-        #${scopeId} .sc-line { 
+        #${scopeId} .sc-line, #${legacyScopeId} .sc-line { 
             color: #000000 !important; 
         }
+        #${legacyScopeId} {
+            opacity: 0.6;
+            filter: grayscale(0.2);
+            pointer-events: none;
+        }
+        .window-drag-handle:active { cursor: grabbing !important; }
+        .is-dragging-window { pointer-events: none !important; user-select: none !important; }
       `}</style>
 
       {/* WINDOW HEADER (DRAGGABLE) */}
       <div 
         id={beatId + "header"}
-        className="window-drag-handle h-9 bg-[#111] border-b border-[#333] flex items-center justify-between px-3 cursor-move select-none shrink-0"
+        className="window-drag-handle h-10 bg-[#111] border-b border-[#333] flex items-center justify-between px-3 cursor-move select-none shrink-0 relative"
         onMouseDown={dragMouseDown}
       >
           <div className="flex items-center gap-3 text-xs font-bold text-gray-400 pointer-events-none">
@@ -564,7 +588,6 @@ const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScri
                   </button>
                   <span className={`w-2 h-2 rounded-full ${isReady ? 'bg-green-500' : 'bg-[#f5a623]'}`}></span>
                   
-                  {/* SEQUENCE HIERARCHY */}
                   {hierarchy.length > 0 && (
                       <div className="flex items-center bg-[#1a1a1a] border border-[#2a2a2a] rounded px-2 py-0.5 ml-1 max-w-[200px] overflow-hidden whitespace-nowrap">
                           {hierarchy.map((g, i) => (
@@ -578,7 +601,6 @@ const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScri
                       </div>
                   )}
 
-                  {/* SCENE # AND TITLE INPUT */}
                   <div className="flex items-center gap-2 ml-1 bg-[#1a1a1a] rounded px-1.5 py-0.5 border border-[#333]">
                       <span className="text-[9px] font-bold text-[#666] uppercase">SCENE</span>
                       <input 
@@ -587,14 +609,14 @@ const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScri
                           onChange={(e) => setTempSceneNum(e.target.value)}
                           onBlur={handleManualSceneNumber}
                           onKeyDown={(e) => e.key === 'Enter' && handleManualSceneNumber()}
-                          title="Override scene number (e.g. 15A)"
+                          title="Override scene number"
                       />
                       <div className="w-px h-3 bg-[#444]"></div>
                       <span className="text-[9px] font-bold text-[#666] uppercase">PAGE</span>
                       <span className="text-[10px] font-bold text-[#f5a623]">{(beat.boardId || 0) + 1}</span>
                       <div className="w-px h-3 bg-[#444]"></div>
-                      <span className="text-[10px] font-bold text-white uppercase truncate max-w-[150px]" title={beat.title}>
-                          {beat.title || <span className="text-[#555] italic">UNTITLED</span>}
+                      <span className="text-[10px] font-bold text-white uppercase truncate max-w-[150px]" title={localTitle}>
+                          {localTitle || <span className="text-[#555] italic">UNTITLED</span>}
                       </span>
                   </div>
 
@@ -605,11 +627,24 @@ const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScri
                   )}
               </div>
           </div>
+
+          <div className="absolute left-1/2 -translate-x-1/2 flex items-center justify-center opacity-20 pointer-events-none">
+              <GripHorizontal size={18} />
+          </div>
+
           <div className="flex items-center gap-2">
-              <div className="text-[10px] text-gray-600 font-mono hidden sm:block pointer-events-none">ID: {beatId}</div>
+              <button 
+                onClick={toggleDualView}
+                className={`p-1 rounded hover:bg-[#333] transition-all pointer-events-auto ${isDualView ? 'bg-[#f5a623] text-black shadow-[0_0_10px_#f5a623]' : 'text-gray-500 hover:text-white'}`}
+                title="Dual Edition View"
+              >
+                  <Columns2 size={16} />
+              </button>
+              <div className="w-px h-4 bg-[#333] mx-1"></div>
+              <div className="text-[10px] text-gray-600 font-mono hidden sm:block pointer-events-none uppercase">ID: {beatId}</div>
               <button 
                 onClick={onClose} 
-                className="w-6 h-6 flex items-center justify-center rounded hover:bg-red-500/20 hover:text-red-500 text-gray-500 transition-colors cursor-pointer"
+                className="w-6 h-6 flex items-center justify-center rounded hover:bg-red-500/20 hover:text-red-500 text-gray-500 transition-colors cursor-pointer pointer-events-auto"
                 title="Close Window"
                 onMouseDown={(e) => e.stopPropagation()} 
               >
@@ -618,12 +653,10 @@ const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScri
           </div>
       </div>
       
-      {/* MAIN CONTENT ROW */}
-      <div className="flex-1 flex overflow-hidden">
+      <div className={`flex-1 flex overflow-hidden relative ${isDraggingWindow ? 'is-dragging-window pointer-events-none' : ''}`}>
         
-        {/* --- LEFT SIDEBAR (STATS & META) --- */}
         {showSidebar && (
-            <div className="w-72 bg-[#111] border-r border-[#333] p-4 flex flex-col shrink-0 relative overflow-y-auto custom-scrollbar animate-in slide-in-from-left-4 fade-in duration-200">
+            <div className="w-72 bg-[#111] border-r border-[#333] p-4 flex flex-col shrink-0 relative overflow-y-auto custom-scrollbar animate-in slide-in-from-left-4 duration-200">
              <div className="flex flex-col gap-2 mb-4">
                 {hierarchy.length > 0 && (
                     <div className="flex items-center flex-wrap gap-1">
@@ -640,19 +673,18 @@ const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScri
                 )}
              </div>
 
-             {/* Title Input */}
              <div className="space-y-1 mb-4">
                 <label className="text-[9px] font-bold text-gray-500 uppercase tracking-widest flex items-center gap-1.5"><Type size={10} /> Beat Title</label>
                 <input 
-                   value={beat.title}
-                   onChange={handleTitleChange}
+                   value={localTitle}
+                   onChange={(e) => setLocalTitle(e.target.value)}
                    onKeyDown={handleTitleKeyDown}
+                   onBlur={commitTitle}
                    className="w-full bg-transparent border-b border-[#333] py-1 text-sm font-bold text-gray-200 outline-none transition-colors placeholder-gray-600 focus:border-[#f5a623]"
                    placeholder="Untitled Beat"
                 />
              </div>
 
-             {/* Status Dropdown */}
              <div className="mb-4 relative">
                  <label className="text-[9px] font-bold text-gray-500 uppercase tracking-widest flex items-center gap-1.5 mb-2"><CheckCircle2 size={10} /> Status</label>
                  <button 
@@ -678,19 +710,18 @@ const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScri
                  )}
              </div>
 
-             {/* Synopsis */}
              <div className="space-y-2 mb-4">
                 <label className="text-[9px] font-bold text-gray-500 uppercase tracking-widest">Synopsis</label>
                 <textarea 
                    ref={summaryRef}
-                   value={beat.summary || ''}
-                   onChange={handleSummaryChange}
+                   value={localSummary}
+                   onChange={(e) => setLocalSummary(e.target.value)}
+                   onBlur={commitSummary}
                    className="w-full min-h-[5rem] bg-[#1a1a1a] border border-[#333] rounded p-2 text-xs text-gray-300 leading-relaxed outline-none resize-none transition-all custom-scrollbar placeholder-gray-600 overflow-hidden focus:border-[#f5a623] focus:ring-1 focus:ring-[#f5a623]/20"
                    placeholder="What happens?"
                 />
              </div>
 
-             {/* Version Control */}
              <div className="mb-4 space-y-2">
                  <label className="text-[9px] font-bold text-gray-500 uppercase tracking-widest flex items-center gap-1.5"><History size={10} /> Versions</label>
                  
@@ -754,7 +785,6 @@ const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScri
                  </div>
              </div>
 
-             {/* Scene Scratchpad (Placed below Versions) */}
              <div className="mb-4 space-y-2 border-t border-[#333] pt-4">
                 <label className="text-[9px] font-bold text-gray-500 uppercase tracking-widest flex items-center gap-1.5">
                     <StickyNote size={10} /> Scene Notes
@@ -780,7 +810,7 @@ const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScri
                                             }
                                         }} 
                                         className={`transition-all ${isConfirming ? 'text-red-500 opacity-100 bg-red-900/20 px-1.5 rounded animate-pulse' : 'text-gray-600 hover:text-red-500 opacity-0 group-hover:opacity-100'}`}
-                                        title={isConfirming ? "Click again to confirm delete" : "Delete Note"}
+                                        title={isConfirming ? "Click again" : "Delete Note"}
                                     >
                                         <Trash2 size={8} />
                                     </button>
@@ -803,7 +833,6 @@ const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScri
                 </div>
              </div>
 
-             {/* Stats Grid */}
              <div className="space-y-2 mt-auto">
                 <div className="grid grid-cols-2 gap-2">
                     <div className="bg-[#1a1a1a] p-2 rounded border border-[#333] flex flex-col justify-center h-10">
@@ -817,7 +846,6 @@ const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScri
                 </div>
              </div>
 
-             {/* Footer Status */}
              <div className="flex items-center justify-between pt-3 border-t border-[#333] mt-4">
                 <div className="text-[9px] font-bold text-gray-500 uppercase flex items-center gap-1">
                    {saveStatus === 'saving' ? (
@@ -833,7 +861,6 @@ const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScri
 
         <div className="flex-1 flex flex-col bg-[#1e1e1e] relative min-w-0">
             
-            {/* 1. SLUGLINE BAR (STICKY) */}
             <div className={`px-4 py-2 border-b border-[#333] flex items-center gap-2 z-30 shrink-0 shadow-lg transition-colors ${isReadOnly ? 'bg-[#151515] opacity-80' : 'bg-[#1e1e1e]'}`}>
                 <div className="w-full flex gap-2 items-center font-screenplay">
                     <span className="text-gray-500 font-bold select-none text-xs">{tempSceneNum}.</span>
@@ -872,7 +899,6 @@ const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScri
                 </div>
             </div>
 
-            {/* 2. FORMATTING TOOLBAR */}
             <div className={`px-4 py-1.5 border-b border-[#333] flex items-center justify-between shrink-0 z-20 transition-colors ${isReadOnly ? 'bg-[#111] pointer-events-none opacity-50' : 'bg-[#111]'}`}>
                 <div className="flex items-center gap-1">
                     {['action', 'character', 'dialogue', 'parenthetical', 'transition'].map(t => (
@@ -900,37 +926,79 @@ const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScri
                 </div>
             </div>
 
-            {/* 3. SCROLLABLE EDITOR (DARK DESK) */}
-            <div 
-                className="flex-1 overflow-y-auto bg-[#0c0c0c] cursor-text"
-                onClick={(e) => {
-                   if (!isReadOnly && (e.target as HTMLElement).tagName !== 'INPUT' && (e.target as HTMLElement).tagName !== 'BUTTON') {
-                       document.getElementById(editorId)?.focus();
-                   }
-                }}
-            >
-                <div className="w-full min-h-full py-6 flex justify-center pb-20">
-                    {/* 4. WHITE PAPER CONTAINER - Wider and Fixed Sizing */}
-                    <div 
-                        id={scopeId}
-                        className={`bg-white shadow-xl py-10 pl-12 pr-16 text-black transition-opacity ${isReadOnly ? 'opacity-80' : ''}`}
-                        style={{
-                            width: '650px', 
-                            minHeight: '800px',
-                            maxWidth: '95%' 
-                        }}
-                    >
-                        <ScriptEditor 
-                            key={editorKey}
-                            id={editorId}
-                            initialHtml={contentRef.current} 
-                            onSave={handleContentChange}
-                            suggestions={uniqueCharacters} 
-                            onActiveFormatChange={setActiveFormat}
-                            readOnly={isReadOnly}
-                            className="script-body outline-none font-screenplay text-[14px] leading-tight w-full break-words"
-                            isActive={true} 
-                        />
+            <div className="flex-1 overflow-hidden bg-[#0c0c0c] flex">
+                {isDualView && (
+                    <div className="flex-1 border-r border-[#333] overflow-y-auto custom-scrollbar animate-in slide-in-from-left-2 duration-300 relative group/pane">
+                        <div 
+                            className="absolute right-0 top-0 bottom-0 w-2 cursor-move hover:bg-[#f5a623]/20 z-50 transition-colors flex items-center justify-center group-hover/pane:opacity-100 opacity-0"
+                            onMouseDown={dragMouseDown}
+                        >
+                            <GripVertical size={12} className="text-[#f5a623]" />
+                        </div>
+                        
+                        <div className="w-full py-6 flex flex-col items-center">
+                            <div className="w-full max-w-[650px] px-8 mb-4 flex items-center justify-between text-blue-400 font-mono text-[10px] font-black uppercase tracking-widest opacity-60">
+                                <div className="flex items-center gap-2"><History size={12}/> Reference Edition</div>
+                                <div>{lastVersion ? new Date(lastVersion.timestamp).toLocaleDateString() : 'N/A'}</div>
+                            </div>
+                            <div 
+                                id={legacyScopeId}
+                                className={`bg-[#fdfcf9] shadow-inner py-10 pl-12 pr-16 text-black relative`}
+                                style={{
+                                    width: '600px', 
+                                    minHeight: '800px',
+                                    maxWidth: '95%',
+                                    boxShadow: 'inset 0 0 40px rgba(0,0,0,0.05)'
+                                }}
+                            >
+                                <div className="absolute inset-0 pointer-events-none border-4 border-blue-500/5 select-none flex items-center justify-center overflow-hidden">
+                                    <span className="text-[120px] font-black text-blue-500/[0.03] -rotate-45 uppercase tracking-tighter">ARCHIVE</span>
+                                </div>
+                                <div 
+                                    className="script-body font-screenplay text-[14px] leading-tight w-full break-words opacity-80"
+                                    dangerouslySetInnerHTML={{ __html: lastVersion?.content || '<div class="text-gray-400 italic">No previous versions found.</div>' }}
+                                />
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                <div 
+                    className="flex-1 overflow-y-auto custom-scrollbar cursor-text"
+                    onClick={(e) => {
+                       if (!isReadOnly && (e.target as HTMLElement).tagName !== 'INPUT' && (e.target as HTMLElement).tagName !== 'BUTTON') {
+                           document.getElementById(editorId)?.focus();
+                       }
+                    }}
+                >
+                    <div className="w-full min-h-full py-6 flex flex-col items-center pb-20">
+                        {isDualView && (
+                             <div className="w-full max-w-[650px] px-8 mb-4 flex items-center justify-between text-[#f5a623] font-mono text-[10px] font-black uppercase tracking-widest animate-in fade-in duration-500">
+                                <div className="flex items-center gap-2"><PenTool size={12}/> Current Draft</div>
+                                <div>Active Editing</div>
+                            </div>
+                        )}
+                        <div 
+                            id={scopeId}
+                            className={`bg-white shadow-xl py-10 pl-12 pr-16 text-black transition-opacity ${isReadOnly ? 'opacity-80' : ''}`}
+                            style={{
+                                width: isDualView ? '600px' : '650px', 
+                                minHeight: '800px',
+                                maxWidth: '95%' 
+                            }}
+                        >
+                            <ScriptEditor 
+                                key={editorKey}
+                                id={editorId}
+                                initialHtml={contentRef.current} 
+                                onSave={handleContentChange}
+                                suggestions={uniqueCharacters} 
+                                onActiveFormatChange={setActiveFormat}
+                                readOnly={isReadOnly}
+                                className="script-body outline-none font-screenplay text-[14px] leading-tight w-full break-words"
+                                isActive={true} 
+                            />
+                        </div>
                     </div>
                 </div>
             </div>
@@ -938,7 +1006,6 @@ const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScri
         </div>
       </div>
 
-      {/* DIFF MODAL */}
       {diffVersion && beat && (
           <DiffModal
               currentContent={beat.content}
