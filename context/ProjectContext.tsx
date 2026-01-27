@@ -11,7 +11,6 @@ import { supabase, upsertProject, fetchProjectData, fetchUserProjects, isSupabas
 
 const ProjectContext = createContext<ProjectContextType | undefined>(undefined);
 
-// Generate a unique ID for this specific running instance (Web vs Electron)
 const INSTANCE_ID = Math.random().toString(36).substring(2, 15);
 
 const countWords = (html: string) => {
@@ -21,7 +20,6 @@ const countWords = (html: string) => {
 };
 
 export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  // Auth State
   const [currentUser, setCurrentUser] = useState<string | null>(localStorage.getItem('currentUser'));
   const [supabaseUser, setSupabaseUser] = useState<any>(null);
   const [currentProjectId, setCurrentProjectId] = useState<string | null>(localStorage.getItem('currentProjectId'));
@@ -30,19 +28,15 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [isSaving, setIsSaving] = useState(false);
   const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [schemaError, setSchemaError] = useState<string | null>(null);
-  
   const [fileHandle, setFileHandle] = useState<any | null>(null);
 
-  // Use refs for sync flags to avoid re-triggering effects
   const isSavingRef = useRef(false);
   const hasUnsavedChangesRef = useRef(false);
-  const isRemoteUpdateRef = useRef(false); // Flag to prevent remote data from triggering "unsaved changes"
+  const isRemoteUpdateRef = useRef(false);
 
-  // Update refs when state changes
   useEffect(() => { isSavingRef.current = isSaving; }, [isSaving]);
   useEffect(() => { hasUnsavedChangesRef.current = hasUnsavedChanges; }, [hasUnsavedChanges]);
 
-  // --- PROJECT STATE ---
   const [beats, setBeats] = useState<Beat[]>(INITIAL_STATE.beats);
   const [groups, setGroups] = useState<Group[]>(INITIAL_STATE.groups);
   const [connections, setConnections] = useState<Connection[]>(INITIAL_STATE.connections);
@@ -79,10 +73,13 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [lastSessionDate, setLastSessionDate] = useState(new Date().toISOString().split('T')[0]);
   const [boardLayerOrder, setBoardLayerOrder] = useState<BoardLayer[]>(INITIAL_STATE.boardLayerOrder);
 
-  // Monitor Supabase Auth
   useEffect(() => {
+    // Safety Bail-out: Don't hang forever on initial load
+    const safetyTimer = setTimeout(() => setIsInitialLoading(false), 5000);
+
     if (!isSupabaseConfigured) {
         setIsInitialLoading(false);
+        clearTimeout(safetyTimer);
         return;
     }
 
@@ -93,6 +90,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
         refreshProjectList(session.user.id);
       }
       setIsInitialLoading(false);
+      clearTimeout(safetyTimer);
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
@@ -107,14 +105,19 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
             setProjectList([]);
         }
       }
+      setIsInitialLoading(false);
+      clearTimeout(safetyTimer);
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+        subscription.unsubscribe();
+        clearTimeout(safetyTimer);
+    };
   }, []);
 
   const applyProjectState = useCallback((data: any) => {
     if (!data) return;
-    isRemoteUpdateRef.current = true; // Block auto-save trigger
+    isRemoteUpdateRef.current = true;
     
     setBeats(data.beats || INITIAL_STATE.beats);
     setGroups(data.groups || INITIAL_STATE.groups);
@@ -138,57 +141,30 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setNextAnnoId(data.nextAnnoId ?? INITIAL_STATE.nextAnnoId);
     setDailyStats(data.dailyStats || INITIAL_STATE.dailyStats);
     
-    // Reset the flag after a brief timeout to allow state to settle
     setTimeout(() => { isRemoteUpdateRef.current = false; setHasUnsavedChanges(false); }, 50);
   }, []);
 
-  // REALTIME SUBSCRIPTION FOR INSTANT UPDATES
   useEffect(() => {
     if (!isSupabaseConfigured || !currentProjectId || !supabaseUser) return;
 
-    // Stable listener that doesn't close/reopen on every state change
     const channel = supabase
       .channel(`project_changes_${currentProjectId}`)
       .on(
         'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'projects',
-          filter: `id=eq.${currentProjectId}`
-        },
+        { event: 'UPDATE', schema: 'public', table: 'projects', filter: `id=eq.${currentProjectId}` },
         (payload: any) => {
           const newData = payload.new?.data;
           if (!newData) return;
-
-          // 1. Ignore if WE are the ones who sent this update
           if (newData.lastInstanceId === INSTANCE_ID) return;
-
-          // 2. Only pull remote changes if we don't have local unsaved work
-          // or if we are idle. This prevents "writing over" current progress.
           if (!hasUnsavedChangesRef.current && !isSavingRef.current) {
-            console.log("Remote sync: Updating local state with latest from database.");
             applyProjectState(newData);
           }
         }
       )
       .subscribe();
 
-    return () => {
-      supabase.removeChannel(channel);
-    };
+    return () => { supabase.removeChannel(channel); };
   }, [currentProjectId, supabaseUser, applyProjectState]);
-
-  // Sync on window focus
-  useEffect(() => {
-      const handleFocus = () => {
-          if (currentProjectId && !hasUnsavedChangesRef.current && !isSavingRef.current) {
-              selectProject(currentProjectId);
-          }
-      };
-      window.addEventListener('focus', handleFocus);
-      return () => window.removeEventListener('focus', handleFocus);
-  }, [currentProjectId]);
 
   const refreshProjectList = async (userId: string) => {
     try {
@@ -206,7 +182,6 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   };
 
-  // --- UNDO / REDO ENGINE ---
   const historyRef = useRef<string[]>([]);
   const historyIndexRef = useRef<number>(-1);
   const isTimeTraveling = useRef(false);
@@ -356,7 +331,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       breakdownLanguage, breakdownLockedOnly, isPdfDropEnabled, isRedoEnabled, 
       writingGoal, geminiApiKey: '', stabilityApiKey, 
       dailyStats, sessionStartCount, lastSessionDate, boardLayerOrder,
-      lastInstanceId: INSTANCE_ID // Tag the update with this instance ID
+      lastInstanceId: INSTANCE_ID
     };
     try {
       if (supabaseUser) {
@@ -400,7 +375,6 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     } catch {}
   }, [currentProjectId, projectList]);
 
-  // Debounced Auto-Save (Faster Sync: 1000ms)
   useEffect(() => {
     if (hasUnsavedChanges && !isRemoteUpdateRef.current) {
       const timer = setTimeout(() => { saveProject(); }, 1000);

@@ -28,7 +28,6 @@
       }
       #root { width: 100%; height: 100%; display: flex; flex-direction: column; }
       
-      /* Emergency Error Overlay */
       #error-overlay {
         display: none;
         position: fixed;
@@ -63,29 +62,31 @@
       }
     </script>
 
-    <!-- Global Shim: Prevents "process is not defined" crash on static hosts like Netlify -->
     <script>
+      // Robust Shim
       window.process = { 
         env: { 
           NODE_ENV: 'production',
-          API_KEY: "" // Prevents SDK crash on init if key is missing
+          API_KEY: "" 
         } 
       };
       
-      // Global Error Handler for Deployment Debugging
-      window.addEventListener('error', (event) => {
+      const showError = (title, msg) => {
         const overlay = document.getElementById('error-overlay');
         if (overlay) {
           overlay.style.display = 'block';
           overlay.innerHTML = `
-            <h1 style="color: white; margin-bottom: 20px;">[Backstage] Critical Boot Error</h1>
-            <p>The application failed to start on this environment.</p>
+            <h1 style="color: white; margin-bottom: 20px;">[Backstage] ${title}</h1>
+            <p>The application failed to start in this environment.</p>
             <hr style="border-color: #333; margin: 20px 0;" />
-            <pre>${event.message}\nat ${event.filename}:${event.lineno}:${event.colno}</pre>
-            <p style="color: #666; font-size: 12px; margin-top: 20px;">Check your browser console for more details.</p>
+            <pre style="white-space: pre-wrap; word-break: break-all;">${msg}</pre>
+            <p style="color: #666; font-size: 12px; margin-top: 20px;">Check your browser console for the full stack trace.</p>
           `;
         }
-      });
+      };
+
+      window.addEventListener('error', (event) => showError('Critical Boot Error', event.message));
+      window.addEventListener('unhandledrejection', (event) => showError('Async Init Error', event.reason));
     </script>
 
     <link rel="stylesheet" href="./style.css">
@@ -99,14 +100,14 @@
     "react-dom/client": "https://esm.sh/react-dom@19.0.0/client",
     "@google/genai": "https://esm.sh/@google/genai@1.3.0",
     "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@2.39.7",
-    "lucide-react": "https://esm.sh/lucide-react@0.460.0",
-    "recharts": "https://esm.sh/recharts@2.13.3",
+    "lucide-react": "https://esm.sh/lucide-react@0.460.0?external=react",
+    "recharts": "https://esm.sh/recharts@2.13.3?external=react",
     "html2canvas": "https://esm.sh/html2canvas@1.4.1",
     "jspdf": "https://esm.sh/jspdf@2.5.1",
     "pdfjs-dist": "https://esm.sh/pdfjs-dist@3.11.174",
     "xlsx": "https://esm.sh/xlsx@0.18.5",
-    "react/": "https://esm.sh/react@^19.2.4/",
-    "react-dom/": "https://esm.sh/react-dom@^19.2.4/"
+    "react-dom/": "https://esm.sh/react-dom@^19.2.4/",
+    "react/": "https://esm.sh/react@^19.2.4/"
   }
 }
 </script>
