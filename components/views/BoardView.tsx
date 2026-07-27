@@ -1,12 +1,14 @@
+
 import React, { useEffect, useRef, useState, useMemo, useCallback } from 'react';
 import { useProject } from '../../context/ProjectContext';
 import { BeatStatus, Group, Annotation, Beat, Connection } from '../../types';
 import { 
     MousePointer2, Square, Circle, Pen, Minus, ArrowRight, Eraser, Trash2, 
     Type, X, PenTool, GripHorizontal, Heading, ZoomIn, ZoomOut, Maximize, FileText, Loader2, Sparkles,
-    Music, Play, Pause, AlertTriangle, ArrowRightLeft, Replace, Layers, Copy, ClipboardPaste, DuplicateIcon,
-    RotateCw
+    Music, Play, Pause, AlertTriangle, ArrowRightLeft, Replace, Layers, Copy, ClipboardPaste, CopyPlus,
+    RotateCw, Zap, PlusCircle, Wand2, Plus
 } from 'lucide-react';
+import { GoogleGenAI } from '@google/genai';
 import BeatCard from '../BeatCard';
 import { STORYLINE_COLORS } from '../../constants';
 import { extractRawTextFromPdf } from '../../services/pdfImport';
@@ -22,7 +24,9 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
   const { 
     beats, groups, connections, panX, panY, scale, annotations, activeBoardId, nextId,
     setPan, setScale, updateBeat, setConnections, addBeat, setBeats, setGroups, addGroup, updateGroup, removeGroup,
-    setAnnotations, captureSnapshot, geminiApiKey, isPdfDropEnabled, setActiveBoardId, setNextId
+    setAnnotations, captureSnapshot, geminiApiKey, isPdfDropEnabled, setActiveBoardId, setNextId,
+    autoGenerate5Scenes,
+    boardLayerOrder = ['annotations', 'text', 'connections', 'groups', 'beats']
   } = useProject();
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -55,6 +59,7 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
   const [isImporting, setIsImporting] = useState(false);
   const [isEnhancing, setIsEnhancing] = useState(false); 
   const [isDragOver, setIsDragOver] = useState(false);
+  const [isBeautifying, setIsBeautifying] = useState(false);
 
   // Scrubbing State
   const [scrubbingData, setScrubbingData] = useState<{
@@ -106,6 +111,8 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
     isPanning: false,
     lastMouseX: 0,
     lastMouseY: 0,
+    lastClickBeatId: null as number | null,
+    lastClickTime: 0,
     
     creationState: null as { id: number, step: 'title' | 'summary' } | null,
 
@@ -184,10 +191,10 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
     .image-resize-handle { fill: #f5a623; stroke: white; stroke-width: 1px; opacity: 0; transition: opacity 0.2s; }
     g[data-type="annotation"]:hover .image-resize-handle { opacity: 1; }
     .text-annotation-card { position: absolute; min-width: 50px; min-height: 1.2em; background: transparent; border: 1px dashed transparent; padding: 4px 8px; cursor: grab; transition: border-color 0.2s, background 0.2s; }
-    .text-annotation-card:hover { border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.2); }
-    .text-annotation-card.editing { background: rgba(30,30,30,0.9); border: 1px solid #f5a623; box-shadow: 0 4px 20px rgba(0,0,0,0.5); cursor: text; z-index: 1000; min-width: 200px; border-radius: 4px; }
-    .text-annotation-input { width: 100%; height: 100%; background: transparent; border: none; outline: none; resize: none; font-family: 'Helvetica Neue', sans-serif; line-height: 1.2; overflow: hidden; }
-    .text-annotation-display { white-space: pre-wrap; font-family: 'Helvetica Neue', sans-serif; line-height: 1.2; user-select: none; }
+    .text-annotation-card:hover { border-color: rgba(255,255,255,0.3); background: rgba(0,0,0,0.3); }
+    .text-annotation-card.editing { background: rgba(20,20,20,0.95); border: 1px solid #f5a623; box-shadow: 0 4px 25px rgba(0,0,0,0.8); cursor: text; z-index: 1000; min-width: 220px; border-radius: 6px; }
+    .text-annotation-input { width: 100%; height: 100%; background: transparent; border: none; outline: none; resize: none; font-family: 'Inter', system-ui, sans-serif; line-height: 1.25; overflow: hidden; }
+    .text-annotation-display { white-space: pre-wrap; font-family: 'Inter', system-ui, sans-serif; line-height: 1.25; user-select: none; }
     .annotation-hit-area { fill: none; stroke: rgba(255,0,0,0.001); stroke-width: 20px; stroke-linecap: round; stroke-linejoin: round; pointer-events: visibleStroke; cursor: default; }
     .tool-eraser .annotation-hit-area { cursor: none; }
     .eraser-cursor { position: fixed; pointer-events: none; z-index: 9999; width: 20px; height: 20px; border: 2px solid #ef4444; background-color: rgba(239, 68, 68, 0.2); border-radius: 50%; transform: translate(-50%, -50%); display: none; box-shadow: 0 0 10px rgba(239, 68, 68, 0.5); }
@@ -327,13 +334,10 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
     engine.current.panY = panY;
     
     renderCanvas();
-    renderGroups(); 
-    renderBeats();
-    renderConnections(); 
-  }, [beats, groups, connections, scale, panX, panY, annotations, activeBoardId]);
+    renderMinimap();
+  }, [beats, groups, connections, scale, panX, panY, annotations, activeBoardId, boardLayerOrder]); // Added boardLayerOrder dependency
 
   // --- PAGE TRANSITION TRIGGER ---
-  // Isolate transition state so it only runs when activeBoardId changes
   useEffect(() => {
     setIsPageTransitioning(true);
     const timer = setTimeout(() => setIsPageTransitioning(false), 450);
@@ -344,8 +348,7 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
       if (toolMode === 'text' || toolMode === 'bigtext') {
           engine.current.selectedBeatIds.clear();
           engine.current.selectedAnnoId = null;
-          renderBeats();
-          renderConnections();
+          renderCanvas(); // Re-render canvas
       }
   }, [toolMode]);
 
@@ -354,7 +357,109 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
     if (surface) {
       surface.style.transform = `translate(${engine.current.panX}px, ${engine.current.panY}px) scale(${engine.current.scale})`;
     }
+    
+    renderGroups(); 
+    renderBeats();
+    renderConnections(); 
+    renderText();
     renderMinimap();
+  };
+
+  const ensureVibrantLightColor = (color?: string, fallback: string = '#f5a623') => {
+    if (!color) return fallback;
+    const c = color.trim().toLowerCase();
+    if (c === '#000' || c === '#000000' || c === '#111' || c === '#111111' || c === '#222' || c === '#222222' || c === '#333' || c === '#333333' || c === '#1e1e1e' || c === 'black' || c === '#2d3748' || c === '#374151' || c === '#1f2937' || c === '#111827') {
+      return fallback;
+    }
+    return color;
+  };
+
+  const renderText = () => {
+    if (!containerRef.current) return;
+    const textLayer = containerRef.current.querySelector('#text-layer');
+    if (!textLayer) return;
+    textLayer.innerHTML = '';
+
+    engine.current.annotations.forEach(anno => {
+      if (anno.type !== 'text' && anno.type !== 'bigtext') return;
+
+      const isBig = anno.type === 'bigtext';
+      const card = document.createElement('div');
+      const isEditing = editingAnnoId === anno.id;
+      const isSelected = engine.current.selectedAnnoId === anno.id;
+
+      const textColor = ensureVibrantLightColor(anno.color, isBig ? '#f5a623' : '#38bdf8');
+
+      card.className = `text-annotation-card ${isEditing ? 'editing' : ''}`;
+      card.style.left = `${anno.x || 0}px`;
+      card.style.top = `${anno.y || 0}px`;
+      card.style.color = textColor;
+      card.style.fontSize = isBig ? '26px' : '14px';
+      card.style.fontWeight = isBig ? '900' : '600';
+      card.style.letterSpacing = isBig ? '1.5px' : '0.4px';
+
+      if (isSelected) {
+        card.style.borderColor = '#f5a623';
+        card.style.backgroundColor = 'rgba(245, 166, 35, 0.1)';
+      }
+
+      if (isEditing) {
+        const textarea = document.createElement('textarea');
+        textarea.className = 'text-annotation-input';
+        textarea.value = anno.text || '';
+        textarea.style.color = textColor;
+        textarea.style.fontSize = isBig ? '26px' : '14px';
+        textarea.style.fontWeight = isBig ? '900' : '600';
+        textarea.style.letterSpacing = isBig ? '1.5px' : '0.4px';
+
+        textarea.onmousedown = (e) => e.stopPropagation();
+        textarea.oninput = () => {
+          updateTextContent(anno.id, textarea.value);
+        };
+        textarea.onblur = () => {
+          setEditingAnnoId(null);
+          captureSnapshot();
+          setAnnotations(JSON.parse(JSON.stringify(engine.current.annotations)));
+        };
+        textarea.onkeydown = (e) => {
+          if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            setEditingAnnoId(null);
+            captureSnapshot();
+            setAnnotations(JSON.parse(JSON.stringify(engine.current.annotations)));
+          }
+        };
+        setTimeout(() => textarea.focus(), 10);
+        card.appendChild(textarea);
+      } else {
+        const display = document.createElement('div');
+        display.className = 'text-annotation-display';
+        display.innerText = anno.text || (isBig ? 'HEADING' : 'Note text...');
+        card.appendChild(display);
+
+        card.onmousedown = (e) => {
+          if (toolMode !== 'none' && toolMode !== 'eraser') return;
+          if (e.button !== 0) return;
+          e.stopPropagation();
+          engine.current.selectedAnnoId = anno.id;
+          engine.current.selectedBeatIds.clear();
+          renderBeats();
+          renderConnections();
+          renderText();
+          engine.current.dragAnnotationId = anno.id;
+          engine.current.isDragging = true;
+          engine.current.lastMouseX = e.clientX;
+          engine.current.lastMouseY = e.clientY;
+        };
+
+        card.ondblclick = (e) => {
+          e.stopPropagation();
+          setEditingAnnoId(anno.id);
+        };
+      }
+
+      textLayer.appendChild(card);
+    });
   };
 
   const renderBeats = () => {
@@ -382,8 +487,11 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
         const compColor = engine.current.componentMap[beat.id] || '#444';
         header.style.backgroundColor = compColor;
         
-        const sceneNum = beat.sceneNumber || engine.current.sceneMap[beat.id];
-        const displayNum = sceneNum ? `${sceneNum}` : '•';
+        // Render Logic: Use derived sceneMap value first (chain logic), then manual override, else default to dot
+        const calcNum = engine.current.sceneMap[beat.id];
+        // If calcNum is null, it's explicitly unnumbered (dot).
+        // If calcNum is undefined (not in map), fallback to beat.sceneNumber (legacy/safety).
+        const displayNum = (calcNum !== null && calcNum !== undefined) ? calcNum.toString() : '•';
         
         const badge = document.createElement('span');
         badge.className = `seq-badge ${engine.current.scrubBeatId === beat.id ? 'scrubbing' : ''}`;
@@ -408,30 +516,35 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
         if (isCreating && creationState?.step === 'title') {
             const input = document.createElement('input');
             input.className = 'title-input';
-            input.value = beat.title;
+            input.value = beat.title || '';
             input.placeholder = "Beat Name...";
             input.onmousedown = (e) => e.stopPropagation();
-            // Removed oninput to only update on Enter or Blur
-            input.onblur = () => {
-                // Advance to summary on blur
-                const val = input.value.trim();
-                updateBeat(beat.id, { title: val });
-                if (engine.current.creationState?.id === beat.id) {
-                    engine.current.creationState = { id: beat.id, step: 'summary' };
-                    renderBeats();
-                }
-            };
+
+            let handledEnter = false;
+
             input.onkeydown = (e) => {
                 if (e.key === 'Enter') {
                     e.preventDefault();
                     e.stopPropagation();
+                    handledEnter = true;
                     const val = input.value.trim();
                     updateBeat(beat.id, { title: val });
                     engine.current.creationState = { id: beat.id, step: 'summary' };
                     renderBeats();
                 }
             };
-            setTimeout(() => input.focus(), 10);
+
+            input.onblur = () => {
+                if (handledEnter) return;
+                const val = input.value.trim();
+                updateBeat(beat.id, { title: val });
+                if (engine.current.creationState?.id === beat.id && engine.current.creationState.step === 'title') {
+                    engine.current.creationState = { id: beat.id, step: 'summary' };
+                    renderBeats();
+                }
+            };
+
+            setTimeout(() => input.focus(), 15);
             content.appendChild(input);
         } else {
             const title = document.createElement('div');
@@ -458,22 +571,14 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
             textarea.value = beat.summary || '';
             textarea.placeholder = "Scene summary...";
             textarea.onmousedown = (e) => e.stopPropagation();
-            // Removed oninput to only update on Enter or Blur
-            textarea.onblur = () => {
-                // Commit summary and exit creation mode on blur
-                const val = textarea.value.trim();
-                updateBeat(beat.id, { summary: val });
-                if (engine.current.creationState?.id === beat.id) {
-                    engine.current.creationState = null;
-                    engine.current.selectedBeatIds.clear();
-                    engine.current.selectedBeatIds.add(beat.id);
-                    renderBeats();
-                }
-            };
+
+            let handledEnter = false;
+
             textarea.onkeydown = (e) => {
                 if (e.key === 'Enter') {
                     e.preventDefault();
                     e.stopPropagation();
+                    handledEnter = true;
                     const val = textarea.value.trim();
                     updateBeat(beat.id, { summary: val });
                     engine.current.creationState = null;
@@ -483,7 +588,20 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
                     containerRef.current?.focus(); 
                 }
             };
-            setTimeout(() => textarea.focus(), 10);
+
+            textarea.onblur = () => {
+                if (handledEnter) return;
+                const val = textarea.value.trim();
+                updateBeat(beat.id, { summary: val });
+                if (engine.current.creationState?.id === beat.id && engine.current.creationState.step === 'summary') {
+                    engine.current.creationState = null;
+                    engine.current.selectedBeatIds.clear();
+                    engine.current.selectedBeatIds.add(beat.id);
+                    renderBeats();
+                }
+            };
+
+            setTimeout(() => textarea.focus(), 15);
             content.appendChild(textarea);
         } else {
             const preview = document.createElement('div');
@@ -531,8 +649,28 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
         card.appendChild(handle);
         card.appendChild(inputHandle);
 
+        card.tabIndex = 0;
         card.onmousedown = (e) => onBeatMouseDown(e, beat.id);
         card.ondblclick = (e) => { e.stopPropagation(); onEditBeat(beat.id); };
+        card.oncontextmenu = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (!engine.current.selectedBeatIds.has(beat.id)) {
+                engine.current.selectedBeatIds.clear();
+                engine.current.selectedBeatIds.add(beat.id);
+                engine.current.selectedAnnoId = null;
+                renderBeats();
+                renderConnections();
+            }
+            showContextMenu(e.clientX, e.clientY, beat.id, null, null, null);
+        };
+        card.onkeydown = (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                e.stopPropagation();
+                onEditBeat(beat.id);
+            }
+        };
         
         badge.onmousedown = (e) => onBadgeMouseDown(e, beat.id, parseInt(displayNum) || 1);
 
@@ -576,95 +714,142 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
   };
 
   const analyzeGraph = () => {
-    const adjDir: Record<number, number[]> = {}; 
-    const adjUndir: Record<number, number[]> = {}; 
-    const inDegree: Record<number, number> = {}; 
-    const isConnected: Record<number, boolean> = {}; 
+    // 1. Build Adjacency List
+    const adjUndir: Record<number, number[]> = {};
+    const adjDir: Record<number, number[]> = {};
+    const inDegree: Record<number, number> = {};
     
-    engine.current.beats.forEach(b => { 
-        adjDir[b.id] = []; adjUndir[b.id] = []; inDegree[b.id] = 0; isConnected[b.id] = false; 
-    });
-    
-    engine.current.connections.forEach(c => {
-        if (adjDir[c.from]) adjDir[c.from].push(c.to);
-        if (adjUndir[c.from]) adjUndir[c.from].push(c.to);
-        if (adjUndir[c.to]) adjUndir[c.to].push(c.from);
-        if (inDegree[c.to] !== undefined) inDegree[c.to]++;
-        isConnected[c.from] = true; isConnected[c.to] = true;
+    // Initialize for all CURRENT board beats
+    engine.current.beats.forEach(b => {
+        adjUndir[b.id] = [];
+        adjDir[b.id] = [];
+        inDegree[b.id] = 0;
     });
 
+    engine.current.connections.forEach(c => {
+        // Safety checks for cross-board connections
+        if (adjUndir[c.from]) adjUndir[c.from].push(c.to);
+        if (adjUndir[c.to]) adjUndir[c.to].push(c.from);
+        if (adjDir[c.from]) adjDir[c.from].push(c.to);
+        if (inDegree[c.to] !== undefined) inDegree[c.to]++;
+    });
+
+    // 2. Stable Coloring
     const visited = new Set<number>();
-    engine.current.componentMap = {};
-    let colorIdx = 0;
-    const idSorted = [...engine.current.beats].sort((a,b) => a.id - b.id);
-    
-    idSorted.forEach(startNode => {
-        if (isConnected[startNode.id] && !visited.has(startNode.id)) {
+    const newComponentMap: Record<number, string> = {};
+    const sortedIds = [...engine.current.beats].map(b => b.id).sort((a, b) => a - b);
+
+    sortedIds.forEach(nodeId => {
+        if (!visited.has(nodeId)) {
             const componentNodes: number[] = [];
-            const queue = [startNode.id];
-            visited.add(startNode.id);
-            componentNodes.push(startNode.id);
-            while(queue.length > 0) {
+            const queue = [nodeId];
+            visited.add(nodeId);
+            while (queue.length > 0) {
                 const u = queue.shift()!;
-                if(adjUndir[u]) {
+                componentNodes.push(u);
+                if (adjUndir[u]) {
                     adjUndir[u].forEach(v => {
-                        if(!visited.has(v)) { visited.add(v); queue.push(v); componentNodes.push(v); }
+                        if (!visited.has(v)) { visited.add(v); queue.push(v); }
                     });
                 }
             }
-            let chosenColor = null;
-            const coloredBeats = componentNodes.map(id => engine.current.beats.find(b => b.id === id)).filter(b => b && b.color && b.color !== '#444');
-            if (coloredBeats.length > 0 && coloredBeats[0]) chosenColor = coloredBeats[0].color;
-            else { chosenColor = STORYLINE_COLORS[colorIdx % STORYLINE_COLORS.length]; colorIdx++; }
-            componentNodes.forEach(id => { engine.current.componentMap[id] = chosenColor!; });
+            let finalColor = '#444';
+            if (componentNodes.length > 1) {
+                const rootId = Math.min(...componentNodes);
+                const colorIndex = rootId % STORYLINE_COLORS.length;
+                finalColor = STORYLINE_COLORS[colorIndex];
+            }
+            componentNodes.forEach(id => { newComponentMap[id] = finalColor; });
+        }
+    });
+    engine.current.componentMap = newComponentMap;
+
+    // 3. Robust Numbering Propagation
+    const newSceneMap: Record<number, number | null> = {};
+    const processingQueue: number[] = [];
+    const tempInDegree = { ...inDegree };
+    const manualOverrides = new Set<number>();
+
+    // A. Initialize with Manual Numbers
+    engine.current.beats.forEach(b => {
+        if (b.sceneNumber && !isNaN(parseInt(b.sceneNumber))) {
+            newSceneMap[b.id] = parseInt(b.sceneNumber);
+            manualOverrides.add(b.id);
         }
     });
 
-    engine.current.sceneMap = {};
-    const depths: Record<number, number> = {};
-    let queue: number[] = [];
-    const currentInDegree = {...inDegree};
-    const beatMap = new Map<number, Beat>(engine.current.beats.map(b => [b.id, b]));
-
-    idSorted.forEach(b => { 
-        if (isConnected[b.id] && currentInDegree[b.id] === 0) { 
-            queue.push(b.id); 
-            const man = parseInt(b.sceneNumber || '');
-            depths[b.id] = !isNaN(man) ? man : 1; 
-        } 
+    // B. Seed Queue (Roots)
+    // A Root is any node with in-degree 0
+    sortedIds.forEach(id => {
+        if (tempInDegree[id] === 0) {
+            // If not manual, default to null (dot)
+            if (newSceneMap[id] === undefined) {
+                newSceneMap[id] = null;
+            }
+            processingQueue.push(id);
+        }
     });
-    
-    while(queue.length > 0) {
-        const u = queue.shift()!;
-        const uBeat = beatMap.get(u);
-        const man = parseInt(uBeat?.sceneNumber || '');
-        const currentVal = !isNaN(man) ? man : (depths[u] || 1);
+
+    // C. BFS Propagation
+    while (processingQueue.length > 0) {
+        const u = processingQueue.shift()!;
+        const currentVal = newSceneMap[u];
+
         if (adjDir[u]) {
             adjDir[u].forEach(v => {
-                const newDepth = currentVal + 1; 
-                if (!depths[v] || newDepth > depths[v]) depths[v] = newDepth;
-                currentInDegree[v]--;
-                if (currentInDegree[v] <= 0) queue.push(v);
+                // If v has manual override, it ignores parent's value
+                if (!manualOverrides.has(v)) {
+                    let proposedVal: number | null = null;
+                    
+                    if (currentVal !== null && currentVal !== undefined) {
+                        proposedVal = currentVal + 1;
+                    }
+
+                    // Merge Logic: Prefer Number over Null, Prefer Higher Number
+                    const existingVal = newSceneMap[v];
+                    
+                    if (proposedVal !== null) {
+                        // If we have a proposed number
+                        if (existingVal === undefined || existingVal === null || proposedVal > existingVal) {
+                            newSceneMap[v] = proposedVal;
+                        }
+                    } else {
+                        // If proposed is null (dot)
+                        // Only set to dot if currently undefined (don't overwrite a number from another parent)
+                        if (existingVal === undefined) {
+                            newSceneMap[v] = null;
+                        }
+                    }
+                }
+
+                tempInDegree[v]--;
+                if (tempInDegree[v] === 0) {
+                    processingQueue.push(v);
+                }
             });
         }
     }
     
-    idSorted.forEach(b => { 
-        if(!depths[b.id]) {
-             const man = parseInt(b.sceneNumber || '');
-             if (!isNaN(man)) depths[b.id] = man;
+    // D. Fill Gaps (Cycles/Unreachable)
+    sortedIds.forEach(id => {
+        if (newSceneMap[id] === undefined) {
+             newSceneMap[id] = null;
         }
-        engine.current.sceneMap[b.id] = depths[b.id]; 
     });
 
+    engine.current.sceneMap = newSceneMap;
+    
+    // 4. Error Detection
     engine.current.errorIds = new Set();
     const numberCounts: Record<string, number> = {};
     engine.current.beats.forEach(b => {
-        const num = b.sceneNumber ? b.sceneNumber : (engine.current.sceneMap[b.id] ? engine.current.sceneMap[b.id].toString() : null);
+        const val = engine.current.sceneMap[b.id];
+        const num = (val !== null && val !== undefined) ? val.toString() : (b.sceneNumber || null);
         if (num) numberCounts[num] = (numberCounts[num] || 0) + 1;
     });
     engine.current.beats.forEach(b => {
-        const num = b.sceneNumber ? b.sceneNumber : (engine.current.sceneMap[b.id] ? engine.current.sceneMap[b.id].toString() : null);
+        const val = engine.current.sceneMap[b.id];
+        const num = (val !== null && val !== undefined) ? val.toString() : (b.sceneNumber || null);
         if (num && numberCounts[num] > 1) engine.current.errorIds.add(b.id);
     });
   };
@@ -698,7 +883,7 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
       annotationsLayer.appendChild(defs); 
 
       engine.current.annotations.forEach(anno => {
-          if (anno.type === 'text' || anno.type === 'audio') return; 
+          if (anno.type === 'text' || anno.type === 'bigtext' || anno.type === 'audio') return; 
           const group = document.createElementNS("http://www.w3.org/2000/svg", "g");
           if (engine.current.selectedAnnoId === anno.id) {
               group.setAttribute("data-selected", "true");
@@ -710,88 +895,107 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
           const width = (anno as any).strokeWidth || 3;
           const style = (anno as any).strokeStyle || 'solid';
           const dash = style === 'dashed' ? '10,10' : '';
-          if (anno.type === 'pencil' && anno.d) {
-              const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-              path.setAttribute("d", anno.d);
-              path.setAttribute("stroke", anno.color);
-              path.setAttribute("stroke-width", width.toString());
-              if(dash) path.setAttribute("stroke-dasharray", dash);
-              path.setAttribute("fill", "none");
-              path.classList.add("annotation-path");
-              el = path;
-              const hitPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
-              hitPath.setAttribute("d", anno.d);
-              hitPath.classList.add("annotation-hit-area");
-              hitEl = hitPath;
+
+          if (anno.type === 'pencil') {
+              const dPath = anno.d || (anno.points && anno.points.length > 0 ? getSmoothedPath(anno.points) : '');
+              if (dPath) {
+                  const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+                  path.setAttribute("d", dPath);
+                  path.setAttribute("stroke", anno.color);
+                  path.setAttribute("stroke-width", width.toString());
+                  if (dash) path.setAttribute("stroke-dasharray", dash);
+                  path.setAttribute("fill", "none");
+                  path.classList.add("annotation-path");
+                  el = path;
+
+                  const hitPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
+                  hitPath.setAttribute("d", dPath);
+                  hitPath.classList.add("annotation-hit-area");
+                  hitEl = hitPath;
+              }
           } else if (anno.type === 'rect' && anno.x !== undefined) {
+              const rx = Math.min(anno.x, anno.x + (anno.w || 0));
+              const ry = Math.min(anno.y || 0, (anno.y || 0) + (anno.h || 0));
+              const rw = Math.max(1, Math.abs(anno.w || 0));
+              const rh = Math.max(1, Math.abs(anno.h || 0));
+
               const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-              rect.setAttribute("x", anno.x.toString());
-              rect.setAttribute("y", anno.y!.toString());
-              rect.setAttribute("width", anno.w!.toString());
-              rect.setAttribute("height", anno.h!.toString());
+              rect.setAttribute("x", rx.toString());
+              rect.setAttribute("y", ry.toString());
+              rect.setAttribute("width", rw.toString());
+              rect.setAttribute("height", rh.toString());
               rect.setAttribute("stroke", anno.color);
               rect.setAttribute("stroke-width", width.toString());
-              if(dash) rect.setAttribute("stroke-dasharray", dash);
+              if (dash) rect.setAttribute("stroke-dasharray", dash);
               rect.classList.add("annotation-rect");
               el = rect;
+
               const hitRect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-              hitRect.setAttribute("x", anno.x.toString());
-              hitRect.setAttribute("y", anno.y!.toString());
-              hitRect.setAttribute("width", anno.w!.toString());
-              hitRect.setAttribute("height", anno.h!.toString());
+              hitRect.setAttribute("x", rx.toString());
+              hitRect.setAttribute("y", ry.toString());
+              hitRect.setAttribute("width", rw.toString());
+              hitRect.setAttribute("height", rh.toString());
               hitRect.classList.add("annotation-hit-area");
               hitEl = hitRect;
-          } else if (anno.type === 'circle' && anno.cx !== undefined && anno.rx !== undefined) {
+          } else if (anno.type === 'circle' && (anno.cx !== undefined || anno.x !== undefined)) {
+              const cx = anno.cx !== undefined ? anno.cx : (anno.x || 0) + (anno.w || 0) / 2;
+              const cy = anno.cy !== undefined ? anno.cy : (anno.y || 0) + (anno.h || 0) / 2;
+              const r = anno.rx !== undefined ? anno.rx : Math.hypot(anno.w || 0, anno.h || 0) / 2;
+              const safeR = Math.max(1, r);
+
               const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-              circle.setAttribute("cx", anno.cx.toString());
-              circle.setAttribute("cy", anno.cy.toString());
-              circle.setAttribute("r", anno.rx.toString());
+              circle.setAttribute("cx", cx.toString());
+              circle.setAttribute("cy", cy.toString());
+              circle.setAttribute("r", safeR.toString());
               circle.setAttribute("stroke", anno.color);
               circle.setAttribute("stroke-width", width.toString());
-              if(dash) circle.setAttribute("stroke-dasharray", dash);
+              if (dash) circle.setAttribute("stroke-dasharray", dash);
               circle.classList.add("annotation-circle");
               el = circle;
+
               const hitCircle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-              hitCircle.setAttribute("cx", anno.cx.toString());
-              hitCircle.setAttribute("cy", anno.cy.toString());
-              hitCircle.setAttribute("r", anno.rx.toString());
+              hitCircle.setAttribute("cx", cx.toString());
+              hitCircle.setAttribute("cy", cy.toString());
+              hitCircle.setAttribute("r", safeR.toString());
               hitCircle.classList.add("annotation-hit-area");
               hitEl = hitCircle;
           } else if (anno.type === 'line' && anno.x !== undefined) {
               const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
               line.setAttribute("x1", anno.x.toString());
-              line.setAttribute("y1", anno.y!.toString());
-              line.setAttribute("x2", (anno.x + (anno.w || 0)).toString());
-              line.setAttribute("y2", (anno.y! + (anno.h || 0)).toString());
+              line.setAttribute("y1", (anno.y || 0).toString());
+              line.setAttribute("x2", ((anno.x || 0) + (anno.w || 0)).toString());
+              line.setAttribute("y2", ((anno.y || 0) + (anno.h || 0)).toString());
               line.setAttribute("stroke", anno.color);
               line.setAttribute("stroke-width", width.toString());
-              if(dash) line.setAttribute("stroke-dasharray", dash);
+              if (dash) line.setAttribute("stroke-dasharray", dash);
               line.classList.add("annotation-line");
               el = line;
+
               const hitLine = document.createElementNS("http://www.w3.org/2000/svg", "line");
               hitLine.setAttribute("x1", anno.x.toString());
-              hitLine.setAttribute("y1", anno.y!.toString());
-              hitLine.setAttribute("x2", (anno.x + (anno.w || 0)).toString());
-              hitLine.setAttribute("y2", (anno.y! + (anno.h || 0)).toString());
+              hitLine.setAttribute("y1", (anno.y || 0).toString());
+              hitLine.setAttribute("x2", ((anno.x || 0) + (anno.w || 0)).toString());
+              hitLine.setAttribute("y2", ((anno.y || 0) + (anno.h || 0)).toString());
               hitLine.classList.add("annotation-hit-area");
               hitEl = hitLine;
           } else if (anno.type === 'arrow' && anno.x !== undefined) {
               const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
               line.setAttribute("x1", anno.x.toString());
-              line.setAttribute("y1", anno.y!.toString());
-              line.setAttribute("x2", (anno.x + (anno.w || 0)).toString());
-              line.setAttribute("y2", (anno.y! + (anno.h || 0)).toString());
+              line.setAttribute("y1", (anno.y || 0).toString());
+              line.setAttribute("x2", ((anno.x || 0) + (anno.w || 0)).toString());
+              line.setAttribute("y2", ((anno.y || 0) + (anno.h || 0)).toString());
               line.setAttribute("stroke", anno.color);
               line.setAttribute("stroke-width", width.toString());
-              if(dash) line.setAttribute("stroke-dasharray", dash);
+              if (dash) line.setAttribute("stroke-dasharray", dash);
               line.setAttribute("marker-end", `url(#arrow-${anno.color.replace('#', '')})`);
               line.classList.add("annotation-line");
               el = line;
+
               const hitLine = document.createElementNS("http://www.w3.org/2000/svg", "line");
               hitLine.setAttribute("x1", anno.x.toString());
-              hitLine.setAttribute("y1", anno.y!.toString());
-              hitLine.setAttribute("x2", (anno.x + (anno.w || 0)).toString());
-              hitLine.setAttribute("y2", (anno.y! + (anno.h || 0)).toString());
+              hitLine.setAttribute("y1", (anno.y || 0).toString());
+              hitLine.setAttribute("x2", ((anno.x || 0) + (anno.w || 0)).toString());
+              hitLine.setAttribute("y2", ((anno.y || 0) + (anno.h || 0)).toString());
               hitLine.classList.add("annotation-hit-area");
               hitEl = hitLine;
           } else if (anno.type === 'image' && anno.imageUrl) {
@@ -808,6 +1012,7 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
               image.setAttribute("preserveAspectRatio", "none"); 
               image.classList.add("annotation-image");
               el = image;
+
               const hitRect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
               hitRect.setAttribute("x", ax.toString());
               hitRect.setAttribute("y", ay.toString());
@@ -816,21 +1021,8 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
               hitRect.setAttribute("fill", "transparent");
               hitRect.setAttribute("cursor", "move");
               hitRect.classList.add("annotation-hit-area");
-              // @ts-ignore
-              hitRect.onmousedown = (e) => {
-                  if(toolMode !== 'none' && toolMode !== 'eraser') return;
-                  if(e.button !== 0) return;
-                  e.stopPropagation();
-                  engine.current.selectedAnnoId = anno.id;
-                  engine.current.selectedBeatIds.clear();
-                  renderBeats();
-                  renderConnections();
-                  engine.current.dragAnnotationId = anno.id;
-                  engine.current.isDragging = true;
-                  engine.current.lastMouseX = e.clientX;
-                  engine.current.lastMouseY = e.clientY;
-              };
               hitEl = hitRect;
+
               const handleSize = 10;
               const addHandle = (cx: number, cy: number, cursor: string, corner: 'nw' | 'ne' | 'sw' | 'se') => {
                   const r = document.createElementNS("http://www.w3.org/2000/svg", "rect");
@@ -850,6 +1042,28 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
               handleEls.push(addHandle(ax + aw, ay + ah, 'se-resize', 'se'));
           }
 
+          if (hitEl) {
+              hitEl.onmousedown = (e) => {
+                  if (toolMode === 'eraser') {
+                      e.stopPropagation();
+                      deleteAnnotation(anno.id);
+                      return;
+                  }
+                  if (toolMode !== 'none') return;
+                  if (e.button !== 0) return;
+                  e.stopPropagation();
+                  engine.current.selectedAnnoId = anno.id;
+                  engine.current.selectedBeatIds.clear();
+                  renderBeats();
+                  renderConnections();
+                  renderText();
+                  engine.current.dragAnnotationId = anno.id;
+                  engine.current.isDragging = true;
+                  engine.current.lastMouseX = e.clientX;
+                  engine.current.lastMouseY = e.clientY;
+              };
+          }
+
           if (el) {
               group.setAttribute("data-type", "annotation");
               group.setAttribute("data-id", anno.id.toString());
@@ -864,21 +1078,45 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
           const fromBeat = engine.current.beats.find(b => b.id === conn.from);
           const toBeat = engine.current.beats.find(b => b.id === conn.to);
           if (fromBeat && toBeat) {
-              const fromX = fromBeat.x + 200; const fromY = fromBeat.y + 30; const toX = toBeat.x; const toY = toBeat.y + 30; 
-              const dist = Math.abs(toX - fromX) * 0.6; const cp1x = fromX + dist; const cp1y = fromY; const cp2x = toX - dist; const cp2y = toY;
+              // Improved Bezier Logic
+              const fromX = fromBeat.x + 200; 
+              const fromY = fromBeat.y + 30; 
+              const toX = toBeat.x; 
+              const toY = toBeat.y + 30; 
+              
+              const dx = Math.abs(toX - fromX);
+              const dy = Math.abs(toY - fromY);
+              
+              // Smooth S-Curve calculation
+              // Adjust control point distance based on horizontal separation
+              const cpDist = Math.max(dx * 0.5, 50); 
+              
+              const cp1x = fromX + cpDist; 
+              const cp1y = fromY; 
+              const cp2x = toX - cpDist; 
+              const cp2y = toY;
+              
               const compColor = engine.current.componentMap[fromBeat.id] || '#555';
               const group = document.createElementNS("http://www.w3.org/2000/svg", "g");
+              
               const hitPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
               hitPath.setAttribute("d", `M ${fromX} ${fromY} C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${toX} ${toY}`);
-              hitPath.setAttribute("stroke", "transparent"); hitPath.setAttribute("stroke-width", "15"); hitPath.setAttribute("fill", "none");
+              hitPath.setAttribute("stroke", "transparent"); 
+              hitPath.setAttribute("stroke-width", "15"); 
+              hitPath.setAttribute("fill", "none");
               // @ts-ignore
-              hitPath.classList.add("connection-hit-path"); hitPath.dataset.index = index; hitPath.style.cursor = "pointer";
+              hitPath.classList.add("connection-hit-path"); 
+              hitPath.dataset.index = index; 
+              hitPath.style.cursor = "pointer";
               group.appendChild(hitPath);
+              
               const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
               path.setAttribute("d", `M ${fromX} ${fromY} C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${toX} ${toY}`);
-              path.classList.add("connection-line"); path.style.stroke = compColor; 
+              path.classList.add("connection-line"); 
+              path.style.stroke = compColor; 
               path.oncontextmenu = (e) => { e.preventDefault(); e.stopPropagation(); showContextMenu(e.clientX, e.clientY, null, index, null, null); };
               group.appendChild(path); 
+              
               const addHandle = (cx: number, cy: number, type: 'source' | 'target') => {
                   const handleGroup = document.createElementNS("http://www.w3.org/2000/svg", "g");
                   const hitCircle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
@@ -922,21 +1160,33 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
           if (engine.current.relinkData && engine.current.relinkData.type === 'source') {
               const targetBeat = engine.current.beats.find(b => b.id === engine.current.relinkData!.fixedBeatId);
               if (targetBeat) {
-                  endX = targetBeat.x; endY = targetBeat.y + 30; startX = engine.current.tempLinkEndX; startY = engine.current.tempLinkEndY; 
-                  const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-                  path.setAttribute("d", `M ${startX} ${startY} L ${endX} ${endY}`);
-                  path.classList.add("connection-line", "temp");
-                  connectionsLayer.appendChild(path);
+                  endX = targetBeat.x; 
+                  endY = targetBeat.y + 30; 
+                  startX = engine.current.tempLinkEndX; 
+                  startY = engine.current.tempLinkEndY; 
               }
           } else {
               const sourceBeat = engine.current.beats.find(b => b.id === engine.current.linkingSourceId);
               if (sourceBeat) {
-                  startX = sourceBeat.x + 200; startY = sourceBeat.y + 30; endX = engine.current.tempLinkEndX; endY = engine.current.tempLinkEndY; 
-                  const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-                  path.setAttribute("d", `M ${startX} ${startY} L ${endX} ${endY}`);
-                  path.classList.add("connection-line", "temp");
-                  connectionsLayer.appendChild(path);
+                  startX = sourceBeat.x + 200; 
+                  startY = sourceBeat.y + 30; 
+                  endX = engine.current.tempLinkEndX; 
+                  endY = engine.current.tempLinkEndY; 
               }
+          }
+
+          if (startX !== undefined && endX !== undefined) {
+              const dx = Math.abs(endX - startX);
+              const cpDist = Math.max(dx * 0.5, 50);
+              const cp1x = startX + cpDist;
+              const cp1y = startY;
+              const cp2x = endX - cpDist;
+              const cp2y = endY;
+
+              const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+              path.setAttribute("d", `M ${startX} ${startY} C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${endX} ${endY}`);
+              path.classList.add("connection-line", "temp");
+              connectionsLayer.appendChild(path);
           }
       }
   };
@@ -1096,32 +1346,61 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
 
   const completeDragLink = (e: MouseEvent) => {
       if (!engine.current.isLinking) return;
-      const targetEl = (e.target as HTMLElement).closest('.beat-card') as HTMLElement;
-      if (engine.current.relinkData?.type === 'source') {
+      
+      const { x: mouseX, y: mouseY } = getSvgPoint(e);
+      let targetId = -1;
+      let minDist = 220; // Snap radius
+
+      engine.current.beats.forEach(b => {
+          const centerX = b.x + 100;
+          const centerY = b.y + 60;
+          const dist = Math.hypot(centerX - mouseX, centerY - mouseY);
+          
+          const insideBox = mouseX >= b.x - 20 && mouseX <= b.x + 220 &&
+                            mouseY >= b.y - 20 && mouseY <= b.y + 140;
+
+          if (insideBox || dist < minDist) {
+              minDist = dist;
+              targetId = b.id;
+          }
+      });
+
+      if (targetId === -1) {
+          const targetEl = (e.target as HTMLElement).closest('.beat-card') as HTMLElement;
           if (targetEl) {
-              const newSourceId = parseInt(targetEl.dataset.id || '-1');
-              const fixedTargetId = engine.current.relinkData.fixedBeatId;
-              if (newSourceId >= 0 && fixedTargetId !== undefined && newSourceId !== fixedTargetId) {
-                  if (!connections.find(c => c.from === newSourceId && c.to === fixedTargetId)) {
-                      setConnections(prev => [...prev, { from: newSourceId, to: fixedTargetId, boardId: activeBoardId }]);
-                  }
+              targetId = parseInt(targetEl.dataset.id || '-1');
+          }
+      }
+
+      if (engine.current.relinkData?.type === 'source') {
+          const fixedTargetId = engine.current.relinkData.fixedBeatId;
+          if (targetId >= 0 && fixedTargetId !== undefined && targetId !== fixedTargetId) {
+              const exists = engine.current.connections.some(c => c.from === targetId && c.to === fixedTargetId && (c.boardId || 0) === activeBoardId);
+              if (!exists) {
+                  const newConn = { from: targetId, to: fixedTargetId, boardId: activeBoardId };
+                  engine.current.connections.push(newConn);
+                  setConnections(prev => [...prev, newConn]);
               }
           }
       } else {
           if (engine.current.linkingSourceId !== null) {
-              if (targetEl) {
-                  const targetId = parseInt(targetEl.dataset.id || '-1');
-                  if (targetId >= 0 && targetId !== engine.current.linkingSourceId) {
-                      if (!connections.find(c => c.from === engine.current.linkingSourceId && c.to === targetId)) {
-                          setConnections(prev => [...prev, { from: engine.current.linkingSourceId!, to: targetId, boardId: activeBoardId }]);
-                      }
+              if (targetId >= 0 && targetId !== engine.current.linkingSourceId) {
+                  const exists = engine.current.connections.some(c => c.from === engine.current.linkingSourceId && c.to === targetId && (c.boardId || 0) === activeBoardId);
+                  if (!exists) {
+                      const newConn = { from: engine.current.linkingSourceId!, to: targetId, boardId: activeBoardId };
+                      engine.current.connections.push(newConn);
+                      setConnections(prev => [...prev, newConn]);
                   }
               }
           }
       }
-      engine.current.isLinking = false; engine.current.linkingSourceId = null; engine.current.relinkData = null;
+      
+      engine.current.isLinking = false; 
+      engine.current.linkingSourceId = null; 
+      engine.current.relinkData = null;
       containerRef.current?.querySelector('#connections-layer')?.classList.remove('linking-mode');
-      renderBeats(); renderConnections();
+      renderBeats(); 
+      renderConnections();
   };
 
   const handleZoom = (direction: 'in' | 'out') => {
@@ -1180,10 +1459,34 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
 
   const onBeatMouseDown = (e: MouseEvent, id: number) => {
       if (toolMode !== 'none' && toolMode !== 'eraser') return;
+      if (e.button === 2) {
+          e.preventDefault();
+          e.stopPropagation();
+          if (!engine.current.selectedBeatIds.has(id)) {
+              engine.current.selectedBeatIds.clear();
+              engine.current.selectedBeatIds.add(id);
+              engine.current.selectedAnnoId = null;
+              renderBeats();
+              renderConnections();
+          }
+          showContextMenu(e.clientX, e.clientY, id, null, null, null);
+          return;
+      }
       if (e.button !== 0) return;
       // @ts-ignore
       if(e.target.classList.contains('beat-title') || e.target.classList.contains('link-handle') || e.target.classList.contains('input-handle-visual') || e.target.classList.contains('seq-badge') || e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
       e.stopPropagation();
+
+      const now = Date.now();
+      if (engine.current.lastClickBeatId === id && now - engine.current.lastClickTime < 350) {
+          onEditBeat(id);
+          engine.current.lastClickBeatId = null;
+          engine.current.lastClickTime = 0;
+          return;
+      }
+      engine.current.lastClickBeatId = id;
+      engine.current.lastClickTime = now;
+
       engine.current.selectedAnnoId = null;
       if (e.ctrlKey || e.metaKey) {
           if (engine.current.selectedBeatIds.has(id)) engine.current.selectedBeatIds.delete(id);
@@ -1257,8 +1560,10 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
   };
 
   const updateTextContent = (id: number, text: string) => {
-      const newAnnos = annotations.map(a => a.id === id ? { ...a, text } : a);
-      setAnnotations(newAnnos);
+      const anno = engine.current.annotations.find(a => a.id === id);
+      if (anno) {
+          anno.text = text;
+      }
   };
 
   const showContextMenu = (clientX: number, clientY: number, beatId: number | null, linkIndex: number | null, groupId: number | null, annotationId: number | null) => {
@@ -1392,6 +1697,714 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
       engine.current.selectedBeatIds.clear(); hideContextMenu();
   };
 
+  const handleAddToSequence = (targetGroupId?: number) => {
+      const selectedIds = Array.from(engine.current.selectedBeatIds);
+      if (selectedIds.length === 0 && ctxMenu?.beatId !== null && ctxMenu?.beatId !== undefined) {
+          selectedIds.push(ctxMenu.beatId);
+      }
+      if (selectedIds.length === 0) return;
+
+      captureSnapshot();
+
+      const boardGroups = groups.filter(g => (g.boardId || 0) === activeBoardId);
+      if (boardGroups.length === 0) {
+          handleCreateGroup();
+          return;
+      }
+
+      let groupToUpdate = boardGroups.find(g => g.id === targetGroupId);
+      if (!groupToUpdate) {
+          if (ctxMenu?.groupId) {
+              groupToUpdate = boardGroups.find(g => g.id === ctxMenu.groupId);
+          } else {
+              const selectedBeats = beats.filter(b => selectedIds.includes(b.id));
+              let avgX = 0, avgY = 0;
+              selectedBeats.forEach(b => { avgX += b.x; avgY += b.y; });
+              if (selectedBeats.length > 0) {
+                  avgX /= selectedBeats.length;
+                  avgY /= selectedBeats.length;
+              }
+
+              let minDist = Infinity;
+              boardGroups.forEach(g => {
+                  const gCenterX = g.x + g.width / 2;
+                  const gCenterY = g.y + g.height / 2;
+                  const dist = Math.hypot(gCenterX - avgX, gCenterY - avgY);
+                  if (dist < minDist) {
+                      minDist = dist;
+                      groupToUpdate = g;
+                  }
+              });
+          }
+      }
+
+      if (!groupToUpdate) return;
+
+      const currentBeatsInGroup = beats.filter(b => {
+          const cx = b.x + 100;
+          const cy = b.y + 60;
+          return cx >= groupToUpdate!.x && cx <= groupToUpdate!.x + groupToUpdate!.width &&
+                 cy >= groupToUpdate!.y && cy <= groupToUpdate!.y + groupToUpdate!.height;
+      });
+
+      const allGroupBeats = Array.from(new Set([...currentBeatsInGroup.map(b => b.id), ...selectedIds]))
+          .map(id => beats.find(b => b.id === id))
+          .filter((b): b is Beat => b !== undefined);
+
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      allGroupBeats.forEach(b => {
+          if (b.x < minX) minX = b.x;
+          if (b.y < minY) minY = b.y;
+          if (b.x + 200 > maxX) maxX = b.x + 200;
+          if (b.y + 120 > maxY) maxY = b.y + 120;
+      });
+
+      const pad = 35;
+      updateGroup(groupToUpdate.id, {
+          x: minX - pad,
+          y: minY - pad - 24,
+          width: (maxX - minX) + (pad * 2),
+          height: (maxY - minY) + (pad * 2) + 24
+      });
+
+      hideContextMenu();
+  };
+
+  const createFilmSketches = (
+    x: number, 
+    y: number, 
+    type: 'camera' | 'character' | 'slate' | 'viewfinder' | 'spotlight', 
+    color: string, 
+    boardId: number, 
+    startId: number
+  ): Annotation[] => {
+    const annos: Annotation[] = [];
+    let id = startId;
+
+    if (type === 'camera') {
+      // Camera body box
+      annos.push({
+        id: id++,
+        type: 'pencil',
+        points: [{ x: x, y: y }, { x: x + 34, y: y }, { x: x + 34, y: y + 22 }, { x: x, y: y + 22 }, { x: x, y: y }],
+        color, strokeWidth: 2, boardId
+      });
+      // Reels
+      annos.push({
+        id: id++,
+        type: 'pencil',
+        points: [{ x: x + 8, y: y - 6 }, { x: x + 14, y: y - 2 }, { x: x + 8, y: y + 2 }, { x: x + 2, y: y - 2 }, { x: x + 8, y: y - 6 }],
+        color, strokeWidth: 1.5, boardId
+      });
+      annos.push({
+        id: id++,
+        type: 'pencil',
+        points: [{ x: x + 24, y: y - 6 }, { x: x + 30, y: y - 2 }, { x: x + 24, y: y + 2 }, { x: x + 18, y: y - 2 }, { x: x + 24, y: y - 6 }],
+        color, strokeWidth: 1.5, boardId
+      });
+      // Lens box & cone
+      annos.push({
+        id: id++,
+        type: 'pencil',
+        points: [{ x: x + 34, y: y + 5 }, { x: x + 48, y: y + 1 }, { x: x + 48, y: y + 21 }, { x: x + 34, y: y + 17 }, { x: x + 34, y: y + 5 }],
+        color, strokeWidth: 2, boardId
+      });
+      // Sight rays
+      annos.push({
+        id: id++,
+        type: 'pencil',
+        points: [{ x: x + 48, y: y + 1 }, { x: x + 72, y: y - 8 }],
+        color, strokeWidth: 1.5, strokeStyle: 'dashed', boardId
+      });
+      annos.push({
+        id: id++,
+        type: 'pencil',
+        points: [{ x: x + 48, y: y + 21 }, { x: x + 72, y: y + 30 }],
+        color, strokeWidth: 1.5, strokeStyle: 'dashed', boardId
+      });
+      // Tripod legs
+      annos.push({
+        id: id++,
+        type: 'pencil',
+        points: [{ x: x + 17, y: y + 22 }, { x: x + 4, y: y + 44 }],
+        color, strokeWidth: 2, boardId
+      });
+      annos.push({
+        id: id++,
+        type: 'pencil',
+        points: [{ x: x + 17, y: y + 22 }, { x: x + 17, y: y + 46 }],
+        color, strokeWidth: 2, boardId
+      });
+      annos.push({
+        id: id++,
+        type: 'pencil',
+        points: [{ x: x + 17, y: y + 22 }, { x: x + 30, y: y + 44 }],
+        color, strokeWidth: 2, boardId
+      });
+    } else if (type === 'character') {
+      // Head
+      annos.push({
+        id: id++,
+        type: 'pencil',
+        points: [{ x: x + 10, y: y }, { x: x + 18, y: y - 8 }, { x: x + 26, y: y }, { x: x + 18, y: y + 8 }, { x: x + 10, y: y }],
+        color, strokeWidth: 2, boardId
+      });
+      // Torso
+      annos.push({
+        id: id++,
+        type: 'pencil',
+        points: [{ x: x + 18, y: y + 8 }, { x: x + 18, y: y + 32 }],
+        color, strokeWidth: 2, boardId
+      });
+      // Arms
+      annos.push({
+        id: id++,
+        type: 'pencil',
+        points: [{ x: x + 4, y: y + 22 }, { x: x + 18, y: y + 16 }, { x: x + 32, y: y + 22 }],
+        color, strokeWidth: 2, boardId
+      });
+      // Legs
+      annos.push({
+        id: id++,
+        type: 'pencil',
+        points: [{ x: x + 18, y: y + 32 }, { x: x + 6, y: y + 52 }],
+        color, strokeWidth: 2, boardId
+      });
+      annos.push({
+        id: id++,
+        type: 'pencil',
+        points: [{ x: x + 18, y: y + 32 }, { x: x + 30, y: y + 52 }],
+        color, strokeWidth: 2, boardId
+      });
+    } else if (type === 'slate') {
+      // Slate board body
+      annos.push({
+        id: id++,
+        type: 'pencil',
+        points: [{ x: x, y: y }, { x: x + 44, y: y }, { x: x + 44, y: y + 28 }, { x: x, y: y + 28 }, { x: x, y: y }],
+        color, strokeWidth: 2, boardId
+      });
+      // Clapper top angled bar
+      annos.push({
+        id: id++,
+        type: 'pencil',
+        points: [{ x: x, y: y }, { x: x + 44, y: y - 12 }, { x: x + 44, y: y - 4 }, { x: x, y: y + 8 }, { x: x, y: y }],
+        color, strokeWidth: 2, boardId
+      });
+      // Diagonal stripes on clapper
+      annos.push({
+        id: id++,
+        type: 'pencil',
+        points: [{ x: x + 10, y: y + 6 }, { x: x + 16, y: y - 8 }],
+        color, strokeWidth: 1.5, boardId
+      });
+      annos.push({
+        id: id++,
+        type: 'pencil',
+        points: [{ x: x + 22, y: y + 4 }, { x: x + 28, y: y - 10 }],
+        color, strokeWidth: 1.5, boardId
+      });
+      annos.push({
+        id: id++,
+        type: 'pencil',
+        points: [{ x: x + 34, y: y + 2 }, { x: x + 40, y: y - 12 }],
+        color, strokeWidth: 1.5, boardId
+      });
+    } else if (type === 'viewfinder') {
+      // Outer 16:9 viewport sketch
+      annos.push({
+        id: id++,
+        type: 'pencil',
+        points: [{ x: x, y: y }, { x: x + 130, y: y }, { x: x + 130, y: y + 75 }, { x: x, y: y + 75 }, { x: x, y: y }],
+        color, strokeWidth: 2, boardId
+      });
+      // Corner brackets
+      annos.push({
+        id: id++,
+        type: 'pencil',
+        points: [{ x: x + 10, y: y + 22 }, { x: x + 10, y: y + 10 }, { x: x + 24, y: y + 10 }],
+        color, strokeWidth: 1.5, boardId
+      });
+      annos.push({
+        id: id++,
+        type: 'pencil',
+        points: [{ x: x + 106, y: y + 10 }, { x: x + 120, y: y + 10 }, { x: x + 120, y: y + 22 }],
+        color, strokeWidth: 1.5, boardId
+      });
+      annos.push({
+        id: id++,
+        type: 'pencil',
+        points: [{ x: x + 10, y: y + 53 }, { x: x + 10, y: y + 65 }, { x: x + 24, y: y + 65 }],
+        color, strokeWidth: 1.5, boardId
+      });
+      annos.push({
+        id: id++,
+        type: 'pencil',
+        points: [{ x: x + 106, y: y + 65 }, { x: x + 120, y: y + 65 }, { x: x + 120, y: y + 53 }],
+        color, strokeWidth: 1.5, boardId
+      });
+      // Center crosshair
+      annos.push({
+        id: id++,
+        type: 'pencil',
+        points: [{ x: x + 60, y: y + 37.5 }, { x: x + 70, y: y + 37.5 }],
+        color, strokeWidth: 1.5, boardId
+      });
+      annos.push({
+        id: id++,
+        type: 'pencil',
+        points: [{ x: x + 65, y: y + 32.5 }, { x: x + 65, y: y + 42.5 }],
+        color, strokeWidth: 1.5, strokeStyle: 'solid', boardId
+      });
+    } else if (type === 'spotlight') {
+      // Lamp housing
+      annos.push({
+        id: id++,
+        type: 'pencil',
+        points: [{ x: x, y: y }, { x: x + 20, y: y - 6 }, { x: x + 20, y: y + 18 }, { x: x, y: y + 12 }, { x: x, y: y }],
+        color, strokeWidth: 2, boardId
+      });
+      // Rays
+      annos.push({
+        id: id++,
+        type: 'pencil',
+        points: [{ x: x + 20, y: y - 6 }, { x: x + 85, y: y - 28 }],
+        color, strokeWidth: 1.5, strokeStyle: 'dashed', boardId
+      });
+      annos.push({
+        id: id++,
+        type: 'pencil',
+        points: [{ x: x + 20, y: y + 6 }, { x: x + 90, y: y + 6 }],
+        color, strokeWidth: 1.5, strokeStyle: 'dashed', boardId
+      });
+      annos.push({
+        id: id++,
+        type: 'pencil',
+        points: [{ x: x + 20, y: y + 18 }, { x: x + 85, y: y + 40 }],
+        color, strokeWidth: 1.5, strokeStyle: 'dashed', boardId
+      });
+    }
+
+    return annos;
+  };
+
+  const handleAIBeautifyBoard = async () => {
+      const boardBeats = beats.filter(b => (b.boardId || 0) === activeBoardId);
+      if (boardBeats.length === 0) {
+          alert("No beats on current board to beautify! Double-click anywhere on the board to create a beat.");
+          return;
+      }
+
+      setIsBeautifying(true);
+      captureSnapshot();
+
+      try {
+          let beatOrderMap: Record<number, { row: number, col: number }> = {};
+          let suggestedGroups: { title: string, beatIds: number[], color: string }[] = [];
+          let suggestedAnnotations: { type: 'bigtext' | 'text' | 'rect' | 'circle' | 'arrow' | 'line' | 'pencil', text?: string, relBeatId?: number, color?: string }[] = [];
+
+          const boardConns = connections.filter(c => (c.boardId || 0) === activeBoardId);
+          const outEdge: Record<number, number[]> = {};
+          const inEdge: Record<number, number[]> = {};
+          boardBeats.forEach(b => { outEdge[b.id] = []; inEdge[b.id] = []; });
+          boardConns.forEach(c => {
+              if (outEdge[c.from]) outEdge[c.from].push(c.to);
+              if (inEdge[c.to]) inEdge[c.to].push(c.from);
+          });
+
+          try {
+              const beatSummaries = boardBeats.map(b => ({
+                  id: b.id,
+                  title: b.title || 'Untitled',
+                  sceneNumber: b.sceneNumber || '',
+                  summary: (b.summary || '').substring(0, 120)
+              }));
+
+              const prompt = `You are a professional Hollywood script doctor, story artist, and creative layout designer. Analyze these screenplay beats and arrange them into a beautifully spaced out, sequence-organized storyboard board layout.
+
+Group related beats into story acts/sequences (e.g. "ACT I: SETUP", "ACT II: CONFRONTATION", "ACT III: CLIMAX").
+Provide script insight annotations (e.g. Act Headings, Theme callouts, Plot turning points).
+Suggest visual sketch annotations using shapes or pen tools (e.g. 'circle' for emotional focal scenes, 'rect' for camera/action framing, 'arrow' for plot momentum).
+
+Return ONLY raw valid JSON:
+{
+  "groups": [ { "title": string, "beatIds": number[], "color": string } ],
+  "positions": [ { "id": number, "row": number, "col": number } ],
+  "annotations": [
+    { "type": "bigtext" | "text" | "rect" | "circle" | "arrow", "text": string, "relBeatId": number, "color": string }
+  ]
+}
+
+Beats: ${JSON.stringify(beatSummaries)}
+Connections: ${JSON.stringify(boardConns.map(c => ({ from: c.from, to: c.to })))}`;
+
+              const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+              const response = await ai.models.generateContent({
+                  model: 'gemini-3-flash-preview',
+                  contents: prompt,
+                  config: { responseMimeType: 'application/json' }
+              });
+
+              const resText = response.text || '{}';
+              const parsed = JSON.parse(resText.replace(/```json/gi, '').replace(/```/g, '').trim());
+
+              if (parsed && Array.isArray(parsed.positions)) {
+                  parsed.positions.forEach((p: any) => {
+                      if (p && typeof p.id === 'number') {
+                          beatOrderMap[p.id] = { row: p.row ?? 0, col: p.col ?? 0 };
+                      }
+                  });
+              }
+              if (parsed && Array.isArray(parsed.groups)) {
+                  suggestedGroups = parsed.groups;
+              }
+              if (parsed && Array.isArray(parsed.annotations)) {
+                  suggestedAnnotations = parsed.annotations;
+              }
+          } catch (geminiErr) {
+              console.warn("AI layout prompt failed, using algorithmic beautification layout:", geminiErr);
+          }
+
+          const visited = new Set<number>();
+          let currentRow = 0;
+          const finalPositions: Record<number, { x: number, y: number }> = {};
+          const startX = 25000;
+          const startY = 25000;
+          const COL_WIDTH = 440;
+          const ROW_HEIGHT = 320;
+
+          const processChain = (rootId: number, rowIdx: number) => {
+              let colIdx = 0;
+              let curr: number | undefined = rootId;
+              while (curr !== undefined && !visited.has(curr)) {
+                  visited.add(curr);
+                  const gPos = beatOrderMap[curr];
+                  const r = gPos?.row ?? rowIdx;
+                  const c = gPos?.col ?? colIdx;
+                  finalPositions[curr] = {
+                      x: startX + c * COL_WIDTH,
+                      y: startY + r * ROW_HEIGHT
+                  };
+                  colIdx++;
+                  const nextCandidates = outEdge[curr]?.filter(id => !visited.has(id)) || [];
+                  curr = nextCandidates[0];
+              }
+          };
+
+          boardBeats.forEach(b => {
+              if ((inEdge[b.id]?.length || 0) === 0 && (outEdge[b.id]?.length || 0) > 0 && !visited.has(b.id)) {
+                  processChain(b.id, currentRow);
+                  currentRow++;
+              }
+          });
+
+          boardBeats.forEach(b => {
+              if ((outEdge[b.id]?.length || 0) > 0 && !visited.has(b.id)) {
+                  processChain(b.id, currentRow);
+                  currentRow++;
+              }
+          });
+
+          let unconnCol = 0;
+          boardBeats.forEach(b => {
+              if (!visited.has(b.id)) {
+                  visited.add(b.id);
+                  const gPos = beatOrderMap[b.id];
+                  const r = gPos?.row ?? currentRow;
+                  const c = gPos?.col ?? unconnCol;
+                  finalPositions[b.id] = {
+                      x: startX + c * COL_WIDTH,
+                      y: startY + r * ROW_HEIGHT
+                  };
+                  unconnCol++;
+              }
+          });
+
+          const updatedBeats = beats.map(b => {
+              if ((b.boardId || 0) === activeBoardId && finalPositions[b.id]) {
+                  return { ...b, x: finalPositions[b.id].x, y: finalPositions[b.id].y };
+              }
+              return b;
+          });
+
+          let newGroupsList = [...groups];
+
+          if (suggestedGroups.length > 0) {
+              newGroupsList = newGroupsList.filter(g => (g.boardId || 0) !== activeBoardId);
+              suggestedGroups.forEach((sg, gIdx) => {
+                  const memberBeats = updatedBeats.filter(b => sg.beatIds.includes(b.id));
+                  if (memberBeats.length > 0) {
+                      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+                      memberBeats.forEach(mb => {
+                          if (mb.x < minX) minX = mb.x;
+                          if (mb.y < minY) minY = mb.y;
+                          if (mb.x + 200 > maxX) maxX = mb.x + 200;
+                          if (mb.y + 120 > maxY) maxY = mb.y + 120;
+                      });
+                      const pad = 45;
+                      newGroupsList.push({
+                          id: Date.now() + gIdx,
+                          title: sg.title || `Sequence ${gIdx + 1}`,
+                          x: minX - pad,
+                          y: minY - pad - 28,
+                          width: (maxX - minX) + (pad * 2),
+                          height: (maxY - minY) + (pad * 2) + 28,
+                          color: ensureVibrantLightColor(sg.color, STORYLINE_COLORS[gIdx % STORYLINE_COLORS.length]),
+                          boardId: activeBoardId
+                      });
+                  }
+              });
+          } else {
+              newGroupsList = newGroupsList.map(g => {
+                  if ((g.boardId || 0) === activeBoardId) {
+                      const enclosed = updatedBeats.filter(b => {
+                          const centerBeatX = b.x + 100;
+                          const centerBeatY = b.y + 60;
+                          return centerBeatX >= g.x - 50 && centerBeatX <= g.x + g.width + 50 &&
+                                 centerBeatY >= g.y - 50 && centerBeatY <= g.y + g.height + 50;
+                      });
+                      if (enclosed.length > 0) {
+                          let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+                          enclosed.forEach(mb => {
+                              if (mb.x < minX) minX = mb.x;
+                              if (mb.y < minY) minY = mb.y;
+                              if (mb.x + 200 > maxX) maxX = mb.x + 200;
+                              if (mb.y + 120 > maxY) maxY = mb.y + 120;
+                          });
+                          const pad = 45;
+                          return {
+                              ...g,
+                              x: minX - pad,
+                              y: minY - pad - 28,
+                              width: (maxX - minX) + (pad * 2),
+                              height: (maxY - minY) + (pad * 2) + 28
+                          };
+                      }
+                  }
+                  return g;
+              });
+          }
+
+          // Create script and drawing annotations on board
+          const newAnnos = annotations.filter(a => (a.boardId || 0) !== activeBoardId);
+          let annoIdCounter = Date.now();
+
+          // 1. Add headers and decorative underline accents for sequence groups
+          const activeGroups = newGroupsList.filter(g => (g.boardId || 0) === activeBoardId);
+          activeGroups.forEach(g => {
+              const vibrantColor = ensureVibrantLightColor(g.color, '#f5a623');
+              // Big text header
+              newAnnos.push({
+                  id: annoIdCounter++,
+                  type: 'bigtext',
+                  text: g.title.toUpperCase(),
+                  x: g.x,
+                  y: g.y - 45,
+                  color: vibrantColor,
+                  boardId: activeBoardId
+              });
+
+              // Underline line annotation right beneath the heading
+              newAnnos.push({
+                  id: annoIdCounter++,
+                  type: 'line',
+                  x: g.x,
+                  y: g.y - 10,
+                  w: Math.min(280, g.width - 20),
+                  h: 0,
+                  color: vibrantColor,
+                  strokeWidth: 3,
+                  boardId: activeBoardId
+              });
+          });
+
+          // 2. Generate smooth Story Arc Pen Drawings (Pencil tool paths) across sequence beats in the top/bottom gap
+          activeGroups.forEach(g => {
+              const groupBeats = updatedBeats.filter(b => {
+                  const cx = b.x + 100; const cy = b.y + 60;
+                  return cx >= g.x && cx <= g.x + g.width && cy >= g.y && cy <= g.y + g.height;
+              });
+
+              if (groupBeats.length >= 2) {
+                  let minX = Math.min(...groupBeats.map(b => b.x)) - 10;
+                  let maxX = Math.max(...groupBeats.map(b => b.x + 200)) + 10;
+                  let topY = Math.min(...groupBeats.map(b => b.y)) - 25;
+                  
+                  // Sine wave story arc curve drawn with Pen tool
+                  const arcPoints: { x: number, y: number }[] = [];
+                  const steps = 24;
+                  for (let s = 0; s <= steps; s++) {
+                      const px = minX + (s / steps) * (maxX - minX);
+                      const py = topY - Math.sin((s / steps) * Math.PI) * 32;
+                      arcPoints.push({ x: px, y: py });
+                  }
+
+                  newAnnos.push({
+                      id: annoIdCounter++,
+                      type: 'pencil',
+                      points: arcPoints,
+                      color: ensureVibrantLightColor(g.color, '#38bdf8'),
+                      strokeWidth: 3,
+                      strokeStyle: 'solid',
+                      boardId: activeBoardId
+                  });
+              }
+
+              // Highlight key scene in sequence with a camera framing box or focal point circle
+              if (groupBeats.length > 0) {
+                  const focalBeat = groupBeats[0];
+                  // Camera / Shot framing box
+                  newAnnos.push({
+                      id: annoIdCounter++,
+                      type: 'rect',
+                      x: focalBeat.x - 12,
+                      y: focalBeat.y - 12,
+                      w: 224,
+                      h: 144,
+                      color: '#f5a623',
+                      strokeWidth: 2,
+                      strokeStyle: 'dashed',
+                      boardId: activeBoardId
+                  });
+
+                  // Add Director Clapper Slate sketch at top left of sequence header
+                  const slateAnnos = createFilmSketches(g.x - 55, g.y - 45, 'slate', ensureVibrantLightColor(g.color, '#f5a623'), activeBoardId, annoIdCounter);
+                  annoIdCounter += slateAnnos.length + 5;
+                  newAnnos.push(...slateAnnos);
+
+                  // Add Camera sketch beside the first beat
+                  const cameraAnnos = createFilmSketches(focalBeat.x - 85, focalBeat.y + 15, 'camera', '#f5a623', activeBoardId, annoIdCounter);
+                  annoIdCounter += cameraAnnos.length + 5;
+                  newAnnos.push(...cameraAnnos);
+
+                  // Add Character blocking sketch beside second beat (or beneath first)
+                  const charX = groupBeats.length > 1 ? groupBeats[1].x - 65 : focalBeat.x + 225;
+                  const charY = groupBeats.length > 1 ? groupBeats[1].y + 15 : focalBeat.y + 10;
+                  const charAnnos = createFilmSketches(charX, charY, 'character', '#38bdf8', activeBoardId, annoIdCounter);
+                  annoIdCounter += charAnnos.length + 5;
+                  newAnnos.push(...charAnnos);
+
+                  // Add Viewfinder sketch on third beat
+                  if (groupBeats.length > 2) {
+                      const b2 = groupBeats[2];
+                      const vfAnnos = createFilmSketches(b2.x + 35, b2.y + 130, 'viewfinder', '#a855f7', activeBoardId, annoIdCounter);
+                      annoIdCounter += vfAnnos.length + 5;
+                      newAnnos.push(...vfAnnos);
+                  } else {
+                      // Add Spotlight beam sketch on first beat bottom right
+                      const spotAnnos = createFilmSketches(focalBeat.x + 220, focalBeat.y + 90, 'spotlight', '#ef4444', activeBoardId, annoIdCounter);
+                      annoIdCounter += spotAnnos.length + 5;
+                      newAnnos.push(...spotAnnos);
+                  }
+              }
+          });
+
+          // 3. Directional Momentum Arrows in the gaps between connected beats
+          boardConns.forEach(conn => {
+              const fromB = updatedBeats.find(b => b.id === conn.from);
+              const toB = updatedBeats.find(b => b.id === conn.to);
+              if (fromB && toB) {
+                  const gap = toB.x - (fromB.x + 200);
+                  // If there is a generous horizontal gap, draw a flow momentum arrow
+                  if (gap >= 120 && Math.abs(fromB.y - toB.y) < 80) {
+                      newAnnos.push({
+                          id: annoIdCounter++,
+                          type: 'arrow',
+                          x: fromB.x + 215,
+                          y: fromB.y + 60,
+                          w: gap - 30,
+                          h: 0,
+                          color: '#a855f7',
+                          strokeWidth: 2,
+                          strokeStyle: 'dashed',
+                          boardId: activeBoardId
+                      });
+                  }
+              }
+          });
+
+          // 4. Add suggested thematic script callouts and visual shape annotations from Gemini
+          suggestedAnnotations.forEach(sa => {
+              const targetBeat = updatedBeats.find(b => b.id === sa.relBeatId);
+              if (targetBeat) {
+                  const color = ensureVibrantLightColor(sa.color, '#38bdf8');
+                  if (sa.type === 'circle') {
+                      newAnnos.push({
+                          id: annoIdCounter++,
+                          type: 'circle',
+                          cx: targetBeat.x + 100,
+                          cy: targetBeat.y + 60,
+                          rx: 130,
+                          ry: 90,
+                          color: color,
+                          strokeWidth: 2,
+                          strokeStyle: 'dashed',
+                          boardId: activeBoardId
+                      });
+                  } else if (sa.type === 'rect') {
+                      newAnnos.push({
+                          id: annoIdCounter++,
+                          type: 'rect',
+                          x: targetBeat.x - 16,
+                          y: targetBeat.y - 16,
+                          w: 232,
+                          h: 152,
+                          color: color,
+                          strokeWidth: 2,
+                          strokeStyle: 'solid',
+                          boardId: activeBoardId
+                      });
+                  } else if (sa.type === 'arrow') {
+                      newAnnos.push({
+                          id: annoIdCounter++,
+                          type: 'arrow',
+                          x: targetBeat.x + 210,
+                          y: targetBeat.y + 60,
+                          w: 160,
+                          h: 0,
+                          color: color,
+                          strokeWidth: 2.5,
+                          boardId: activeBoardId
+                      });
+                  } else {
+                      // Text insight annotation
+                      newAnnos.push({
+                          id: annoIdCounter++,
+                          type: sa.type === 'bigtext' ? 'bigtext' : 'text',
+                          text: sa.text || 'Script Callout',
+                          x: targetBeat.x,
+                          y: targetBeat.y + 135,
+                          color: color,
+                          boardId: activeBoardId
+                      });
+                  }
+              }
+          });
+
+          setBeats(updatedBeats);
+          setGroups(newGroupsList);
+          setAnnotations(newAnnos);
+          engine.current.beats = updatedBeats;
+          engine.current.groups = newGroupsList;
+          engine.current.annotations = newAnnos;
+
+          renderBeats();
+          renderGroups();
+          renderConnections();
+          renderText();
+          renderMinimap();
+
+          setTimeout(() => {
+              handleFitView();
+          }, 100);
+
+      } catch (err) {
+          console.error("AI Beautify Board Error:", err);
+      } finally {
+          setIsBeautifying(false);
+      }
+  };
+
   const getStatusAction = () => {
       if (ctxMenu?.beatId === null && engine.current.selectedBeatIds.size === 0) return null;
       const targets = engine.current.selectedBeatIds.size > 0 ? Array.from(engine.current.selectedBeatIds) : (ctxMenu?.beatId !== null && ctxMenu?.beatId !== undefined ? [ctxMenu.beatId] : []);
@@ -1467,488 +2480,662 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
           hideContextMenu();
           if (toolMode === 'eraser' && e.button === 0) {
               e.preventDefault();
-              if (eraserCursorRef.current) eraserCursorRef.current.style.display = 'none'; 
-              const hitTarget = document.elementFromPoint(e.clientX, e.clientY);
-              if (eraserCursorRef.current) eraserCursorRef.current.style.display = ''; 
-              if (hitTarget) {
-                  // @ts-ignore
-                  const g = hitTarget.closest('g[data-type="annotation"]'); const tc = hitTarget.closest('.text-annotation-card');
-                  if (g) { const id = parseInt(g.getAttribute('data-id') || '0'); if (id) deleteAnnotation(id); } 
-                  else if (tc) { const id = parseInt((tc as HTMLElement).dataset.id || '0'); if (id) deleteAnnotation(id); }
+              if (eraserCursorRef.current) {
+                  eraserCursorRef.current.style.left = `${e.clientX}px`;
+                  eraserCursorRef.current.style.top = `${e.clientY}px`;
+              }
+              const { x, y } = getSvgPoint(e);
+              // Delete annotation near cursor
+              const targetAnno = engine.current.annotations.find(a => {
+                  if (a.x !== undefined && a.y !== undefined) {
+                      const dist = Math.hypot(a.x - x, a.y - y);
+                      return dist < 30;
+                  }
+                  return false;
+              });
+              if (targetAnno) {
+                  deleteAnnotation(targetAnno.id);
               }
               return;
           }
-          if ((toolMode === 'text' || toolMode === 'bigtext') && e.button === 0) {
-              e.preventDefault(); const { x, y } = getSvgPoint(e);
-              captureSnapshot(); const isBig = toolMode === 'bigtext'; const newId = Date.now();
-              const newAnno: any = { id: newId, type: 'text', x, y, text: '', color: drawColor, fontSize: isBig ? 72 : 16, boardId: activeBoardId };
-              setAnnotations([...annotations, newAnno]);
-              setEditingAnnoId(newId); setToolMode('none'); return;
-          }
-          if (toolMode !== 'none' && toolMode !== 'eraser' && e.button === 0) {
-              e.preventDefault(); const { x, y } = getSvgPoint(e);
-              engine.current.isDrawing = true; engine.current.drawStart = { x, y }; engine.current.currentPoints = [{x, y}]; engine.current.currentAnnoId = Date.now();
-              captureSnapshot(); 
-              const newAnno: any = { id: engine.current.currentAnnoId, type: toolMode, color: drawColor, x: x, y: y, w: 0, h: 0, d: toolMode === 'pencil' ? `M ${x} ${y} L ${x+0.1} ${y+0.1}` : undefined, strokeWidth: strokeWidth, strokeStyle: strokeStyle, boardId: activeBoardId };
-              if (toolMode === 'circle') { newAnno.cx = x; newAnno.cy = y; newAnno.rx = 0; }
-              setAnnotations([...annotations, newAnno]); return;
-          }
-          if (e.button === 0 || e.button === 1) {
-              if (toolMode === 'eraser') return; 
-              engine.current.isPanning = true; engine.current.lastMouseX = e.clientX; engine.current.lastMouseY = e.clientY;
-              container.style.cursor = 'grabbing'; minimapContainerRef.current?.classList.add('active'); 
-              if (!e.ctrlKey && !e.metaKey && !e.shiftKey) { 
-                engine.current.selectedBeatIds.clear(); 
-                engine.current.selectedAnnoId = null; 
-                if (engine.current.creationState) engine.current.creationState = null; 
-                renderBeats();
-                renderConnections();
-              }
-          } 
-          else if (e.button === 2) {
-              engine.current.isLassoing = true; engine.current.hasLassoMoved = false; engine.current.lassoStart = { x: e.clientX, y: e.clientY };
-              const lasso = document.getElementById('selection-lasso');
-              if (lasso) { lasso.style.display = 'block'; lasso.style.left = e.clientX + 'px'; lasso.style.top = e.clientY + 'px'; lasso.style.width = '0px'; lasso.style.height = '0px'; }
+
+          if (toolMode === 'text' || toolMode === 'bigtext') {
+              if (e.button !== 0) return;
+              e.preventDefault();
+              const { x, y } = getSvgPoint(e);
+              const newAnno: Annotation = {
+                  id: Date.now() + Math.random(),
+                  type: toolMode === 'bigtext' ? 'bigtext' : 'text',
+                  x,
+                  y,
+                  text: toolMode === 'bigtext' ? 'HEADING' : 'Note text...',
+                  color: drawColor,
+                  boardId: activeBoardId
+              };
+              captureSnapshot();
+              setAnnotations(prev => [...prev, newAnno]);
+              setEditingAnnoId(newAnno.id);
+              setToolMode('none');
               return;
+          }
+
+          if (toolMode !== 'none') {
+              if (e.button !== 0) return;
+              e.preventDefault();
+              const { x, y } = getSvgPoint(e);
+              const newAnnoId = Date.now() + Math.random();
+              engine.current.isDrawing = true;
+              engine.current.drawStart = { x, y };
+              engine.current.currentAnnoId = newAnnoId;
+              engine.current.currentPoints = [{ x, y }];
+
+              const newAnno: Annotation = {
+                  id: newAnnoId,
+                  type: toolMode,
+                  x,
+                  y,
+                  w: 0,
+                  h: 0,
+                  points: [{ x, y }],
+                  color: drawColor,
+                  strokeWidth,
+                  strokeStyle,
+                  boardId: activeBoardId
+              };
+              captureSnapshot();
+              setAnnotations(prev => [...prev, newAnno]);
+              return;
+          }
+
+          if (e.button === 0 && (toolMode === 'none' || e.shiftKey)) {
+              if (e.shiftKey || (!target.closest('.beat-card') && !target.closest('.group-header') && !target.closest('.text-annotation-card'))) {
+                  engine.current.isLassoing = true;
+                  engine.current.hasLassoMoved = false;
+                  engine.current.lassoStart = { x: e.clientX, y: e.clientY };
+                  const lasso = container.querySelector('#selection-lasso') as HTMLElement;
+                  if (lasso) {
+                      lasso.style.left = `${e.clientX}px`;
+                      lasso.style.top = `${e.clientY}px`;
+                      lasso.style.width = '0px';
+                      lasso.style.height = '0px';
+                      lasso.style.display = 'block';
+                  }
+              }
+          } else if (e.button === 1 || (e.button === 0 && toolMode === 'none')) {
+              engine.current.isPanning = true;
+              engine.current.lastMouseX = e.clientX;
+              engine.current.lastMouseY = e.clientY;
           }
       };
 
       const handleMouseMove = (e: MouseEvent) => {
-          if (toolMode === 'eraser' && eraserCursorRef.current) {
-              eraserCursorRef.current.style.left = e.clientX + 'px'; eraserCursorRef.current.style.top = e.clientY + 'px';
+          if (eraserCursorRef.current && toolMode === 'eraser') {
+              eraserCursorRef.current.style.left = `${e.clientX}px`;
+              eraserCursorRef.current.style.top = `${e.clientY}px`;
               if (e.buttons === 1) {
-                  eraserCursorRef.current.style.display = 'none';
-                  const target = document.elementFromPoint(e.clientX, e.clientY);
-                  eraserCursorRef.current.style.display = ''; 
-                  if (target) {
-                      // @ts-ignore
-                      const g = target.closest('g[data-type="annotation"]'); const tc = target.closest('.text-annotation-card');
-                      if (g) { const id = parseInt(g.getAttribute('data-id') || '0'); if (id) deleteAnnotation(id); } 
-                      else if (tc) { const id = parseInt((tc as HTMLElement).dataset.id || '0'); if (id) deleteAnnotation(id); }
+                  const { x, y } = getSvgPoint(e);
+                  const targetAnno = engine.current.annotations.find(a => {
+                      const ax = a.x !== undefined ? a.x : (a.cx !== undefined ? a.cx : 0);
+                      const ay = a.y !== undefined ? a.y : (a.cy !== undefined ? a.cy : 0);
+                      return Math.hypot(ax - x, ay - y) < 40;
+                  });
+                  if (targetAnno) {
+                      deleteAnnotation(targetAnno.id);
                   }
               }
           }
-          if (engine.current.isScrubbing && engine.current.scrubBeatId !== null) {
-              const deltaX = (e.clientX - engine.current.scrubStartX) / 5;
-              let newVal = Math.round(engine.current.scrubStartVal + deltaX);
-              newVal = Math.max(1, Math.min(80, newVal));
-              const badge = document.getElementById(`badge-${engine.current.scrubBeatId}`);
-              if (badge) badge.innerText = newVal.toString();
-              setScrubbingData(prev => prev ? { ...prev, currentVal: newVal } : null);
-              return;
-          }
+
           if (engine.current.isDrawing && engine.current.currentAnnoId) {
-              const { x, y } = getSvgPoint(e); const anno = annotations.find(a => a.id === engine.current.currentAnnoId);
-              if (anno) {
-                  if (toolMode === 'pencil') {
-                      const lastP = engine.current.currentPoints[engine.current.currentPoints.length - 1];
-                      if (lastP && Math.hypot(x - lastP.x, y - lastP.y) > 3) {
-                          engine.current.currentPoints.push({x, y}); anno.d = getSmoothedPath(engine.current.currentPoints);
-                          const pathEl = container.querySelector(`[data-id="${anno.id}"] .annotation-path`) as SVGPathElement; if(pathEl) pathEl.setAttribute('d', anno.d);
-                          const hitEl = container.querySelector(`[data-id="${anno.id}"] .annotation-hit-area`) as SVGPathElement; if(hitEl) hitEl.setAttribute('d', anno.d);
-                      }
-                  } else if (toolMode === 'rect') {
-                      const sX = engine.current.drawStart.x, sY = engine.current.drawStart.y;
-                      anno.x = Math.min(sX, x); anno.y = Math.min(sY, y); anno.w = Math.abs(x - sX); anno.h = Math.abs(y - sY);
-                      const g = container.querySelector(`[data-id="${anno.id}"]`) as SVGGElement;
-                      if(g) g.querySelectorAll('rect').forEach(re => { re.setAttribute('x', anno.x!.toString()); re.setAttribute('y', anno.y!.toString()); re.setAttribute('width', anno.w!.toString()); re.setAttribute('height', anno.h!.toString()); });
-                  } else if (toolMode === 'circle') {
-                      const r = Math.sqrt(Math.pow(x - engine.current.drawStart.x, 2) + Math.pow(y - engine.current.drawStart.y, 2)); anno.rx = r;
-                      const g = container.querySelector(`[data-id="${anno.id}"]`) as SVGGElement; if (g) g.querySelectorAll('circle').forEach(ce => ce.setAttribute('r', r.toString()));
-                  } else if (toolMode === 'line' || toolMode === 'arrow') {
-                      anno.w = x - engine.current.drawStart.x; anno.h = y - engine.current.drawStart.y;
-                      const g = container.querySelector(`[data-id="${anno.id}"]`) as SVGGElement; if(g) g.querySelectorAll('line').forEach(le => { le.setAttribute('x2', x.toString()); le.setAttribute('y2', y.toString()); });
-                  }
+              const { x, y } = getSvgPoint(e);
+              if (toolMode === 'pencil') {
+                  engine.current.currentPoints.push({ x, y });
+                  setAnnotations(prev => prev.map(a => a.id === engine.current.currentAnnoId ? { ...a, points: [...engine.current.currentPoints] } : a));
+              } else {
+                  const startX = engine.current.drawStart.x;
+                  const startY = engine.current.drawStart.y;
+                  const w = x - startX;
+                  const h = y - startY;
+                  setAnnotations(prev => prev.map(a => a.id === engine.current.currentAnnoId ? { ...a, x: startX, y: startY, w, h } : a));
               }
-              return;
-          }
-          if (engine.current.isLinking) { updateTempLinkPos(e); return; }
-          if (engine.current.isLassoing) {
-              engine.current.hasLassoMoved = true;
-              const w = Math.abs(e.clientX - engine.current.lassoStart.x), h = Math.abs(e.clientY - engine.current.lassoStart.y);
-              const l = Math.min(e.clientX, engine.current.lassoStart.x), t = Math.min(e.clientY, engine.current.lassoStart.y);
-              const lasso = document.getElementById('selection-lasso'); if (lasso) { lasso.style.left = l + 'px'; lasso.style.top = t + 'px'; lasso.style.width = w + 'px'; lasso.style.height = h + 'px'; }
-              return;
-          }
-          if (engine.current.isPanning) {
-              const dx = e.clientX - engine.current.lastMouseX, dy = e.clientY - engine.current.lastMouseY;
-              engine.current.panX += dx; engine.current.panY += dy; engine.current.lastMouseX = e.clientX; engine.current.lastMouseY = e.clientY;
-              renderCanvas();
           } else if (engine.current.isDragging) {
               const dx = (e.clientX - engine.current.lastMouseX) / engine.current.scale;
               const dy = (e.clientY - engine.current.lastMouseY) / engine.current.scale;
-              if (engine.current.imageResizeTarget !== null) {
-                  const target = engine.current.imageResizeTarget; 
-                  const anno = engine.current.annotations.find(a => a.id === target.id);
-                  if (anno) {
-                      const deltaX = (e.clientX - target.startMouseX) / engine.current.scale;
-                      let nX = target.startX, nY = target.startY, nW = target.startW, nH = target.startW / target.aspectRatio, ratio = target.aspectRatio;
-                      if (target.corner === 'se') { nW = Math.max(50, target.startW + deltaX); nH = nW / ratio; } 
-                      else if (target.corner === 'sw') { nW = Math.max(50, target.startW - deltaX); nH = nW / ratio; nX = target.startX + (target.startW - nW); } 
-                      else if (target.corner === 'ne') { nW = Math.max(50, target.startW + deltaX); nH = nW / ratio; nY = target.startY - (nH - target.startH); } 
-                      else if (target.corner === 'nw') { nW = Math.max(50, target.startW - deltaX); nH = nW / ratio; nX = target.startX + (target.startW - nW); nY = target.startY - (nH - target.startH); }
-                      anno.x = nX; anno.y = nY; anno.w = nW; anno.h = nH; renderConnections(); 
+              engine.current.lastMouseX = e.clientX;
+              engine.current.lastMouseY = e.clientY;
+
+              if (engine.current.dragTarget !== null) {
+                  const targets = engine.current.selectedBeatIds.has(engine.current.dragTarget)
+                      ? engine.current.selectedBeatIds
+                      : new Set([engine.current.dragTarget]);
+                  engine.current.beats.forEach(b => {
+                      if (targets.has(b.id)) {
+                          b.x += dx;
+                          b.y += dy;
+                      }
+                  });
+                  renderBeats();
+                  renderConnections();
+                  renderMinimap();
+              } else if (engine.current.dragGroupTarget !== null) {
+                  const group = engine.current.groups.find(g => g.id === engine.current.dragGroupTarget);
+                  if (group) {
+                      group.x += dx;
+                      group.y += dy;
+                      engine.current.beats.forEach(b => {
+                          if (engine.current.selectedBeatIds.has(b.id) || engine.current.dragGroupChildIds.has(b.id)) {
+                              b.x += dx;
+                              b.y += dy;
+                          }
+                      });
+                      engine.current.groups.forEach(g => {
+                          if (engine.current.dragGroupChildIds.has(g.id)) {
+                              g.x += dx;
+                              g.y += dy;
+                          }
+                      });
+                      renderGroups();
+                      renderBeats();
+                      renderConnections();
+                      renderMinimap();
+                  }
+              } else if (engine.current.groupResizeTarget !== null) {
+                  const group = engine.current.groups.find(g => g.id === engine.current.groupResizeTarget);
+                  if (group) {
+                      group.width = Math.max(120, group.width + dx);
+                      group.height = Math.max(80, group.height + dy);
+                      renderGroups();
+                      renderMinimap();
                   }
               } else if (engine.current.dragAnnotationId !== null) {
                   const anno = engine.current.annotations.find(a => a.id === engine.current.dragAnnotationId);
                   if (anno) {
-                      anno.x = (anno.x || 0) + dx;
-                      anno.y = (anno.y || 0) + dy;
-                      if (anno.type === 'text') {
-                          const el = document.querySelector(`.text-annotation-card[data-id="${anno.id}"]`) as HTMLElement;
-                          if (el) { el.style.left = `${anno.x}px`; el.style.top = `${anno.y}px`; }
-                      } else { renderConnections(); }
+                      if (anno.x !== undefined) anno.x += dx;
+                      if (anno.y !== undefined) anno.y += dy;
+                      if (anno.cx !== undefined) anno.cx += dx;
+                      if (anno.cy !== undefined) anno.cy += dy;
+                      if (anno.points && anno.points.length > 0) {
+                          anno.points.forEach(p => { p.x += dx; p.y += dy; });
+                      }
+                      renderConnections();
+                      renderText();
                   }
-              } else if (engine.current.dragGroupTarget !== null) {
-                  const group = engine.current.groups.find(g => g.id === engine.current.dragGroupTarget);
-                  if (group) { group.x += dx; group.y += dy; }
-                  engine.current.dragGroupChildIds.forEach(cid => { const g = engine.current.groups.find(x => x.id === cid); if(g) { g.x += dx; g.y += dy; } });
-                  engine.current.selectedBeatIds.forEach(bid => {
-                      const b = engine.current.beats.find(x => x.id === bid);
-                      if(b) { b.x += dx; b.y += dy; const c = container.querySelector(`.beat-card[data-id="${b.id}"]`) as HTMLElement; if (c) { c.style.left = `${b.x}px`; c.style.top = `${b.y}px`; } }
-                  });
-                  renderGroups(); renderConnections(); renderMinimap(); 
-              } else if (engine.current.groupResizeTarget !== null) {
-                  const group = engine.current.groups.find(g => g.id === engine.current.groupResizeTarget);
-                  if (group) { group.width = Math.max(100, group.width + dx); group.height = Math.max(50, group.height + dy); renderGroups(); renderMinimap(); }
-              } else if (engine.current.dragTarget !== null) {
-                  engine.current.selectedBeatIds.forEach(id => {
-                      const beat = engine.current.beats.find(b => b.id === id);
-                      if (beat) { beat.x += dx; beat.y += dy; const c = container.querySelector(`.beat-card[data-id="${beat.id}"]`) as HTMLElement; if (c) { c.style.left = `${beat.x}px`; c.style.top = `${beat.y}px`; } }
-                  });
-                  renderConnections(); renderMinimap(); 
+              } else if (engine.current.imageResizeTarget !== null) {
+                  const target = engine.current.imageResizeTarget;
+                  const anno = engine.current.annotations.find(a => a.id === target.id);
+                  if (anno) {
+                      const mouseDx = (e.clientX - target.startMouseX) / engine.current.scale;
+                      const mouseDy = (e.clientY - target.startMouseY) / engine.current.scale;
+                      let newW = target.startW;
+                      let newH = target.startH;
+                      let newX = target.startX;
+                      let newY = target.startY;
+
+                      if (target.corner === 'se') {
+                          newW = Math.max(40, target.startW + mouseDx);
+                          newH = Math.max(30, target.startH + mouseDy);
+                      } else if (target.corner === 'sw') {
+                          newW = Math.max(40, target.startW - mouseDx);
+                          newX = target.startX + (target.startW - newW);
+                          newH = Math.max(30, target.startH + mouseDy);
+                      } else if (target.corner === 'ne') {
+                          newW = Math.max(40, target.startW + mouseDx);
+                          newH = Math.max(30, target.startH - mouseDy);
+                          newY = target.startY + (target.startH - newH);
+                      } else if (target.corner === 'nw') {
+                          newW = Math.max(40, target.startW - mouseDx);
+                          newX = target.startX + (target.startW - newW);
+                          newH = Math.max(30, target.startH - mouseDy);
+                          newY = target.startY + (target.startH - newH);
+                      }
+                      anno.x = newX;
+                      anno.y = newY;
+                      anno.w = newW;
+                      anno.h = newH;
+                      renderConnections();
+                  }
+              } else if (engine.current.isScrubbing && engine.current.scrubBeatId !== null) {
+                  const deltaX = e.clientX - engine.current.scrubStartX;
+                  const step = Math.round(deltaX / 15);
+                  const newVal = Math.max(1, engine.current.scrubStartVal + step);
+                  setScrubbingData(prev => prev ? { ...prev, currentVal: newVal } : null);
               }
-              engine.current.lastMouseX = e.clientX; engine.current.lastMouseY = e.clientY;
+          } else if (engine.current.isPanning) {
+              const dx = e.clientX - engine.current.lastMouseX;
+              const dy = e.clientY - engine.current.lastMouseY;
+              engine.current.lastMouseX = e.clientX;
+              engine.current.lastMouseY = e.clientY;
+              const newPanX = engine.current.panX + dx;
+              const newPanY = engine.current.panY + dy;
+              setPan(newPanX, newPanY);
+          } else if (engine.current.isLassoing) {
+              const dx = Math.abs(e.clientX - engine.current.lassoStart.x);
+              const dy = Math.abs(e.clientY - engine.current.lassoStart.y);
+              if (dx > 5 || dy > 5) engine.current.hasLassoMoved = true;
+              const left = Math.min(e.clientX, engine.current.lassoStart.x);
+              const top = Math.min(e.clientY, engine.current.lassoStart.y);
+              const width = Math.abs(e.clientX - engine.current.lassoStart.x);
+              const height = Math.abs(e.clientY - engine.current.lassoStart.y);
+              const lasso = container.querySelector('#selection-lasso') as HTMLElement;
+              if (lasso) {
+                  lasso.style.left = `${left}px`;
+                  lasso.style.top = `${top}px`;
+                  lasso.style.width = `${width}px`;
+                  lasso.style.height = `${height}px`;
+              }
+          } else if (engine.current.isLinking) {
+              updateTempLinkPos(e);
           }
       };
 
       const handleMouseUp = (e: MouseEvent) => {
-          if (engine.current.isScrubbing && engine.current.scrubBeatId !== null) {
-              const deltaX = (e.clientX - engine.current.scrubStartX) / 5;
-              let newVal = Math.round(engine.current.scrubStartVal + deltaX);
-              newVal = Math.max(1, Math.min(80, newVal));
-              updateBeat(engine.current.scrubBeatId, { sceneNumber: newVal.toString() });
-              engine.current.isScrubbing = false;
-              engine.current.scrubBeatId = null;
-              setScrubbingData(null);
-              renderBeats();
-              return;
-          }
-          if (engine.current.isDrawing) { engine.current.isDrawing = false; engine.current.currentPoints = []; setAnnotations([...annotations]); return; }
-          if (engine.current.isLinking) completeDragLink(e);
-          if (engine.current.isLassoing) {
-              const lasso = document.getElementById('selection-lasso');
-              if (lasso) {
-                  lasso.style.display = 'none';
-                  const rect = { left: parseInt(lasso.style.left), top: parseInt(lasso.style.top), width: parseInt(lasso.style.width), height: parseInt(lasso.style.height) };
-                  if (rect.width > 5 || rect.height > 5) {
-                      if (!e.ctrlKey && !e.shiftKey) { engine.current.selectedBeatIds.clear(); engine.current.selectedAnnoId = null; }
-                      container.querySelectorAll('.beat-card').forEach(card => {
-                          const cRect = card.getBoundingClientRect();
-                          if (cRect.left < rect.left + rect.width && cRect.left + cRect.width > rect.left && cRect.top < rect.top + rect.height && cRect.top + cRect.height > rect.top) {
-                              // @ts-ignore
-                              engine.current.selectedBeatIds.add(parseInt(card.dataset.id));
-                          }
-                      });
-                      renderBeats();
-                      renderConnections();
-                  }
-              }
-              engine.current.isLassoing = false;
-          }
-          if (engine.current.isPanning) { 
-              engine.current.isPanning = false; 
-              container.style.cursor = toolMode !== 'none' ? (toolMode === 'eraser' ? 'none' : 'crosshair') : 'grab'; 
-              setPan(engine.current.panX, engine.current.panY); 
-              minimapContainerRef.current?.classList.add('active'); 
-          }
           if (engine.current.isDragging) {
               engine.current.isDragging = false;
-              const updatedBeats = beats.map(b => {
-                const local = engine.current.beats.find(x => x.id === b.id);
-                return local ? { ...b, x: local.x, y: local.y } : b;
-              });
-              const updatedGroups = groups.map(g => {
-                const local = engine.current.groups.find(x => x.id === g.id);
-                return local ? { ...g, x: local.x, y: local.y, width: local.width, height: local.height } : g;
-              });
-              const updatedAnnos = annotations.map(a => {
-                const local = engine.current.annotations.find(x => x.id === a.id);
-                return local ? { ...a, x: local.x, y: local.y, w: local.w, h: local.h, rx: local.rx } : a;
-              });
-              if (engine.current.dragGroupTarget !== null || engine.current.groupResizeTarget !== null || engine.current.dragTarget !== null) {
-                setBeats(updatedBeats);
-                setGroups(updatedGroups);
+              minimapContainerRef.current?.classList.remove('active');
+
+              if (engine.current.dragTarget !== null) {
+                  captureSnapshot();
+                  setBeats(JSON.parse(JSON.stringify(engine.current.beats)));
+                  engine.current.dragTarget = null;
+              }
+              if (engine.current.dragGroupTarget !== null || engine.current.groupResizeTarget !== null) {
+                  captureSnapshot();
+                  setGroups(JSON.parse(JSON.stringify(engine.current.groups)));
+                  setBeats(JSON.parse(JSON.stringify(engine.current.beats)));
+                  engine.current.dragGroupTarget = null;
+                  engine.current.groupResizeTarget = null;
+                  engine.current.dragGroupChildIds.clear();
               }
               if (engine.current.dragAnnotationId !== null || engine.current.imageResizeTarget !== null) {
-                setAnnotations(updatedAnnos);
+                  captureSnapshot();
+                  setAnnotations(JSON.parse(JSON.stringify(engine.current.annotations)));
+                  engine.current.dragAnnotationId = null;
+                  engine.current.imageResizeTarget = null;
               }
-              engine.current.dragGroupTarget = null; 
-              engine.current.dragGroupChildIds.clear(); 
-              engine.current.groupResizeTarget = null; 
-              engine.current.dragTarget = null;
-              engine.current.dragAnnotationId = null;
-              engine.current.imageResizeTarget = null;
-              minimapContainerRef.current?.classList.remove('active'); 
+              if (engine.current.isScrubbing && engine.current.scrubBeatId !== null) {
+                  if (scrubbingData) {
+                      updateBeat(engine.current.scrubBeatId, { sceneNumber: scrubbingData.currentVal.toString() });
+                  }
+                  engine.current.isScrubbing = false;
+                  engine.current.scrubBeatId = null;
+                  setScrubbingData(null);
+              }
           }
-      };
-
-      const handleWheel = (e: WheelEvent) => {
-          if (e.ctrlKey || e.metaKey) {
-              e.preventDefault(); const zoomSensitivity = 0.001; const delta = -e.deltaY * zoomSensitivity;
-              const oldScale = engine.current.scale; let newScale = Math.max(0.1, Math.min(3, oldScale + delta));
-              if (newScale === oldScale) return;
-              const rect = container.getBoundingClientRect(); const mouseX = e.clientX - rect.left; const mouseY = e.clientY - rect.top;
-              const worldX = (mouseX - engine.current.panX) / oldScale; const worldY = (mouseY - engine.current.panY) / oldScale;
-              const newPanX = mouseX - (worldX * newScale); const newPanY = mouseY - (worldY * newScale);
-              engine.current.scale = newScale; engine.current.panX = newPanX; engine.current.panY = newPanY;
-              renderCanvas(); renderMinimap();
-              if (zoomTimeoutRef.current) clearTimeout(zoomTimeoutRef.current);
-              zoomTimeoutRef.current = setTimeout(() => { setScale(newScale); setPan(newPanX, newPanY); }, 100);
+          if (engine.current.isDrawing) {
+              engine.current.isDrawing = false;
+              engine.current.currentAnnoId = null;
+              captureSnapshot();
+              setAnnotations(JSON.parse(JSON.stringify(engine.current.annotations)));
           }
-      };
+          if (engine.current.isPanning) {
+              engine.current.isPanning = false;
+          }
+          if (engine.current.isLinking) {
+              completeDragLink(e);
+          }
+          if (engine.current.isLassoing) {
+              engine.current.isLassoing = false;
+              const lasso = container.querySelector('#selection-lasso') as HTMLElement;
+              if (lasso) lasso.style.display = 'none';
+              if (engine.current.hasLassoMoved) {
+                  const lLeft = parseFloat(lasso?.style.left || '0');
+                  const lTop = parseFloat(lasso?.style.top || '0');
+                  const lW = parseFloat(lasso?.style.width || '0');
+                  const lH = parseFloat(lasso?.style.height || '0');
+                  const containerRect = container.getBoundingClientRect();
+                  
+                  if (!e.shiftKey) engine.current.selectedBeatIds.clear();
 
-      const handleDblClick = (e: MouseEvent) => {
-          if (toolMode !== 'none') return;
-          // @ts-ignore
-          if (e.target === container.querySelector('#viewport') || e.target === container.querySelector('#canvas-surface')) {
-              const rect = container.getBoundingClientRect();
-              const worldX = (e.clientX - rect.left - engine.current.panX) / engine.current.scale;
-              const worldY = (e.clientY - rect.top - engine.current.panY) / engine.current.scale;
-              const newId = addBeat(worldX - 120, worldY - 20);
-              engine.current.creationState = { id: newId, step: 'title' };
+                  engine.current.beats.forEach(b => {
+                      const screenX = containerRect.left + engine.current.panX + (b.x * engine.current.scale);
+                      const screenY = containerRect.top + engine.current.panY + (b.y * engine.current.scale);
+                      const screenW = 200 * engine.current.scale;
+                      const screenH = 120 * engine.current.scale;
+
+                      if (screenX + screenW >= lLeft && screenX <= lLeft + lW &&
+                          screenY + screenH >= lTop && screenY <= lTop + lH) {
+                          engine.current.selectedBeatIds.add(b.id);
+                      }
+                  });
+                  renderBeats();
+                  renderConnections();
+              } else if (!e.shiftKey) {
+                  engine.current.selectedBeatIds.clear();
+                  engine.current.selectedAnnoId = null;
+                  renderBeats();
+                  renderConnections();
+                  renderText();
+              }
           }
       };
 
       const handleContextMenu = (e: MouseEvent) => {
           e.preventDefault();
-          if (engine.current.hasLassoMoved) { engine.current.hasLassoMoved = false; return; }
-          // @ts-ignore
-          const gh = e.target.closest('.group-header'); const bc = e.target.closest('.beat-card'); const ag = e.target.closest('g[data-type="annotation"]');
-          if (bc) {
-              // @ts-ignore
-              const id = parseInt(bc.dataset.id);
-              if (!engine.current.selectedBeatIds.has(id)) { engine.current.selectedBeatIds.clear(); engine.current.selectedBeatIds.add(id); engine.current.selectedAnnoId = null; renderBeats(); renderConnections(); }
-              showContextMenu(e.clientX, e.clientY, id, null, null, null);
-          } else if (gh) {
-              // @ts-ignore
-              const groupId = parseInt(gh.parentElement.dataset.id);
-              showContextMenu(e.clientX, e.clientY, null, null, groupId, null);
-          } else if (ag) {
-              // @ts-ignore
-              const annoId = parseInt(ag.getAttribute('data-id'));
-              engine.current.selectedAnnoId = annoId;
+          const target = e.target as HTMLElement;
+          if (target.closest('.zoom-controls') || target.closest('.drawing-toolbar-container') || target.closest('#context-menu') || target.closest('.board-switcher') || target.closest('.scrub-timeline-container')) return;
+
+          const beatCard = target.closest('.beat-card') as HTMLElement;
+          if (beatCard) {
+              const beatId = parseInt(beatCard.dataset.id || '-1');
+              if (beatId >= 0) {
+                  if (!engine.current.selectedBeatIds.has(beatId)) {
+                      engine.current.selectedBeatIds.clear();
+                      engine.current.selectedBeatIds.add(beatId);
+                      renderBeats();
+                      renderConnections();
+                  }
+                  showContextMenu(e.clientX, e.clientY, beatId, null, null, null);
+                  return;
+              }
+          }
+
+          const groupContainer = target.closest('.group-container') as HTMLElement;
+          if (groupContainer) {
+              const groupId = parseInt(groupContainer.dataset.id || '-1');
+              if (groupId >= 0) {
+                  showContextMenu(e.clientX, e.clientY, null, null, groupId, null);
+                  return;
+              }
+          }
+
+          showContextMenu(e.clientX, e.clientY, null, null, null, null);
+      };
+
+      const handleKeyDown = (e: KeyboardEvent) => {
+          const activeEl = document.activeElement;
+          if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.getAttribute('contenteditable') === 'true')) {
+              return;
+          }
+
+          if (e.key === 'Enter') {
+              if (engine.current.selectedBeatIds.size > 0) {
+                  const selectedId = Array.from(engine.current.selectedBeatIds)[0];
+                  e.preventDefault();
+                  onEditBeat(selectedId);
+              }
+          } else if (e.key === 'Delete' || e.key === 'Backspace') {
+              if (engine.current.selectedBeatIds.size > 0 || engine.current.selectedAnnoId !== null) {
+                  e.preventDefault();
+                  handleDelete();
+              }
+          } else if (e.key === 'Escape') {
+              hideContextMenu();
+          }
+      };
+
+      const handleDblClick = (e: MouseEvent) => {
+          const target = e.target as HTMLElement;
+          if (target.closest('.zoom-controls') || target.closest('.drawing-toolbar-container') || target.closest('#context-menu') || target.closest('#fix-menu') || target.closest('.board-switcher') || target.closest('.scrub-timeline-container')) return;
+          if (target.closest('.beat-card') || target.closest('.group-container') || target.closest('.text-annotation-card') || target.closest('.annotation-hit-area')) return;
+          if (toolMode !== 'none') return;
+
+          e.preventDefault();
+          e.stopPropagation();
+          const { x, y } = getSvgPoint(e);
+          captureSnapshot();
+          const newBeatId = addBeat(x - 100, y - 60);
+          if (newBeatId !== undefined && newBeatId !== null) {
               engine.current.selectedBeatIds.clear();
+              engine.current.selectedBeatIds.add(newBeatId);
+              engine.current.selectedAnnoId = null;
+              engine.current.creationState = { id: newBeatId, step: 'title' };
               renderBeats();
               renderConnections();
-              showContextMenu(e.clientX, e.clientY, null, null, null, annoId);
-          } else {
-              showContextMenu(e.clientX, e.clientY, null, null, null, null);
           }
       };
 
-      const handleGlobalKeyDown = (e: KeyboardEvent) => {
-          const activeTag = document.activeElement?.tagName;
-          const isTyping = activeTag === 'INPUT' || activeTag === 'TEXTAREA' || (document.activeElement as HTMLElement)?.isContentEditable;
-          if (!engine.current.creationState && !isTyping) {
-              if (e.key === 'Enter' && engine.current.selectedBeatIds.size === 1) { if (toolMode === 'text') return; e.preventDefault(); onEditBeat(Array.from(engine.current.selectedBeatIds)[0]); }
-              if (e.key === 'Delete' || e.key === 'Backspace') { if (engine.current.selectedBeatIds.size > 0 || engine.current.selectedAnnoId !== null) { e.preventDefault(); handleDelete(); } }
-              if ((e.ctrlKey || e.metaKey) && e.key === 'd') {
-                e.preventDefault();
-                handleDuplicate();
-              }
-              if ((e.ctrlKey || e.metaKey) && e.key === 'c') {
-                e.preventDefault();
-                handleCopy();
-              }
-          }
-      };
-
-      container.addEventListener('mousedown', handleMouseDown); window.addEventListener('mousemove', handleMouseMove); window.addEventListener('mouseup', handleMouseUp);
-      container.addEventListener('dblclick', handleDblClick); container.addEventListener('contextmenu', handleContextMenu); window.addEventListener('keydown', handleGlobalKeyDown);
-      container.addEventListener('wheel', handleWheel, { passive: false });
-      container.addEventListener('dragenter', handleDragEnter); container.addEventListener('dragover', handleDragEnter); container.addEventListener('dragleave', handleDragLeave); container.addEventListener('drop', handleDrop);
-
+      container.addEventListener('mousedown', handleMouseDown);
+      container.addEventListener('dblclick', handleDblClick);
+      container.addEventListener('contextmenu', handleContextMenu);
+      window.addEventListener('mousemove', handleMouseMove);
+      window.addEventListener('mouseup', handleMouseUp);
+      window.addEventListener('keydown', handleKeyDown);
       return () => {
-          container.removeEventListener('mousedown', handleMouseDown); window.removeEventListener('mousemove', handleMouseMove); window.removeEventListener('mouseup', handleMouseUp);
-          container.removeEventListener('dblclick', handleDblClick); container.removeEventListener('contextmenu', handleContextMenu); window.removeEventListener('keydown', handleGlobalKeyDown);
-          container.removeEventListener('wheel', handleWheel);
-          container.removeEventListener('dragenter', handleDragEnter); container.removeEventListener('dragover', handleDragEnter); container.removeEventListener('dragleave', handleDragLeave); container.removeEventListener('drop', handleDrop);
+          container.removeEventListener('mousedown', handleMouseDown);
+          container.removeEventListener('dblclick', handleDblClick);
+          container.removeEventListener('contextmenu', handleContextMenu);
+          window.removeEventListener('mousemove', handleMouseMove);
+          window.removeEventListener('mouseup', handleMouseUp);
+          window.removeEventListener('keydown', handleKeyDown);
       };
-  }, [setPan, setBeats, addBeat, beats, connections, groups, toolMode, drawColor, strokeWidth, strokeStyle, editingAnnoId, handleDragEnter, handleDragLeave, handleDrop, activeBoardId, annotations, clipboard]); 
-
-  const setToolModeSafe = (mode: any) => { setToolMode(mode); };
+  }, [toolMode, editingAnnoId, drawColor, strokeWidth, strokeStyle, activeBoardId, setPan, captureSnapshot, setAnnotations, setBeats, setGroups, updateBeat, scrubbingData, onEditBeat]);
 
   return (
-    <div className={`board-wrapper tool-${toolMode} ${isPageTransitioning ? 'is-transitioning' : ''}`} ref={containerRef} onClick={hideContextMenu} tabIndex={-1}>
+    <div 
+      ref={containerRef} 
+      className={`board-wrapper tool-${toolMode} ${isPageTransitioning ? 'is-transitioning' : ''}`}
+      onDragEnter={handleDragEnter}
+      onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
       <style>{styles}</style>
-      
-      <div className="zoom-controls">
-          <button onClick={() => handleZoom('in')}>+</button>
-          <button onClick={handleFitView}>Fit</button>
-          <button onClick={() => handleZoom('out')}>−</button>
-      </div>
 
-      <div ref={eraserCursorRef} className="eraser-cursor"></div>
-
-      {scrubbingData && (
-          <div className="scrub-timeline-container" style={{ left: scrubbingData.x, top: scrubbingData.y }}>
-              <div className="scrub-label">SCENE {scrubbingData.currentVal}</div>
-              <div className="scrub-sub">Horizontal drag to renumber</div>
-              <div className="scrub-track">
-                  {scrubbingData.existingNums.map(num => (
-                      <div 
-                        key={num} 
-                        className={`scrub-notch ${num === scrubbingData.currentVal ? 'filled' : ''}`}
-                        style={{ left: `${((num - 1) / 79) * 100}%` }}
-                      />
-                  ))}
-                  <div className="scrub-indicator" style={{ left: `${((scrubbingData.currentVal - 1) / 79) * 100}%` }} />
-              </div>
+      {/* Drag Over Overlay */}
+      {isDragOver && (
+        <div className="absolute inset-0 bg-accent/10 border-2 border-dashed border-accent z-[3000] pointer-events-none flex items-center justify-center backdrop-blur-sm">
+          <div className="bg-black/80 px-6 py-4 rounded-xl border border-accent/40 text-accent font-bold flex items-center gap-3 shadow-2xl">
+            <Sparkles className="animate-spin" size={20} />
+            <span>Drop PDF or Image to Import</span>
           </div>
+        </div>
       )}
 
-      <div className="drawing-toolbar-container">
-          {isToolbarOpen && (
-              <div className="toolbar-panel">
-                  <div className="tool-row">
-                      <button className={`tool-btn ${toolMode === 'none' ? 'active' : ''}`} onClick={() => setToolModeSafe('none')} title="Select (V)"><MousePointer2 size={16} /></button>
-                      <button className={`tool-btn ${toolMode === 'text' ? 'active' : ''}`} onClick={() => setToolModeSafe('text')} title="Label (T)"><Type size={16} /></button>
-                      <button className={`tool-btn ${toolMode === 'bigtext' ? 'active' : ''}`} onClick={() => setToolModeSafe('bigtext')} title="Big Heading"><Heading size={16} /></button>
-                      <button className={`tool-btn danger ${toolMode === 'eraser' ? 'active' : ''}`} onClick={() => setToolModeSafe('eraser')} title="Eraser (E)"><Eraser size={16} /></button>
-                  </div>
-                  <div className="tool-divider" />
-                  <div className="tool-row">
-                      <button className={`tool-btn ${toolMode === 'pencil' ? 'active' : ''}`} onClick={() => setToolModeSafe('pencil')} title="Freehand (P)"><Pen size={16} /></button>
-                      <button className={`tool-btn ${toolMode === 'line' ? 'active' : ''}`} onClick={() => setToolModeSafe('line')} title="Line (L)"><Minus size={16} /></button>
-                      <button className={`tool-btn ${toolMode === 'arrow' ? 'active' : ''}`} onClick={() => setToolModeSafe('arrow')} title="Arrow (A)"><ArrowRight size={16} /></button>
-                      <button className={`tool-btn ${toolMode === 'rect' ? 'active' : ''}`} onClick={() => setToolModeSafe('rect')} title="Rectangle (R)"><Square size={16} /></button>
-                      <button className={`tool-btn ${toolMode === 'circle' ? 'active' : ''}`} onClick={() => setToolModeSafe('circle')} title="Circle (C)"><Circle size={16} /></button>
-                  </div>
-                  <div className="tool-divider" />
-                  <div className="tool-row" style={{ padding: '0 4px', gap: '8px' }}>
-                      <input type="range" min="1" max="20" value={strokeWidth} onChange={(e) => setStrokeWidth(parseInt(e.target.value))} className="w-16 h-1 bg-[#333] rounded-lg appearance-none cursor-pointer accent-[#f5a623]" title={`Width: ${strokeWidth}px`} />
-                      <div className="flex bg-[#111] rounded border border-[#333] p-0.5">
-                          <button onClick={() => setStrokeStyle('solid')} className={`w-6 h-6 rounded flex items-center justify-center ${strokeStyle === 'solid' ? 'bg-[#f5a623] text-black' : 'text-[#666] hover:text-white'}`} title="Solid Line"><Minus size={14} /></button>
-                          <button onClick={() => setStrokeStyle('dashed')} className={`w-6 h-6 rounded flex items-center justify-center ${strokeStyle === 'dashed' ? 'bg-[#f5a623] text-black' : 'text-[#666] hover:text-white'}`} title="Dashed Line"><GripHorizontal size={14} /></button>
-                      </div>
-                  </div>
-                  <div className="tool-divider" />
-                  <div className="tool-row" style={{justifyContent: 'space-between'}}>
-                      {ANNOTATION_COLORS.map(c => (<div key={c} className={`color-dot-btn ${drawColor === c ? 'active' : ''}`} onClick={() => setDrawColor(c)} title={c}><div className="color-dot-inner" style={{backgroundColor: c}}></div></div>))}
-                  </div>
-                  <div className="tool-divider" />
-                  <button className="tool-btn danger w-full" onClick={handleClearAll} title="Clear All Annotations"><Trash2 size={16} /></button>
-              </div>
-          )}
-          <button className={`toolbar-toggle ${isToolbarOpen ? 'active' : ''}`} onClick={() => setIsToolbarOpen(!isToolbarOpen)} title="Annotation Tools">{isToolbarOpen ? <X size={20} /> : <PenTool size={20} />}</button>
-      </div>
+      {/* Importing Loader Overlay */}
+      {(isImporting || isEnhancing) && (
+        <div className="absolute inset-0 bg-black/80 z-[3000] flex flex-col items-center justify-center gap-4 backdrop-blur-md">
+          <Loader2 className="animate-spin text-accent" size={40} />
+          <p className="text-white font-bold text-sm tracking-wider uppercase">
+            {isEnhancing ? 'AI Screenplay Parsing...' : 'Reading File...'}
+          </p>
+        </div>
+      )}
 
       <div id="viewport">
-          <div id="canvas-surface">
-              <div id="groups-layer"></div>
-              <svg id="connections-layer"></svg>
-              <svg id="annotations-layer"></svg>
-              <div id="text-layer">
-                  {annotations.filter(a => a.type === 'text' && (a.boardId || 0) === activeBoardId).map(anno => (
-                      <div key={anno.id} className={`text-annotation-card ${editingAnnoId === anno.id ? 'editing' : ''} ${engine.current.selectedAnnoId === anno.id ? 'ring-2 ring-[#f5a623]' : ''}`} data-id={anno.id} style={{ left: anno.x, top: anno.y, color: anno.color, fontSize: `${anno.fontSize || 16}px`, fontWeight: (anno.fontSize && anno.fontSize > 40) ? '900' : 'bold' }} onMouseDown={(e) => handleTextMouseDown(e, anno.id)} onDoubleClick={(e) => handleTextDoubleClick(e, anno.id)}>
-                          {editingAnnoId === anno.id ? (
-                              <textarea className="text-annotation-input" value={anno.text || ''} onChange={(e) => updateTextContent(anno.id, e.target.value)} onBlur={() => setEditingAnnoId(null)} autoFocus style={{ color: anno.color }} onMouseDown={(e) => e.stopPropagation()} />
-                          ) : (
-                              <div className="text-annotation-display">{anno.text || 'Double click to edit'}</div>
-                          )}
-                      </div>
-                  ))}
-              </div>
-              <div id="beats-layer"></div>
-          </div>
+        <div id="canvas-surface">
+          {boardLayerOrder.map(layer => {
+            if (layer === 'annotations') return <svg key="annotations" id="annotations-layer" className="w-full h-full" />;
+            if (layer === 'text') return <div key="text" id="text-layer" className="w-full h-full" />;
+            if (layer === 'connections') return <svg key="connections" id="connections-layer" className="w-full h-full" />;
+            if (layer === 'groups') return <div key="groups" id="groups-layer" className="w-full h-full" />;
+            if (layer === 'beats') return <div key="beats" id="beats-layer" className="w-full h-full" />;
+            return null;
+          })}
+        </div>
       </div>
 
-      <div className="board-switcher">
-          {[0, 1, 2].map(id => (
-            <button 
-              key={id}
-              onClick={() => setActiveBoardId(id)}
-              className={`board-tab ${activeBoardId === id ? 'active' : ''}`}
-            >
-              <Layers size={11} />
-              Page {id + 1}
-            </button>
-          ))}
-      </div>
+      <div id="selection-lasso" />
+      <div ref={eraserCursorRef} className="eraser-cursor" />
 
+      {/* Minimap */}
       <div ref={minimapContainerRef} className="minimap-container">
-          <canvas ref={minimapRef} className="minimap-canvas" />
+        <canvas ref={minimapRef} className="minimap-canvas" />
       </div>
 
-      <div id="selection-lasso"></div>
+      {/* Drawing Toolbar */}
+      <div className="drawing-toolbar-container">
+        <button 
+          className={`toolbar-toggle ${isToolbarOpen ? 'active' : ''}`}
+          onClick={() => setIsToolbarOpen(!isToolbarOpen)}
+          title="Drawing Tools"
+        >
+          <PenTool size={20} />
+        </button>
 
-      {fixMenu && (
-          <div id="fix-menu" className="fixed bg-[#1a1a1a] border border-[#ef4444] rounded-lg shadow-2xl p-3 z-[2000] animate-in fade-in zoom-in duration-150 flex flex-col gap-2 w-48" style={{ left: fixMenu.x, top: fixMenu.y }} onMouseDown={(e) => e.stopPropagation()}>
-              <div className="flex items-center gap-2 text-[#ef4444] border-b border-red-900/50 pb-2 mb-1"><AlertTriangle size={14} /><span className="text-[10px] font-bold uppercase tracking-wider">Duplicate Scene {fixMenu.currentNum}</span></div>
-              <div className="text-[10px] text-gray-400 mb-1">Quick Fix (Auto-Renumber):</div>
-              <div className="grid grid-cols-2 gap-2">
-                  {fixMenu.suggestions.map(s => (<button key={s} onClick={() => applyFix(fixMenu.beatId, s)} className="bg-[#222] hover:bg-[#333] border border-[#333] hover:border-[#f5a623] text-white py-1.5 rounded text-xs font-bold transition-all flex items-center justify-center gap-1 group">{s} <ArrowRight size={10} className="opacity-0 group-hover:opacity-100 -ml-2 group-hover:ml-0 transition-all"/></button>))}
-              </div>
-              <div className="relative mt-1">
-                  <input placeholder="Custom..." className="w-full bg-[#111] border border-[#333] rounded px-2 py-1 text-xs text-white outline-none focus:border-[#f5a623]" onKeyDown={(e) => { if (e.key === 'Enter') applyFix(fixMenu.beatId, (e.target as HTMLInputElement).value); }} />
-                  <div className="absolute right-2 top-1.5 pointer-events-none"><span className="text-[9px] text-gray-600 font-bold">↵</span></div>
-              </div>
+        {isToolbarOpen && (
+          <div className="toolbar-panel">
+            <div className="tool-row">
+              <button className={`tool-btn ${toolMode === 'none' ? 'active' : ''}`} onClick={() => setToolMode('none')} title="Select / Pan"><MousePointer2 size={16} /></button>
+              <button className={`tool-btn ${toolMode === 'pencil' ? 'active' : ''}`} onClick={() => setToolMode('pencil')} title="Pencil"><Pen size={16} /></button>
+              <button className={`tool-btn ${toolMode === 'rect' ? 'active' : ''}`} onClick={() => setToolMode('rect')} title="Rectangle"><Square size={16} /></button>
+              <button className={`tool-btn ${toolMode === 'circle' ? 'active' : ''}`} onClick={() => setToolMode('circle')} title="Circle"><Circle size={16} /></button>
+              <button className={`tool-btn ${toolMode === 'line' ? 'active' : ''}`} onClick={() => setToolMode('line')} title="Line"><Minus size={16} /></button>
+              <button className={`tool-btn ${toolMode === 'arrow' ? 'active' : ''}`} onClick={() => setToolMode('arrow')} title="Arrow"><ArrowRight size={16} /></button>
+              <button className={`tool-btn ${toolMode === 'text' ? 'active' : ''}`} onClick={() => setToolMode('text')} title="Text Note"><Type size={16} /></button>
+              <button className={`tool-btn ${toolMode === 'bigtext' ? 'active' : ''}`} onClick={() => setToolMode('bigtext')} title="Heading Text"><Heading size={16} /></button>
+              <button className={`tool-btn ${toolMode === 'eraser' ? 'active' : ''}`} onClick={() => setToolMode('eraser')} title="Eraser"><Eraser size={16} /></button>
+              <button className="tool-btn danger" onClick={handleClearAll} title="Clear Drawings"><Trash2 size={16} /></button>
+            </div>
+
+            <div className="tool-divider" />
+
+            {/* Colors */}
+            <div className="tool-row">
+              {ANNOTATION_COLORS.map(c => (
+                <div 
+                  key={c} 
+                  className={`color-dot-btn ${drawColor === c ? 'active' : ''}`}
+                  onClick={() => setDrawColor(c)}
+                >
+                  <div className="color-dot-inner" style={{ backgroundColor: c }} />
+                </div>
+              ))}
+            </div>
           </div>
+        )}
+      </div>
+
+      {/* Board Switcher */}
+      <div className="board-switcher">
+        {[0, 1, 2, 3].map(boardIdx => (
+          <button
+            key={boardIdx}
+            className={`board-tab ${activeBoardId === boardIdx ? 'active' : ''}`}
+            onClick={() => setActiveBoardId(boardIdx)}
+          >
+            <Layers size={10} />
+            Board {boardIdx + 1}
+          </button>
+        ))}
+      </div>
+
+      {/* Zoom & AI Controls */}
+      <div className="zoom-controls">
+        <button 
+          onClick={handleAIBeautifyBoard}
+          disabled={isBeautifying}
+          className="w-9 h-9 !p-0 flex items-center justify-center bg-gradient-to-r from-purple-900/90 via-indigo-900/90 to-slate-900/90 hover:from-purple-800 hover:to-indigo-800 text-purple-200 border border-purple-500/50 hover:border-purple-400 rounded transition-all shadow-[0_0_12px_rgba(168,85,247,0.3)] group backdrop-blur-md"
+          title="AI Beautify Board: Automatically organize, sequence, annotate, and clean up board layout"
+        >
+          {isBeautifying ? (
+            <Loader2 size={16} className="animate-spin text-purple-300" />
+          ) : (
+            <Sparkles size={16} className="text-purple-300 group-hover:scale-125 transition-transform duration-300 fill-purple-300/20" />
+          )}
+        </button>
+        <button 
+          onClick={autoGenerate5Scenes}
+          className="w-9 h-9 !p-0 flex items-center justify-center bg-gradient-to-r from-[#2a1b40] to-[#150d24] hover:from-[#3b245a] hover:to-[#281845] text-[#f5a623] border border-[#f5a623]/40 hover:border-[#f5a623] rounded transition-all shadow-[0_0_10px_rgba(245,166,35,0.2)] group"
+          title="Auto-fill Board with 5 Act Scenes, Drawings & Screenplay"
+        >
+          <Zap size={16} className="text-[#f5a623] fill-[#f5a623]/30 group-hover:scale-110 transition-transform duration-300" />
+        </button>
+        <button onClick={() => handleZoom('in')} title="Zoom In"><ZoomIn size={16} /></button>
+        <button onClick={() => handleZoom('out')} title="Zoom Out"><ZoomOut size={16} /></button>
+        <button onClick={handleFitView} title="Fit All"><Maximize size={16} /></button>
+      </div>
+
+      {/* Context Menu */}
+      {ctxMenu && (
+        <div 
+          id="context-menu" 
+          style={{ left: ctxMenu.x, top: ctxMenu.y, display: 'block' }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {ctxMenu.beatId !== null && ctxMenu.beatId !== undefined && (
+            <>
+              <div className="ctx-item" onClick={() => onEditBeat(ctxMenu.beatId!)}>
+                <FileText size={14} /> Open Editor
+              </div>
+              <div className="ctx-item" onClick={handleDuplicate}>
+                <CopyPlus size={14} /> Duplicate Beat
+              </div>
+              <div className="ctx-item" onClick={handleCopy}>
+                <Copy size={14} /> Copy Beat
+              </div>
+              {statusAction && (
+                <div className="ctx-item" style={{ color: statusAction.color }} onClick={() => handleStatus(statusAction.status)}>
+                  <Sparkles size={14} /> {statusAction.label}
+                </div>
+              )}
+              <div className="ctx-divider" />
+              <div className="ctx-label">Colors</div>
+              <div className="color-row">
+                {STORYLINE_COLORS.map(c => (
+                  <div key={c} className="color-dot" style={{ backgroundColor: c }} onClick={() => handleColor(c, 'chain')} />
+                ))}
+              </div>
+              <div className="ctx-divider" />
+            </>
+          )}
+
+          {ctxMenu.groupId !== null && ctxMenu.groupId !== undefined && (
+            <>
+              <div className="ctx-label">Group Color</div>
+              <div className="color-row">
+                {STORYLINE_COLORS.map(c => (
+                  <div key={c} className="color-dot" style={{ backgroundColor: c }} onClick={() => handleColor(c, 'group')} />
+                ))}
+              </div>
+              <div className="ctx-divider" />
+            </>
+          )}
+
+          {clipboard.length > 0 && ctxMenu.beatId === null && ctxMenu.groupId === null && (
+            <div className="ctx-item" onClick={handlePaste}>
+              <ClipboardPaste size={14} /> Paste Beat(s)
+            </div>
+          )}
+
+          {/* Board empty click item */}
+          {ctxMenu.beatId === null && ctxMenu.groupId === null && (
+            <div className="ctx-item" onClick={() => {
+              const newBeatId = addBeat(ctxMenu.worldX - 100, ctxMenu.worldY - 60);
+              if (newBeatId !== undefined && newBeatId !== null) {
+                engine.current.selectedBeatIds.clear();
+                engine.current.selectedBeatIds.add(newBeatId);
+                renderBeats();
+                renderConnections();
+              }
+              hideContextMenu();
+            }}>
+              <Plus size={14} /> Create New Beat Here
+            </div>
+          )}
+
+          {/* Sequence options when beats are selected */}
+          {engine.current.selectedBeatIds.size > 0 && (
+            <>
+              <div className="ctx-item" onClick={handleCreateGroup}>
+                <Layers size={14} /> Create Sequence (Group)
+              </div>
+              <div className="ctx-item" onClick={() => handleAddToSequence()}>
+                <PlusCircle size={14} /> Add to Sequence
+              </div>
+              <div className="ctx-divider" />
+            </>
+          )}
+
+          <div className="ctx-item text-red-400" onClick={handleDelete}>
+            <Trash2 size={14} /> Delete
+          </div>
+        </div>
       )}
 
-      {ctxMenu && (
-          <div id="context-menu" style={{ display: 'block', left: ctxMenu.x, top: ctxMenu.y }} onMouseDown={(e) => e.stopPropagation()} >
-              {ctxMenu.groupId !== null ? (
-                  <>
-                    <div className="ctx-label">Sequence Color</div>
-                    <div className="color-row">
-                        {STORYLINE_COLORS.slice(0,5).map(c => (<div key={c} className="color-dot" style={{background: c}} onClick={() => handleColor(c, 'group')}></div>))}
-                    </div>
-                    <div className="ctx-divider"></div>
-                    <div className="ctx-item" style={{color: '#ff6b6b'}} onClick={handleDelete}>Ungroup Sequence</div>
-                  </>
-              ) : ctxMenu.beatId !== null ? (
-                  <>
-                    <div className="ctx-label">Standard Actions</div>
-                    <div className="ctx-item" onClick={handleCopy}><Copy size={14} /> <span className="ml-2">Copy</span></div>
-                    <div className="ctx-item" onClick={handleDuplicate}><RotateCw size={14} /> <span className="ml-2">Duplicate</span></div>
-                    
-                    <div className="ctx-divider"></div>
-                    <div className="ctx-label">Status</div>
-                    {statusAction && (<div className="ctx-item" onClick={() => handleStatus(statusAction.status)}><span style={{color: statusAction.color, fontWeight: 'bold'}}>●</span> {statusAction.label}</div>)}
-                    {engine.current.selectedBeatIds.size > 1 && (
-                        <>
-                            <div className="ctx-divider"></div>
-                            <div className="ctx-item" onClick={handleCreateGroup}>Create Sequence</div>
-                        </>
-                    )}
-                    <div className="ctx-divider"></div>
-                    <div className="ctx-label">Chain Color</div>
-                    <div className="color-row">
-                        {STORYLINE_COLORS.slice(0,5).map(c => (<div key={c} className="color-dot" style={{background: c}} onClick={() => handleColor(c, 'chain')}></div>))}
-                    </div>
-                    <div className="ctx-divider"></div>
-                    <div className="ctx-label">Card Tint</div>
-                    <div className="color-row">
-                        {['#2d2d2d', '#2c3e50', '#3e2723', '#1b5e20', '#4a148c'].map(c => (<div key={c} className="color-dot" style={{background: c}} onClick={() => handleColor(c, 'tint')}></div>))}
-                    </div>
-                    <div className="ctx-divider"></div>
-                    <div className="ctx-item" style={{color: '#ff6b6b', fontWeight: 'bold'}} onClick={handleDelete}><Trash2 size={14} /> <span className="ml-2">Delete</span></div>
-                  </>
-              ) : ctxMenu.annotationId !== null ? (
-                  <>
-                    <div className="ctx-item" style={{color: '#ff6b6b', fontWeight: 'bold'}} onClick={handleDelete}><Trash2 size={14} /> <span className="ml-2">Delete Item</span></div>
-                  </>
-              ) : (
-                <>
-                  <div className="ctx-label">Board Actions</div>
-                  <div className={`ctx-item ${clipboard.length === 0 ? 'opacity-30 cursor-not-allowed' : ''}`} onClick={handlePaste}>
-                    <ClipboardPaste size={14} /> <span className="ml-2">Paste</span>
-                  </div>
-                </>
-              )}
+      {/* Scrub Timeline Indicator */}
+      {scrubbingData && (
+        <div 
+          className="scrub-timeline-container"
+          style={{ left: scrubbingData.x, top: scrubbingData.y - 20 }}
+        >
+          <div className="scrub-label">Scene #{scrubbingData.currentVal}</div>
+          <div className="scrub-track">
+            <div 
+              className="scrub-indicator"
+              style={{ left: `${Math.min(100, Math.max(0, (scrubbingData.currentVal / 50) * 100))}%` }}
+            />
           </div>
+          <div className="scrub-sub">Drag left/right to resequence</div>
+        </div>
       )}
     </div>
   );

@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useProject } from '../context/ProjectContext';
 import { PrintSettings, TextStyleConfig, Beat, Shot, CharacterData } from '../types';
@@ -249,6 +250,9 @@ const PrintPreviewModal: React.FC<PrintPreviewModalProps> = ({ onClose }) => {
   const handleDownloadPDF = async () => {
     setIsExporting(true);
     try {
+      // 1. Wait for fonts to fully load to prevent "random" text rendering
+      await document.fonts.ready;
+
       const pdf = new jsPDF({
         orientation: 'portrait',
         unit: 'in',
@@ -259,19 +263,23 @@ const PrintPreviewModal: React.FC<PrintPreviewModalProps> = ({ onClose }) => {
       const pageW_in = isLetter ? 8.5 : 8.27;
       const pageH_in = isLetter ? 11 : 11.69;
       
+      // Exact pixel dimensions for 96 DPI
       const pixelWidth = isLetter ? 816 : 794; 
       const pixelHeight = isLetter ? 1056 : 1123;
 
-      const renderContainer = document.createElement('div');
-      renderContainer.style.position = 'fixed';
-      renderContainer.style.top = '0';
-      renderContainer.style.left = '0';
-      renderContainer.style.zIndex = '-9999';
-      renderContainer.style.width = `${pixelWidth}px`;
-      renderContainer.style.height = `${pixelHeight}px`;
-      renderContainer.style.overflow = 'hidden';
-      renderContainer.style.backgroundColor = '#ffffff';
-      document.body.appendChild(renderContainer);
+      // 2. Create an isolated container attached to body (zIndex -9999)
+      // This ensures styles are applied but user doesn't see flickering
+      const captureContainer = document.createElement('div');
+      captureContainer.style.position = 'absolute';
+      captureContainer.style.top = '0';
+      captureContainer.style.left = '0';
+      captureContainer.style.width = `${pixelWidth}px`;
+      captureContainer.style.zIndex = '-9999';
+      captureContainer.style.backgroundColor = '#ffffff';
+      // Reset any inherited text styles that might interfere
+      captureContainer.style.textAlign = 'left';
+      captureContainer.style.color = '#000';
+      document.body.appendChild(captureContainer);
 
       const sourceElements = Array.from(document.querySelectorAll('.bible-page')) as HTMLElement[];
 
@@ -279,28 +287,40 @@ const PrintPreviewModal: React.FC<PrintPreviewModalProps> = ({ onClose }) => {
           const original = sourceElements[i];
           const clone = original.cloneNode(true) as HTMLElement;
           
+          // 3. Reset clone styles to ensure perfect A4/Letter box without scroll/shadows
           clone.style.transform = 'none';
           clone.style.margin = '0';
+          clone.style.padding = '0';
           clone.style.boxShadow = 'none';
-          clone.style.marginBottom = '0';
-          clone.style.width = '100%'; 
-          clone.style.height = '100%';
-          clone.style.position = 'relative';
           clone.style.border = 'none';
-          clone.style.boxSizing = 'border-box';
+          clone.style.width = `${pixelWidth}px`; 
+          clone.style.height = `${pixelHeight}px`;
+          clone.style.position = 'relative';
+          clone.style.overflow = 'hidden'; 
+          clone.style.backgroundColor = '#ffffff';
           
-          renderContainer.innerHTML = ''; 
-          renderContainer.appendChild(clone);
+          // Place in container
+          captureContainer.innerHTML = ''; 
+          captureContainer.appendChild(clone);
 
-          const canvas = await html2canvas(renderContainer, {
-              scale: 2, 
+          // 4. Short wait for layout repaint
+          await new Promise(resolve => setTimeout(resolve, 50));
+
+          // 5. Capture with html2canvas
+          const canvas = await html2canvas(clone, {
+              scale: 2, // 2x Scale for crisp text
               useCORS: true,
               logging: false,
               width: pixelWidth,
               height: pixelHeight,
               windowWidth: pixelWidth,
               windowHeight: pixelHeight,
-              backgroundColor: '#ffffff'
+              backgroundColor: '#ffffff',
+              // Fix scroll offsets causing "random cuts"
+              scrollX: 0,
+              scrollY: 0,
+              x: 0,
+              y: 0
           });
 
           const imgData = canvas.toDataURL('image/jpeg', 0.90);
@@ -309,7 +329,7 @@ const PrintPreviewModal: React.FC<PrintPreviewModalProps> = ({ onClose }) => {
           pdf.addImage(imgData, 'JPEG', 0, 0, pageW_in, pageH_in);
       }
 
-      document.body.removeChild(renderContainer);
+      document.body.removeChild(captureContainer);
       pdf.save(`${currentProjectName.replace(/\s+/g, '_')}_Script.pdf`);
     } catch (error) {
       console.error("PDF Export Error:", error);

@@ -8,9 +8,11 @@ import {
 } from '../types';
 import { INITIAL_STATE } from '../constants';
 import { supabase, upsertProject, fetchProjectData, fetchUserProjects, isSupabaseConfigured } from '../services/supabase';
+import { createAuto5ScenesDataset } from '../services/sampleGenerator';
 
 const ProjectContext = createContext<ProjectContextType | undefined>(undefined);
 
+// Generate a unique ID for this specific running instance (Web vs Electron)
 const INSTANCE_ID = Math.random().toString(36).substring(2, 15);
 
 const countWords = (html: string) => {
@@ -20,23 +22,28 @@ const countWords = (html: string) => {
 };
 
 export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [currentUser, setCurrentUser] = useState<string | null>(localStorage.getItem('currentUser'));
+  // Auth State
+  const [currentUser, setCurrentUser] = useState<string | null>(() => localStorage.getItem('currentUser') || 'Default User');
   const [supabaseUser, setSupabaseUser] = useState<any>(null);
-  const [currentProjectId, setCurrentProjectId] = useState<string | null>(localStorage.getItem('currentProjectId'));
+  const [currentProjectId, setCurrentProjectId] = useState<string | null>(() => localStorage.getItem('currentProjectId') || 'default-project');
   const [projectList, setProjectList] = useState<ProjectMetadata[]>([]);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [schemaError, setSchemaError] = useState<string | null>(null);
+  
   const [fileHandle, setFileHandle] = useState<any | null>(null);
 
+  // Use refs for sync flags to avoid re-triggering effects
   const isSavingRef = useRef(false);
   const hasUnsavedChangesRef = useRef(false);
-  const isRemoteUpdateRef = useRef(false);
+  const isRemoteUpdateRef = useRef(false); // Flag to prevent remote data from triggering "unsaved changes"
 
+  // Update refs when state changes
   useEffect(() => { isSavingRef.current = isSaving; }, [isSaving]);
   useEffect(() => { hasUnsavedChangesRef.current = hasUnsavedChanges; }, [hasUnsavedChanges]);
 
+  // --- PROJECT STATE ---
   const [beats, setBeats] = useState<Beat[]>(INITIAL_STATE.beats);
   const [groups, setGroups] = useState<Group[]>(INITIAL_STATE.groups);
   const [connections, setConnections] = useState<Connection[]>(INITIAL_STATE.connections);
@@ -73,13 +80,10 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [lastSessionDate, setLastSessionDate] = useState(new Date().toISOString().split('T')[0]);
   const [boardLayerOrder, setBoardLayerOrder] = useState<BoardLayer[]>(INITIAL_STATE.boardLayerOrder);
 
+  // Monitor Supabase Auth
   useEffect(() => {
-    // Safety Bail-out: Don't hang forever on initial load
-    const safetyTimer = setTimeout(() => setIsInitialLoading(false), 5000);
-
     if (!isSupabaseConfigured) {
         setIsInitialLoading(false);
-        clearTimeout(safetyTimer);
         return;
     }
 
@@ -90,7 +94,6 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
         refreshProjectList(session.user.id);
       }
       setIsInitialLoading(false);
-      clearTimeout(safetyTimer);
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
@@ -105,28 +108,23 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
             setProjectList([]);
         }
       }
-      setIsInitialLoading(false);
-      clearTimeout(safetyTimer);
     });
 
-    return () => {
-        subscription.unsubscribe();
-        clearTimeout(safetyTimer);
-    };
+    return () => subscription.unsubscribe();
   }, []);
 
   const applyProjectState = useCallback((data: any) => {
     if (!data) return;
-    isRemoteUpdateRef.current = true;
+    isRemoteUpdateRef.current = true; // Block auto-save trigger
     
-    setBeats(data.beats || INITIAL_STATE.beats);
-    setGroups(data.groups || INITIAL_STATE.groups);
-    setConnections(data.connections || INITIAL_STATE.connections);
-    setAnnotations(data.annotations || INITIAL_STATE.annotations);
-    setCharacterData(data.characterData || INITIAL_STATE.characterData);
-    setGeneratedShots(data.generatedShots || INITIAL_STATE.generatedShots);
-    setScratchpad(data.scratchpad || INITIAL_STATE.scratchpad);
-    setGlobalNotes(data.globalNotes || INITIAL_STATE.globalNotes);
+    setBeats(Array.isArray(data.beats) ? data.beats : INITIAL_STATE.beats);
+    setGroups(Array.isArray(data.groups) ? data.groups : INITIAL_STATE.groups);
+    setConnections(Array.isArray(data.connections) ? data.connections : INITIAL_STATE.connections);
+    setAnnotations(Array.isArray(data.annotations) ? data.annotations : INITIAL_STATE.annotations);
+    setCharacterData(data.characterData && typeof data.characterData === 'object' ? data.characterData : INITIAL_STATE.characterData);
+    setGeneratedShots(Array.isArray(data.generatedShots) ? data.generatedShots : INITIAL_STATE.generatedShots);
+    setScratchpad(typeof data.scratchpad === 'string' ? data.scratchpad : INITIAL_STATE.scratchpad);
+    setGlobalNotes(Array.isArray(data.globalNotes) ? data.globalNotes : INITIAL_STATE.globalNotes);
     setActiveBoardId(data.activeBoardId ?? INITIAL_STATE.activeBoardId);
     setScriptConfig(data.scriptConfig || INITIAL_STATE.scriptConfig);
     setScriptViewMode(data.scriptViewMode || INITIAL_STATE.scriptViewMode);
@@ -141,30 +139,57 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setNextAnnoId(data.nextAnnoId ?? INITIAL_STATE.nextAnnoId);
     setDailyStats(data.dailyStats || INITIAL_STATE.dailyStats);
     
+    // Reset the flag after a brief timeout to allow state to settle
     setTimeout(() => { isRemoteUpdateRef.current = false; setHasUnsavedChanges(false); }, 50);
   }, []);
 
+  // REALTIME SUBSCRIPTION FOR INSTANT UPDATES
   useEffect(() => {
     if (!isSupabaseConfigured || !currentProjectId || !supabaseUser) return;
 
+    // Stable listener that doesn't close/reopen on every state change
     const channel = supabase
       .channel(`project_changes_${currentProjectId}`)
       .on(
         'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'projects', filter: `id=eq.${currentProjectId}` },
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'projects',
+          filter: `id=eq.${currentProjectId}`
+        },
         (payload: any) => {
           const newData = payload.new?.data;
           if (!newData) return;
+
+          // 1. Ignore if WE are the ones who sent this update
           if (newData.lastInstanceId === INSTANCE_ID) return;
+
+          // 2. Only pull remote changes if we don't have local unsaved work
+          // or if we are idle. This prevents "writing over" current progress.
           if (!hasUnsavedChangesRef.current && !isSavingRef.current) {
+            console.log("Remote sync: Updating local state with latest from database.");
             applyProjectState(newData);
           }
         }
       )
       .subscribe();
 
-    return () => { supabase.removeChannel(channel); };
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [currentProjectId, supabaseUser, applyProjectState]);
+
+  // Sync on window focus
+  useEffect(() => {
+      const handleFocus = () => {
+          if (currentProjectId && !hasUnsavedChangesRef.current && !isSavingRef.current) {
+              selectProject(currentProjectId);
+          }
+      };
+      window.addEventListener('focus', handleFocus);
+      return () => window.removeEventListener('focus', handleFocus);
+  }, [currentProjectId]);
 
   const refreshProjectList = async (userId: string) => {
     try {
@@ -182,6 +207,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   };
 
+  // --- UNDO / REDO ENGINE ---
   const historyRef = useRef<string[]>([]);
   const historyIndexRef = useRef<number>(-1);
   const isTimeTraveling = useRef(false);
@@ -331,7 +357,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       breakdownLanguage, breakdownLockedOnly, isPdfDropEnabled, isRedoEnabled, 
       writingGoal, geminiApiKey: '', stabilityApiKey, 
       dailyStats, sessionStartCount, lastSessionDate, boardLayerOrder,
-      lastInstanceId: INSTANCE_ID
+      lastInstanceId: INSTANCE_ID // Tag the update with this instance ID
     };
     try {
       if (supabaseUser) {
@@ -375,6 +401,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     } catch {}
   }, [currentProjectId, projectList]);
 
+  // Debounced Auto-Save (Faster Sync: 1000ms)
   useEffect(() => {
     if (hasUnsavedChanges && !isRemoteUpdateRef.current) {
       const timer = setTimeout(() => { saveProject(); }, 1000);
@@ -448,8 +475,49 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     captureSnapshot();
   }, [captureSnapshot, activeBoardId]);
 
+  const addBeat = (x: number, y: number) => {
+    const id = nextId;
+    setNextId(p => p + 1);
+    
+    // Auto-numbering logic removed to ensure beats start unnumbered
+    // until manually assigned or connected to a numbered chain.
+
+    setBeats(p => [...p, { 
+      id, 
+      x, 
+      y, 
+      title: '', 
+      sceneNumber: undefined, // Default to unnumbered
+      slug: { prefix: '', location: '', time: '' }, 
+      content: '<div class="sc-line sc-action"><br></div>', 
+      color: '#444', 
+      shots: [], 
+      status: 'not-ready', 
+      versions: [], 
+      notes: [], 
+      boardId: activeBoardId 
+    }]);
+    captureSnapshot();
+    return id;
+  };
+
+  const autoGenerate5Scenes = useCallback(() => {
+    captureSnapshot();
+    const data = createAuto5ScenesDataset();
+    setGroups(data.groups);
+    setBeats(data.beats);
+    setAnnotations(data.annotations);
+    setConnections(data.connections);
+    setCharacterData(data.characterData);
+    setGeneratedShots(data.generatedShots);
+    setPanX(50);
+    setPanY(50);
+    setScale(0.8);
+    setHasUnsavedChanges(true);
+  }, [captureSnapshot]);
+
   const value: ProjectContextType = {
-    beats, groups, connections, annotations, characterData, generatedShots, scratchpad, globalNotes, panX, panY, scale, nextId, nextAnnoId, activeBoardId, isTamilMode, tamilFontScale, tamilFontFamily, userDictionary, isOsInputMode, osInputShortcut, scriptConfig, scriptViewMode, scratchpadConfig, storyboardConfig, isStoryboardFeatureEnabled, breakdownLanguage, breakdownLockedOnly, isPdfDropEnabled, isRedoEnabled, writingGoal, geminiApiKey: '', stabilityApiKey, dailyStats, sessionStartCount, lastSessionDate, boardLayerOrder, currentUser, currentProjectId, projectList, hasUnsavedChanges, schemaError, isSaving, fileHandle, isInitialLoading, isCloudMode: !!supabaseUser, login, logout, selectProject, createProject, deleteProject, closeProject, clearSchemaError: () => { setSchemaError(null); if (supabaseUser) refreshProjectList(supabaseUser.id); }, setBeats, setGroups, setConnections, setAnnotations, setCharacterData, setGeneratedShots, setScratchpad, setGlobalNotes, updateGeneratedShot: (id, u) => { setGeneratedShots(p => p.map(s => s.id === id ? { ...s, ...u } : s)); setHasUnsavedChanges(true); }, addGeneratedShot: (i) => { const n = { id: `shot-${Date.now()}`, shotSize: 'WIDE', angle: 'EYE LEVEL', description: '', subject: '', scene: '?', imageHistory: [] }; const s = [...generatedShots]; s.splice(i + 1, 0, n); setGeneratedShots(s); captureSnapshot(); }, removeGeneratedShot: (id) => { setGeneratedShots(p => p.filter(s => s.id !== id)); captureSnapshot(); }, moveGeneratedShot: (f, t) => { const s = [...generatedShots]; const [m] = s.splice(f, 1); s.splice(t, 0, m); setGeneratedShots(s); captureSnapshot(); }, setPan: (x, y) => { setPanX(x); setPanY(y); }, setScale, updateBeat, addBeat: (x, y) => { const id = nextId; setNextId(p => p + 1); setBeats(p => [...p, { id, x, y, title: '', slug: { prefix: '', location: '', time: '' }, content: '<div class="sc-line sc-action"><br></div>', color: '#444', shots: [], status: 'not-ready', versions: [], notes: [], boardId: activeBoardId }]); captureSnapshot(); return id; }, reorderBeats, addGroup: (g) => { const id = nextId; setNextId(p => p + 1); setGroups(p => [...p, { ...g, id, boardId: activeBoardId }]); captureSnapshot(); }, updateGroup: (id, u) => { setGroups(p => p.map(g => g.id === id ? { ...g, ...u } : g)); setHasUnsavedChanges(true); }, removeGroup: (id) => { setGroups(p => p.filter(g => g.id !== id)); captureSnapshot(); }, loadProject: applyProjectState, saveProject, saveProjectAs, setActiveBoardId, setTamilMode, setTamilFontScale, setTamilFontFamily, learnTamilWord: (e, t) => { setUserDictionary(p => { const c = p[e.toLowerCase()] || []; if (!c.includes(t)) return { ...p, [e.toLowerCase()]: [t, ...c] }; return p; }); }, setOsInputMode, setOsInputShortcut, setScriptConfig, setScriptViewMode, setScratchpadConfig, setStoryboardConfig, setStoryboardFeatureEnabled, setBreakdownLanguage, setBreakdownLockedOnly, setPdfDropEnabled, setRedoEnabled, setWritingGoal, setGeminiApiKey: () => {}, setStabilityApiKey, setBoardLayerOrder, setNextId, undo, redo, canUndo: historyIndexRef.current > 0, canRedo: historyIndexRef.current < historyRef.current.length - 1, captureSnapshot, downloadProject
+    beats, groups, connections, annotations, characterData, generatedShots, scratchpad, globalNotes, panX, panY, scale, nextId, nextAnnoId, activeBoardId, isTamilMode, tamilFontScale, tamilFontFamily, userDictionary, isOsInputMode, osInputShortcut, scriptConfig, scriptViewMode, scratchpadConfig, storyboardConfig, isStoryboardFeatureEnabled, breakdownLanguage, breakdownLockedOnly, isPdfDropEnabled, isRedoEnabled, writingGoal, geminiApiKey: '', stabilityApiKey, dailyStats, sessionStartCount, lastSessionDate, boardLayerOrder, currentUser, currentProjectId, projectList, hasUnsavedChanges, schemaError, isSaving, fileHandle, isInitialLoading, isCloudMode: !!supabaseUser, login, logout, selectProject, createProject, deleteProject, closeProject, clearSchemaError: () => { setSchemaError(null); if (supabaseUser) refreshProjectList(supabaseUser.id); }, setBeats, setGroups, setConnections, setAnnotations, setCharacterData, setGeneratedShots, setScratchpad, setGlobalNotes, updateGeneratedShot: (id, u) => { setGeneratedShots(p => p.map(s => s.id === id ? { ...s, ...u } : s)); setHasUnsavedChanges(true); }, addGeneratedShot: (i) => { const n = { id: `shot-${Date.now()}`, shotSize: 'WIDE', angle: 'EYE LEVEL', description: '', subject: '', scene: '?', imageHistory: [] }; const s = [...generatedShots]; s.splice(i + 1, 0, n); setGeneratedShots(s); captureSnapshot(); }, removeGeneratedShot: (id) => { setGeneratedShots(p => p.filter(s => s.id !== id)); captureSnapshot(); }, moveGeneratedShot: (f, t) => { const s = [...generatedShots]; const [m] = s.splice(f, 1); s.splice(t, 0, m); setGeneratedShots(s); captureSnapshot(); }, setPan: (x, y) => { setPanX(x); setPanY(y); }, setScale, updateBeat, addBeat, reorderBeats, addGroup: (g) => { const id = nextId; setNextId(p => p + 1); setGroups(p => [...p, { ...g, id, boardId: activeBoardId }]); captureSnapshot(); }, updateGroup: (id, u) => { setGroups(p => p.map(g => g.id === id ? { ...g, ...u } : g)); setHasUnsavedChanges(true); }, removeGroup: (id) => { setGroups(p => p.filter(g => g.id !== id)); captureSnapshot(); }, loadProject: applyProjectState, saveProject, saveProjectAs, setActiveBoardId, setTamilMode, setTamilFontScale, setTamilFontFamily, learnTamilWord: (e, t) => { setUserDictionary(p => { const c = p[e.toLowerCase()] || []; if (!c.includes(t)) return { ...p, [e.toLowerCase()]: [t, ...c] }; return p; }); }, setOsInputMode, setOsInputShortcut, setScriptConfig, setScriptViewMode, setScratchpadConfig, setStoryboardConfig, setStoryboardFeatureEnabled, setBreakdownLanguage, setBreakdownLockedOnly, setPdfDropEnabled, setRedoEnabled, setWritingGoal, setGeminiApiKey: () => {}, setStabilityApiKey, setBoardLayerOrder, setNextId, undo, redo, canUndo: historyIndexRef.current > 0, canRedo: historyIndexRef.current < historyRef.current.length - 1, captureSnapshot, downloadProject, autoGenerate5Scenes
   };
 
   return <ProjectContext.Provider value={value}>{children}</ProjectContext.Provider>;

@@ -6,14 +6,16 @@ import BoardView from './components/views/BoardView';
 import ScriptView from './components/views/ScriptView';
 import CharacterView from './components/views/CharacterView';
 import StoryboardView from './components/views/StoryboardView';
+import ScheduleView from './components/views/ScheduleView';
 import StatisticsView from './components/views/StatisticsView';
 import BackstageView from './components/views/BackstageView';
 import GoalView from './components/views/GoalView';
 import BreakdownView from './components/views/BreakdownView';
+import ShotListView from './components/views/ShotListView';
 import EditorModal from './components/EditorModal';
 import PrintPreviewModal from './components/PrintPreviewModal';
-import WelcomeScreen from './components/WelcomeScreen';
 import { ViewMode, ScriptConfig } from './types';
+import { Loader2, Film } from 'lucide-react';
 
 const StyleInjector: React.FC = () => {
   const { scriptConfig, scratchpadConfig } = useProject();
@@ -142,11 +144,31 @@ const StyleInjector: React.FC = () => {
 };
 
 const AppContent: React.FC = () => {
-  const { currentUser, currentProjectId } = useProject();
+  const { currentUser, currentProjectId, undo, redo, isInitialLoading } = useProject();
   const [currentView, setCurrentView] = useState<ViewMode>('board');
   const [openBeatIds, setOpenBeatIds] = useState<number[]>([]);
   const [showPrintPreview, setShowPrintPreview] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+
+  // Global Keyboard Shortcuts for Undo/Redo
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+        const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+        const cmd = isMac ? e.metaKey : e.ctrlKey;
+
+        if (cmd && e.key.toLowerCase() === 'z' && !e.shiftKey) {
+            e.preventDefault();
+            undo();
+        }
+        if ((cmd && e.key.toLowerCase() === 'y') || (cmd && e.shiftKey && e.key.toLowerCase() === 'z')) {
+            e.preventDefault();
+            redo();
+        }
+    };
+
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+  }, [undo, redo]);
 
   const handleRefresh = () => setRefreshKey(prev => prev + 1);
 
@@ -168,8 +190,20 @@ const AppContent: React.FC = () => {
       });
   };
 
-  if (!currentUser || !currentProjectId) {
-      return <WelcomeScreen />;
+  if (isInitialLoading) {
+      return (
+          <div className="fixed inset-0 bg-[#050505] flex flex-col items-center justify-center font-sans">
+              <div className="relative mb-8">
+                  <div className="w-16 h-16 bg-[#111] border border-white/10 rounded-2xl flex items-center justify-center animate-pulse">
+                      <Film className="text-[#f5a623]" size={32} />
+                  </div>
+              </div>
+              <div className="flex items-center gap-3">
+                  <Loader2 className="animate-spin text-gray-600" size={14} />
+                  <span className="text-[10px] font-black text-gray-500 uppercase tracking-[0.4em]">Restoring Session...</span>
+              </div>
+          </div>
+      );
   }
 
   return (
@@ -189,7 +223,9 @@ const AppContent: React.FC = () => {
         {currentView === 'script' && <ScriptView key={`script-${refreshKey}`} />}
         {currentView === 'characters' && <div className="w-full h-full"><CharacterView key={`chars-${refreshKey}`} /></div>}
         {currentView === 'breakdown' && <div className="w-full h-full"><BreakdownView key={`breakdown-${refreshKey}`} /></div>}
+        {currentView === 'shotlist' && <div className="w-full h-full"><ShotListView key={`shotlist-${refreshKey}`} onNavigateToStoryboard={() => setCurrentView('storyboard')} /></div>}
         {currentView === 'storyboard' && <div className="w-full h-full"><StoryboardView key={`story-${refreshKey}`} /></div>}
+        {currentView === 'schedule' && <div className="w-full h-full"><ScheduleView key={`schedule-${refreshKey}`} /></div>}
         {currentView === 'statistics' && <div className="w-full h-full"><StatisticsView key={`stats-${refreshKey}`} /></div>}
         {currentView === 'backstage' && <div className="w-full h-full"><BackstageView key={`backstage-${refreshKey}`} onNavigateToBoard={() => setCurrentView('board')} /></div>}
         {currentView === 'goals' && <div className="w-full h-full"><GoalView key={`goals-${refreshKey}`} /></div>}

@@ -21,7 +21,8 @@ const AppHeader: React.FC<AppHeaderProps> = ({ currentView, onViewChange, onRefr
       isStoryboardFeatureEnabled, writingGoal, dailyStats, beats,
       projectList, currentProjectId,
       undo, redo, canUndo, canRedo,
-      saveProject, saveProjectAs, hasUnsavedChanges, currentUser, isCloudMode, isSaving, fileHandle
+      saveProject, saveProjectAs, hasUnsavedChanges, currentUser, isCloudMode, isSaving, fileHandle,
+      autoGenerate5Scenes
   } = useProject();
 
   const [showSavedConfirmation, setShowSavedConfirmation] = useState(false);
@@ -38,7 +39,9 @@ const AppHeader: React.FC<AppHeaderProps> = ({ currentView, onViewChange, onRefr
     { id: 'script', label: 'Script' },
     { id: 'characters', label: 'Characters' },
     { id: 'breakdown', label: 'Breakdown' },
+    { id: 'shotlist', label: 'Shot Division' },
     { id: 'storyboard', label: 'Storyboard', hidden: !isStoryboardFeatureEnabled },
+    { id: 'schedule', label: 'Scheduling' },
     { id: 'statistics', label: 'Statistics' }
   ].filter(v => !v.hidden);
 
@@ -168,6 +171,17 @@ const AppHeader: React.FC<AppHeaderProps> = ({ currentView, onViewChange, onRefr
               {hasUnsavedChanges && !isSaving && (
                   <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-[#f5a623] rounded-full border border-[#111] shadow-[0_0_8px_#f5a623]"></span>
               )}
+          </button>
+
+          <div className="h-4 w-px bg-[#333] mx-1"></div>
+
+          {/* Auto 5 Scenes Generator Button */}
+          <button
+              onClick={autoGenerate5Scenes}
+              className="p-1.5 bg-[#1f152d] hover:bg-[#2f1f45] text-[#f5a623] border border-[#f5a623]/40 hover:border-[#f5a623] rounded-md transition-all active:scale-95 group"
+              title="Auto-fill Whiteboard with 5 Act Scenes, Whiteboard Drawings, Screenplay Build-up, Shots & Characters"
+          >
+              <Zap size={14} className="text-[#f5a623] fill-[#f5a623]/40 group-hover:scale-110 transition-transform duration-200" />
           </button>
         </div>
 

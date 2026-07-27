@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef, memo } from 'react';
 import { useProject } from '../../context/ProjectContext';
 import { generateShotList, generateImage } from '../../services/gemini';
 import { 
-    Wand2, Image as ImageIcon, Film, Loader2, Download, 
+    Wand2, Image as ImageIcon, Film, Loader2, Download, Camera,
     Plus, Trash2, RefreshCw, Play, Pause, Clock, 
     Grid3X3, LayoutGrid, Maximize, Columns, List, Table2,
     ArrowUp, ArrowDown, ArrowLeft, ArrowRight, UserCheck, ChevronLeft, ChevronRight,
@@ -64,7 +64,7 @@ const AdvancedShotInspector = ({ shot, onClose, onUpdate, characterData }: {
     onUpdate: (id: string, updates: Partial<Shot>) => void,
     characterData: Record<string, CharacterData>
 }) => {
-    const [openSection, setOpenSection] = useState<'comp' | 'light' | 'art' | 'block'>('comp');
+    const [openSection, setOpenSection] = useState<'camera' | 'comp' | 'light' | 'art' | 'block'>('camera');
 
     const updateNested = (category: 'composition' | 'lighting' | 'art' | 'blocking', field: string, value: string) => {
         onUpdate(shot.id, {
@@ -125,11 +125,25 @@ const AdvancedShotInspector = ({ shot, onClose, onUpdate, characterData }: {
             </div>
 
             <div className="flex-1 overflow-y-auto custom-scrollbar">
-                <AccordionHeader id="comp" label="Composition" icon={Aperture} />
-                {openSection === 'comp' && (
+                <AccordionHeader id="camera" label="Camera & Shot Division" icon={Camera} />
+                {openSection === 'camera' && (
                     <div className="p-4 bg-[#1a1a1a]">
                         <SelectField label="Shot Size" value={shot.shotSize} options={SHOT_SIZES} onChange={(v: string) => onUpdate(shot.id, { shotSize: v })} />
                         <SelectField label="Angle" value={shot.angle} options={SHOT_ANGLES} onChange={(v: string) => onUpdate(shot.id, { angle: v })} />
+                        <InputField label="Lens" value={shot.lens} onChange={(v: string) => onUpdate(shot.id, { lens: v })} placeholder="e.g. 35mm Prime" />
+                        <InputField label="Camera Movement" value={shot.movement} onChange={(v: string) => onUpdate(shot.id, { movement: v })} placeholder="e.g. Dolly In, Static" />
+                        <div className="grid grid-cols-2 gap-2">
+                            <InputField label="Equipment" value={shot.equipment} onChange={(v: string) => onUpdate(shot.id, { equipment: v })} placeholder="Tripod / Steadicam" />
+                            <InputField label="Duration (sec)" value={shot.durationSec ? String(shot.durationSec) : ''} onChange={(v: string) => onUpdate(shot.id, { durationSec: parseFloat(v) || undefined })} placeholder="3" />
+                        </div>
+                        <InputField label="Script Reference" value={shot.scriptReference} onChange={(v: string) => onUpdate(shot.id, { scriptReference: v })} placeholder="Script line or context..." />
+                        <InputField label="Notes / Reasoning" value={shot.notes || shot.reasoning} onChange={(v: string) => onUpdate(shot.id, { notes: v })} placeholder="Director / DP notes..." />
+                    </div>
+                )}
+
+                <AccordionHeader id="comp" label="Composition" icon={Aperture} />
+                {openSection === 'comp' && (
+                    <div className="p-4 bg-[#1a1a1a]">
                         <SelectField label="Framing" value={shot.composition?.framing} options={SB_FRAMING} onChange={(v: string) => updateNested('composition', 'framing', v)} />
                         <SelectField label="Camera Height" value={shot.composition?.cameraHeight} options={SB_CAM_HEIGHT} onChange={(v: string) => updateNested('composition', 'cameraHeight', v)} />
                         <div className="grid grid-cols-2 gap-2">
@@ -247,7 +261,7 @@ const StoryCard = memo(({ shot, index, total, onUpdate, onAddNext, onDelete, onM
                     </div>
                 </div>
                 <div className="flex gap-1">
-                     <button onClick={() => onOpenInspector(shot.id)} className="p-1 hover:bg-[#333] text-gray-400 hover:text-[#f5a623] rounded flex items-center gap-1"><Settings2 size={12} /></button>
+                     <button onClick={() => onOpenInspector(shot.id)} className="p-1 hover:bg-[#333] text-gray-400 hover:text-[#f5a623] rounded flex items-center gap-1" title="Shot Tuner"><Settings2 size={12} /></button>
                      <div className="w-px h-3 bg-[#333] mx-1"></div>
                      <button onClick={() => onAddNext(index)} className="p-1 hover:bg-[#333] text-gray-400 hover:text-green-500 rounded"><Plus size={12} /></button>
                      <button 
@@ -266,15 +280,27 @@ const StoryCard = memo(({ shot, index, total, onUpdate, onAddNext, onDelete, onM
                 {historyIndex !== -1 && (<div className="absolute top-2 right-2 bg-black/60 text-white text-[9px] font-bold px-1.5 py-0.5 rounded border border-white/20">V.{historyIndex + 1}</div>)}
             </div>
             <div className="p-3 flex-1 flex flex-col gap-2">
-                <div className="flex items-center gap-2">
-                    <span className="text-[9px] font-bold text-[#555] uppercase shrink-0">SCENE</span>
-                    <BufferedInput 
-                        className="bg-transparent text-[10px] font-bold text-[#888] w-full outline-none border-b border-transparent focus:border-[#f5a623] transition-colors" 
-                        value={shot.scene || ''} 
-                        onChange={(val: string) => onUpdate(shot.id, { scene: val })} 
-                        placeholder="?" 
-                    />
+                <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 flex-1">
+                        <span className="text-[9px] font-bold text-[#555] uppercase shrink-0">SCENE</span>
+                        <BufferedInput 
+                            className="bg-transparent text-[10px] font-bold text-[#888] w-full outline-none border-b border-transparent focus:border-[#f5a623] transition-colors" 
+                            value={shot.scene || ''} 
+                            onChange={(val: string) => onUpdate(shot.id, { scene: val })} 
+                            placeholder="?" 
+                        />
+                    </div>
+                    {shot.sourceType && (
+                        <span className={`text-[8px] font-mono px-1.5 py-0.5 rounded uppercase border ${
+                            shot.sourceType === 'ai-batch' ? 'bg-purple-950/40 text-purple-400 border-purple-500/30' :
+                            shot.sourceType === 'ai-modified' ? 'bg-blue-950/40 text-blue-400 border-blue-500/30' :
+                            'bg-gray-800 text-gray-400 border-gray-700'
+                        }`}>
+                            {shot.sourceType === 'ai-batch' ? 'AI Division' : shot.sourceType === 'ai-modified' ? 'AI Edit' : 'Manual'}
+                        </span>
+                    )}
                 </div>
+
                 <div className="grid grid-cols-2 gap-2">
                     <div>
                         <label className="text-[9px] font-bold text-[#555] uppercase block mb-1">Size</label>
@@ -291,6 +317,29 @@ const StoryCard = memo(({ shot, index, total, onUpdate, onAddNext, onDelete, onM
                         </select>
                     </div>
                 </div>
+
+                {/* Shot Division Details */}
+                <div className="grid grid-cols-2 gap-2">
+                    <div>
+                        <label className="text-[9px] font-bold text-[#555] uppercase block mb-1">Lens</label>
+                        <BufferedInput 
+                            className="w-full bg-[#1a1a1a] border border-[#333] rounded px-1.5 py-1 text-[10px] text-gray-300 focus:border-[#f5a623] outline-none font-mono" 
+                            value={shot.lens || ''} 
+                            onChange={(val: string) => onUpdate(shot.id, { lens: val })} 
+                            placeholder="35mm Prime"
+                        />
+                    </div>
+                    <div>
+                        <label className="text-[9px] font-bold text-[#555] uppercase block mb-1">Movement</label>
+                        <BufferedInput 
+                            className="w-full bg-[#1a1a1a] border border-[#333] rounded px-1.5 py-1 text-[10px] text-gray-300 focus:border-[#f5a623] outline-none font-mono" 
+                            value={shot.movement || ''} 
+                            onChange={(val: string) => onUpdate(shot.id, { movement: val })} 
+                            placeholder="Static / Dolly"
+                        />
+                    </div>
+                </div>
+
                 <div>
                     <label className="text-[9px] font-bold text-[#555] uppercase block mb-1">Subject</label>
                     <BufferedInput 
@@ -307,6 +356,12 @@ const StoryCard = memo(({ shot, index, total, onUpdate, onAddNext, onDelete, onM
                         onChange={(val: string) => onUpdate(shot.id, { description: val })} 
                     />
                 </div>
+
+                {shot.scriptReference && (
+                    <div className="bg-[#111] p-1.5 rounded border border-[#222] text-[9px] text-gray-400 font-mono truncate" title={shot.scriptReference}>
+                        <span className="text-[#f5a623] font-bold">Script Ref:</span> {shot.scriptReference}
+                    </div>
+                )}
             </div>
             <div className="p-2 border-t border-[#333] bg-[#222] flex gap-2">
                 <button onClick={() => onRender(index)} disabled={isRendering} className="flex-1 bg-[#333] border border-[#444] text-[#ccc] py-1.5 rounded text-[10px] font-bold uppercase hover:bg-[#444] hover:text-white flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50"><ImageIcon size={12} /> {shot.imageUrl ? 'Re-Draw' : 'Draw'}</button>
@@ -331,10 +386,21 @@ const ShotRow = memo(({ shot, index, total, onUpdate, onAddNext, onDelete, onMov
             <td className="p-2 text-center text-xs text-gray-500 font-mono w-14 border-r border-[#2a2a2a]"><div className="flex flex-col items-center gap-1"><span>{index + 1}</span><div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity"><button disabled={index === 0} onClick={() => onMove(index, index - 1)} className="hover:text-[#f5a623] disabled:opacity-30"><ArrowUp size={10} /></button><button disabled={index === total - 1} onClick={() => onMove(index, index + 1)} className="hover:text-[#f5a623] disabled:opacity-30"><ArrowDown size={10} /></button></div></div></td>
             <td className="p-2 w-32 border-r border-[#2a2a2a]"><div className="w-28 h-16 bg-black rounded border border-[#333] overflow-hidden relative flex items-center justify-center cursor-pointer hover:border-[#f5a623] group/thumb" onClick={() => onRender(index)}>{isValidImage(shot.imageUrl) ? (<img src={shot.imageUrl} className="w-full h-full object-cover" />) : (<Film size={16} className="text-[#333]" />)}{isRendering ? (<div className="absolute inset-0 bg-black/60 flex items-center justify-center"><Loader2 size={16} className="animate-spin text-[#f5a623]" /></div>) : (<div className="absolute inset-0 bg-black/60 opacity-0 group-hover/thumb:opacity-100 flex items-center justify-center transition-opacity"><Wand2 size={16} className="text-white" /></div>)}</div></td>
             <td className="p-2 w-20 border-r border-[#2a2a2a]"><BufferedInput className="w-full bg-transparent text-xs text-center border-b border-transparent focus:border-[#f5a623] outline-none text-gray-300 placeholder-gray-600" value={shot.scene || ''} onChange={(val: string) => onUpdate(shot.id, { scene: val })} placeholder="SC#" /></td>
-            <td className="p-2 w-40 border-r border-[#2a2a2a]"><select className="w-full bg-transparent text-xs text-gray-300 outline-none border border-transparent hover:border-[#333] focus:border-[#f5a623] rounded py-1" value={shot.shotSize} onChange={(e) => onUpdate(shot.id, { shotSize: e.target.value })}>{SHOT_SIZES.map(s => <option key={s} value={s}>{s}</option>)}{!SHOT_SIZES.includes(shot.shotSize) && shot.shotSize && (<option value={shot.shotSize}>{shot.shotSize}</option>)}</select></td>
-            <td className="p-2 w-40 border-r border-[#2a2a2a]"><select className="w-full bg-transparent text-xs text-gray-300 outline-none border border-transparent hover:border-[#333] focus:border-[#f5a623] rounded py-1" value={shot.angle} onChange={(e) => onUpdate(shot.id, { angle: e.target.value })}>{SHOT_ANGLES.map(a => <option key={a} value={a}>{a}</option>)}{!SHOT_ANGLES.includes(shot.angle) && shot.angle && (<option value={shot.angle}>{shot.angle}</option>)}</select></td>
-            <td className="p-2 w-48 border-r border-[#2a2a2a]"><BufferedInput className="w-full bg-transparent text-xs text-gray-300 outline-none border-b border-transparent focus:border-[#f5a623] py-1" value={shot.subject} onChange={(val: string) => onUpdate(shot.id, { subject: val })} placeholder="Subject..." /></td>
-            <td className="p-2 border-r border-[#2a2a2a]"><BufferedTextArea className="w-full bg-transparent text-xs text-gray-300 resize-none outline-none focus:bg-[#222] rounded p-1 h-14 leading-relaxed" value={shot.description} onChange={(val: string) => onUpdate(shot.id, { description: val })} placeholder="Describe the action..." /></td>
+            <td className="p-2 w-36 border-r border-[#2a2a2a]"><select className="w-full bg-transparent text-xs text-gray-300 outline-none border border-transparent hover:border-[#333] focus:border-[#f5a623] rounded py-1" value={shot.shotSize} onChange={(e) => onUpdate(shot.id, { shotSize: e.target.value })}>{SHOT_SIZES.map(s => <option key={s} value={s}>{s}</option>)}{!SHOT_SIZES.includes(shot.shotSize) && shot.shotSize && (<option value={shot.shotSize}>{shot.shotSize}</option>)}</select></td>
+            <td className="p-2 w-36 border-r border-[#2a2a2a]"><select className="w-full bg-transparent text-xs text-gray-300 outline-none border border-transparent hover:border-[#333] focus:border-[#f5a623] rounded py-1" value={shot.angle} onChange={(e) => onUpdate(shot.id, { angle: e.target.value })}>{SHOT_ANGLES.map(a => <option key={a} value={a}>{a}</option>)}{!SHOT_ANGLES.includes(shot.angle) && shot.angle && (<option value={shot.angle}>{shot.angle}</option>)}</select></td>
+            <td className="p-2 w-36 border-r border-[#2a2a2a]">
+                <BufferedInput className="w-full bg-transparent text-[11px] font-mono text-gray-300 outline-none border-b border-transparent focus:border-[#f5a623] py-0.5" value={shot.lens || ''} onChange={(val: string) => onUpdate(shot.id, { lens: val })} placeholder="Lens..." />
+                <BufferedInput className="w-full bg-transparent text-[11px] font-mono text-[#f5a623] outline-none border-b border-transparent focus:border-[#f5a623] py-0.5" value={shot.movement || ''} onChange={(val: string) => onUpdate(shot.id, { movement: val })} placeholder="Movement..." />
+            </td>
+            <td className="p-2 w-44 border-r border-[#2a2a2a]"><BufferedInput className="w-full bg-transparent text-xs text-gray-300 outline-none border-b border-transparent focus:border-[#f5a623] py-1" value={shot.subject} onChange={(val: string) => onUpdate(shot.id, { subject: val })} placeholder="Subject..." /></td>
+            <td className="p-2 border-r border-[#2a2a2a]">
+                <BufferedTextArea className="w-full bg-transparent text-xs text-gray-300 resize-none outline-none focus:bg-[#222] rounded p-1 h-12 leading-relaxed" value={shot.description} onChange={(val: string) => onUpdate(shot.id, { description: val })} placeholder="Describe the action..." />
+                {shot.scriptReference && (
+                    <div className="text-[10px] text-gray-500 font-mono truncate px-1 italic" title={shot.scriptReference}>
+                        Ref: {shot.scriptReference}
+                    </div>
+                )}
+            </td>
             <td className="p-2 text-center w-20">
                 <div className="flex items-center justify-center gap-1">
                     <button onClick={() => onAddNext(index)} className="p-1.5 text-gray-500 hover:text-green-500 hover:bg-[#333] rounded transition-colors"><Plus size={14} /></button>
@@ -402,12 +468,17 @@ const StoryboardView: React.FC = () => {
       if (!text.trim()) { alert("No scenes found in that range."); return; }
       
       // Fix: Removed geminiApiKey as generateShotList uses global ai client
-      const shots = await generateShotList(text, storyboardConfig.textModel || 'gemini-3-flash-preview');
-      const mappedShots: Shot[] = shots.map((s, i) => ({
+      const rawShots = await generateShotList(text, storyboardConfig.textModel || 'gemini-3-flash-preview');
+      const shotsArray = Array.isArray(rawShots) 
+        ? rawShots 
+        : (rawShots && typeof rawShots === 'object' 
+            ? ((rawShots as any).shots || (rawShots as any).shotList || (rawShots as any).scenes || []) 
+            : []);
+      const mappedShots: Shot[] = shotsArray.map((s: any, i: number) => ({
           id: `${Date.now()}-${i}`,
-          shotSize: s.shotSize || 'WIDE',
+          shotSize: s.shotSize || s.size || 'WIDE',
           angle: s.angle || 'EYE LEVEL',
-          description: s.description || '',
+          description: s.description || s.action || '',
           subject: s.subject || '',
           scene: s.scene || '?',
           imageUrl: null,
@@ -729,8 +800,16 @@ const StoryboardView: React.FC = () => {
                <input type="number" className="w-8 bg-transparent text-center text-xs font-bold text-white outline-none focus:text-[#f5a623]" value={endScene} onChange={e => setEndScene(parseInt(e.target.value))} min={1} />
             </div>
 
-            <div className="h-8 flex items-center justify-center px-3 bg-[#1a1a1a] border border-[#333] rounded-md">
-                <span className="text-[10px] font-bold text-gray-400"><Hash size={10} className="inline mr-1 text-gray-600" />{generatedShots.length} SHOTS</span>
+            <div className="h-8 flex items-center justify-center px-3 bg-[#1a1a1a] border border-[#333] rounded-md gap-2">
+                <span className="text-[10px] font-bold text-gray-400 flex items-center gap-1">
+                    <Hash size={10} className="text-gray-500" />
+                    {generatedShots.length} SHOTS
+                </span>
+                <div className="w-px h-3 bg-[#333]"></div>
+                <span className="text-[9px] font-bold text-green-400/90 uppercase flex items-center gap-1" title="Data seamlessly synced with Shot Division">
+                    <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span>
+                    Shot Division Synced
+                </span>
             </div>
 
             <button 
@@ -888,11 +967,12 @@ const StoryboardView: React.FC = () => {
                                 <tr>
                                     <th className="p-3 border-r border-[#222] w-14 text-center">#</th>
                                     <th className="p-3 border-r border-[#222] w-36 text-center">Visual</th>
-                                    <th className="p-3 border-r border-[#222] w-24 text-center">Scene</th>
-                                    <th className="p-3 border-r border-[#222] w-40">Shot Size</th>
-                                    <th className="p-3 border-r border-[#222] w-40">Angle</th>
-                                    <th className="p-3 border-r border-[#222] w-48">Subject</th>
-                                    <th className="p-3 border-r border-[#222]">Description</th>
+                                    <th className="p-3 border-r border-[#222] w-20 text-center">Scene</th>
+                                    <th className="p-3 border-r border-[#222] w-36">Shot Size</th>
+                                    <th className="p-3 border-r border-[#222] w-36">Angle</th>
+                                    <th className="p-3 border-r border-[#222] w-36">Lens / Movement</th>
+                                    <th className="p-3 border-r border-[#222] w-44">Subject</th>
+                                    <th className="p-3 border-r border-[#222]">Description & Script Ref</th>
                                     <th className="p-3 w-20 text-center">Tools</th>
                                 </tr>
                             </thead>

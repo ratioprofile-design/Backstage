@@ -5,13 +5,14 @@ import BoardView from './views/BoardView';
 import ScriptView from './views/ScriptView';
 import CharacterView from './views/CharacterView';
 import StoryboardView from './views/StoryboardView';
+import ScheduleView from './views/ScheduleView';
 import StatisticsView from './views/StatisticsView';
 import BackstageView from './views/BackstageView';
 import GoalView from './views/GoalView';
 import BreakdownView from './views/BreakdownView';
+import ShotListView from './views/ShotListView';
 import EditorModal from './EditorModal';
 import PrintPreviewModal from './PrintPreviewModal';
-import WelcomeScreen from './WelcomeScreen';
 import { ViewMode, ScriptConfig } from '../types';
 import { Loader2, Film } from 'lucide-react';
 
@@ -215,10 +216,6 @@ const AppContent: React.FC = () => {
       );
   }
 
-  if (!currentUser || !currentProjectId) {
-      return <WelcomeScreen />;
-  }
-
   return (
     <>
       <StyleInjector />
@@ -236,7 +233,9 @@ const AppContent: React.FC = () => {
         {currentView === 'script' && <ScriptView key={`script-${refreshKey}`} />}
         {currentView === 'characters' && <div className="w-full h-full"><CharacterView key={`chars-${refreshKey}`} /></div>}
         {currentView === 'breakdown' && <div className="w-full h-full"><BreakdownView key={`breakdown-${refreshKey}`} /></div>}
+        {currentView === 'shotlist' && <div className="w-full h-full"><ShotListView key={`shotlist-${refreshKey}`} onNavigateToStoryboard={() => setCurrentView('storyboard')} /></div>}
         {currentView === 'storyboard' && <div className="w-full h-full"><StoryboardView key={`story-${refreshKey}`} /></div>}
+        {currentView === 'schedule' && <div className="w-full h-full"><ScheduleView key={`schedule-${refreshKey}`} /></div>}
         {currentView === 'statistics' && <div className="w-full h-full"><StatisticsView key={`stats-${refreshKey}`} /></div>}
         {currentView === 'backstage' && <div className="w-full h-full"><BackstageView key={`backstage-${refreshKey}`} onNavigateToBoard={() => setCurrentView('board')} /></div>}
         {currentView === 'goals' && <div className="w-full h-full"><GoalView key={`goals-${refreshKey}`} /></div>}

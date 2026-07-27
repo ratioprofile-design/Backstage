@@ -479,37 +479,6 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
                             </div>
                         </div>
 
-                        {/* NATIVE FILE HANDLING (FINAL DRAFT STYLE) */}
-                        {!isCloudMode && (
-                            <>
-                                <div className="md:col-span-2 text-xs font-bold text-[#666] uppercase tracking-widest mb-1 mt-4">Native OS Workflow</div>
-                                <LargeActionCard 
-                                    onClick={saveProjectAs}
-                                    icon={FileCode}
-                                    title={fileHandle ? "Change Project File" : "Save Project to Disk"}
-                                    desc={fileHandle ? `Currently linked to: ${fileHandle.name}` : "Pick a location on your computer. Auto-save will update this file directly."}
-                                    accent="text-[#f5a623]"
-                                />
-                            </>
-                        )}
-
-                        <div className="md:col-span-2 text-xs font-bold text-[#666] uppercase tracking-widest mb-1 mt-4">Legacy Export</div>
-                        <LargeActionCard 
-                            onClick={downloadProject}
-                            icon={Download}
-                            title="Download .BST Backup"
-                            desc="Export a standalone JSON file of your project."
-                            accent="text-blue-400"
-                        />
-                        <LargeActionCard 
-                            onClick={() => fileInputRef.current?.click()}
-                            icon={Upload}
-                            title="Open Local File"
-                            desc="Import a .bst or .json file into the workspace."
-                            accent="text-purple-500"
-                        />
-                        <input type="file" ref={fileInputRef} className="hidden" accept=".json,.bst" onChange={handleFileLoad} />
-                        
                         <div className="md:col-span-2">
                             <LargeActionCard 
                                 onClick={() => setShowPrintPreview(true)}

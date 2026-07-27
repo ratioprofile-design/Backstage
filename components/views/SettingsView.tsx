@@ -72,4 +72,16 @@ const PREVIEW_CONTENT = `
 const SidebarItem = ({ active, onClick, icon: Icon, label, desc }: any) => (
   <button
     onClick={onClick}
-    className={`w-full text-
+    className={`w-full text-left p-3 rounded-lg border transition-all flex items-start gap-3 ${
+      active
+        ? 'bg-[#222] border-[#f5a623] text-white shadow'
+        : 'bg-[#141414] border-[#262626] text-gray-400 hover:text-white hover:bg-[#1a1a1a]'
+    }`}
+  >
+    <Icon size={18} className={active ? 'text-[#f5a623]' : 'text-gray-500'} />
+    <div>
+      <div className="text-xs font-bold">{label}</div>
+      {desc && <div className="text-[10px] text-gray-500 leading-tight mt-0.5">{desc}</div>}
+    </div>
+  </button>
+);

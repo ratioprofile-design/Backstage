@@ -97,7 +97,7 @@ export interface ProjectMetadata {
   created: number;
 }
 
-export type ViewMode = 'board' | 'script' | 'characters' | 'breakdown' | 'storyboard' | 'statistics' | 'backstage' | 'goals';
+export type ViewMode = 'board' | 'script' | 'characters' | 'breakdown' | 'shotlist' | 'storyboard' | 'schedule' | 'statistics' | 'backstage' | 'goals';
 
 export type BoardLayer = 'beats' | 'groups' | 'connections' | 'annotations' | 'text';
 
@@ -293,6 +293,9 @@ export interface ProjectContextType extends ProjectState {
   canUndo: boolean;
   canRedo: boolean;
   captureSnapshot: () => void;
+
+  // Auto 5 Scenes Generator
+  autoGenerate5Scenes: () => void;
 }
 
 export interface TextStyleConfig {
@@ -434,6 +437,16 @@ export interface Shot {
   lighting?: ShotLighting;
   art?: ShotArt;
   blocking?: ShotBlocking;
+
+  // Shot Division & Attention Tracking
+  sourceType?: 'manual' | 'ai-batch' | 'ai-modified';
+  lens?: string;
+  movement?: string;
+  durationSec?: number;
+  equipment?: string;
+  scriptReference?: string;
+  notes?: string;
+  reasoning?: string;
 }
 
 export interface BreakdownItem {
@@ -496,8 +509,11 @@ export interface Connection {
 
 export interface Annotation {
   id: number;
-  type: 'pencil' | 'line' | 'arrow' | 'rect' | 'circle' | 'eraser' | 'text' | 'image' | 'audio';
+  type: 'pencil' | 'line' | 'arrow' | 'rect' | 'circle' | 'eraser' | 'text' | 'image' | 'audio' | 'bigtext';
   color: string;
+  points?: any;
+  strokeWidth?: number;
+  strokeStyle?: string;
   d?: string; // path data
   x?: number;
   y?: number;
