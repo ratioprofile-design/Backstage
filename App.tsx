@@ -4,17 +4,20 @@ import { ProjectProvider, useProject } from './context/ProjectContext';
 import AppHeader from './components/AppHeader';
 import BoardView from './components/views/BoardView';
 import ScriptView from './components/views/ScriptView';
-import CharacterView from './components/views/CharacterView';
+import CastingView from './components/views/CastingView';
 import StoryboardView from './components/views/StoryboardView';
 import ScheduleView from './components/views/ScheduleView';
 import StatisticsView from './components/views/StatisticsView';
 import BackstageView from './components/views/BackstageView';
 import GoalView from './components/views/GoalView';
 import BreakdownView from './components/views/BreakdownView';
+import CrewView from './components/views/CrewView';
 import ShotListView from './components/views/ShotListView';
 import EditorModal from './components/EditorModal';
 import PrintPreviewModal from './components/PrintPreviewModal';
-import { ViewMode, ScriptConfig } from './types';
+import InboxModal, { DEFAULT_INBOX_TASKS } from './components/InboxModal';
+import InboxView from './components/views/InboxView';
+import { ViewMode, ScriptConfig, AppTask } from './types';
 import { Loader2, Film } from 'lucide-react';
 
 const StyleInjector: React.FC = () => {
@@ -150,6 +153,42 @@ const AppContent: React.FC = () => {
   const [showPrintPreview, setShowPrintPreview] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
 
+  // Central Inbox State
+  const [isInboxOpen, setIsInboxOpen] = useState(false);
+  const [inboxTasks, setInboxTasks] = useState<AppTask[]>(() => {
+    try {
+      const saved = localStorage.getItem('app_inbox_tasks');
+      return saved ? JSON.parse(saved) : DEFAULT_INBOX_TASKS;
+    } catch (e) {
+      return DEFAULT_INBOX_TASKS;
+    }
+  });
+
+  // Save tasks to localStorage when updated
+  const handleUpdateTask = (updatedTask: AppTask) => {
+    setInboxTasks(prev => {
+      const next = prev.map(t => t.id === updatedTask.id ? updatedTask : t);
+      localStorage.setItem('app_inbox_tasks', JSON.stringify(next));
+      return next;
+    });
+  };
+
+  const handleAddTask = (newTask: AppTask) => {
+    setInboxTasks(prev => {
+      const next = [newTask, ...prev];
+      localStorage.setItem('app_inbox_tasks', JSON.stringify(next));
+      return next;
+    });
+  };
+
+  const handleDeleteTask = (taskId: string) => {
+    setInboxTasks(prev => {
+      const next = prev.filter(t => t.id !== taskId);
+      localStorage.setItem('app_inbox_tasks', JSON.stringify(next));
+      return next;
+    });
+  };
+
   // Global Keyboard Shortcuts for Undo/Redo
   useEffect(() => {
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
@@ -215,20 +254,24 @@ const AppContent: React.FC = () => {
             onViewChange={setCurrentView}
             onRefresh={handleRefresh}
             onPrint={() => setShowPrintPreview(true)}
+            onOpenInbox={() => setIsInboxOpen(true)}
+            unreadCount={inboxTasks.filter(t => !t.isRead).length}
         />
       </div>
       
       <main className="w-full h-[calc(100vh-50px)] mt-[50px] relative print:hidden print:mt-0 print:h-auto">
         {currentView === 'board' && <div className="w-full h-full"><BoardView key={`board-${refreshKey}`} onEditBeat={handleEditBeat} /></div>}
         {currentView === 'script' && <ScriptView key={`script-${refreshKey}`} />}
-        {currentView === 'characters' && <div className="w-full h-full"><CharacterView key={`chars-${refreshKey}`} /></div>}
+        {currentView === 'casting' && <div className="w-full h-full"><CastingView key={`casting-${refreshKey}`} /></div>}
         {currentView === 'breakdown' && <div className="w-full h-full"><BreakdownView key={`breakdown-${refreshKey}`} /></div>}
+        {currentView === 'crew' && <div className="w-full h-full"><CrewView key={`crew-${refreshKey}`} /></div>}
         {currentView === 'shotlist' && <div className="w-full h-full"><ShotListView key={`shotlist-${refreshKey}`} onNavigateToStoryboard={() => setCurrentView('storyboard')} /></div>}
         {currentView === 'storyboard' && <div className="w-full h-full"><StoryboardView key={`story-${refreshKey}`} /></div>}
         {currentView === 'schedule' && <div className="w-full h-full"><ScheduleView key={`schedule-${refreshKey}`} /></div>}
         {currentView === 'statistics' && <div className="w-full h-full"><StatisticsView key={`stats-${refreshKey}`} /></div>}
         {currentView === 'backstage' && <div className="w-full h-full"><BackstageView key={`backstage-${refreshKey}`} onNavigateToBoard={() => setCurrentView('board')} /></div>}
         {currentView === 'goals' && <div className="w-full h-full"><GoalView key={`goals-${refreshKey}`} /></div>}
+        {currentView === 'inbox' && <div className="w-full h-full"><InboxView key={`inbox-${refreshKey}`} tasks={inboxTasks} onNavigateToView={setCurrentView} onUpdateTask={handleUpdateTask} onAddTask={handleAddTask} onDeleteTask={handleDeleteTask} /></div>}
       </main>
 
       {currentView === 'board' && (
@@ -253,6 +296,16 @@ const AppContent: React.FC = () => {
       {showPrintPreview && (
         <PrintPreviewModal onClose={() => setShowPrintPreview(false)} />
       )}
+
+      <InboxModal
+        isOpen={isInboxOpen}
+        onClose={() => setIsInboxOpen(false)}
+        onNavigateToView={setCurrentView}
+        tasks={inboxTasks}
+        onUpdateTask={handleUpdateTask}
+        onAddTask={handleAddTask}
+        onDeleteTask={handleDeleteTask}
+      />
     </>
   );
 };

@@ -19,6 +19,18 @@
   word-wrap: break-word;
 }
 
+.sc-line,
+.sc-action,
+.sc-character,
+.sc-dialogue,
+.sc-parenthetical,
+.sc-transition,
+.sc-shot,
+.sc-lyrics,
+.script-body {
+  color: inherit;
+}
+
 .sc-action {
   margin-left: var(--margin-action, 0%);
   width: var(--width-action, 100%);

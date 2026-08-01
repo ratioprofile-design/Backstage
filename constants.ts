@@ -136,23 +136,7 @@ export const SUPPORTED_LANGUAGES = [
 ];
 
 export const INITIAL_STATE: ProjectState = {
-  beats: [
-    { 
-      id: 0, 
-      x: 25000, 
-      y: 25000, 
-      title: '', 
-      summary: '',
-      slug: { prefix: '', location: '', time: '' },
-      content: '<div class="sc-line sc-action"><br></div>', 
-      color: '#444', 
-      shots: [], 
-      status: 'not-ready', 
-      versions: [],
-      notes: [], // Init scene notes
-      boardId: 0
-    }
-  ],
+  beats: [],
   groups: [],
   connections: [],
   annotations: [],
@@ -162,8 +146,8 @@ export const INITIAL_STATE: ProjectState = {
   scratchpad: '', // Legacy string content
   globalNotes: [], // Init global notes
 
-  panX: -24500,
-  panY: -24500,
+  panX: 0,
+  panY: 0,
   scale: 1,
   nextId: 1,
   nextAnnoId: 1,

@@ -8,7 +8,7 @@ import {
     Sparkles, Loader2, Trash2, Hash,
     Lock, Unlock, Download, FileSpreadsheet,
     Plus, X, Film, Camera, Aperture, FileText, ChevronDown, ChevronRight,
-    Check, ExternalLink, ArrowRight, Video, Layers, AlertCircle
+    Check, ExternalLink, ArrowRight, Video, Layers, AlertCircle, Copy, Share2, Send, Printer
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
@@ -32,7 +32,9 @@ const BreakdownView: React.FC = () => {
         setBreakdownLockedOnly, 
         scriptConfig, 
         scratchpadConfig,
-        generatedShots
+        generatedShots,
+        projectList = [],
+        currentProjectId = null
     } = useProject();
 
     const [selectedCategory, setSelectedCategory] = useState<string>('all');
@@ -57,6 +59,331 @@ const BreakdownView: React.FC = () => {
 
     // Inline New Item Inputs per beat & category
     const [newItemInputs, setNewItemInputs] = useState<Record<string, string>>({});
+
+    // Project Metadata for Print & Copy
+    const activeProjectName = useMemo(() => {
+        const proj = projectList.find(p => p.id === currentProjectId);
+        return proj ? proj.name : 'SEQUENCER PROJECT';
+    }, [projectList, currentProjectId]);
+
+    const [customProjectName, setCustomProjectName] = useState<string>('');
+    const [productionCompany, setProductionCompany] = useState<string>('Apex Pictures');
+    const [directorName, setDirectorName] = useState<string>('Director Name');
+    const [hodName, setHodName] = useState<string>('Dept Head');
+    const [hodDept, setHodDept] = useState<string>('Production / Art Dept');
+    const [includeProjectMetadata, setIncludeProjectMetadata] = useState<boolean>(true);
+    const [includeHodSignoff, setIncludeHodSignoff] = useState<boolean>(true);
+
+    // Screen Real Estate Optimization State (Hide empty category cards by default)
+    const [showEmptyCategories, setShowEmptyCategories] = useState(false);
+
+    // Department Quick List Share Modal State
+    const [isShareModalOpen, setIsShareModalOpen] = useState(false);
+    const [shareCategory, setShareCategory] = useState<string>('props');
+    const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+    const showToast = (msg: string) => {
+        setToastMessage(msg);
+        setTimeout(() => setToastMessage(null), 2500);
+    };
+
+    // Print Manifest Document Generator
+    const handlePrintBreakdown = (catId: string = shareCategory) => {
+        const textList = generateCategoryTextList(catId);
+        const catLabel = CATEGORIES.find(c => c.id === catId)?.label || 'Production Breakdown';
+        const projTitle = (customProjectName.trim() || activeProjectName);
+        
+        const printWindow = window.open('', '_blank', 'width=850,height=950');
+        if (!printWindow) {
+            showToast('Please allow popups to open print document.');
+            return;
+        }
+
+        const htmlContent = `
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>${projTitle} - ${catLabel} Manifest</title>
+                <style>
+                    body {
+                        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+                        padding: 35px;
+                        color: #111;
+                        background: #fff;
+                        line-height: 1.5;
+                    }
+                    .meta-header {
+                        border-bottom: 2px solid #111;
+                        padding-bottom: 12px;
+                        margin-bottom: 16px;
+                    }
+                    .project-title {
+                        font-size: 24px;
+                        font-weight: 900;
+                        text-transform: uppercase;
+                        letter-spacing: 0.5px;
+                    }
+                    .meta-grid {
+                        display: flex;
+                        gap: 20px;
+                        margin-top: 6px;
+                        font-size: 11px;
+                        color: #444;
+                        font-weight: bold;
+                        text-transform: uppercase;
+                    }
+                    .header {
+                        border-bottom: 3px solid #111;
+                        padding-bottom: 10px;
+                        margin-bottom: 20px;
+                        display: flex;
+                        justify-content: space-between;
+                        align-items: flex-end;
+                    }
+                    .title {
+                        font-size: 18px;
+                        font-weight: 900;
+                        text-transform: uppercase;
+                        letter-spacing: 1px;
+                    }
+                    .subtitle {
+                        font-size: 11px;
+                        color: #555;
+                        font-family: monospace;
+                        margin-top: 4px;
+                    }
+                    .content {
+                        font-family: "Courier New", Courier, monospace;
+                        font-size: 12px;
+                        white-space: pre-wrap;
+                        background: #fafafa;
+                        padding: 20px;
+                        border: 1px solid #ddd;
+                        border-radius: 8px;
+                    }
+                    .footer {
+                        margin-top: 30px;
+                        padding-top: 15px;
+                        border-top: 2px solid #222;
+                        display: flex;
+                        justify-content: space-between;
+                        font-size: 11px;
+                        color: #444;
+                        font-weight: bold;
+                    }
+                    .print-btn {
+                        padding: 8px 16px;
+                        background: #111;
+                        color: #fff;
+                        border: none;
+                        border-radius: 6px;
+                        font-size: 12px;
+                        font-weight: bold;
+                        cursor: pointer;
+                    }
+                    @media print {
+                        body { padding: 0; }
+                        .no-print { display: none !important; }
+                        .content { border: none; background: transparent; padding: 0; }
+                    }
+                </style>
+            </head>
+            <body>
+                ${includeProjectMetadata ? `
+                <div class="meta-header">
+                    <div class="project-title">🎬 ${projTitle.toUpperCase()}</div>
+                    <div class="meta-grid">
+                        ${productionCompany.trim() ? `<div>🏢 PRODUCTION: ${productionCompany.toUpperCase()}</div>` : ''}
+                        ${directorName.trim() ? `<div>🎥 DIRECTOR: ${directorName.toUpperCase()}</div>` : ''}
+                        <div>DATE: ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</div>
+                    </div>
+                </div>
+                ` : ''}
+                <div class="header">
+                    <div>
+                        <div class="title">📋 ${catLabel.toUpperCase()} MANIFEST</div>
+                        <div class="subtitle">BACKSTAGE STORY SEQUENCER • PRODUCTION BREAKDOWN LOG</div>
+                    </div>
+                    <div class="no-print">
+                        <button onclick="window.print()" class="print-btn">
+                            🖨️ Print / Save PDF
+                        </button>
+                    </div>
+                </div>
+                <div class="content">${textList}</div>
+                ${includeHodSignoff ? `
+                <div class="footer">
+                    <div><strong>HOD SIGN-OFF:</strong> ${hodName.toUpperCase()} (${hodDept.toUpperCase()})</div>
+                    <div><strong>SIGNATURE:</strong> ________________________</div>
+                    <div><strong>DATE:</strong> ____________</div>
+                    <div><strong>APPROVAL:</strong> [  ] PASS &nbsp;&nbsp; [  ] REV</div>
+                </div>
+                ` : ''}
+                <script>
+                    setTimeout(function() { window.print(); }, 400);
+                </script>
+            </body>
+            </html>
+        `;
+
+        printWindow.document.write(htmlContent);
+        printWindow.document.close();
+    };
+
+    const handlePrintScene = (beat: Beat) => {
+        const sceneNum = beat.sceneNumber || '1';
+        const projTitle = (customProjectName.trim() || activeProjectName);
+        let lines: string[] = [];
+        if (includeProjectMetadata) {
+            lines.push(`🎬 PROJECT: ${projTitle.toUpperCase()}`);
+            if (productionCompany.trim()) lines.push(`🏢 PRODUCTION: ${productionCompany.trim().toUpperCase()}`);
+            if (directorName.trim()) lines.push(`🎥 DIRECTOR: ${directorName.trim().toUpperCase()}`);
+            lines.push(`==================================================`);
+        }
+        lines.push(`📍 SCENE ${sceneNum}: ${beat.slug.prefix || 'INT.'} ${beat.slug.location || 'LOCATION'} - ${beat.slug.time || 'DAY'}`);
+        if (beat.title) lines.push(`Title: ${beat.title}`);
+        lines.push(`--------------------------------------------------`);
+        if (beat.breakdown) {
+            (Object.keys(beat.breakdown) as Array<keyof BreakdownData>).forEach(c => {
+                const items = beat.breakdown![c] || [];
+                if (items.length > 0) {
+                    const label = CATEGORIES.find(cat => cat.id === c)?.label || c;
+                    lines.push(`\n[${label.toUpperCase()}]`);
+                    items.forEach(i => {
+                        const name = typeof i === 'string' ? i : i.name;
+                        lines.push(`  [ ] ${name}`);
+                    });
+                }
+            });
+        }
+        
+        const printWindow = window.open('', '_blank', 'width=800,height=800');
+        if (!printWindow) return;
+
+        printWindow.document.write(`
+            <html>
+            <head>
+                <title>${projTitle} - Scene ${sceneNum} Breakdown</title>
+                <style>
+                    body { font-family: monospace; padding: 35px; font-size: 13px; line-height: 1.6; color: #111; }
+                    .no-print { margin-bottom: 20px; }
+                    button { padding: 8px 16px; background: #000; color: #fff; font-weight: bold; border-radius: 6px; cursor: pointer; border: none; }
+                    @media print { .no-print { display: none; } }
+                </style>
+            </head>
+            <body>
+                <div class="no-print"><button onclick="window.print()">🖨️ Print Scene Sheet</button></div>
+                <pre>${lines.join('\n')}</pre>
+            </body>
+            </html>
+        `);
+        printWindow.document.close();
+    };
+
+    // Generate Shareable Text List for a Category across all scenes or a single scene
+    const generateCategoryTextList = (catId: string) => {
+        const sortedBeats = [...beats].sort((a, b) => a.x - b.x);
+        const catLabel = CATEGORIES.find(c => c.id === catId)?.label || 'Breakdown';
+        const projTitle = (customProjectName.trim() || activeProjectName).toUpperCase();
+        let lines: string[] = [];
+
+        if (includeProjectMetadata) {
+            lines.push(`🎬 PROJECT: ${projTitle}`);
+            if (productionCompany.trim()) lines.push(`🏢 PRODUCTION: ${productionCompany.trim().toUpperCase()}`);
+            if (directorName.trim()) lines.push(`🎥 DIRECTOR: ${directorName.trim().toUpperCase()}`);
+            lines.push(`----------------------------------------`);
+        }
+
+        lines.push(`📋 ${catLabel.toUpperCase()} MANIFEST — PRODUCTION BREAKDOWN`);
+        lines.push(`Date: ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`);
+        lines.push(`========================================`);
+
+        let itemCount = 0;
+        if (catId === 'all') {
+            sortedBeats.forEach((beat, idx) => {
+                const sceneNum = beat.sceneNumber || (idx + 1).toString();
+                const location = beat.slug.location || 'LOCATION';
+                lines.push(`\n📍 SCENE ${sceneNum}: ${beat.slug.prefix || 'INT.'} ${location}`);
+                if (beat.breakdown) {
+                    (Object.keys(beat.breakdown) as Array<keyof BreakdownData>).forEach(c => {
+                        const items = beat.breakdown![c] || [];
+                        if (items.length > 0) {
+                            const cName = CATEGORIES.find(cat => cat.id === c)?.label || c;
+                            lines.push(`  [${cName}]: ` + items.map(i => typeof i === 'string' ? i : i.name).join(', '));
+                            itemCount += items.length;
+                        }
+                    });
+                } else {
+                    lines.push(`  (No breakdown items logged)`);
+                }
+            });
+        } else {
+            sortedBeats.forEach((beat, idx) => {
+                const sceneNum = beat.sceneNumber || (idx + 1).toString();
+                const location = beat.slug.location || 'LOCATION';
+                const items = beat.breakdown?.[catId as keyof BreakdownData] || [];
+                if (items.length > 0) {
+                    lines.push(`\n📍 SCENE ${sceneNum} (${beat.slug.prefix || 'INT.'} ${location}):`);
+                    items.forEach(i => {
+                        const name = typeof i === 'string' ? i : i.name;
+                        lines.push(`   • ${name}`);
+                        itemCount++;
+                    });
+                }
+            });
+            if (itemCount === 0) {
+                lines.push(`\nNo items currently logged under ${catLabel}.`);
+            }
+        }
+
+        if (includeHodSignoff) {
+            lines.push(`\n========================================`);
+            lines.push(`HOD SIGN-OFF (${hodName.toUpperCase()} - ${hodDept.toUpperCase()}): ____________________`);
+            lines.push(`DATE: ____________   STATUS: [  ] APPROVED   [  ] REVISION NEEDED`);
+        }
+
+        lines.push(`\n----------------------------------------`);
+        lines.push(`Total Items Logged: ${itemCount}`);
+        lines.push(`Generated by Backstage Story Sequencer`);
+        return lines.join('\n');
+    };
+
+    // Copy Scene Specific List
+    const copySceneBreakdown = (beat: Beat, sceneNum: string) => {
+        let lines: string[] = [];
+        const projTitle = (customProjectName.trim() || activeProjectName).toUpperCase();
+        if (includeProjectMetadata) {
+            lines.push(`🎬 PROJECT: ${projTitle}`);
+            if (productionCompany.trim()) lines.push(`🏢 PRODUCTION: ${productionCompany.trim().toUpperCase()}`);
+            if (directorName.trim()) lines.push(`🎥 DIRECTOR: ${directorName.trim().toUpperCase()}`);
+            lines.push(`----------------------------------------`);
+        }
+        lines.push(`📍 SCENE ${sceneNum}: ${beat.slug.prefix || 'INT.'} ${beat.slug.location || 'LOCATION'} - ${beat.slug.time || 'DAY'}`);
+        if (beat.title) lines.push(`Title: ${beat.title}`);
+        lines.push(`----------------------------------------`);
+
+        let count = 0;
+        if (beat.breakdown) {
+            (Object.keys(beat.breakdown) as Array<keyof BreakdownData>).forEach(c => {
+                const items = beat.breakdown![c] || [];
+                if (items.length > 0) {
+                    const label = CATEGORIES.find(cat => cat.id === c)?.label || c;
+                    lines.push(`• ${label}: ` + items.map(i => typeof i === 'string' ? i : i.name).join(', '));
+                    count += items.length;
+                }
+            });
+        }
+        if (count === 0) lines.push(`(No breakdown items logged for this scene)`);
+
+        if (includeHodSignoff) {
+            lines.push(`\n========================================`);
+            lines.push(`HOD SIGN-OFF (${hodName.toUpperCase()} - ${hodDept.toUpperCase()}): ____________________`);
+            lines.push(`DATE: ____________   STATUS: [  ] APPROVED   [  ] REVISION NEEDED`);
+        }
+
+        navigator.clipboard.writeText(lines.join('\n'));
+        showToast(`Copied Scene ${sceneNum} breakdown list to clipboard!`);
+    };
 
     useEffect(() => {
         isMounted.current = true;
@@ -152,6 +479,36 @@ const BreakdownView: React.FC = () => {
             return { beat, hasBreakdown, totalItems, sceneIndex: idx + 1, sceneNum, shots };
         });
     }, [beats, generatedShots]);
+
+    // Scenes filtered by active category selection and search term
+    const displayedScenes = useMemo(() => {
+        const totalItemsInSelectedCat = selectedCategory !== 'all' ? (categoryCounts[selectedCategory] || 0) : 0;
+
+        return sceneData.filter(s => {
+            // 1. Category Filter
+            if (selectedCategory !== 'all' && totalItemsInSelectedCat > 0) {
+                const catItems = s.beat.breakdown?.[selectedCategory as keyof BreakdownData] || [];
+                if (catItems.length === 0) return false;
+            }
+
+            // 2. Search Filter
+            if (searchTerm) {
+                const lower = searchTerm.toLowerCase();
+                const locMatch = (s.beat.slug.location || '').toLowerCase().includes(lower);
+                const contentMatch = (s.beat.content || '').toLowerCase().includes(lower);
+                const titleMatch = (s.beat.title || '').toLowerCase().includes(lower);
+                const breakdownMatch = s.beat.breakdown ? Object.values(s.beat.breakdown).some((items: any) => 
+                    Array.isArray(items) && items.some(i => (typeof i === 'string' ? i : i.name).toLowerCase().includes(lower))
+                ) : false;
+
+                if (!locMatch && !contentMatch && !titleMatch && !breakdownMatch) {
+                    return false;
+                }
+            }
+
+            return true;
+        });
+    }, [sceneData, selectedCategory, categoryCounts, searchTerm]);
 
     const getCategoryMeta = (cat: string) => CATEGORIES.find(c => c.id === cat);
 
@@ -336,6 +693,7 @@ const BreakdownView: React.FC = () => {
                     {CATEGORIES.map(cat => {
                         const count = categoryCounts[cat.id] || 0;
                         const isActive = selectedCategory === cat.id;
+                        const CatIcon = cat.icon;
                         return (
                             <button 
                                 key={cat.id} 
@@ -344,7 +702,7 @@ const BreakdownView: React.FC = () => {
                             >
                                 <div className="flex items-center gap-2.5">
                                     <div className={`p-1.5 rounded-lg ${isActive ? cat.bg : 'bg-[#222] group-hover:bg-[#2a2a2a]'} transition-colors`}>
-                                        <cat.icon size={15} className={isActive ? cat.color : 'text-gray-500'} />
+                                        <CatIcon size={15} className={isActive ? cat.color : 'text-gray-500'} />
                                     </div>
                                     <span className="text-xs font-bold">{cat.label}</span>
                                 </div>
@@ -414,6 +772,12 @@ const BreakdownView: React.FC = () => {
                         </div>
 
                         <div className="flex bg-[#222] rounded-md border border-[#333] p-0.5 gap-1">
+                            <button onClick={() => { setShareCategory(selectedCategory === 'all' ? 'props' : selectedCategory); setIsShareModalOpen(true); }} className="px-2.5 py-1 bg-[#f5a623] hover:bg-[#e0951a] text-black font-bold rounded text-[10px] uppercase transition-all flex items-center gap-1.5 shadow-sm" title="Get formatted list to send to department person">
+                                <Share2 size={12} /> Send / Copy List
+                            </button>
+                            <button onClick={() => handlePrintBreakdown(selectedCategory === 'all' ? 'props' : selectedCategory)} className="px-2.5 py-1 bg-[#28282e] hover:bg-[#383840] text-gray-200 font-bold rounded text-[10px] uppercase transition-all flex items-center gap-1.5" title="Print Breakdown Manifest">
+                                <Printer size={12} className="text-amber-400" /> Print
+                            </button>
                             <button onClick={() => handleExport('excel')} className="px-2.5 py-1 rounded text-[10px] font-bold uppercase text-gray-400 hover:text-white transition-all flex items-center gap-1.5"><FileSpreadsheet size={12} className="text-green-400" /> Excel</button>
                             <button onClick={() => handleExport('csv')} className="px-2.5 py-1 rounded text-[10px] font-bold uppercase text-gray-400 hover:text-white transition-all flex items-center gap-1.5"><Download size={12} /> CSV</button>
                         </div>
@@ -421,6 +785,19 @@ const BreakdownView: React.FC = () => {
                         <div className="flex bg-[#000] rounded-md p-1 border border-[#333] gap-1">
                            <button onClick={() => setViewType('by-scene')} className={`p-1.5 rounded transition-colors ${viewType === 'by-scene' ? 'bg-[#333] text-white' : 'text-gray-500 hover:text-gray-300'}`} title="Scene View with Storyboard"><ListIcon size={14} /></button>
                            <button onClick={() => setViewType('by-category')} className={`p-1.5 rounded transition-colors ${viewType === 'by-category' ? 'bg-[#333] text-white' : 'text-gray-500 hover:text-gray-300'}`} title="Manifest Asset View"><LayoutGrid size={14} /></button>
+                           {viewType === 'by-scene' && (
+                              <button 
+                                 onClick={() => setShowEmptyCategories(!showEmptyCategories)} 
+                                 className={`px-2 py-1 rounded text-[10px] font-bold uppercase border transition-all ${
+                                    showEmptyCategories 
+                                       ? 'bg-amber-950/40 text-amber-400 border-amber-800/50' 
+                                       : 'bg-[#181818] text-gray-400 border-[#333] hover:text-white'
+                                 }`}
+                                 title={showEmptyCategories ? "Showing all categories (including empty)" : "Hiding empty categories to optimize screen space"}
+                              >
+                                 {showEmptyCategories ? "Full Grid" : "Compact"}
+                              </button>
+                           )}
                         </div>
                     </div>
 
@@ -454,12 +831,45 @@ const BreakdownView: React.FC = () => {
                 {/* Main View Area */}
                 <div className="flex-1 flex overflow-hidden">
                     <div className="flex-1 overflow-y-auto custom-scrollbar p-6">
+                        {selectedCategory !== 'all' && (
+                            <div className="max-w-6xl mx-auto mb-4 bg-[#1c1c22] border border-[#f5a623]/30 rounded-xl px-4 py-2.5 flex items-center justify-between shadow-md">
+                                <div className="flex items-center gap-2.5 text-xs font-bold text-white">
+                                    <span className="text-gray-400 uppercase text-[10px] tracking-wider font-mono">Active Filter:</span>
+                                    {(() => {
+                                        const cat = CATEGORIES.find(c => c.id === selectedCategory);
+                                        if (!cat) return null;
+                                        const Icon = cat.icon;
+                                        return (
+                                            <span className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-bold ${cat.bg} ${cat.border} ${cat.color}`}>
+                                                <Icon size={14} />
+                                                {cat.label} ({categoryCounts[selectedCategory] || 0} items)
+                                            </span>
+                                        );
+                                    })()}
+                                </div>
+                                <button 
+                                    onClick={() => setSelectedCategory('all')} 
+                                    className="text-[10px] font-bold uppercase text-gray-400 hover:text-white bg-[#282828] hover:bg-[#333] px-2.5 py-1 rounded-md transition-colors flex items-center gap-1"
+                                >
+                                    <X size={12} /> Reset Category Filter
+                                </button>
+                            </div>
+                        )}
+
                         {viewType === 'by-scene' ? (
                             <div className="space-y-6 max-w-6xl mx-auto animate-in fade-in duration-300">
-                                {sceneData.filter(s => searchTerm ? (s.beat.slug.location || '').toLowerCase().includes(searchTerm.toLowerCase()) || (s.beat.content || '').toLowerCase().includes(searchTerm.toLowerCase()) : true).map((item) => {
+                                {displayedScenes.map((item) => {
                                     const isScriptOpen = expandedScenes[item.beat.id]?.script;
                                     const isShotsOpen = expandedScenes[item.beat.id]?.shots;
                                     const isBeingAnalyzed = analyzingBeatId === item.beat.id;
+
+                                    const activeCatsForScene = CATEGORIES.filter(c => c.id !== 'all' && (item.beat.breakdown?.[c.id as keyof BreakdownData]?.length || 0) > 0);
+
+                                    const visibleCategories = selectedCategory === 'all'
+                                        ? (showEmptyCategories 
+                                            ? CATEGORIES.filter(c => c.id !== 'all')
+                                            : (activeCatsForScene.length > 0 ? activeCatsForScene : CATEGORIES.filter(c => c.id !== 'all')))
+                                        : CATEGORIES.filter(c => c.id === selectedCategory);
 
                                     return (
                                         <div key={item.beat.id} className="bg-[#1a1a1a] border border-[#333] rounded-xl overflow-hidden hover:border-[#444] transition-all group shadow-md">
@@ -474,15 +884,43 @@ const BreakdownView: React.FC = () => {
                                                         <h4 className="text-sm font-bold text-gray-200 group-hover:text-white transition-colors" style={fontStyle}>
                                                             {item.beat.slug.prefix || 'INT.'} {item.beat.slug.location || 'UNKNOWN LOCATION'} {item.beat.slug.time ? `- ${item.beat.slug.time}` : ''}
                                                         </h4>
-                                                        <div className="flex items-center gap-2 text-[10px] font-medium text-[#777] mt-1">
-                                                            {item.beat.title && <span className="text-gray-400 font-semibold">{item.beat.title}</span>}
-                                                            {item.beat.title && <span className="text-[#444]">•</span>}
-                                                            <span className="font-mono text-gray-500">{item.shots.length} Storyboard Shot{item.shots.length === 1 ? '' : 's'}</span>
+                                                        {/* Department Summary Badges in Header */}
+                                                        <div className="flex items-center gap-1.5 flex-wrap mt-1">
+                                                            {activeCatsForScene.map(cat => {
+                                                                const count = item.beat.breakdown?.[cat.id as keyof BreakdownData]?.length || 0;
+                                                                const CatIcon = cat.icon;
+                                                                return (
+                                                                    <span key={cat.id} className={`text-[9px] font-bold px-2 py-0.5 rounded-md border flex items-center gap-1 ${cat.bg} ${cat.border} ${cat.color}`}>
+                                                                        <CatIcon size={10} />
+                                                                        <span>{cat.label.split(' ')[0]}: {count}</span>
+                                                                    </span>
+                                                                );
+                                                            })}
+                                                            {activeCatsForScene.length === 0 && (
+                                                                <span className="text-[10px] text-gray-500 font-mono italic">No breakdown items logged</span>
+                                                            )}
                                                         </div>
                                                     </div>
                                                 </div>
 
                                                 <div className="flex items-center gap-2">
+                                                    {/* Copy Scene Breakdown */}
+                                                    <button 
+                                                        onClick={() => copySceneBreakdown(item.beat, (item.beat.sceneNumber || item.sceneIndex).toString())}
+                                                        className="p-1.5 bg-[#181818] hover:bg-[#333] border border-[#333] text-gray-400 hover:text-white rounded transition-colors"
+                                                        title="Copy Scene Breakdown List"
+                                                    >
+                                                        <Copy size={13} />
+                                                    </button>
+
+                                                    {/* Print Scene Breakdown */}
+                                                    <button 
+                                                        onClick={() => handlePrintScene(item.beat)}
+                                                        className="p-1.5 bg-[#181818] hover:bg-[#333] border border-[#333] text-gray-400 hover:text-white rounded transition-colors"
+                                                        title="Print Scene Breakdown Sheet"
+                                                    >
+                                                        <Printer size={13} className="text-amber-400" />
+                                                    </button>
                                                     {/* Toggle Script Snippet */}
                                                     <button 
                                                         onClick={() => setExpandedScenes(prev => ({
@@ -591,8 +1029,8 @@ const BreakdownView: React.FC = () => {
                                             )}
 
                                             {/* Categories Breakdown Content */}
-                                            <div className="p-5 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5">
-                                                {CATEGORIES.filter(c => c.id !== 'all').map(cat => {
+                                            <div className={`p-5 grid gap-5 ${selectedCategory === 'all' ? 'grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4' : 'grid-cols-1 md:grid-cols-2'}`}>
+                                                {visibleCategories.map(cat => {
                                                     const items = item.beat.breakdown?.[cat.id as keyof BreakdownData] || [];
                                                     const inputKey = `${item.beat.id}:${cat.id}`;
                                                     const inputValue = newItemInputs[inputKey] || '';
@@ -600,7 +1038,7 @@ const BreakdownView: React.FC = () => {
                                                     return (
                                                         <div key={cat.id} className="bg-[#151515] border border-[#2a2a2a] rounded-lg p-3 flex flex-col">
                                                             <div className={`text-[10px] font-bold uppercase flex items-center justify-between pb-2 mb-2 border-b border-[#282828] ${cat.color}`}>
-                                                                <span className="flex items-center gap-1.5"><cat.icon size={13} /> {cat.label}</span>
+                                                                <span className="flex items-center gap-1.5">{(() => { const CatIcon = cat.icon; return <CatIcon size={13} />; })()} {cat.label}</span>
                                                                 <span className="text-[9px] text-gray-600 font-mono">({items.length})</span>
                                                             </div>
 
@@ -660,6 +1098,23 @@ const BreakdownView: React.FC = () => {
                                         </div>
                                     );
                                 })}
+                                {displayedScenes.length === 0 && (
+                                    <div className="h-96 flex flex-col items-center justify-center text-[#333] border-2 border-dashed border-[#222] rounded-2xl bg-[#161616]">
+                                        <Sparkles size={48} className="mb-4 opacity-10 text-[#f5a623]" />
+                                        <p className="text-sm font-bold uppercase tracking-widest text-[#555]">No Scenes Found</p>
+                                        <p className="text-xs text-gray-600 mt-1">
+                                            {selectedCategory !== 'all' 
+                                                ? `No scenes contain items logged under "${CATEGORIES.find(c => c.id === selectedCategory)?.label}".` 
+                                                : 'No scenes match your current filter.'}
+                                        </p>
+                                        <button 
+                                            onClick={() => { setSelectedCategory('all'); setSearchTerm(''); }}
+                                            className="mt-4 px-3.5 py-1.5 bg-[#252525] hover:bg-[#333] text-gray-300 text-xs font-bold rounded-lg uppercase transition-colors"
+                                        >
+                                            Reset Filters
+                                        </button>
+                                    </div>
+                                )}
                             </div>
                         ) : (
                             /* Category Manifest View */
@@ -671,7 +1126,7 @@ const BreakdownView: React.FC = () => {
                                             <div className="flex justify-between items-start mb-3">
                                                 <div className="flex items-center gap-3">
                                                     <div className={`p-2 rounded-lg ${catMeta?.bg} border ${catMeta?.border}`}>
-                                                        {catMeta && <catMeta.icon size={18} className={catMeta.color} />}
+                                                        {catMeta && (() => { const CatMetaIcon = catMeta.icon; return <CatMetaIcon size={18} className={catMeta.color} />; })()}
                                                     </div>
                                                     <div>
                                                         <h3 className="text-sm font-bold text-gray-200 group-hover:text-white transition-colors" style={fontStyle}>
@@ -779,6 +1234,201 @@ const BreakdownView: React.FC = () => {
                                         className="bg-[#111] p-3 rounded-lg border border-[#333] text-xs font-mono text-gray-300 leading-relaxed max-h-72 overflow-y-auto custom-scrollbar prose prose-invert"
                                         dangerouslySetInnerHTML={{ __html: activeInspectorBeat.content || '<em>No script content.</em>' }}
                                     />
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                    {/* Toast Feedback Notification */}
+                    {toastMessage && (
+                        <div className="fixed bottom-6 right-6 z-50 bg-[#1e1e24] border border-[#f5a623] text-white px-4 py-3 rounded-xl shadow-2xl flex items-center gap-3 animate-in fade-in slide-in-from-bottom-3 duration-200">
+                            <Check size={18} className="text-emerald-400" />
+                            <span className="text-xs font-bold font-mono">{toastMessage}</span>
+                        </div>
+                    )}
+
+                    {/* Department Quick List Share / Copy Modal */}
+                    {isShareModalOpen && (
+                        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
+                            <div className="bg-[#18181b] border border-[#333] rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl flex flex-col max-h-[85vh]">
+                                {/* Modal Header */}
+                                <div className="bg-[#202024] p-4 border-b border-[#333] flex items-center justify-between">
+                                    <div className="flex items-center gap-2.5">
+                                        <Share2 size={18} className="text-[#f5a623]" />
+                                        <div>
+                                            <h3 className="text-sm font-black text-white uppercase tracking-wider">
+                                                Send / Copy Department Manifest List
+                                            </h3>
+                                            <p className="text-[11px] text-gray-400">
+                                                Copy formatted list to send directly to props master, costume designer, sound team, etc.
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <button 
+                                        onClick={() => setIsShareModalOpen(false)}
+                                        className="p-1 text-gray-400 hover:text-white rounded-lg hover:bg-[#333] transition-colors"
+                                    >
+                                        <X size={18} />
+                                    </button>
+                                </div>
+
+                                {/* Project Metadata Header Customization Bar */}
+                                <div className="px-4 py-2.5 bg-[#161619] border-b border-[#28282e] flex flex-wrap items-center gap-3">
+                                    <div className="flex items-center gap-2">
+                                        <label className="text-[10px] font-mono font-bold text-amber-400 uppercase tracking-wider flex items-center gap-1.5 cursor-pointer">
+                                            <input 
+                                                type="checkbox" 
+                                                checked={includeProjectMetadata} 
+                                                onChange={(e) => setIncludeProjectMetadata(e.target.checked)}
+                                                className="rounded border-gray-700 accent-[#f5a623] cursor-pointer"
+                                            />
+                                            Header Metadata:
+                                        </label>
+                                    </div>
+
+                                    {includeProjectMetadata && (
+                                        <div className="flex items-center gap-2 flex-1 flex-wrap">
+                                            <div className="flex items-center gap-1.5 bg-[#0e0e11] border border-[#333] px-2 py-1 rounded-lg">
+                                                <span className="text-[9px] font-mono text-gray-500 uppercase">Project:</span>
+                                                <input 
+                                                    type="text" 
+                                                    value={customProjectName} 
+                                                    onChange={(e) => setCustomProjectName(e.target.value)}
+                                                    placeholder={activeProjectName}
+                                                    className="bg-transparent text-xs text-white font-bold outline-none w-28 focus:w-36 transition-all placeholder-gray-600"
+                                                />
+                                            </div>
+                                            <div className="flex items-center gap-1.5 bg-[#0e0e11] border border-[#333] px-2 py-1 rounded-lg">
+                                                <span className="text-[9px] font-mono text-gray-500 uppercase">Production:</span>
+                                                <input 
+                                                    type="text" 
+                                                    value={productionCompany} 
+                                                    onChange={(e) => setProductionCompany(e.target.value)}
+                                                    placeholder="Apex Pictures"
+                                                    className="bg-transparent text-xs text-white font-bold outline-none w-28 focus:w-36 transition-all placeholder-gray-600"
+                                                />
+                                            </div>
+                                            <div className="flex items-center gap-1.5 bg-[#0e0e11] border border-[#333] px-2 py-1 rounded-lg">
+                                                <span className="text-[9px] font-mono text-gray-500 uppercase">Director:</span>
+                                                <input 
+                                                    type="text" 
+                                                    value={directorName} 
+                                                    onChange={(e) => setDirectorName(e.target.value)}
+                                                    placeholder="Director Name"
+                                                    className="bg-transparent text-xs text-white font-bold outline-none w-24 focus:w-32 transition-all placeholder-gray-600"
+                                                />
+                                            </div>
+
+                                            <div className="h-4 w-px bg-[#333] mx-1"></div>
+
+                                            <label className="text-[10px] font-mono font-bold text-cyan-400 uppercase tracking-wider flex items-center gap-1.5 cursor-pointer ml-1">
+                                                <input 
+                                                    type="checkbox" 
+                                                    checked={includeHodSignoff} 
+                                                    onChange={(e) => setIncludeHodSignoff(e.target.checked)}
+                                                    className="rounded border-gray-700 accent-cyan-500 cursor-pointer"
+                                                />
+                                                HOD Sign-off:
+                                            </label>
+
+                                            {includeHodSignoff && (
+                                                <>
+                                                    <div className="flex items-center gap-1.5 bg-[#0e0e11] border border-[#333] px-2 py-1 rounded-lg">
+                                                        <span className="text-[9px] font-mono text-gray-500 uppercase">HOD:</span>
+                                                        <input 
+                                                            type="text" 
+                                                            value={hodName} 
+                                                            onChange={(e) => setHodName(e.target.value)}
+                                                            placeholder="Dept Head"
+                                                            className="bg-transparent text-xs text-white font-bold outline-none w-24 focus:w-32 transition-all placeholder-gray-600"
+                                                        />
+                                                    </div>
+                                                    <div className="flex items-center gap-1.5 bg-[#0e0e11] border border-[#333] px-2 py-1 rounded-lg">
+                                                        <span className="text-[9px] font-mono text-gray-500 uppercase">Dept:</span>
+                                                        <input 
+                                                            type="text" 
+                                                            value={hodDept} 
+                                                            onChange={(e) => setHodDept(e.target.value)}
+                                                            placeholder="Camera / Art"
+                                                            className="bg-transparent text-xs text-white font-bold outline-none w-24 focus:w-32 transition-all placeholder-gray-600"
+                                                        />
+                                                    </div>
+                                                </>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* Modal Category Picker */}
+                                <div className="p-4 border-b border-[#28282e] bg-[#121214] flex items-center gap-2 overflow-x-auto custom-scrollbar">
+                                    {CATEGORIES.map(cat => {
+                                        const CatIcon = cat.icon;
+                                        const isSel = shareCategory === cat.id;
+                                        return (
+                                            <button
+                                                key={cat.id}
+                                                onClick={() => setShareCategory(cat.id)}
+                                                className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 shrink-0 transition-all ${
+                                                    isSel 
+                                                        ? 'bg-[#f5a623] text-black shadow' 
+                                                        : 'bg-[#222226] text-gray-400 hover:text-white hover:bg-[#2c2c32]'
+                                                }`}
+                                            >
+                                                <CatIcon size={14} />
+                                                <span>{cat.label}</span>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+
+                                {/* Text Area Preview */}
+                                <div className="p-4 flex-1 overflow-y-auto custom-scrollbar bg-[#0d0d0f]">
+                                    <div className="flex items-center justify-between mb-2">
+                                        <span className="text-[10px] font-mono font-bold text-gray-500 uppercase">
+                                            Formatted Plain Text (Ready to Copy/Send)
+                                        </span>
+                                        <span className="text-[10px] text-emerald-400 font-mono">
+                                            Auto-Synced with Script Breakdown
+                                        </span>
+                                    </div>
+                                    <textarea 
+                                        readOnly
+                                        value={generateCategoryTextList(shareCategory)}
+                                        className="w-full h-64 bg-[#141417] border border-[#26262a] text-xs font-mono text-gray-200 p-3.5 rounded-xl outline-none select-all custom-scrollbar leading-relaxed"
+                                    />
+                                </div>
+
+                                {/* Modal Actions */}
+                                <div className="p-4 border-t border-[#333] bg-[#1a1a1e] flex items-center justify-between">
+                                    <div className="text-[11px] text-gray-400 font-mono">
+                                        Tip: Paste this list into WhatsApp, Email, or Slack
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <button 
+                                            onClick={() => handlePrintBreakdown(shareCategory)}
+                                            className="px-4 py-2 rounded-xl text-xs font-bold text-gray-200 bg-[#282830] hover:bg-[#383842] border border-[#444] transition-all flex items-center gap-1.5"
+                                        >
+                                            <Printer size={14} className="text-amber-400" />
+                                            <span>Print List / PDF</span>
+                                        </button>
+                                        <button 
+                                            onClick={() => setIsShareModalOpen(false)}
+                                            className="px-4 py-2 rounded-xl text-xs font-bold text-gray-400 hover:text-white bg-[#26262a] hover:bg-[#333] transition-colors"
+                                        >
+                                            Close
+                                        </button>
+                                        <button 
+                                            onClick={() => {
+                                                const text = generateCategoryTextList(shareCategory);
+                                                navigator.clipboard.writeText(text);
+                                                showToast(`Copied ${CATEGORIES.find(c => c.id === shareCategory)?.label} list to clipboard!`);
+                                                setIsShareModalOpen(false);
+                                            }}
+                                            className="px-5 py-2 rounded-xl text-xs font-black text-black bg-[#f5a623] hover:bg-[#e0951a] transition-all shadow-lg flex items-center gap-2"
+                                        >
+                                            <Copy size={14} />
+                                            <span>Copy List to Clipboard</span>
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
                         </div>

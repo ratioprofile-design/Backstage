@@ -97,9 +97,82 @@ export interface ProjectMetadata {
   created: number;
 }
 
-export type ViewMode = 'board' | 'script' | 'characters' | 'breakdown' | 'shotlist' | 'storyboard' | 'schedule' | 'statistics' | 'backstage' | 'goals';
+export type ViewMode = 'board' | 'script' | 'characters' | 'casting' | 'breakdown' | 'crew' | 'shotlist' | 'storyboard' | 'schedule' | 'statistics' | 'backstage' | 'goals' | 'inbox';
+
+export interface TaskModificationHistory {
+  id: string;
+  timestamp: string;
+  author: string;
+  authorRole?: string;
+  avatarUrl?: string;
+  changeType: 'created' | 'status_change' | 'priority_change' | 'assignment' | 'comment' | 'edited';
+  fieldChanged?: string;
+  oldValue?: string;
+  newValue?: string;
+  comment?: string;
+}
+
+export interface AppTask {
+  id: string;
+  title: string;
+  departmentId: string;
+  departmentName?: string;
+  owner: string;
+  priority: 'Critical' | 'High' | 'Medium' | 'Low';
+  deadline: string;
+  status: 'To Do' | 'In Progress' | 'Review' | 'Completed';
+  relatedScene?: string;
+  targetView?: ViewMode;
+  notes?: string;
+  history: TaskModificationHistory[];
+  isRead?: boolean;
+}
 
 export type BoardLayer = 'beats' | 'groups' | 'connections' | 'annotations' | 'text';
+
+export interface ArtistOption {
+  id: string;
+  name: string;
+  rank: number; // 1 = Option 1, 2 = Option 2, etc.
+  status: 'idea' | 'in_talks' | 'audition_requested' | 'self_tape_received' | 'callback' | 'chemistry_read' | 'offer_sent' | 'contract_signed' | 'on_board' | 'passed' | 'hold';
+  photoUrl?: string;
+  photos?: string[];
+  imdbUrl?: string;
+  auditionDate?: string;
+  callbackDate?: string;
+  availability?: {
+    from?: string;
+    to?: string;
+    availableFrom?: string; // YYYY-MM-DD
+    availableTo?: string;   // YYYY-MM-DD
+    blackoutNotes?: string;
+    isConfirmedAvailable?: boolean;
+    isConfirmed?: boolean;
+  };
+  contact?: {
+    agency?: string;
+    agentName?: string;
+    agentPhone?: string;
+    agentEmail?: string;
+    email?: string;
+    phone?: string;
+    managerName?: string;
+    managerPhone?: string;
+  };
+  dealTerms?: {
+    feeQuote?: string;
+    feeType?: 'weekly' | 'flat' | 'daily';
+    sagTier?: string;
+    billingGuarantee?: string;
+    travelPerDiem?: string;
+    riderNotes?: string;
+  };
+  feeQuote?: string; // legacy support
+  auditionUrl?: string; // legacy support
+  rating?: number; // 1 to 5 star rating
+  notes?: string;
+  offerDate?: string;
+}
 
 // Fix: Defined the missing CharacterData interface to resolve errors in multiple files.
 export interface CharacterData {
@@ -122,6 +195,15 @@ export interface CharacterData {
   aliases?: string[];
   isImplicit?: boolean;
   templateDefaults?: any;
+  artists?: ArtistOption[];
+  confirmedArtistId?: string;
+  billingTier?: 'lead' | 'supporting' | 'day_player' | 'extra' | 'voiceover' | 'stunt';
+  playingAge?: string;
+  height?: string;
+  accent?: string;
+  specialSkills?: string;
+  wardrobeNotes?: string;
+  billingNumber?: number;
 }
 
 export interface ProjectState {
@@ -294,8 +376,9 @@ export interface ProjectContextType extends ProjectState {
   canRedo: boolean;
   captureSnapshot: () => void;
 
-  // Auto 5 Scenes Generator
+  // Auto Scenes Generator
   autoGenerate5Scenes: () => void;
+  autoGenerateScenes: (count: 5 | 20 | 50) => void;
 }
 
 export interface TextStyleConfig {
@@ -501,9 +584,14 @@ export interface Beat {
   boardId?: number; // Target Board Page
 }
 
+export type ConnectionStyle = 'curve' | 'zigzag';
+
 export interface Connection {
   from: number;
   to: number;
+  style?: ConnectionStyle;
+  color?: string;
+  label?: string;
   boardId?: number;
 }
 

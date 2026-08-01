@@ -8,7 +8,7 @@ import {
 } from '../types';
 import { INITIAL_STATE } from '../constants';
 import { supabase, upsertProject, fetchProjectData, fetchUserProjects, isSupabaseConfigured } from '../services/supabase';
-import { createAuto5ScenesDataset } from '../services/sampleGenerator';
+import { createAuto5ScenesDataset, createAutoScenesDataset } from '../services/sampleGenerator';
 
 const ProjectContext = createContext<ProjectContextType | undefined>(undefined);
 
@@ -212,10 +212,14 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const historyIndexRef = useRef<number>(-1);
   const isTimeTraveling = useRef(false);
 
-  const captureSnapshot = useCallback(() => {
+  const captureSnapshot = useCallback((overrideState?: Partial<{ beats: Beat[]; connections: Connection[]; groups: Group[]; annotations: Annotation[] }>) => {
     if (isTimeTraveling.current || isRemoteUpdateRef.current) return;
     const currentProjectState = {
-      beats, groups, connections, annotations, characterData, generatedShots, 
+      beats: overrideState?.beats ?? beats,
+      groups: overrideState?.groups ?? groups,
+      connections: overrideState?.connections ?? connections,
+      annotations: overrideState?.annotations ?? annotations,
+      characterData, generatedShots, 
       scratchpad, globalNotes, activeBoardId,
       isTamilMode, scriptConfig, scriptViewMode, scratchpadConfig,
       storyboardConfig, isStoryboardFeatureEnabled, breakdownLanguage,
@@ -501,23 +505,75 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return id;
   };
 
-  const autoGenerate5Scenes = useCallback(() => {
+  const autoGenerateScenes = useCallback((count: 5 | 20 | 50 = 5) => {
     captureSnapshot();
-    const data = createAuto5ScenesDataset();
-    setGroups(data.groups);
-    setBeats(data.beats);
-    setAnnotations(data.annotations);
-    setConnections(data.connections);
+    const data = createAutoScenesDataset(count, activeBoardId);
+    setGroups(prev => [...prev.filter(g => (g.boardId || 0) !== activeBoardId), ...data.groups]);
+    setBeats(prev => [...prev.filter(b => (b.boardId || 0) !== activeBoardId), ...data.beats]);
+    setAnnotations(prev => [...prev.filter(a => (a.boardId || 0) !== activeBoardId), ...data.annotations]);
+    setConnections(prev => [...prev.filter(c => (c.boardId || 0) !== activeBoardId), ...data.connections]);
     setCharacterData(data.characterData);
     setGeneratedShots(data.generatedShots);
-    setPanX(50);
-    setPanY(50);
-    setScale(0.8);
+    setPanX(-150);
+    setPanY(120);
+    if (count === 50) {
+      setScale(0.25);
+    } else if (count === 20) {
+      setScale(0.38);
+    } else {
+      setScale(0.5);
+    }
     setHasUnsavedChanges(true);
-  }, [captureSnapshot]);
+  }, [captureSnapshot, activeBoardId]);
+
+  const autoGenerate5Scenes = useCallback(() => {
+    autoGenerateScenes(5);
+  }, [autoGenerateScenes]);
+
+  const setCharacterDataWrapped = useCallback((val: React.SetStateAction<Record<string, CharacterData>>) => {
+    if (isRemoteUpdateRef.current) return;
+    setCharacterData(val);
+    setHasUnsavedChanges(true);
+  }, []);
+
+  const setBeatsWrapped = useCallback((val: React.SetStateAction<Beat[]>) => {
+    if (isRemoteUpdateRef.current) return;
+    setBeats(val);
+    setHasUnsavedChanges(true);
+  }, []);
+
+  const setGroupsWrapped = useCallback((val: React.SetStateAction<Group[]>) => {
+    if (isRemoteUpdateRef.current) return;
+    setGroups(val);
+    setHasUnsavedChanges(true);
+  }, []);
+
+  const setConnectionsWrapped = useCallback((val: React.SetStateAction<Connection[]>) => {
+    if (isRemoteUpdateRef.current) return;
+    setConnections(val);
+    setHasUnsavedChanges(true);
+  }, []);
+
+  const setAnnotationsWrapped = useCallback((val: React.SetStateAction<Annotation[]>) => {
+    if (isRemoteUpdateRef.current) return;
+    setAnnotations(val);
+    setHasUnsavedChanges(true);
+  }, []);
+
+  const setScratchpadWrapped = useCallback((val: React.SetStateAction<string>) => {
+    if (isRemoteUpdateRef.current) return;
+    setScratchpad(val);
+    setHasUnsavedChanges(true);
+  }, []);
+
+  const setGlobalNotesWrapped = useCallback((val: React.SetStateAction<Note[]>) => {
+    if (isRemoteUpdateRef.current) return;
+    setGlobalNotes(val);
+    setHasUnsavedChanges(true);
+  }, []);
 
   const value: ProjectContextType = {
-    beats, groups, connections, annotations, characterData, generatedShots, scratchpad, globalNotes, panX, panY, scale, nextId, nextAnnoId, activeBoardId, isTamilMode, tamilFontScale, tamilFontFamily, userDictionary, isOsInputMode, osInputShortcut, scriptConfig, scriptViewMode, scratchpadConfig, storyboardConfig, isStoryboardFeatureEnabled, breakdownLanguage, breakdownLockedOnly, isPdfDropEnabled, isRedoEnabled, writingGoal, geminiApiKey: '', stabilityApiKey, dailyStats, sessionStartCount, lastSessionDate, boardLayerOrder, currentUser, currentProjectId, projectList, hasUnsavedChanges, schemaError, isSaving, fileHandle, isInitialLoading, isCloudMode: !!supabaseUser, login, logout, selectProject, createProject, deleteProject, closeProject, clearSchemaError: () => { setSchemaError(null); if (supabaseUser) refreshProjectList(supabaseUser.id); }, setBeats, setGroups, setConnections, setAnnotations, setCharacterData, setGeneratedShots, setScratchpad, setGlobalNotes, updateGeneratedShot: (id, u) => { setGeneratedShots(p => p.map(s => s.id === id ? { ...s, ...u } : s)); setHasUnsavedChanges(true); }, addGeneratedShot: (i) => { const n = { id: `shot-${Date.now()}`, shotSize: 'WIDE', angle: 'EYE LEVEL', description: '', subject: '', scene: '?', imageHistory: [] }; const s = [...generatedShots]; s.splice(i + 1, 0, n); setGeneratedShots(s); captureSnapshot(); }, removeGeneratedShot: (id) => { setGeneratedShots(p => p.filter(s => s.id !== id)); captureSnapshot(); }, moveGeneratedShot: (f, t) => { const s = [...generatedShots]; const [m] = s.splice(f, 1); s.splice(t, 0, m); setGeneratedShots(s); captureSnapshot(); }, setPan: (x, y) => { setPanX(x); setPanY(y); }, setScale, updateBeat, addBeat, reorderBeats, addGroup: (g) => { const id = nextId; setNextId(p => p + 1); setGroups(p => [...p, { ...g, id, boardId: activeBoardId }]); captureSnapshot(); }, updateGroup: (id, u) => { setGroups(p => p.map(g => g.id === id ? { ...g, ...u } : g)); setHasUnsavedChanges(true); }, removeGroup: (id) => { setGroups(p => p.filter(g => g.id !== id)); captureSnapshot(); }, loadProject: applyProjectState, saveProject, saveProjectAs, setActiveBoardId, setTamilMode, setTamilFontScale, setTamilFontFamily, learnTamilWord: (e, t) => { setUserDictionary(p => { const c = p[e.toLowerCase()] || []; if (!c.includes(t)) return { ...p, [e.toLowerCase()]: [t, ...c] }; return p; }); }, setOsInputMode, setOsInputShortcut, setScriptConfig, setScriptViewMode, setScratchpadConfig, setStoryboardConfig, setStoryboardFeatureEnabled, setBreakdownLanguage, setBreakdownLockedOnly, setPdfDropEnabled, setRedoEnabled, setWritingGoal, setGeminiApiKey: () => {}, setStabilityApiKey, setBoardLayerOrder, setNextId, undo, redo, canUndo: historyIndexRef.current > 0, canRedo: historyIndexRef.current < historyRef.current.length - 1, captureSnapshot, downloadProject, autoGenerate5Scenes
+    beats, groups, connections, annotations, characterData, generatedShots, scratchpad, globalNotes, panX, panY, scale, nextId, nextAnnoId, activeBoardId, isTamilMode, tamilFontScale, tamilFontFamily, userDictionary, isOsInputMode, osInputShortcut, scriptConfig, scriptViewMode, scratchpadConfig, storyboardConfig, isStoryboardFeatureEnabled, breakdownLanguage, breakdownLockedOnly, isPdfDropEnabled, isRedoEnabled, writingGoal, geminiApiKey: '', stabilityApiKey, dailyStats, sessionStartCount, lastSessionDate, boardLayerOrder, currentUser, currentProjectId, projectList, hasUnsavedChanges, schemaError, isSaving, fileHandle, isInitialLoading, isCloudMode: !!supabaseUser, login, logout, selectProject, createProject, deleteProject, closeProject, clearSchemaError: () => { setSchemaError(null); if (supabaseUser) refreshProjectList(supabaseUser.id); }, setBeats: setBeatsWrapped, setGroups: setGroupsWrapped, setConnections: setConnectionsWrapped, setAnnotations: setAnnotationsWrapped, setCharacterData: setCharacterDataWrapped, setGeneratedShots, setScratchpad: setScratchpadWrapped, setGlobalNotes: setGlobalNotesWrapped, updateGeneratedShot: (id, u) => { setGeneratedShots(p => p.map(s => s.id === id ? { ...s, ...u } : s)); setHasUnsavedChanges(true); }, addGeneratedShot: (i) => { const n = { id: `shot-${Date.now()}`, shotSize: 'WIDE', angle: 'EYE LEVEL', description: '', subject: '', scene: '?', imageHistory: [] }; const s = [...generatedShots]; s.splice(i + 1, 0, n); setGeneratedShots(s); captureSnapshot(); }, removeGeneratedShot: (id) => { setGeneratedShots(p => p.filter(s => s.id !== id)); captureSnapshot(); }, moveGeneratedShot: (f, t) => { const s = [...generatedShots]; const [m] = s.splice(f, 1); s.splice(t, 0, m); setGeneratedShots(s); captureSnapshot(); }, setPan: (x, y) => { setPanX(x); setPanY(y); }, setScale, updateBeat, addBeat, reorderBeats, addGroup: (g) => { const id = nextId; setNextId(p => p + 1); setGroups(p => [...p, { ...g, id, boardId: activeBoardId }]); captureSnapshot(); }, updateGroup: (id, u) => { setGroups(p => p.map(g => g.id === id ? { ...g, ...u } : g)); setHasUnsavedChanges(true); }, removeGroup: (id) => { setGroups(p => p.filter(g => g.id !== id)); captureSnapshot(); }, loadProject: applyProjectState, saveProject, saveProjectAs, setActiveBoardId, setTamilMode, setTamilFontScale, setTamilFontFamily, learnTamilWord: (e, t) => { setUserDictionary(p => { const c = p[e.toLowerCase()] || []; if (!c.includes(t)) return { ...p, [e.toLowerCase()]: [t, ...c] }; return p; }); }, setOsInputMode, setOsInputShortcut, setScriptConfig, setScriptViewMode, setScratchpadConfig, setStoryboardConfig, setStoryboardFeatureEnabled, setBreakdownLanguage, setBreakdownLockedOnly, setPdfDropEnabled, setRedoEnabled, setWritingGoal, setGeminiApiKey: () => {}, setStabilityApiKey, setBoardLayerOrder, setNextId, undo, redo, canUndo: historyIndexRef.current > 0, canRedo: historyIndexRef.current < historyRef.current.length - 1, captureSnapshot, downloadProject, autoGenerate5Scenes, autoGenerateScenes
   };
 
   return <ProjectContext.Provider value={value}>{children}</ProjectContext.Provider>;

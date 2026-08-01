@@ -3,7 +3,7 @@ import { ProjectProvider, useProject } from '../context/ProjectContext';
 import AppHeader from './AppHeader';
 import BoardView from './views/BoardView';
 import ScriptView from './views/ScriptView';
-import CharacterView from './views/CharacterView';
+import CastingView from './views/CastingView';
 import StoryboardView from './views/StoryboardView';
 import ScheduleView from './views/ScheduleView';
 import StatisticsView from './views/StatisticsView';
@@ -11,6 +11,7 @@ import BackstageView from './views/BackstageView';
 import GoalView from './views/GoalView';
 import BreakdownView from './views/BreakdownView';
 import ShotListView from './views/ShotListView';
+import CrewView from './views/CrewView';
 import EditorModal from './EditorModal';
 import PrintPreviewModal from './PrintPreviewModal';
 import { ViewMode, ScriptConfig } from '../types';
@@ -231,8 +232,9 @@ const AppContent: React.FC = () => {
       <main className="w-full h-[calc(100vh-50px)] mt-[50px] relative print:hidden print:mt-0 print:h-auto">
         {currentView === 'board' && <div className="w-full h-full"><BoardView key={`board-${refreshKey}`} onEditBeat={handleEditBeat} /></div>}
         {currentView === 'script' && <ScriptView key={`script-${refreshKey}`} />}
-        {currentView === 'characters' && <div className="w-full h-full"><CharacterView key={`chars-${refreshKey}`} /></div>}
+        {currentView === 'casting' && <div className="w-full h-full"><CastingView key={`casting-${refreshKey}`} /></div>}
         {currentView === 'breakdown' && <div className="w-full h-full"><BreakdownView key={`breakdown-${refreshKey}`} /></div>}
+        {currentView === 'crew' && <div className="w-full h-full"><CrewView key={`crew-${refreshKey}`} /></div>}
         {currentView === 'shotlist' && <div className="w-full h-full"><ShotListView key={`shotlist-${refreshKey}`} onNavigateToStoryboard={() => setCurrentView('storyboard')} /></div>}
         {currentView === 'storyboard' && <div className="w-full h-full"><StoryboardView key={`story-${refreshKey}`} /></div>}
         {currentView === 'schedule' && <div className="w-full h-full"><ScheduleView key={`schedule-${refreshKey}`} /></div>}

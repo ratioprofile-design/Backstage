@@ -979,6 +979,7 @@ export const ScriptEditor = forwardRef<ScriptEditorHandle, ScriptEditorProps>(({
             contentEditable={!readOnly}
             suppressContentEditableWarning
             className={`outline-none w-full whitespace-pre-wrap ${className} ${readOnly ? 'cursor-default' : ''}`}
+            style={{ color: 'inherit' }}
             onBlur={handleBlur}
             onInput={handleInput}
             onKeyDown={handleKeyDown}

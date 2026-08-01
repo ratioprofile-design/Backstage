@@ -5,18 +5,27 @@ import { useProject } from '../context/ProjectContext';
 import { 
     Target, Zap, Clock, Film, RotateCcw, RotateCw, CheckCircle2, 
     TrendingUp, Save, Cloud, CloudOff, Wifi, WifiOff, CloudUpload,
-    Loader2, Check, FileCode
+    Loader2, Check, FileCode, Inbox
 } from 'lucide-react';
 import { isSupabaseConfigured } from '../services/supabase';
+import { AISceneGeneratorModal } from './AISceneGeneratorModal';
 
 interface AppHeaderProps {
   currentView: ViewMode;
   onViewChange: (view: ViewMode) => void;
   onRefresh: () => void;
   onPrint?: () => void;
+  onOpenInbox?: () => void;
+  unreadCount?: number;
 }
 
-const AppHeader: React.FC<AppHeaderProps> = ({ currentView, onViewChange, onRefresh }) => {
+const AppHeader: React.FC<AppHeaderProps> = ({ 
+  currentView, 
+  onViewChange, 
+  onRefresh,
+  onOpenInbox,
+  unreadCount = 0
+}) => {
   const { 
       isStoryboardFeatureEnabled, writingGoal, dailyStats, beats,
       projectList, currentProjectId,
@@ -26,6 +35,7 @@ const AppHeader: React.FC<AppHeaderProps> = ({ currentView, onViewChange, onRefr
   } = useProject();
 
   const [showSavedConfirmation, setShowSavedConfirmation] = useState(false);
+  const [isAiModalOpen, setIsAiModalOpen] = useState(false);
 
   const activeProjectName = useMemo(() => {
       const proj = projectList.find(p => p.id === currentProjectId);
@@ -37,8 +47,9 @@ const AppHeader: React.FC<AppHeaderProps> = ({ currentView, onViewChange, onRefr
   const views = [
     { id: 'board', label: 'Board' },
     { id: 'script', label: 'Script' },
-    { id: 'characters', label: 'Characters' },
+    { id: 'casting', label: 'Casting & Roster' },
     { id: 'breakdown', label: 'Breakdown' },
+    { id: 'crew', label: 'Crew' },
     { id: 'shotlist', label: 'Shot Division' },
     { id: 'storyboard', label: 'Storyboard', hidden: !isStoryboardFeatureEnabled },
     { id: 'schedule', label: 'Scheduling' },
@@ -142,46 +153,22 @@ const AppHeader: React.FC<AppHeaderProps> = ({ currentView, onViewChange, onRefr
 
           <div className="h-4 w-px bg-[#333] mx-1"></div>
 
-          {/* Quick Save Button - Muted Subtle Feedback */}
+          {/* INBOX ICON (Next to Backstage Logo) - Dedicated Page Switcher */}
           <button
-              onClick={handleSaveClick}
-              disabled={isSaving}
-              className={`relative p-2 rounded-md transition-all duration-500 border flex items-center justify-center group ${
-                  isSaving 
-                  ? 'bg-transparent border-[#3d3d3d] text-blue-500/60 cursor-wait'
-                  : showSavedConfirmation
-                  ? 'bg-transparent border-[#3d3d3d] text-green-500/60'
-                  : hasUnsavedChanges 
-                  ? 'bg-[#f5a623]/5 border-[#f5a623]/30 text-[#f5a623] hover:bg-[#f5a623]/10 hover:border-[#f5a623]' 
-                  : 'bg-[#1a1a1a] border-[#333] text-gray-500 hover:text-gray-300'
+              onClick={() => onViewChange('inbox')}
+              className={`relative p-2 rounded-lg transition-all duration-300 border flex items-center justify-center group cursor-pointer ${
+                  currentView === 'inbox'
+                  ? 'bg-amber-500/20 border-amber-500 text-amber-400 shadow-[0_0_12px_rgba(245,166,35,0.3)]'
+                  : 'bg-[#18181c] border-[#333] text-gray-400 hover:text-amber-400 hover:border-amber-500/50 hover:bg-[#222]'
               }`}
-              title={saveTitle}
+              title="Inbox - Production Tasks & Modification History"
           >
-              {isSaving ? (
-                <Loader2 size={16} className="animate-spin" />
-              ) : showSavedConfirmation ? (
-                <Check size={16} className="animate-in zoom-in duration-300" />
-              ) : isCloudActive ? (
-                <CloudUpload size={16} className={hasUnsavedChanges ? "animate-pulse" : ""} />
-              ) : fileHandle ? (
-                <FileCode size={16} className={hasUnsavedChanges ? "animate-pulse text-[#f5a623]" : ""} />
-              ) : (
-                <Save size={16} className={hasUnsavedChanges ? "animate-pulse" : ""} />
+              <Inbox size={18} className="group-hover:scale-110 transition-transform duration-300" />
+              {unreadCount > 0 && (
+                  <span className="absolute -top-1 -right-1 flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] font-black text-black bg-[#f5a623] rounded-full shadow-[0_0_8px_rgba(245,166,35,0.8)] animate-pulse">
+                      {unreadCount}
+                  </span>
               )}
-              {hasUnsavedChanges && !isSaving && (
-                  <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-[#f5a623] rounded-full border border-[#111] shadow-[0_0_8px_#f5a623]"></span>
-              )}
-          </button>
-
-          <div className="h-4 w-px bg-[#333] mx-1"></div>
-
-          {/* Auto 5 Scenes Generator Button */}
-          <button
-              onClick={autoGenerate5Scenes}
-              className="p-1.5 bg-[#1f152d] hover:bg-[#2f1f45] text-[#f5a623] border border-[#f5a623]/40 hover:border-[#f5a623] rounded-md transition-all active:scale-95 group"
-              title="Auto-fill Whiteboard with 5 Act Scenes, Whiteboard Drawings, Screenplay Build-up, Shots & Characters"
-          >
-              <Zap size={14} className="text-[#f5a623] fill-[#f5a623]/40 group-hover:scale-110 transition-transform duration-200" />
           </button>
         </div>
 
@@ -282,6 +269,12 @@ const AppHeader: React.FC<AppHeaderProps> = ({ currentView, onViewChange, onRefr
           </button>
         </div>
       </header>
+
+      {/* AI Scene Generator Popup Modal */}
+      <AISceneGeneratorModal 
+        isOpen={isAiModalOpen} 
+        onClose={() => setIsAiModalOpen(false)} 
+      />
     </>
   );
 };

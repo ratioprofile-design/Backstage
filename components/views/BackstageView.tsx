@@ -533,7 +533,7 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
                                                         : 'bg-[#151515] border-[#222] text-gray-500 hover:border-[#333] hover:text-gray-300'}
                                                 `}
                                             >
-                                                {tab.icon && <tab.icon size={12} className={isActive ? 'text-[#f5a623]' : 'opacity-50'} />}
+                                                {tab.icon && (() => { const TabIcon = tab.icon; return <TabIcon size={12} className={isActive ? 'text-[#f5a623]' : 'opacity-50'} />; })()}
                                                 <span className="text-[10px] font-bold uppercase tracking-wider">{tab.label}</span>
                                             </button>
                                         );

@@ -1,5 +1,6 @@
 {
   "name": "Backstage Story Sequencer",
   "description": "A cinematic story sequencer combining visual node-based plotting with standard screenplay formatting and AI-assisted storyboarding.",
-  "requestFramePermissions": []
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

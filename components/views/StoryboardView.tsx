@@ -8,7 +8,7 @@ import {
     Grid3X3, LayoutGrid, Maximize, Columns, List, Table2,
     ArrowUp, ArrowDown, ArrowLeft, ArrowRight, UserCheck, ChevronLeft, ChevronRight,
     Settings2, Aperture, Paintbrush, Users, Lightbulb, X, ChevronsRight,
-    Scissors, Send, Layers, Check, Hash, FileSpreadsheet
+    Scissors, Send, Layers, Check, Hash, FileSpreadsheet, Printer, Copy, Share2
 } from 'lucide-react';
 import html2canvas from 'html2canvas';
 import * as XLSX from 'xlsx';
@@ -277,28 +277,41 @@ const StoryCard = memo(({ shot, index, total, onUpdate, onAddNext, onDelete, onM
                 {isValidImage(displayImage) ? (<img src={displayImage} alt="Shot" className="w-full h-full object-cover" />) : (<div className="text-[#333] flex flex-col items-center gap-2"><Film size={32} /></div>)}
                 {isRendering && (<div className="absolute inset-0 bg-black/70 flex flex-col items-center justify-center text-accent z-10"><Loader2 className="animate-spin mb-2" size={24} /><span className="text-[10px] font-bold uppercase tracking-widest">Rendering...</span></div>)}
                 {!isRendering && hasHistory && (<div className="absolute inset-0 flex justify-between items-center px-2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"><button onClick={handlePrevHistory} className="bg-black/50 hover:bg-black/80 text-white p-1 rounded-full pointer-events-auto transition-colors"><ChevronLeft size={16} /></button><button onClick={handleNextHistory} className="bg-black/50 hover:bg-black/80 text-white p-1 rounded-full pointer-events-auto transition-colors"><ChevronRight size={16} /></button></div>)}
-                {historyIndex !== -1 && (<div className="absolute top-2 right-2 bg-black/60 text-white text-[9px] font-bold px-1.5 py-0.5 rounded border border-white/20">V.{historyIndex + 1}</div>)}
+
+                {/* Refined Image Overlay Badges */}
+                <div className="absolute top-2 left-2 bg-black/80 backdrop-blur-md border border-amber-500/40 text-[#f5a623] text-[9.5px] font-mono font-black px-2 py-0.5 rounded-full shadow-lg flex items-center gap-1.5 z-10">
+                    <span>SC {shot.scene || '?'}</span>
+                    <span className="text-gray-500">·</span>
+                    <span className="text-white">#{index + 1}</span>
+                </div>
+
+                {shot.sourceType && (
+                    <div className={`absolute top-2 right-2 backdrop-blur-md text-[8.5px] font-mono font-bold px-2 py-0.5 rounded-full border shadow-md flex items-center gap-1 z-10 ${
+                        shot.sourceType === 'ai-batch' ? 'bg-purple-950/80 text-purple-300 border-purple-500/40' :
+                        shot.sourceType === 'ai-modified' ? 'bg-blue-950/80 text-blue-300 border-blue-500/40' :
+                        'bg-zinc-900/80 text-zinc-300 border-zinc-700'
+                    }`}>
+                        <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse"></span>
+                        {shot.sourceType === 'ai-batch' ? 'AI Division' : shot.sourceType === 'ai-modified' ? 'AI Edit' : 'Manual'}
+                    </div>
+                )}
+
+                {historyIndex !== -1 && (<div className="absolute bottom-2 right-2 bg-black/80 backdrop-blur text-white text-[9px] font-bold px-1.5 py-0.5 rounded border border-white/20">V.{historyIndex + 1}</div>)}
             </div>
             <div className="p-3 flex-1 flex flex-col gap-2">
-                <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2 flex-1">
-                        <span className="text-[9px] font-bold text-[#555] uppercase shrink-0">SCENE</span>
+                <div className="flex items-center justify-between gap-2 bg-[#1a1a1e] p-1.5 rounded border border-[#2d2d35]">
+                    <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                        <span className="text-[9px] font-mono font-bold text-amber-400 uppercase tracking-wider shrink-0 bg-[#282830] px-1.5 py-0.5 rounded">SC.</span>
                         <BufferedInput 
-                            className="bg-transparent text-[10px] font-bold text-[#888] w-full outline-none border-b border-transparent focus:border-[#f5a623] transition-colors" 
+                            className="bg-transparent text-xs font-mono font-bold text-white w-full outline-none focus:text-[#f5a623] transition-colors" 
                             value={shot.scene || ''} 
                             onChange={(val: string) => onUpdate(shot.id, { scene: val })} 
-                            placeholder="?" 
+                            placeholder="SCENE #" 
                         />
                     </div>
-                    {shot.sourceType && (
-                        <span className={`text-[8px] font-mono px-1.5 py-0.5 rounded uppercase border ${
-                            shot.sourceType === 'ai-batch' ? 'bg-purple-950/40 text-purple-400 border-purple-500/30' :
-                            shot.sourceType === 'ai-modified' ? 'bg-blue-950/40 text-blue-400 border-blue-500/30' :
-                            'bg-gray-800 text-gray-400 border-gray-700'
-                        }`}>
-                            {shot.sourceType === 'ai-batch' ? 'AI Division' : shot.sourceType === 'ai-modified' ? 'AI Edit' : 'Manual'}
-                        </span>
-                    )}
+                    <div className="text-[9px] font-mono font-bold text-gray-400 uppercase shrink-0 bg-[#222] px-2 py-0.5 rounded border border-[#333]">
+                        SHOT #{index + 1}
+                    </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-2">
@@ -422,7 +435,7 @@ const StoryboardView: React.FC = () => {
       beats, generatedShots, setGeneratedShots, updateGeneratedShot, 
       addGeneratedShot, removeGeneratedShot, moveGeneratedShot, storyboardConfig, setStoryboardConfig,
       characterData, setAnnotations, panX, panY, scale,
-      stabilityApiKey
+      stabilityApiKey, projectList = [], currentProjectId = null
   } = useProject();
   
   // Range Analysis State
@@ -444,6 +457,145 @@ const StoryboardView: React.FC = () => {
   const [gridSize, setGridSize] = useState<'sm' | 'md' | 'lg'>('md');
   const [showSceneBreaks, setShowSceneBreaks] = useState(true);
   const [isExporting, setIsExporting] = useState(false);
+
+  // Project Metadata for Print & Copy in Storyboard / Gallery View
+  const activeProjectName = React.useMemo(() => {
+      const proj = projectList.find(p => p.id === currentProjectId);
+      return proj ? proj.name : 'SEQUENCER PROJECT';
+  }, [projectList, currentProjectId]);
+
+  const [customProjectName, setCustomProjectName] = useState<string>('');
+  const [productionCompany, setProductionCompany] = useState<string>('Apex Pictures');
+  const [directorName, setDirectorName] = useState<string>('Director Name');
+  const [hodName, setHodName] = useState<string>('DP / HOD');
+  const [hodDept, setHodDept] = useState<string>('Camera & Storyboard');
+  const [includeProjectMetadata, setIncludeProjectMetadata] = useState<boolean>(true);
+  const [includeHodSignoff, setIncludeHodSignoff] = useState<boolean>(true);
+  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
+
+  const handlePrintGallery = () => {
+      if (generatedShots.length === 0) { alert("No shots available to print."); return; }
+      const projTitle = customProjectName.trim() || activeProjectName;
+      const printWindow = window.open('', '_blank', 'width=1000,height=1200');
+      if (!printWindow) return;
+
+      const htmlContent = `
+          <!DOCTYPE html>
+          <html>
+          <head>
+              <title>${projTitle} - Storyboard Gallery Lookbook</title>
+              <style>
+                  @page { size: A4 landscape; margin: 10mm; }
+                  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; padding: 20px; color: #111; background: #fff; }
+                  .header { border-bottom: 3px solid #111; padding-bottom: 12px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: flex-end; }
+                  .title { font-size: 22px; font-weight: 900; text-transform: uppercase; letter-spacing: 1px; }
+                  .meta { font-size: 11px; font-weight: 700; color: #555; text-transform: uppercase; margin-top: 4px; }
+                  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; page-break-inside: avoid; }
+                  .card { border: 1px solid #ccc; border-radius: 8px; overflow: hidden; background: #fcfcfc; display: flex; flex-direction: column; }
+                  .img-box { width: 100%; aspect-ratio: 16/9; background: #111; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+                  .img-box img { width: 100%; height: 100%; object-fit: cover; }
+                  .no-img { color: #666; font-size: 11px; font-weight: bold; font-family: monospace; }
+                  .card-body { padding: 10px; font-size: 11px; flex: 1; display: flex; flex-direction: column; justify-content: space-between; }
+                  .scene-badge { font-weight: 900; color: #d97706; text-transform: uppercase; font-size: 10px; }
+                  .shot-size { font-weight: 800; font-size: 11px; color: #111; text-transform: uppercase; }
+                  .desc { font-size: 10px; color: #333; margin-top: 4px; line-height: 1.3; }
+                  .hod-signoff { margin-top: 30px; padding-top: 15px; border-top: 2px solid #111; display: flex; justify-content: space-between; align-items: center; page-break-inside: avoid; font-size: 11px; }
+                  .hod-col { display: flex; flex-direction: column; gap: 4px; }
+                  .hod-label { font-size: 9px; font-weight: 800; text-transform: uppercase; color: #666; }
+                  .hod-line { border-bottom: 1.5px solid #111; width: 180px; height: 18px; }
+                  .btn { padding: 8px 16px; background: #000; color: #fff; font-weight: bold; border-radius: 6px; cursor: pointer; border: none; font-size: 12px; }
+                  @media print { .no-print { display: none !important; } }
+              </style>
+          </head>
+          <body>
+              <div class="header">
+                  <div>
+                      <div class="title">🎬 ${projTitle.toUpperCase()} — STORYBOARD GALLERY LOOKBOOK</div>
+                      ${includeProjectMetadata ? `
+                      <div class="meta">
+                          ${productionCompany ? `PRODUCTION: ${productionCompany.toUpperCase()} • ` : ''}
+                          ${directorName ? `DIRECTOR: ${directorName.toUpperCase()} • ` : ''}
+                          DATE: ${new Date().toLocaleDateString()}
+                      </div>
+                      ` : ''}
+                  </div>
+                  <div class="no-print">
+                      <button onclick="window.print()" class="btn">🖨️ Print Storyboard Lookbook</button>
+                  </div>
+              </div>
+              <div class="grid">
+                  ${generatedShots.map((shot, idx) => `
+                      <div class="card">
+                          <div class="img-box">
+                              ${shot.imageUrl ? `<img src="${shot.imageUrl}" />` : `<div class="no-img">SHOT ${idx + 1} - NO VISUAL</div>`}
+                          </div>
+                          <div class="card-body">
+                              <div style="display:flex; justify-content:space-between; align-items:center;">
+                                  <span class="scene-badge">SCENE ${shot.scene || '?'}</span>
+                                  <span class="shot-size">${shot.shotSize || 'WIDE'} / ${shot.angle || 'EYE LEVEL'}</span>
+                              </div>
+                              <div class="desc">${shot.description || 'No description provided'}</div>
+                          </div>
+                      </div>
+                  `).join('')}
+              </div>
+              ${includeHodSignoff ? `
+              <div class="hod-signoff">
+                  <div class="hod-col">
+                      <div class="hod-label">HOD / DEPARTMENT HEAD</div>
+                      <div style="font-weight: 800; font-size: 11px;">${hodName.toUpperCase()} (${hodDept.toUpperCase()})</div>
+                  </div>
+                  <div class="hod-col">
+                      <div class="hod-label">HOD SIGNATURE</div>
+                      <div class="hod-line"></div>
+                  </div>
+                  <div class="hod-col">
+                      <div class="hod-label">APPROVAL DATE</div>
+                      <div class="hod-line"></div>
+                  </div>
+                  <div class="hod-col">
+                      <div class="hod-label">VERIFICATION</div>
+                      <div style="font-weight: 800; font-size: 11px;">[  ] APPROVED &nbsp;&nbsp;&nbsp; [  ] REVISED</div>
+                  </div>
+              </div>
+              ` : ''}
+              <script>setTimeout(function(){ window.print(); }, 500);</script>
+          </body>
+          </html>
+      `;
+      printWindow.document.write(htmlContent);
+      printWindow.document.close();
+  };
+
+  const handleCopyShotList = () => {
+      if (generatedShots.length === 0) { alert("No shots to copy."); return; }
+      const projTitle = customProjectName.trim() || activeProjectName;
+      let lines: string[] = [];
+      if (includeProjectMetadata) {
+          lines.push(`🎬 PROJECT: ${projTitle.toUpperCase()}`);
+          if (productionCompany.trim()) lines.push(`🏢 PRODUCTION: ${productionCompany.trim().toUpperCase()}`);
+          if (directorName.trim()) lines.push(`🎥 DIRECTOR: ${directorName.trim().toUpperCase()}`);
+          lines.push(`==================================================`);
+      }
+      lines.push(`STORYBOARD SHOT LIST MANIFEST (${generatedShots.length} SHOTS)`);
+      lines.push(`--------------------------------------------------`);
+
+      generatedShots.forEach((s, i) => {
+          lines.push(`SHOT ${i + 1} [SCENE ${s.scene || '?'}] - ${s.shotSize} / ${s.angle}`);
+          if (s.subject) lines.push(`  Subject: ${s.subject}`);
+          if (s.description) lines.push(`  Action: ${s.description}`);
+          lines.push(``);
+      });
+
+      if (includeHodSignoff) {
+          lines.push(`==================================================`);
+          lines.push(`HOD SIGN-OFF: ${hodName.toUpperCase()} (${hodDept.toUpperCase()})`);
+          lines.push(`SIGNATURE: _______________________ DATE: _________ STATUS: [  ] APPROVED`);
+      }
+
+      navigator.clipboard.writeText(lines.join('\n'));
+      alert(`Copied ${generatedShots.length} shots list to clipboard!`);
+  };
   
   // Ref for cancellation
   const cancelQueueRef = useRef(false);
@@ -831,19 +983,26 @@ const StoryboardView: React.FC = () => {
                 <button 
                     onClick={() => handleExport('excel')} 
                     disabled={isExporting}
-                    className="px-3 py-1.5 rounded-full text-[10px] font-bold uppercase text-gray-400 hover:text-white hover:bg-[#333] transition-all flex items-center gap-2"
+                    className="px-3 py-1.5 rounded-full text-[10px] font-bold uppercase text-gray-400 hover:text-white hover:bg-[#333] transition-all flex items-center gap-1.5"
                     title="Export to Excel (.xlsx)"
                 >
                     <FileSpreadsheet size={12} className="text-green-400" /> Excel
                 </button>
                 <div className="w-px bg-[#333] my-1"></div>
                 <button 
-                    onClick={() => handleExport('csv')} 
-                    disabled={isExporting}
-                    className="px-3 py-1.5 rounded-full text-[10px] font-bold uppercase text-gray-400 hover:text-white hover:bg-[#333] transition-all flex items-center gap-2"
-                    title="Download CSV"
+                    onClick={handleCopyShotList}
+                    className="px-3 py-1.5 rounded-full text-[10px] font-bold uppercase text-gray-400 hover:text-white hover:bg-[#333] transition-all flex items-center gap-1.5"
+                    title="Copy Formatted Shot List"
                 >
-                    <Download size={12} /> CSV
+                    <Copy size={12} className="text-cyan-400" /> Copy List
+                </button>
+                <div className="w-px bg-[#333] my-1"></div>
+                <button 
+                    onClick={handlePrintGallery}
+                    className="px-3 py-1.5 rounded-full text-[10px] font-bold uppercase text-amber-400 hover:text-amber-300 hover:bg-[#333] transition-all flex items-center gap-1.5"
+                    title="Print Storyboard Gallery / Lookbook PDF"
+                >
+                    <Printer size={12} /> Print Lookbook
                 </button>
             </div>
 
@@ -903,6 +1062,97 @@ const StoryboardView: React.FC = () => {
                  </button>
              )}
         </div>
+      </div>
+
+      {/* Project Metadata Customization Bar */}
+      <div className="bg-[#121214] border-b border-[#28282e] px-4 py-1.5 flex flex-wrap items-center justify-between text-xs text-gray-300 gap-2 shrink-0">
+          <div className="flex items-center gap-3 flex-wrap">
+              <label className="text-[10px] font-mono font-bold text-amber-400 uppercase tracking-wider flex items-center gap-1.5 cursor-pointer">
+                  <input 
+                      type="checkbox" 
+                      checked={includeProjectMetadata} 
+                      onChange={(e) => setIncludeProjectMetadata(e.target.checked)}
+                      className="rounded border-gray-700 accent-[#f5a623] cursor-pointer"
+                  />
+                  Print/Copy Metadata:
+              </label>
+
+              {includeProjectMetadata && (
+                  <div className="flex items-center gap-2 flex-wrap">
+                      <div className="flex items-center gap-1 bg-[#0a0a0c] border border-[#333] px-2 py-0.5 rounded">
+                          <span className="text-[9px] font-mono text-gray-500 uppercase">Project:</span>
+                          <input 
+                              type="text" 
+                              value={customProjectName} 
+                              onChange={(e) => setCustomProjectName(e.target.value)}
+                              placeholder={activeProjectName}
+                              className="bg-transparent text-[11px] text-white font-bold outline-none w-28 focus:w-36 transition-all placeholder-gray-600"
+                          />
+                      </div>
+                      <div className="flex items-center gap-1 bg-[#0a0a0c] border border-[#333] px-2 py-0.5 rounded">
+                          <span className="text-[9px] font-mono text-gray-500 uppercase">Production:</span>
+                          <input 
+                              type="text" 
+                              value={productionCompany} 
+                              onChange={(e) => setProductionCompany(e.target.value)}
+                              placeholder="Apex Pictures"
+                              className="bg-transparent text-[11px] text-white font-bold outline-none w-28 focus:w-36 transition-all placeholder-gray-600"
+                          />
+                      </div>
+                      <div className="flex items-center gap-1 bg-[#0a0a0c] border border-[#333] px-2 py-0.5 rounded">
+                          <span className="text-[9px] font-mono text-gray-500 uppercase">Director:</span>
+                          <input 
+                              type="text" 
+                              value={directorName} 
+                              onChange={(e) => setDirectorName(e.target.value)}
+                              placeholder="Director Name"
+                              className="bg-transparent text-[11px] text-white font-bold outline-none w-24 focus:w-32 transition-all placeholder-gray-600"
+                          />
+                      </div>
+
+                      <div className="h-3 w-px bg-[#333] mx-1"></div>
+
+                      <label className="text-[10px] font-mono font-bold text-cyan-400 uppercase tracking-wider flex items-center gap-1.5 cursor-pointer ml-1">
+                          <input 
+                              type="checkbox" 
+                              checked={includeHodSignoff} 
+                              onChange={(e) => setIncludeHodSignoff(e.target.checked)}
+                              className="rounded border-gray-700 accent-cyan-500 cursor-pointer"
+                          />
+                          HOD Sign-off:
+                      </label>
+
+                      {includeHodSignoff && (
+                          <>
+                              <div className="flex items-center gap-1 bg-[#0a0a0c] border border-[#333] px-2 py-0.5 rounded">
+                                  <span className="text-[9px] font-mono text-gray-500 uppercase">HOD:</span>
+                                  <input 
+                                      type="text" 
+                                      value={hodName} 
+                                      onChange={(e) => setHodName(e.target.value)}
+                                      placeholder="DP / HOD"
+                                      className="bg-transparent text-[11px] text-white font-bold outline-none w-24 focus:w-32 transition-all placeholder-gray-600"
+                                  />
+                              </div>
+                              <div className="flex items-center gap-1 bg-[#0a0a0c] border border-[#333] px-2 py-0.5 rounded">
+                                  <span className="text-[9px] font-mono text-gray-500 uppercase">Dept:</span>
+                                  <input 
+                                      type="text" 
+                                      value={hodDept} 
+                                      onChange={(e) => setHodDept(e.target.value)}
+                                      placeholder="Camera / Art"
+                                      className="bg-transparent text-[11px] text-white font-bold outline-none w-24 focus:w-32 transition-all placeholder-gray-600"
+                                  />
+                              </div>
+                          </>
+                      )}
+                  </div>
+              )}
+          </div>
+
+          <div className="text-[10px] text-gray-500 font-mono hidden md:block">
+              Headers attached automatically when exporting, printing, or copying
+          </div>
       </div>
       
       {isQueueRunning && (

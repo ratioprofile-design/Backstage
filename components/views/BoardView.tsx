@@ -1,18 +1,19 @@
 
 import React, { useEffect, useRef, useState, useMemo, useCallback } from 'react';
 import { useProject } from '../../context/ProjectContext';
-import { BeatStatus, Group, Annotation, Beat, Connection } from '../../types';
+import { BeatStatus, Group, Annotation, Beat, Connection, ConnectionStyle } from '../../types';
 import { 
     MousePointer2, Square, Circle, Pen, Minus, ArrowRight, Eraser, Trash2, 
     Type, X, PenTool, GripHorizontal, Heading, ZoomIn, ZoomOut, Maximize, FileText, Loader2, Sparkles,
     Music, Play, Pause, AlertTriangle, ArrowRightLeft, Replace, Layers, Copy, ClipboardPaste, CopyPlus,
-    RotateCw, Zap, PlusCircle, Wand2, Plus
+    RotateCw, RotateCcw, Zap, PlusCircle, Wand2, Plus, ArrowLeftRight, Workflow, Activity, MoreHorizontal
 } from 'lucide-react';
 import { GoogleGenAI } from '@google/genai';
 import BeatCard from '../BeatCard';
 import { STORYLINE_COLORS } from '../../constants';
 import { extractRawTextFromPdf } from '../../services/pdfImport';
 import { analyzeScriptBatch, convertTextToScript } from '../../services/gemini';
+import { AISceneGeneratorModal } from '../AISceneGeneratorModal';
 
 const ANNOTATION_COLORS = ['#f5a623', '#ef4444', '#22c55e', '#3b82f6', '#a855f7', '#ffffff'];
 
@@ -25,7 +26,7 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
     beats, groups, connections, panX, panY, scale, annotations, activeBoardId, nextId,
     setPan, setScale, updateBeat, setConnections, addBeat, setBeats, setGroups, addGroup, updateGroup, removeGroup,
     setAnnotations, captureSnapshot, geminiApiKey, isPdfDropEnabled, setActiveBoardId, setNextId,
-    autoGenerate5Scenes,
+    autoGenerate5Scenes, undo, redo,
     boardLayerOrder = ['annotations', 'text', 'connections', 'groups', 'beats']
   } = useProject();
 
@@ -34,6 +35,8 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
   const minimapContainerRef = useRef<HTMLDivElement>(null);
   const zoomTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const eraserCursorRef = useRef<HTMLDivElement>(null);
+  const rafPendingRef = useRef(false);
+  const connRafPendingRef = useRef(false);
   
   // Local UI State for Toolbar
   const [isToolbarOpen, setIsToolbarOpen] = useState(false);
@@ -41,7 +44,10 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
   const [drawColor, setDrawColor] = useState('#f5a623');
   const [strokeWidth, setStrokeWidth] = useState(3);
   const [strokeStyle, setStrokeStyle] = useState<'solid' | 'dashed'>('solid'); 
+  const [defaultConnStyle, setDefaultConnStyle] = useState<ConnectionStyle>('zigzag');
   const [isPageTransitioning, setIsPageTransitioning] = useState(false);
+  const [isBeautifying, setIsBeautifying] = useState(false);
+  const [isAiModalOpen, setIsAiModalOpen] = useState(false);
   
   // Clipboard state for copy/paste
   const [clipboard, setClipboard] = useState<Beat[]>([]);
@@ -59,7 +65,9 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
   const [isImporting, setIsImporting] = useState(false);
   const [isEnhancing, setIsEnhancing] = useState(false); 
   const [isDragOver, setIsDragOver] = useState(false);
-  const [isBeautifying, setIsBeautifying] = useState(false);
+  
+  // Spacebar pan tracking
+  const isSpacePressedRef = useRef(false);
 
   // Scrubbing State
   const [scrubbingData, setScrubbingData] = useState<{
@@ -83,6 +91,7 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
     
     selectedBeatIds: new Set<number>(),
     selectedAnnoId: null as number | null,
+    selectedConnIndex: null as number | null,
     dragTarget: null as number | null,
     dragGroupTarget: null as number | null, 
     dragGroupChildIds: new Set<number>(),
@@ -106,6 +115,7 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
     scrubBeatId: null as number | null,
     scrubStartX: 0,
     scrubStartVal: 0,
+    scrubCurrentVal: 0,
 
     isDragging: false,
     isPanning: false,
@@ -145,20 +155,33 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
         width: 100%; height: 100%; overflow: hidden; background-color: #1e1e1e; font-family: 'Inter', 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #e0e0e0; position: relative; outline: none;
         -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; text-rendering: optimizeLegibility;
     }
-    #viewport { width: 100%; height: 100%; cursor: grab; position: absolute; top: 0; left: 0; overflow: hidden; display: block; }
+    #viewport {
+        width: 100%; height: 100%; cursor: grab; position: absolute; top: 0; left: 0; overflow: hidden; display: block;
+        background-color: #1e1e1e;
+        background-image: linear-gradient(#2a2a2a 1px, transparent 1px), linear-gradient(90deg, #2a2a2a 1px, transparent 1px);
+        background-size: 50px 50px;
+        background-position: 0px 0px;
+    }
     #viewport:active { cursor: grabbing; }
     .tool-pencil #viewport, .tool-rect #viewport, .tool-circle #viewport, .tool-line #viewport, .tool-arrow #viewport, .tool-text #viewport, .tool-bigtext #viewport { cursor: crosshair !important; }
     .tool-eraser #viewport { cursor: none !important; }
     #canvas-surface {
-        position: absolute; top: 0; left: 0; width: 50000px; height: 50000px;
-        background-color: #1e1e1e;
-        background-image: linear-gradient(#2a2a2a 1px, transparent 1px), linear-gradient(90deg, #2a2a2a 1px, transparent 1px);
-        background-size: 50px 50px; transform-origin: 0 0;
+        position: absolute; top: 0; left: 0; width: 0; height: 0;
+        background: transparent;
+        transform-origin: 0 0;
         isolation: isolate; 
+        overflow: visible;
+        will-change: transform;
+        transform-style: preserve-3d;
+        backface-visibility: hidden;
     }
-    #groups-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 5; }
-    #connections-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 10; overflow: visible; }
-    #annotations-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 15; overflow: visible; }
+    .is-dragging *, .is-panning *, .is-dragging .beat-card, .is-panning #canvas-surface * {
+        transition: none !important;
+        animation: none !important;
+    }
+    #groups-layer { position: absolute; top: 0; left: 0; width: 100000px; height: 100000px; pointer-events: none; z-index: 5; }
+    #connections-layer { position: absolute; top: 0; left: 0; width: 100000px; height: 100000px; pointer-events: none; z-index: 10; overflow: visible; }
+    #annotations-layer { position: absolute; top: 0; left: 0; width: 100000px; height: 100000px; pointer-events: none; z-index: 15; overflow: visible; }
     #text-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 20; }
     #beats-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 100; }
     
@@ -175,14 +198,14 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
         animation: boardPageIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
     }
 
-    .group-container, .beat-card, .annotation-hit-area, .handle-hit-area, .connection-line, .image-resize-handle { pointer-events: auto !important; }
+    .group-container, .beat-card, .link-handle, .input-handle-visual, .annotation-hit-area, .handle-hit-area, .connection-line, .connection-hit-path, .image-resize-handle { pointer-events: auto !important; }
     .text-annotation-card { pointer-events: auto !important; }
     .tool-pencil #annotations-layer, .tool-rect #annotations-layer, .tool-circle #annotations-layer, .tool-line #annotations-layer, .tool-arrow #annotations-layer, .tool-eraser #annotations-layer, .tool-text #annotations-layer, .tool-bigtext #annotations-layer { pointer-events: auto !important; }
     #selection-lasso { position: fixed; border: 1px solid rgba(245, 166, 35, 0.8); background-color: rgba(245, 166, 35, 0.15); display: none; pointer-events: none; z-index: 9999; }
-    .connection-line { fill: none; stroke: #555; stroke-width: 3px; stroke-linecap: round; pointer-events: visibleStroke; cursor: pointer; transition: stroke 0.3s ease, stroke-width 0.1s; }
-    .connection-line:hover { stroke-width: 5px; opacity: 0.8; }
-    .connection-line.selected { stroke: #fff !important; stroke-width: 4px; filter: drop-shadow(0 0 4px rgba(255,255,255,0.5)); }
-    .connection-line.temp { stroke: #f5a623 !important; stroke-dasharray: 5, 5; opacity: 0.8; stroke-width: 2px; pointer-events: none; }
+    .connection-line { fill: none; stroke: #f5a623; stroke-width: 3.5px; stroke-linecap: round; pointer-events: visibleStroke; cursor: pointer; filter: drop-shadow(0 1px 3px rgba(0,0,0,0.6)); }
+    .connection-line:hover { stroke-width: 5.5px; opacity: 0.95; }
+    .connection-line.selected { stroke: #fff !important; stroke-width: 4.5px; filter: drop-shadow(0 0 6px rgba(255,255,255,0.8)); }
+    .connection-line.temp { stroke: #f5a623 !important; stroke-dasharray: 6, 6; opacity: 1 !important; stroke-width: 3.5px !important; pointer-events: none; filter: drop-shadow(0 0 4px rgba(245, 166, 35, 0.9)); }
     .annotation-path { fill: none; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
     .annotation-rect { fill: none; pointer-events: none; }
     .annotation-circle { fill: none; pointer-events: none; }
@@ -199,9 +222,9 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
     .tool-eraser .annotation-hit-area { cursor: none; }
     .eraser-cursor { position: fixed; pointer-events: none; z-index: 9999; width: 20px; height: 20px; border: 2px solid #ef4444; background-color: rgba(239, 68, 68, 0.2); border-radius: 50%; transform: translate(-50%, -50%); display: none; box-shadow: 0 0 10px rgba(239, 68, 68, 0.5); }
     .tool-eraser .eraser-cursor { display: block; }
-    .connection-handle { fill: #444; stroke: #888; stroke-width: 1px; opacity: 0; pointer-events: none; transition: transform 0.1s, fill 0.1s, stroke 0.1s, opacity 0.2s; }
+    .connection-handle { fill: #f5a623; stroke: #fff; stroke-width: 1.5px; opacity: 0; pointer-events: none; transition: transform 0.1s, fill 0.1s, stroke 0.1s, opacity 0.2s; }
     .handle-hit-area { fill: transparent; cursor: grab; pointer-events: auto; }
-    .handle-hit-area:hover + .connection-handle { opacity: 1; fill: #f5a623; stroke: #fff; transform: scale(1.5); }
+    .handle-hit-area:hover + .connection-handle { opacity: 1; fill: #fff; stroke: #f5a623; transform: scale(1.5); }
     .handle-hit-area:active + .connection-handle { opacity: 1; cursor: grabbing; }
     .beat-card { position: absolute; width: 200px; min-height: 120px; background: #2d2d2d; border: 1px solid #3d3d3d; border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); display: flex; flex-direction: column; user-select: none; transition: box-shadow 0.1s, border-color 0.1s; cursor: default; }
     .beat-card:hover { border-color: #666; }
@@ -225,12 +248,13 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
     .beat-version { font-size: 9px; font-weight: 700; color: #555; display: flex; align-items: center; gap: 3px; }
     .title-input { background: #111; color: white; border: 1px solid #f5a623; border-radius: 4px; width: 100%; font-weight: 700; font-size: 13px; padding: 2px 4px; outline: none; margin-bottom: 6px; }
     .summary-input { background: #111; color: #e0e0e0; border: 1px solid #f5a623; border-radius: 4px; width: 100%; font-family: sans-serif; font-size: 10px; padding: 4px; outline: none; resize: none; height: 70px; line-height: 1.4; }
-    .link-handle { position: absolute; right: -10px; top: 20px; width: 20px; height: 20px; background: #444; border: 2px solid #2a2a2a; border-radius: 50%; cursor: crosshair; z-index: 20; transition: background 0.2s, transform 0.2s; display: flex; align-items: center; justify-content: center; }
-    .link-handle::after { content: ''; width: 6px; height: 6px; background: #999; border-radius: 50%; }
-    .link-handle:hover { background: #f5a623; transform: scale(1.2); border-color: #fff; }
-    .input-handle-visual { position: absolute; left: -10px; top: 20px; width: 20px; height: 20px; background: #2a2a2a; border: 2px solid #555; border-radius: 50%; pointer-events: auto; z-index: 20; display: flex; align-items: center; justify-content: center; transition: all 0.2s ease; }
+    .link-handle { position: absolute; right: -10px; top: 20px; width: 20px; height: 20px; background: #f5a623; border: 2px solid #2a2a2a; border-radius: 50%; cursor: crosshair; z-index: 20; transition: all 0.2s ease; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 8px rgba(245, 166, 35, 0.6); opacity: 0; pointer-events: auto; }
+    .beat-card:hover .link-handle { opacity: 1; }
+    .link-handle::after { content: ''; width: 6px; height: 6px; background: #ffffff; border-radius: 50%; }
+    .link-handle:hover { background: #ffffff; transform: scale(1.3); border-color: #f5a623; opacity: 1; }
+    .input-handle-visual { position: absolute; left: -10px; top: 20px; width: 20px; height: 20px; background: #2a2a2a; border: 2px solid #555; border-radius: 50%; pointer-events: auto; z-index: 20; display: flex; align-items: center; justify-content: center; transition: all 0.2s ease; opacity: 0; }
     .input-handle-visual::after { content: ''; width: 6px; height: 6px; background: #777; border-radius: 50%; }
-    .target-mode .input-handle-visual { background: #4caf50; border-color: #fff; transform: scale(1.2); box-shadow: 0 0 10px #4caf50; cursor: pointer; }
+    .target-mode .input-handle-visual { opacity: 1; background: #4caf50; border-color: #fff; transform: scale(1.2); box-shadow: 0 0 10px #4caf50; cursor: pointer; }
     .group-container { position: absolute; border-radius: 8px; border: 2px solid; background: rgba(40,40,40,0.3); backdrop-filter: blur(2px); display: flex; flex-direction: column; transition: border-color 0.2s, box-shadow 0.2s; }
     .group-header { height: 24px; background: rgba(0,0,0,0.4); border-radius: 6px 6px 0 0; display: flex; align-items: center; padding: 0 8px; cursor: grab; color: rgba(255,255,255,0.8); font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; }
     .group-header:active { cursor: grabbing; }
@@ -352,10 +376,59 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
       }
   }, [toolMode]);
 
+  const isPointNearAnnotation = (x: number, y: number, a: Annotation, threshold = 35): boolean => {
+    if (a.type === 'pencil' && a.points && a.points.length > 0) {
+      return a.points.some(p => Math.hypot(p.x - x, p.y - y) <= threshold);
+    }
+    if (a.type === 'rect' || a.type === 'image') {
+      const ax = a.x || 0;
+      const ay = a.y || 0;
+      const aw = a.w || 200;
+      const ah = a.h || 150;
+      return x >= ax - threshold && x <= ax + Math.abs(aw) + threshold &&
+             y >= ay - threshold && y <= ay + Math.abs(ah) + threshold;
+    }
+    if (a.type === 'circle') {
+      const cx = a.cx !== undefined ? a.cx : (a.x || 0) + (a.w || 0) / 2;
+      const cy = a.cy !== undefined ? a.cy : (a.y || 0) + (a.h || 0) / 2;
+      const r = a.rx !== undefined ? a.rx : Math.hypot(a.w || 0, a.h || 0) / 2;
+      return Math.hypot(cx - x, cy - y) <= Math.max(r, threshold);
+    }
+    if (a.type === 'line' || a.type === 'arrow') {
+      const x1 = a.x || 0;
+      const y1 = a.y || 0;
+      const x2 = (a.x || 0) + (a.w || 0);
+      const y2 = (a.y || 0) + (a.h || 0);
+      const l2 = (x2 - x1) ** 2 + (y2 - y1) ** 2;
+      if (l2 === 0) return Math.hypot(x1 - x, y1 - y) <= threshold;
+      let t = ((x - x1) * (x2 - x1) + (y - y1) * (y2 - y1)) / l2;
+      t = Math.max(0, Math.min(1, t));
+      const projX = x1 + t * (x2 - x1);
+      const projY = y1 + t * (y2 - y1);
+      return Math.hypot(projX - x, projY - y) <= threshold;
+    }
+    if (a.type === 'text' || a.type === 'bigtext') {
+      const ax = a.x || 0;
+      const ay = a.y || 0;
+      const aw = a.type === 'bigtext' ? 220 : 140;
+      const ah = a.type === 'bigtext' ? 50 : 35;
+      return x >= ax - threshold && x <= ax + aw + threshold &&
+             y >= ay - threshold && y <= ay + ah + threshold;
+    }
+    return false;
+  };
+
   const renderCanvas = () => {
-    const surface = containerRef.current?.querySelector('#canvas-surface') as HTMLElement;
-    if (surface) {
-      surface.style.transform = `translate(${engine.current.panX}px, ${engine.current.panY}px) scale(${engine.current.scale})`;
+    if (containerRef.current) {
+      const viewport = containerRef.current.querySelector('#viewport') as HTMLElement;
+      if (viewport) {
+        viewport.style.backgroundPosition = `${engine.current.panX}px ${engine.current.panY}px`;
+        viewport.style.backgroundSize = `${50 * engine.current.scale}px ${50 * engine.current.scale}px`;
+      }
+      const surface = containerRef.current.querySelector('#canvas-surface') as HTMLElement;
+      if (surface) {
+        surface.style.transform = `translate(${engine.current.panX}px, ${engine.current.panY}px) scale(${engine.current.scale})`;
+      }
     }
     
     renderGroups(); 
@@ -624,14 +697,36 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
         const statusDiv = document.createElement('div');
         const isReady = beat.status === 'ready';
         statusDiv.className = `beat-status ${isReady ? 'ready' : 'wip'}`;
+        statusDiv.title = 'Click to toggle status (Ready / WIP)';
+        statusDiv.style.cursor = 'pointer';
         const checkIcon = `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
         const clockIcon = `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>`;
         statusDiv.innerHTML = isReady ? `${checkIcon} READY` : `${clockIcon} WIP`;
+        statusDiv.onmousedown = (e) => {
+            e.stopPropagation();
+            captureSnapshot();
+            const nextStatus: BeatStatus = isReady ? 'not-ready' : 'ready';
+            updateBeat(beat.id, { status: nextStatus });
+            engine.current.beats = engine.current.beats.map(b => b.id === beat.id ? { ...b, status: nextStatus } : b);
+            renderBeats();
+        };
         
         const versionDiv = document.createElement('div');
         versionDiv.className = 'beat-version';
         const vCount = beat.versions ? beat.versions.length : 0;
+        versionDiv.title = vCount > 0 ? `${vCount} saved version(s) - Click to open Context Menu` : 'No prior versions';
+        versionDiv.style.cursor = 'pointer';
         versionDiv.innerHTML = `<svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M3 12h18"/><path d="M3 18h18"/></svg> v${vCount}`;
+        versionDiv.onmousedown = (e) => {
+            e.stopPropagation();
+            if (!engine.current.selectedBeatIds.has(beat.id)) {
+                engine.current.selectedBeatIds.clear();
+                engine.current.selectedBeatIds.add(beat.id);
+                renderBeats();
+                renderConnections();
+            }
+            showContextMenu(e.clientX, e.clientY, beat.id, null, null, null);
+        };
         
         footer.appendChild(statusDiv);
         footer.appendChild(versionDiv);
@@ -690,6 +785,7 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
       engine.current.scrubBeatId = id;
       engine.current.scrubStartX = e.clientX;
       engine.current.scrubStartVal = currentVal;
+      engine.current.scrubCurrentVal = currentVal;
       
       const existing = beats
           .map(b => parseInt(b.sceneNumber || '0'))
@@ -753,7 +849,7 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
                     });
                 }
             }
-            let finalColor = '#444';
+            let finalColor = '#f5a623';
             if (componentNodes.length > 1) {
                 const rootId = Math.min(...componentNodes);
                 const colorIndex = rootId % STORYLINE_COLORS.length;
@@ -856,6 +952,7 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
 
   const renderConnections = () => {
       if (!containerRef.current) return;
+      analyzeGraph();
       const connectionsLayer = containerRef.current.querySelector('#connections-layer');
       const annotationsLayer = containerRef.current.querySelector('#annotations-layer');
       if (!connectionsLayer || !annotationsLayer) return;
@@ -864,7 +961,8 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
       annotationsLayer.innerHTML = '';
 
       const defs = document.createElementNS("http://www.w3.org/2000/svg", "defs");
-      ANNOTATION_COLORS.forEach(color => {
+      const markerColors = ['#f5a623', '#ef4444', '#22c55e', '#3b82f6', '#a855f7', '#ffffff', '#38bdf8', '#e5e7eb', '#6366f1'];
+      markerColors.forEach(color => {
           const hex = color.replace('#', '');
           const marker = document.createElementNS("http://www.w3.org/2000/svg", "marker");
           marker.setAttribute("id", `arrow-${hex}`);
@@ -879,6 +977,36 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
           path.setAttribute("fill", color);
           marker.appendChild(path);
           defs.appendChild(marker);
+
+          // Marker End for Connection Lines
+          const markerConnEnd = document.createElementNS("http://www.w3.org/2000/svg", "marker");
+          markerConnEnd.setAttribute("id", `conn-arrow-end-${hex}`);
+          markerConnEnd.setAttribute("markerWidth", "10");
+          markerConnEnd.setAttribute("markerHeight", "10");
+          markerConnEnd.setAttribute("refX", "8");
+          markerConnEnd.setAttribute("refY", "3");
+          markerConnEnd.setAttribute("orient", "auto");
+          markerConnEnd.setAttribute("markerUnits", "strokeWidth");
+          const pathEnd = document.createElementNS("http://www.w3.org/2000/svg", "path");
+          pathEnd.setAttribute("d", "M0,0 L0,6 L9,3 z");
+          pathEnd.setAttribute("fill", color);
+          markerConnEnd.appendChild(pathEnd);
+          defs.appendChild(markerConnEnd);
+
+          // Marker Start for Connection Lines (double arrow)
+          const markerConnStart = document.createElementNS("http://www.w3.org/2000/svg", "marker");
+          markerConnStart.setAttribute("id", `conn-arrow-start-${hex}`);
+          markerConnStart.setAttribute("markerWidth", "10");
+          markerConnStart.setAttribute("markerHeight", "10");
+          markerConnStart.setAttribute("refX", "1");
+          markerConnStart.setAttribute("refY", "3");
+          markerConnStart.setAttribute("orient", "auto");
+          markerConnStart.setAttribute("markerUnits", "strokeWidth");
+          const pathStart = document.createElementNS("http://www.w3.org/2000/svg", "path");
+          pathStart.setAttribute("d", "M9,0 L9,6 L0,3 z");
+          pathStart.setAttribute("fill", color);
+          markerConnStart.appendChild(pathStart);
+          defs.appendChild(markerConnStart);
       });
       annotationsLayer.appendChild(defs); 
 
@@ -1078,43 +1206,77 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
           const fromBeat = engine.current.beats.find(b => b.id === conn.from);
           const toBeat = engine.current.beats.find(b => b.id === conn.to);
           if (fromBeat && toBeat) {
-              // Improved Bezier Logic
               const fromX = fromBeat.x + 200; 
               const fromY = fromBeat.y + 30; 
               const toX = toBeat.x; 
               const toY = toBeat.y + 30; 
               
-              const dx = Math.abs(toX - fromX);
-              const dy = Math.abs(toY - fromY);
+              const dx = toX - fromX;
+              const dy = toY - fromY;
               
-              // Smooth S-Curve calculation
-              // Adjust control point distance based on horizontal separation
-              const cpDist = Math.max(dx * 0.5, 50); 
+              const style: ConnectionStyle = (conn.style as ConnectionStyle) || defaultConnStyle || 'zigzag';
+              const compColor = conn.color || engine.current.componentMap[fromBeat.id] || '#f5a623';
+
+              let pathD = '';
+              if (style === 'zigzag') {
+                  if (toX > fromX + 20) {
+                      const midX = fromX + dx / 2;
+                      pathD = `M ${fromX} ${fromY} L ${midX} ${fromY} L ${midX} ${toY} L ${toX} ${toY}`;
+                  } else {
+                      const midY = (fromY + toY) / 2;
+                      pathD = `M ${fromX} ${fromY} L ${fromX + 30} ${fromY} L ${fromX + 30} ${midY} L ${toX - 30} ${midY} L ${toX - 30} ${toY} L ${toX} ${toY}`;
+                  }
+              } else {
+                  // curve
+                  const cpDist = Math.max(Math.abs(dx) * 0.5, 50);
+                  const cp1x = fromX + cpDist; 
+                  const cp1y = fromY; 
+                  const cp2x = toX - cpDist; 
+                  const cp2y = toY;
+                  pathD = `M ${fromX} ${fromY} C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${toX} ${toY}`;
+              }
               
-              const cp1x = fromX + cpDist; 
-              const cp1y = fromY; 
-              const cp2x = toX - cpDist; 
-              const cp2y = toY;
-              
-              const compColor = engine.current.componentMap[fromBeat.id] || '#555';
               const group = document.createElementNS("http://www.w3.org/2000/svg", "g");
-              
+              const isSelected = engine.current.selectedConnIndex === index;
+
               const hitPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
-              hitPath.setAttribute("d", `M ${fromX} ${fromY} C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${toX} ${toY}`);
+              hitPath.setAttribute("d", pathD);
               hitPath.setAttribute("stroke", "transparent"); 
-              hitPath.setAttribute("stroke-width", "15"); 
+              hitPath.setAttribute("stroke-width", "20"); 
               hitPath.setAttribute("fill", "none");
               // @ts-ignore
               hitPath.classList.add("connection-hit-path"); 
-              hitPath.dataset.index = index; 
+              hitPath.dataset.index = index.toString(); 
               hitPath.style.cursor = "pointer";
+
+              const selectConn = (e: MouseEvent) => {
+                  e.stopPropagation();
+                  engine.current.selectedConnIndex = index;
+                  engine.current.selectedBeatIds.clear();
+                  engine.current.selectedAnnoId = null;
+                  renderBeats();
+                  renderConnections();
+              };
+
+              hitPath.onclick = selectConn;
               group.appendChild(hitPath);
               
               const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-              path.setAttribute("d", `M ${fromX} ${fromY} C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${toX} ${toY}`);
+              path.setAttribute("d", pathD);
               path.classList.add("connection-line"); 
+              if (isSelected) {
+                  path.classList.add("selected");
+              }
               path.style.stroke = compColor; 
-              path.oncontextmenu = (e) => { e.preventDefault(); e.stopPropagation(); showContextMenu(e.clientX, e.clientY, null, index, null, null); };
+
+              path.onclick = selectConn;
+              path.oncontextmenu = (e) => { 
+                  e.preventDefault(); 
+                  e.stopPropagation(); 
+                  engine.current.selectedConnIndex = index;
+                  renderConnections();
+                  showContextMenu(e.clientX, e.clientY, null, index, null, null); 
+              };
               group.appendChild(path); 
               
               const addHandle = (cx: number, cy: number, type: 'source' | 'target') => {
@@ -1122,7 +1284,7 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
                   const hitCircle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
                   hitCircle.setAttribute("cx", cx.toString());
                   hitCircle.setAttribute("cy", cy.toString());
-                  hitCircle.setAttribute("r", "12"); 
+                  hitCircle.setAttribute("r", "14"); 
                   hitCircle.classList.add("handle-hit-area");
                   const handle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
                   handle.setAttribute("cx", cx.toString());
@@ -1131,12 +1293,18 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
                   handle.classList.add("connection-handle");
                   // @ts-ignore
                   const startDrag = (e) => {
-                      e.stopPropagation(); e.preventDefault(); captureSnapshot();
-                      const filteredConns = connections.filter(c => (c.boardId || 0) === activeBoardId);
-                      const actualIdxInGlobal = connections.indexOf(filteredConns[index]);
-                      const newConns = [...connections];
-                      newConns.splice(actualIdxInGlobal, 1);
-                      setConnections(newConns);
+                      e.stopPropagation(); e.preventDefault();
+                      const filteredConns = connections.filter(c => (c.boardId || 0) === (activeBoardId || 0));
+                      const targetConn = filteredConns[index];
+                      if (targetConn) {
+                          const newConns = connections.filter(c => c !== targetConn);
+                          setConnections(newConns);
+                          captureSnapshot({ connections: newConns });
+                          engine.current.connections = engine.current.connections.filter((_, i) => i !== index);
+                      } else {
+                          captureSnapshot();
+                      }
+                      engine.current.selectedConnIndex = null;
                       engine.current.isLinking = true;
                       if (type === 'source') { engine.current.relinkData = { type: 'source', fixedBeatId: toBeat.id }; engine.current.linkingSourceId = null; } 
                       else { engine.current.relinkData = { type: 'target', fixedBeatId: fromBeat.id }; engine.current.linkingSourceId = fromBeat.id; }
@@ -1156,7 +1324,7 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
       });
 
       if (engine.current.isLinking && (engine.current.linkingSourceId !== null || engine.current.relinkData !== null)) {
-          let startX, startY, endX, endY;
+          let startX: number | undefined, startY: number | undefined, endX: number | undefined, endY: number | undefined;
           if (engine.current.relinkData && engine.current.relinkData.type === 'source') {
               const targetBeat = engine.current.beats.find(b => b.id === engine.current.relinkData!.fixedBeatId);
               if (targetBeat) {
@@ -1175,7 +1343,7 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
               }
           }
 
-          if (startX !== undefined && endX !== undefined) {
+          if (startX !== undefined && startY !== undefined && endX !== undefined && endY !== undefined) {
               const dx = Math.abs(endX - startX);
               const cpDist = Math.max(dx * 0.5, 50);
               const cp1x = startX + cpDist;
@@ -1289,21 +1457,22 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
 
   const deleteAnnotation = (id: number) => {
       captureSnapshot();
-      const newAnnos = annotations.filter(a => a.id !== id);
-      setAnnotations(newAnnos);
+      setAnnotations(prev => prev.filter(a => a.id !== id));
       engine.current.annotations = engine.current.annotations.filter(a => a.id !== id);
       if (engine.current.selectedAnnoId === id) engine.current.selectedAnnoId = null;
-      renderConnections(); 
+      renderCanvas();
   };
 
   const handleClearAll = () => {
-      if (!confirm("Clear all drawings and images?")) return;
       captureSnapshot();
-      const otherAnnos = annotations.filter(a => (a.boardId || 0) !== activeBoardId);
-      setAnnotations(otherAnnos);
-      engine.current.annotations = [];
+      if (engine.current.selectedAnnoId !== null) {
+          deleteAnnotation(engine.current.selectedAnnoId);
+          return;
+      }
+      setAnnotations(prev => prev.filter(a => (a.boardId || 0) !== activeBoardId));
+      engine.current.annotations = engine.current.annotations.filter(a => (a.boardId || 0) !== activeBoardId);
       engine.current.selectedAnnoId = null;
-      renderConnections();
+      renderCanvas();
   };
 
   const onImageResizeMouseDown = (e: MouseEvent, id: number, corner: 'nw' | 'ne' | 'sw' | 'se') => {
@@ -1338,9 +1507,9 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
 
   const updateTempLinkPos = (e: MouseEvent) => {
       if (!containerRef.current) return;
-      const rect = containerRef.current.getBoundingClientRect(); 
-      engine.current.tempLinkEndX = (e.clientX - rect.left - engine.current.panX) / engine.current.scale;
-      engine.current.tempLinkEndY = (e.clientY - rect.top - engine.current.panY) / engine.current.scale;
+      const pt = getSvgPoint(e);
+      engine.current.tempLinkEndX = pt.x;
+      engine.current.tempLinkEndY = pt.y;
       renderConnections();
   };
 
@@ -1349,18 +1518,19 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
       
       const { x: mouseX, y: mouseY } = getSvgPoint(e);
       let targetId = -1;
-      let minDist = 220; // Snap radius
+      let minDistance = 300; // Snap radius
 
       engine.current.beats.forEach(b => {
+          const insideBox = mouseX >= b.x - 30 && mouseX <= b.x + 230 &&
+                            mouseY >= b.y - 30 && mouseY <= b.y + 150;
           const centerX = b.x + 100;
           const centerY = b.y + 60;
           const dist = Math.hypot(centerX - mouseX, centerY - mouseY);
           
-          const insideBox = mouseX >= b.x - 20 && mouseX <= b.x + 220 &&
-                            mouseY >= b.y - 20 && mouseY <= b.y + 140;
+          const effectiveDist = insideBox ? Math.min(dist, 50) : dist;
 
-          if (insideBox || dist < minDist) {
-              minDist = dist;
+          if (effectiveDist < minDistance) {
+              minDistance = effectiveDist;
               targetId = b.id;
           }
       });
@@ -1375,21 +1545,25 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
       if (engine.current.relinkData?.type === 'source') {
           const fixedTargetId = engine.current.relinkData.fixedBeatId;
           if (targetId >= 0 && fixedTargetId !== undefined && targetId !== fixedTargetId) {
-              const exists = engine.current.connections.some(c => c.from === targetId && c.to === fixedTargetId && (c.boardId || 0) === activeBoardId);
+              const exists = engine.current.connections.some(c => c.from === targetId && c.to === fixedTargetId && (c.boardId || 0) === (activeBoardId || 0));
               if (!exists) {
                   const newConn = { from: targetId, to: fixedTargetId, boardId: activeBoardId };
                   engine.current.connections.push(newConn);
-                  setConnections(prev => [...prev, newConn]);
+                  const updatedConns = [...connections, newConn];
+                  setConnections(updatedConns);
+                  captureSnapshot({ connections: updatedConns });
               }
           }
       } else {
           if (engine.current.linkingSourceId !== null) {
               if (targetId >= 0 && targetId !== engine.current.linkingSourceId) {
-                  const exists = engine.current.connections.some(c => c.from === engine.current.linkingSourceId && c.to === targetId && (c.boardId || 0) === activeBoardId);
+                  const exists = engine.current.connections.some(c => c.from === engine.current.linkingSourceId && c.to === targetId && (c.boardId || 0) === (activeBoardId || 0));
                   if (!exists) {
                       const newConn = { from: engine.current.linkingSourceId!, to: targetId, boardId: activeBoardId };
                       engine.current.connections.push(newConn);
-                      setConnections(prev => [...prev, newConn]);
+                      const updatedConns = [...connections, newConn];
+                      setConnections(updatedConns);
+                      captureSnapshot({ connections: updatedConns });
                   }
               }
           }
@@ -1407,46 +1581,116 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
       const container = containerRef.current;
       if (!container) return;
       const rect = container.getBoundingClientRect();
-      const centerX = rect.width / 2; const centerY = rect.height / 2;
+      const centerX = rect.width / 2;
+      const centerY = rect.height / 2;
       const oldScale = engine.current.scale;
-      const newScale = direction === 'in' ? Math.min(3, oldScale + 0.2) : Math.max(0.1, oldScale - 0.2);
+      const newScale = direction === 'in' ? Math.min(3, oldScale * 1.25) : Math.max(0.1, oldScale / 1.25);
       if (oldScale === newScale) return;
       const worldX = (centerX - engine.current.panX) / oldScale;
       const worldY = (centerY - engine.current.panY) / oldScale;
       const newPanX = centerX - (worldX * newScale);
       const newPanY = centerY - (worldY * newScale);
-      setScale(newScale); setPan(newPanX, newPanY);
+      
+      engine.current.scale = newScale;
+      engine.current.panX = newPanX;
+      engine.current.panY = newPanY;
+      setScale(newScale);
+      setPan(newPanX, newPanY);
+      renderCanvas();
+      renderMinimap();
+  };
+
+  const handleZoomReset = () => {
+      const container = containerRef.current;
+      if (!container) return;
+      const newScale = 1;
+      let newPanX = (container.clientWidth / 2) - 100;
+      let newPanY = (container.clientHeight / 2) - 60;
+      
+      const items = engine.current.beats.filter(b => (b.boardId || 0) === activeBoardId);
+      const groups = engine.current.groups.filter(g => (g.boardId || 0) === activeBoardId);
+      const annos = engine.current.annotations.filter(a => (a.boardId || 0) === activeBoardId);
+
+      if (items.length > 0 || groups.length > 0 || annos.length > 0) {
+          let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+          items.forEach(b => {
+              if (b.x < minX) minX = b.x; if (b.y < minY) minY = b.y;
+              if (b.x + 220 > maxX) maxX = b.x + 220; if (b.y + 160 > maxY) maxY = b.y + 160;
+          });
+          groups.forEach(g => {
+              if (g.x < minX) minX = g.x; if (g.y < minY) minY = g.y;
+              if (g.x + g.width > maxX) maxX = g.x + g.width; if (g.y + g.height > maxY) maxY = g.y + g.height;
+          });
+          annos.forEach(a => {
+              if (a.x < minX) minX = a.x; if (a.y < minY) minY = a.y;
+              if (a.x + (a.w || 100) > maxX) maxX = a.x + (a.w || 100); if (a.y + (a.h || 50) > maxY) maxY = a.y + (a.h || 50);
+          });
+          const contentCenterX = (minX + maxX) / 2;
+          const contentCenterY = (minY + maxY) / 2;
+          newPanX = (container.clientWidth / 2) - contentCenterX;
+          newPanY = (container.clientHeight / 2) - contentCenterY;
+      } else {
+          newPanX = (container.clientWidth / 2) - 100;
+          newPanY = (container.clientHeight / 2) - 100;
+      }
+
+      engine.current.scale = newScale;
+      engine.current.panX = newPanX;
+      engine.current.panY = newPanY;
+      setScale(newScale);
+      setPan(newPanX, newPanY);
+      renderCanvas();
+      renderMinimap();
   };
 
   const handleFitView = () => {
       const container = containerRef.current;
       if (!container) return;
-      const items = engine.current.beats;
-      const groups = engine.current.groups;
-      if (items.length === 0 && groups.length === 0) {
-          setScale(1); setPan((container.clientWidth / 2) - 100, (container.clientHeight / 2) - 60);
+      const items = engine.current.beats.filter(b => (b.boardId || 0) === activeBoardId);
+      const groups = engine.current.groups.filter(g => (g.boardId || 0) === activeBoardId);
+      const annos = engine.current.annotations.filter(a => (a.boardId || 0) === activeBoardId);
+
+      if (items.length === 0 && groups.length === 0 && annos.length === 0) {
+          const newScale = 1;
+          const newPanX = (container.clientWidth / 2) - 100;
+          const newPanY = (container.clientHeight / 2) - 100;
+          engine.current.scale = newScale;
+          engine.current.panX = newPanX;
+          engine.current.panY = newPanY;
+          setScale(newScale);
+          setPan(newPanX, newPanY);
+          renderCanvas();
+          renderMinimap();
           return;
       }
       let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
       items.forEach(b => {
           if (b.x < minX) minX = b.x; if (b.y < minY) minY = b.y;
-          if (b.x + 200 > maxX) maxX = b.x + 200; if (b.y + 120 > maxY) maxY = b.y + 120;
+          if (b.x + 220 > maxX) maxX = b.x + 220; if (b.y + 160 > maxY) maxY = b.y + 160;
       });
       groups.forEach(g => {
           if (g.x < minX) minX = g.x; if (g.y < minY) minY = g.y;
           if (g.x + g.width > maxX) maxX = g.x + g.width; if (g.y + g.height > maxY) maxY = g.y + g.height;
       });
-      const PADDING = 100;
+      annos.forEach(a => {
+          if (a.x < minX) minX = a.x; if (a.y < minY) minY = a.y;
+          if (a.x + (a.w || 100) > maxX) maxX = a.x + (a.w || 100); if (a.y + (a.h || 50) > maxY) maxY = a.y + (a.h || 50);
+      });
+      const PADDING = 80;
       const contentW = (maxX - minX) + (PADDING * 2);
       const contentH = (maxY - minY) + (PADDING * 2);
       const containerW = container.clientWidth; const containerH = container.clientHeight;
-      let newScale = Math.min(Math.max(Math.min(containerW / contentW, containerH / contentH), 0.1), 1.0); 
+      let newScale = Math.min(Math.max(Math.min(containerW / contentW, containerH / contentH), 0.2), 1.0); 
       const cx = minX - PADDING + contentW / 2; const cy = minY - PADDING + contentH / 2;
       const newPanX = (containerW / 2) - (cx * newScale);
       const newPanY = (containerH / 2) - (cy * newScale);
-      setScale(newScale); setPan(newPanX, newPanY);
-      engine.current.scale = newScale; engine.current.panX = newPanX; engine.current.panY = newPanY;
-      renderCanvas(); renderMinimap();
+      engine.current.scale = newScale;
+      engine.current.panX = newPanX;
+      engine.current.panY = newPanY;
+      setScale(newScale);
+      setPan(newPanX, newPanY);
+      renderCanvas();
+      renderMinimap();
   };
 
   const getSvgPoint = (e: MouseEvent | DragEvent) => {
@@ -1474,7 +1718,7 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
       }
       if (e.button !== 0) return;
       // @ts-ignore
-      if(e.target.classList.contains('beat-title') || e.target.classList.contains('link-handle') || e.target.classList.contains('input-handle-visual') || e.target.classList.contains('seq-badge') || e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+      if(e.target.classList.contains('beat-title') || e.target.classList.contains('link-handle') || e.target.classList.contains('input-handle-visual') || e.target.classList.contains('seq-badge') || e.target.classList.contains('beat-status') || e.target.classList.contains('beat-version') || e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
       e.stopPropagation();
 
       const now = Date.now();
@@ -1578,22 +1822,79 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
 
   const handleDelete = () => {
       captureSnapshot();
-      if (ctxMenu?.beatId !== null && ctxMenu?.beatId !== undefined) {
-          const toDelete = engine.current.selectedBeatIds.size > 0 ? Array.from(engine.current.selectedBeatIds) : [ctxMenu.beatId!];
-          setBeats(beats.filter(b => !toDelete.includes(b.id)));
-          setConnections(connections.filter(c => !toDelete.includes(c.from) && !toDelete.includes(c.to)));
-      } else if (ctxMenu?.linkIndex !== null && ctxMenu?.linkIndex !== undefined) {
-          const filteredConns = connections.filter(c => (c.boardId || 0) === activeBoardId);
-          const actualIdxInGlobal = connections.indexOf(filteredConns[ctxMenu.linkIndex]);
-          const newConns = [...connections];
-          newConns.splice(actualIdxInGlobal, 1);
+      if (engine.current.selectedBeatIds.size > 0) {
+          const toDelete = Array.from(engine.current.selectedBeatIds);
+          const newBeats = beats.filter(b => !toDelete.includes(b.id));
+          const newConns = connections.filter(c => !toDelete.includes(c.from) && !toDelete.includes(c.to));
+          setBeats(newBeats);
           setConnections(newConns);
-      } else if (ctxMenu?.groupId !== null && ctxMenu?.groupId !== undefined) { removeGroup(ctxMenu.groupId); } 
-      else if (ctxMenu?.annotationId !== null && ctxMenu?.annotationId !== undefined) { deleteAnnotation(ctxMenu.annotationId); }
-      else if (engine.current.selectedAnnoId !== null) {
+          engine.current.beats = engine.current.beats.filter(b => !toDelete.includes(b.id));
+          engine.current.connections = engine.current.connections.filter(c => !toDelete.includes(c.from) && !toDelete.includes(c.to));
+          engine.current.selectedBeatIds.clear();
+          renderBeats();
+          renderConnections();
+      } else if (engine.current.selectedConnIndex !== null && engine.current.selectedConnIndex !== undefined) {
+          const filteredConns = connections.filter(c => (c.boardId || 0) === activeBoardId);
+          const targetConn = filteredConns[engine.current.selectedConnIndex];
+          if (targetConn) {
+              const newConns = connections.filter(c => c !== targetConn);
+              setConnections(newConns);
+              engine.current.connections = engine.current.connections.filter(c => c !== targetConn);
+              engine.current.selectedConnIndex = null;
+              renderConnections();
+          }
+      } else if (engine.current.selectedAnnoId !== null) {
           deleteAnnotation(engine.current.selectedAnnoId);
           engine.current.selectedAnnoId = null;
+      } else if (ctxMenu) {
+          if (ctxMenu.beatId !== null && ctxMenu.beatId !== undefined) {
+              const toDelete = [ctxMenu.beatId];
+              setBeats(beats.filter(b => !toDelete.includes(b.id)));
+              setConnections(connections.filter(c => !toDelete.includes(c.from) && !toDelete.includes(c.to)));
+              engine.current.beats = engine.current.beats.filter(b => !toDelete.includes(b.id));
+              engine.current.connections = engine.current.connections.filter(c => !toDelete.includes(c.from) && !toDelete.includes(c.to));
+              renderBeats();
+              renderConnections();
+          } else if (ctxMenu.linkIndex !== null && ctxMenu.linkIndex !== undefined) {
+              const filteredConns = connections.filter(c => (c.boardId || 0) === activeBoardId);
+              const targetConn = filteredConns[ctxMenu.linkIndex];
+              if (targetConn) {
+                  const newConns = connections.filter(c => c !== targetConn);
+                  setConnections(newConns);
+                  engine.current.connections = engine.current.connections.filter(c => c !== targetConn);
+                  engine.current.selectedConnIndex = null;
+                  renderConnections();
+              }
+          } else if (ctxMenu.groupId !== null && ctxMenu.groupId !== undefined) {
+              removeGroup(ctxMenu.groupId);
+          } else if (ctxMenu.annotationId !== null && ctxMenu.annotationId !== undefined) {
+              deleteAnnotation(ctxMenu.annotationId);
+          }
       }
+      hideContextMenu();
+  };
+
+  const handleConnectSelectedBeats = () => {
+      const selected = beats
+          .filter(b => engine.current.selectedBeatIds.has(b.id) && (b.boardId || 0) === activeBoardId)
+          .sort((a, b) => a.x - b.x || a.y - b.y);
+
+      if (selected.length < 2) return;
+      captureSnapshot();
+
+      const newConns = [...connections];
+      for (let i = 0; i < selected.length - 1; i++) {
+          const fromId = selected[i].id;
+          const toId = selected[i + 1].id;
+          const exists = newConns.some(c => c.from === fromId && c.to === toId && (c.boardId || 0) === activeBoardId);
+          if (!exists) {
+              const conn = { from: fromId, to: toId, boardId: activeBoardId };
+              newConns.push(conn);
+              engine.current.connections.push(conn);
+          }
+      }
+      setConnections(newConns);
+      renderConnections();
       hideContextMenu();
   };
 
@@ -1989,6 +2290,7 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
   };
 
   const handleAIBeautifyBoard = async () => {
+      return;
       const boardBeats = beats.filter(b => (b.boardId || 0) === activeBoardId);
       if (boardBeats.length === 0) {
           alert("No beats on current board to beautify! Double-click anywhere on the board to create a beat.");
@@ -2423,24 +2725,7 @@ Connections: ${JSON.stringify(boardConns.map(c => ({ from: c.from, to: c.to })))
       if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
           const files = Array.from(e.dataTransfer.files);
           for (const file of files) {
-              if (file.type === 'application/pdf') {
-                  if (!isPdfDropEnabled) { alert("PDF Import is disabled. Enable it in Backstage > System Features."); continue; }
-                  setIsImporting(true); setIsEnhancing(true);
-                  try {
-                      const rawText = await extractRawTextFromPdf(file);
-                      const newBeats = await convertTextToScript(rawText, 'gemini-3-flash-preview');
-                      let maxX = -Infinity; let maxY = -Infinity;
-                      if (engine.current.beats.length > 0) engine.current.beats.forEach(b => { if (b.x > maxX) maxX = b.x; if (b.y > maxY) maxY = b.y; });
-                      else { maxX = 25000; maxY = 25000; }
-                      const startX = maxX + 400; const startY = 25000; const COLS = 5;
-                      const positionedBeats = newBeats.map((b, i) => ({ ...b, boardId: activeBoardId, x: startX + ((i % COLS) * 250), y: startY + (Math.floor(i / COLS) * 170) }));
-                      const newConnections: Connection[] = [];
-                      for (let i = 0; i < positionedBeats.length - 1; i++) newConnections.push({ from: positionedBeats[i].id, to: positionedBeats[i+1].id, boardId: activeBoardId });
-                      captureSnapshot(); setBeats(prev => [...prev, ...positionedBeats]); setConnections(prev => [...prev, ...newConnections]);
-                      setPan(-startX * scale + 100, -startY * scale + 100);
-                  } catch (err) { console.error("PDF Import Failed:", err); alert("Failed to parse PDF."); } 
-                  finally { setIsImporting(false); setIsEnhancing(false); }
-              } else if (file.type.startsWith('image/')) {
+              if (file.type.startsWith('image/')) {
                   const reader = new FileReader();
                   reader.onload = (readerEvent) => {
                       const dataUrl = readerEvent.target?.result as string;
@@ -2462,7 +2747,7 @@ Connections: ${JSON.stringify(boardConns.map(c => ({ from: c.from, to: c.to })))
               }
           }
       }
-  }, [setBeats, setConnections, setPan, scale, captureSnapshot, isPdfDropEnabled, activeBoardId, setAnnotations]);
+  }, [captureSnapshot, activeBoardId, setAnnotations]);
 
   useEffect(() => {
       const container = containerRef.current;
@@ -2485,14 +2770,7 @@ Connections: ${JSON.stringify(boardConns.map(c => ({ from: c.from, to: c.to })))
                   eraserCursorRef.current.style.top = `${e.clientY}px`;
               }
               const { x, y } = getSvgPoint(e);
-              // Delete annotation near cursor
-              const targetAnno = engine.current.annotations.find(a => {
-                  if (a.x !== undefined && a.y !== undefined) {
-                      const dist = Math.hypot(a.x - x, a.y - y);
-                      return dist < 30;
-                  }
-                  return false;
-              });
+              const targetAnno = engine.current.annotations.find(a => isPointNearAnnotation(x, y, a, 35));
               if (targetAnno) {
                   deleteAnnotation(targetAnno.id);
               }
@@ -2547,6 +2825,14 @@ Connections: ${JSON.stringify(boardConns.map(c => ({ from: c.from, to: c.to })))
               return;
           }
 
+          if (isSpacePressedRef.current || e.button === 1) {
+              engine.current.isPanning = true;
+              engine.current.lastMouseX = e.clientX;
+              engine.current.lastMouseY = e.clientY;
+              if (containerRef.current) containerRef.current.style.cursor = 'grabbing';
+              return;
+          }
+
           if (e.button === 0 && (toolMode === 'none' || e.shiftKey)) {
               if (e.shiftKey || (!target.closest('.beat-card') && !target.closest('.group-header') && !target.closest('.text-annotation-card'))) {
                   engine.current.isLassoing = true;
@@ -2561,10 +2847,6 @@ Connections: ${JSON.stringify(boardConns.map(c => ({ from: c.from, to: c.to })))
                       lasso.style.display = 'block';
                   }
               }
-          } else if (e.button === 1 || (e.button === 0 && toolMode === 'none')) {
-              engine.current.isPanning = true;
-              engine.current.lastMouseX = e.clientX;
-              engine.current.lastMouseY = e.clientY;
           }
       };
 
@@ -2574,15 +2856,21 @@ Connections: ${JSON.stringify(boardConns.map(c => ({ from: c.from, to: c.to })))
               eraserCursorRef.current.style.top = `${e.clientY}px`;
               if (e.buttons === 1) {
                   const { x, y } = getSvgPoint(e);
-                  const targetAnno = engine.current.annotations.find(a => {
-                      const ax = a.x !== undefined ? a.x : (a.cx !== undefined ? a.cx : 0);
-                      const ay = a.y !== undefined ? a.y : (a.cy !== undefined ? a.cy : 0);
-                      return Math.hypot(ax - x, ay - y) < 40;
-                  });
+                  const targetAnno = engine.current.annotations.find(a => isPointNearAnnotation(x, y, a, 35));
                   if (targetAnno) {
                       deleteAnnotation(targetAnno.id);
                   }
               }
+          }
+
+          if (engine.current.isScrubbing && engine.current.scrubBeatId !== null) {
+              const deltaX = e.clientX - engine.current.scrubStartX;
+              const step = Math.round(deltaX / 12);
+              const newVal = Math.max(1, engine.current.scrubStartVal + step);
+              engine.current.scrubCurrentVal = newVal;
+              setScrubbingData(prev => prev ? { ...prev, currentVal: newVal } : null);
+              const badgeEl = document.getElementById(`badge-${engine.current.scrubBeatId}`);
+              if (badgeEl) badgeEl.innerText = newVal.toString();
           }
 
           if (engine.current.isDrawing && engine.current.currentAnnoId) {
@@ -2598,6 +2886,11 @@ Connections: ${JSON.stringify(boardConns.map(c => ({ from: c.from, to: c.to })))
                   setAnnotations(prev => prev.map(a => a.id === engine.current.currentAnnoId ? { ...a, x: startX, y: startY, w, h } : a));
               }
           } else if (engine.current.isDragging) {
+              const surface = containerRef.current?.querySelector('#canvas-surface');
+              if (surface && !surface.classList.contains('is-dragging')) {
+                  surface.classList.add('is-dragging');
+              }
+
               const dx = (e.clientX - engine.current.lastMouseX) / engine.current.scale;
               const dy = (e.clientY - engine.current.lastMouseY) / engine.current.scale;
               engine.current.lastMouseX = e.clientX;
@@ -2611,40 +2904,80 @@ Connections: ${JSON.stringify(boardConns.map(c => ({ from: c.from, to: c.to })))
                       if (targets.has(b.id)) {
                           b.x += dx;
                           b.y += dy;
+                          const cardEl = container.querySelector(`.beat-card[data-id="${b.id}"]`) as HTMLElement;
+                          if (cardEl) {
+                              cardEl.style.left = `${b.x}px`;
+                              cardEl.style.top = `${b.y}px`;
+                          }
                       }
                   });
-                  renderBeats();
-                  renderConnections();
-                  renderMinimap();
+                  if (!connRafPendingRef.current) {
+                      connRafPendingRef.current = true;
+                      requestAnimationFrame(() => {
+                          connRafPendingRef.current = false;
+                          renderConnections();
+                          renderMinimap();
+                      });
+                  }
               } else if (engine.current.dragGroupTarget !== null) {
                   const group = engine.current.groups.find(g => g.id === engine.current.dragGroupTarget);
                   if (group) {
                       group.x += dx;
                       group.y += dy;
+                      const groupEl = container.querySelector(`.group-container[data-id="${group.id}"]`) as HTMLElement;
+                      if (groupEl) {
+                          groupEl.style.left = `${group.x}px`;
+                          groupEl.style.top = `${group.y}px`;
+                      }
+
                       engine.current.beats.forEach(b => {
                           if (engine.current.selectedBeatIds.has(b.id) || engine.current.dragGroupChildIds.has(b.id)) {
                               b.x += dx;
                               b.y += dy;
+                              const cardEl = container.querySelector(`.beat-card[data-id="${b.id}"]`) as HTMLElement;
+                              if (cardEl) {
+                                  cardEl.style.left = `${b.x}px`;
+                                  cardEl.style.top = `${b.y}px`;
+                              }
                           }
                       });
                       engine.current.groups.forEach(g => {
                           if (engine.current.dragGroupChildIds.has(g.id)) {
                               g.x += dx;
                               g.y += dy;
+                              const childGroupEl = container.querySelector(`.group-container[data-id="${g.id}"]`) as HTMLElement;
+                              if (childGroupEl) {
+                                  childGroupEl.style.left = `${g.x}px`;
+                                  childGroupEl.style.top = `${g.y}px`;
+                              }
                           }
                       });
-                      renderGroups();
-                      renderBeats();
-                      renderConnections();
-                      renderMinimap();
+                      if (!connRafPendingRef.current) {
+                          connRafPendingRef.current = true;
+                          requestAnimationFrame(() => {
+                              connRafPendingRef.current = false;
+                              renderConnections();
+                              renderMinimap();
+                          });
+                      }
                   }
               } else if (engine.current.groupResizeTarget !== null) {
                   const group = engine.current.groups.find(g => g.id === engine.current.groupResizeTarget);
                   if (group) {
                       group.width = Math.max(120, group.width + dx);
                       group.height = Math.max(80, group.height + dy);
-                      renderGroups();
-                      renderMinimap();
+                      const groupEl = container.querySelector(`.group-container[data-id="${group.id}"]`) as HTMLElement;
+                      if (groupEl) {
+                          groupEl.style.width = `${group.width}px`;
+                          groupEl.style.height = `${group.height}px`;
+                      }
+                      if (!connRafPendingRef.current) {
+                          connRafPendingRef.current = true;
+                          requestAnimationFrame(() => {
+                              connRafPendingRef.current = false;
+                              renderMinimap();
+                          });
+                      }
                   }
               } else if (engine.current.dragAnnotationId !== null) {
                   const anno = engine.current.annotations.find(a => a.id === engine.current.dragAnnotationId);
@@ -2656,8 +2989,14 @@ Connections: ${JSON.stringify(boardConns.map(c => ({ from: c.from, to: c.to })))
                       if (anno.points && anno.points.length > 0) {
                           anno.points.forEach(p => { p.x += dx; p.y += dy; });
                       }
-                      renderConnections();
-                      renderText();
+                      if (!connRafPendingRef.current) {
+                          connRafPendingRef.current = true;
+                          requestAnimationFrame(() => {
+                              connRafPendingRef.current = false;
+                              renderConnections();
+                              renderText();
+                          });
+                      }
                   }
               } else if (engine.current.imageResizeTarget !== null) {
                   const target = engine.current.imageResizeTarget;
@@ -2691,22 +3030,46 @@ Connections: ${JSON.stringify(boardConns.map(c => ({ from: c.from, to: c.to })))
                       anno.y = newY;
                       anno.w = newW;
                       anno.h = newH;
-                      renderConnections();
+                      if (!connRafPendingRef.current) {
+                          connRafPendingRef.current = true;
+                          requestAnimationFrame(() => {
+                              connRafPendingRef.current = false;
+                              renderConnections();
+                          });
+                      }
                   }
-              } else if (engine.current.isScrubbing && engine.current.scrubBeatId !== null) {
-                  const deltaX = e.clientX - engine.current.scrubStartX;
-                  const step = Math.round(deltaX / 15);
-                  const newVal = Math.max(1, engine.current.scrubStartVal + step);
-                  setScrubbingData(prev => prev ? { ...prev, currentVal: newVal } : null);
               }
           } else if (engine.current.isPanning) {
+              const surface = containerRef.current?.querySelector('#canvas-surface');
+              if (surface && !surface.classList.contains('is-panning')) {
+                  surface.classList.add('is-panning');
+              }
+
               const dx = e.clientX - engine.current.lastMouseX;
               const dy = e.clientY - engine.current.lastMouseY;
               engine.current.lastMouseX = e.clientX;
               engine.current.lastMouseY = e.clientY;
               const newPanX = engine.current.panX + dx;
               const newPanY = engine.current.panY + dy;
-              setPan(newPanX, newPanY);
+              engine.current.panX = newPanX;
+              engine.current.panY = newPanY;
+
+              if (!rafPendingRef.current) {
+                  rafPendingRef.current = true;
+                  requestAnimationFrame(() => {
+                      rafPendingRef.current = false;
+                      if (containerRef.current) {
+                          const viewport = containerRef.current.querySelector('#viewport') as HTMLElement;
+                          if (viewport) {
+                              viewport.style.backgroundPosition = `${engine.current.panX}px ${engine.current.panY}px`;
+                          }
+                          const surface = containerRef.current.querySelector('#canvas-surface') as HTMLElement;
+                          if (surface) {
+                              surface.style.transform = `translate3d(${engine.current.panX}px, ${engine.current.panY}px, 0) scale(${engine.current.scale})`;
+                          }
+                      }
+                  });
+              }
           } else if (engine.current.isLassoing) {
               const dx = Math.abs(e.clientX - engine.current.lassoStart.x);
               const dy = Math.abs(e.clientY - engine.current.lassoStart.y);
@@ -2728,14 +3091,46 @@ Connections: ${JSON.stringify(boardConns.map(c => ({ from: c.from, to: c.to })))
       };
 
       const handleMouseUp = (e: MouseEvent) => {
+          if (engine.current.isScrubbing && engine.current.scrubBeatId !== null) {
+              const scrubId = engine.current.scrubBeatId;
+              const finalVal = engine.current.scrubCurrentVal || engine.current.scrubStartVal;
+              const offset = finalVal - engine.current.scrubStartVal;
+              captureSnapshot();
+
+              if (engine.current.selectedBeatIds.has(scrubId) && engine.current.selectedBeatIds.size > 1) {
+                  const selectedIds = Array.from(engine.current.selectedBeatIds);
+                  const updated = beats.map(b => {
+                      if (selectedIds.includes(b.id)) {
+                          const curr = parseInt(b.sceneNumber || '1') || 1;
+                          return { ...b, sceneNumber: Math.max(1, curr + offset).toString() };
+                      }
+                      return b;
+                  });
+                  setBeats(updated);
+                  engine.current.beats = updated;
+              } else {
+                  updateBeat(scrubId, { sceneNumber: finalVal.toString() });
+                  engine.current.beats = engine.current.beats.map(b => b.id === scrubId ? { ...b, sceneNumber: finalVal.toString() } : b);
+              }
+
+              engine.current.isScrubbing = false;
+              engine.current.scrubBeatId = null;
+              setScrubbingData(null);
+              renderBeats();
+          }
+
           if (engine.current.isDragging) {
               engine.current.isDragging = false;
               minimapContainerRef.current?.classList.remove('active');
+              const surface = containerRef.current?.querySelector('#canvas-surface');
+              if (surface) surface.classList.remove('is-dragging');
 
               if (engine.current.dragTarget !== null) {
                   captureSnapshot();
                   setBeats(JSON.parse(JSON.stringify(engine.current.beats)));
                   engine.current.dragTarget = null;
+                  renderBeats();
+                  renderConnections();
               }
               if (engine.current.dragGroupTarget !== null || engine.current.groupResizeTarget !== null) {
                   captureSnapshot();
@@ -2744,20 +3139,16 @@ Connections: ${JSON.stringify(boardConns.map(c => ({ from: c.from, to: c.to })))
                   engine.current.dragGroupTarget = null;
                   engine.current.groupResizeTarget = null;
                   engine.current.dragGroupChildIds.clear();
+                  renderGroups();
+                  renderBeats();
+                  renderConnections();
               }
               if (engine.current.dragAnnotationId !== null || engine.current.imageResizeTarget !== null) {
                   captureSnapshot();
                   setAnnotations(JSON.parse(JSON.stringify(engine.current.annotations)));
                   engine.current.dragAnnotationId = null;
                   engine.current.imageResizeTarget = null;
-              }
-              if (engine.current.isScrubbing && engine.current.scrubBeatId !== null) {
-                  if (scrubbingData) {
-                      updateBeat(engine.current.scrubBeatId, { sceneNumber: scrubbingData.currentVal.toString() });
-                  }
-                  engine.current.isScrubbing = false;
-                  engine.current.scrubBeatId = null;
-                  setScrubbingData(null);
+                  renderConnections();
               }
           }
           if (engine.current.isDrawing) {
@@ -2768,6 +3159,12 @@ Connections: ${JSON.stringify(boardConns.map(c => ({ from: c.from, to: c.to })))
           }
           if (engine.current.isPanning) {
               engine.current.isPanning = false;
+              const surface = containerRef.current?.querySelector('#canvas-surface');
+              if (surface) surface.classList.remove('is-panning');
+              setPan(engine.current.panX, engine.current.panY);
+              if (containerRef.current) {
+                  containerRef.current.style.cursor = isSpacePressedRef.current ? 'grab' : 'default';
+              }
           }
           if (engine.current.isLinking) {
               completeDragLink(e);
@@ -2837,16 +3234,90 @@ Connections: ${JSON.stringify(boardConns.map(c => ({ from: c.from, to: c.to })))
               }
           }
 
+          const textCard = target.closest('.text-annotation-card') as HTMLElement;
+          if (textCard) {
+              const annoId = parseInt(textCard.dataset.id || '-1');
+              if (annoId >= 0) {
+                  engine.current.selectedAnnoId = annoId;
+                  showContextMenu(e.clientX, e.clientY, null, null, null, annoId);
+                  return;
+              }
+          }
+
+          const annoGroup = (target.closest('g[data-type="annotation"]') || target.closest('[data-anno-id]')) as HTMLElement;
+          if (annoGroup) {
+              const annoId = parseInt(annoGroup.dataset.annoId || annoGroup.getAttribute('data-id') || '-1');
+              if (annoId >= 0) {
+                  engine.current.selectedAnnoId = annoId;
+                  showContextMenu(e.clientX, e.clientY, null, null, null, annoId);
+                  return;
+              }
+          }
+
           showContextMenu(e.clientX, e.clientY, null, null, null, null);
       };
 
       const handleKeyDown = (e: KeyboardEvent) => {
           const activeEl = document.activeElement;
-          if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.getAttribute('contenteditable') === 'true')) {
+          const isEditing = activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.getAttribute('contenteditable') === 'true');
+          
+          if (!isEditing && (e.code === 'Space' || e.key === ' ')) {
+              e.preventDefault();
+              if (!isSpacePressedRef.current) {
+                  isSpacePressedRef.current = true;
+                  if (containerRef.current) containerRef.current.style.cursor = 'grab';
+              }
               return;
           }
 
-          if (e.key === 'Enter') {
+          if (isEditing) {
+              return;
+          }
+
+          const isMeta = e.ctrlKey || e.metaKey;
+          const keyLower = e.key.toLowerCase();
+
+          if (isMeta && keyLower === 'c') {
+              e.preventDefault();
+              handleCopy();
+          } else if (isMeta && keyLower === 'v') {
+              e.preventDefault();
+              handlePaste();
+          } else if (isMeta && keyLower === 'd') {
+              e.preventDefault();
+              handleDuplicate();
+          } else if (isMeta && keyLower === 'a') {
+              e.preventDefault();
+              engine.current.selectedBeatIds.clear();
+              engine.current.beats.forEach(b => engine.current.selectedBeatIds.add(b.id));
+              renderBeats();
+              renderConnections();
+          } else if (isMeta && keyLower === 'z') {
+              e.preventDefault();
+              if (e.shiftKey) redo();
+              else undo();
+          } else if (isMeta && keyLower === 'y') {
+              e.preventDefault();
+              redo();
+          } else if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+              if (engine.current.selectedBeatIds.size > 0) {
+                  e.preventDefault();
+                  const step = e.shiftKey ? 20 : 5;
+                  const dx = e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0;
+                  const dy = e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0;
+                  engine.current.beats.forEach(b => {
+                      if (engine.current.selectedBeatIds.has(b.id)) {
+                          b.x += dx;
+                          b.y += dy;
+                      }
+                  });
+                  captureSnapshot();
+                  setBeats(JSON.parse(JSON.stringify(engine.current.beats)));
+                  renderBeats();
+                  renderConnections();
+                  renderMinimap();
+              }
+          } else if (e.key === 'Enter') {
               if (engine.current.selectedBeatIds.size > 0) {
                   const selectedId = Array.from(engine.current.selectedBeatIds)[0];
                   e.preventDefault();
@@ -2883,19 +3354,67 @@ Connections: ${JSON.stringify(boardConns.map(c => ({ from: c.from, to: c.to })))
           }
       };
 
+      const handleWheel = (e: WheelEvent) => {
+          e.preventDefault();
+          const rect = container.getBoundingClientRect();
+          const mouseX = e.clientX - rect.left;
+          const mouseY = e.clientY - rect.top;
+
+          if (e.ctrlKey || e.metaKey) {
+              const zoomFactor = e.deltaY < 0 ? 1.1 : 0.9;
+              const oldScale = engine.current.scale;
+              const newScale = Math.min(3, Math.max(0.1, oldScale * zoomFactor));
+              if (oldScale === newScale) return;
+
+              const worldX = (mouseX - engine.current.panX) / oldScale;
+              const worldY = (mouseY - engine.current.panY) / oldScale;
+              const newPanX = mouseX - (worldX * newScale);
+              const newPanY = mouseY - (worldY * newScale);
+
+              engine.current.scale = newScale;
+              engine.current.panX = newPanX;
+              engine.current.panY = newPanY;
+              setScale(newScale);
+              setPan(newPanX, newPanY);
+              renderCanvas();
+              renderMinimap();
+          } else {
+              const newPanX = engine.current.panX - e.deltaX;
+              const newPanY = engine.current.panY - e.deltaY;
+              engine.current.panX = newPanX;
+              engine.current.panY = newPanY;
+              setPan(newPanX, newPanY);
+              renderCanvas();
+              renderMinimap();
+          }
+      };
+
+      const handleKeyUp = (e: KeyboardEvent) => {
+          if (e.code === 'Space' || e.key === ' ') {
+              isSpacePressedRef.current = false;
+              if (containerRef.current && !engine.current.isPanning) {
+                  containerRef.current.style.cursor = 'default';
+              }
+          }
+      };
+
       container.addEventListener('mousedown', handleMouseDown);
       container.addEventListener('dblclick', handleDblClick);
       container.addEventListener('contextmenu', handleContextMenu);
+      container.addEventListener('wheel', handleWheel, { passive: false });
       window.addEventListener('mousemove', handleMouseMove);
       window.addEventListener('mouseup', handleMouseUp);
       window.addEventListener('keydown', handleKeyDown);
+      window.addEventListener('keyup', handleKeyUp);
       return () => {
           container.removeEventListener('mousedown', handleMouseDown);
           container.removeEventListener('dblclick', handleDblClick);
           container.removeEventListener('contextmenu', handleContextMenu);
+          container.removeEventListener('wheel', handleWheel);
           window.removeEventListener('mousemove', handleMouseMove);
           window.removeEventListener('mouseup', handleMouseUp);
           window.removeEventListener('keydown', handleKeyDown);
+          window.removeEventListener('keyup', handleKeyUp);
       };
   }, [toolMode, editingAnnoId, drawColor, strokeWidth, strokeStyle, activeBoardId, setPan, captureSnapshot, setAnnotations, setBeats, setGroups, updateBeat, scrubbingData, onEditBeat]);
 
@@ -2915,7 +3434,7 @@ Connections: ${JSON.stringify(boardConns.map(c => ({ from: c.from, to: c.to })))
         <div className="absolute inset-0 bg-accent/10 border-2 border-dashed border-accent z-[3000] pointer-events-none flex items-center justify-center backdrop-blur-sm">
           <div className="bg-black/80 px-6 py-4 rounded-xl border border-accent/40 text-accent font-bold flex items-center gap-3 shadow-2xl">
             <Sparkles className="animate-spin" size={20} />
-            <span>Drop PDF or Image to Import</span>
+            <span>Drop Image to Import</span>
           </div>
         </div>
       )}
@@ -2933,9 +3452,9 @@ Connections: ${JSON.stringify(boardConns.map(c => ({ from: c.from, to: c.to })))
       <div id="viewport">
         <div id="canvas-surface">
           {boardLayerOrder.map(layer => {
-            if (layer === 'annotations') return <svg key="annotations" id="annotations-layer" className="w-full h-full" />;
+            if (layer === 'annotations') return <svg key="annotations" id="annotations-layer" style={{ overflow: 'visible' }} className="w-full h-full" />;
             if (layer === 'text') return <div key="text" id="text-layer" className="w-full h-full" />;
-            if (layer === 'connections') return <svg key="connections" id="connections-layer" className="w-full h-full" />;
+            if (layer === 'connections') return <svg key="connections" id="connections-layer" style={{ overflow: 'visible' }} className="w-full h-full" />;
             if (layer === 'groups') return <div key="groups" id="groups-layer" className="w-full h-full" />;
             if (layer === 'beats') return <div key="beats" id="beats-layer" className="w-full h-full" />;
             return null;
@@ -2996,7 +3515,7 @@ Connections: ${JSON.stringify(boardConns.map(c => ({ from: c.from, to: c.to })))
 
       {/* Board Switcher */}
       <div className="board-switcher">
-        {[0, 1, 2, 3].map(boardIdx => (
+        {[0, 1, 2].map(boardIdx => (
           <button
             key={boardIdx}
             className={`board-tab ${activeBoardId === boardIdx ? 'active' : ''}`}
@@ -3008,30 +3527,36 @@ Connections: ${JSON.stringify(boardConns.map(c => ({ from: c.from, to: c.to })))
         ))}
       </div>
 
-      {/* Zoom & AI Controls */}
+      {/* Zoom & Connection Controls */}
       <div className="zoom-controls">
         <button 
-          onClick={handleAIBeautifyBoard}
-          disabled={isBeautifying}
-          className="w-9 h-9 !p-0 flex items-center justify-center bg-gradient-to-r from-purple-900/90 via-indigo-900/90 to-slate-900/90 hover:from-purple-800 hover:to-indigo-800 text-purple-200 border border-purple-500/50 hover:border-purple-400 rounded transition-all shadow-[0_0_12px_rgba(168,85,247,0.3)] group backdrop-blur-md"
-          title="AI Beautify Board: Automatically organize, sequence, annotate, and clean up board layout"
-        >
-          {isBeautifying ? (
-            <Loader2 size={16} className="animate-spin text-purple-300" />
-          ) : (
-            <Sparkles size={16} className="text-purple-300 group-hover:scale-125 transition-transform duration-300 fill-purple-300/20" />
-          )}
-        </button>
-        <button 
-          onClick={autoGenerate5Scenes}
+          onClick={() => setIsAiModalOpen(true)}
           className="w-9 h-9 !p-0 flex items-center justify-center bg-gradient-to-r from-[#2a1b40] to-[#150d24] hover:from-[#3b245a] hover:to-[#281845] text-[#f5a623] border border-[#f5a623]/40 hover:border-[#f5a623] rounded transition-all shadow-[0_0_10px_rgba(245,166,35,0.2)] group"
-          title="Auto-fill Board with 5 Act Scenes, Drawings & Screenplay"
+          title="AI Scene Generator (5, 20, or 50 Scenes)"
         >
           <Zap size={16} className="text-[#f5a623] fill-[#f5a623]/30 group-hover:scale-110 transition-transform duration-300" />
         </button>
         <button onClick={() => handleZoom('in')} title="Zoom In"><ZoomIn size={16} /></button>
         <button onClick={() => handleZoom('out')} title="Zoom Out"><ZoomOut size={16} /></button>
+        <button onClick={handleZoomReset} title="Reset Zoom (100%)"><RotateCcw size={16} /></button>
         <button onClick={handleFitView} title="Fit All"><Maximize size={16} /></button>
+
+        <div className="w-full h-[1px] bg-white/10 my-0.5" />
+
+        <button 
+          onClick={() => setDefaultConnStyle('zigzag')}
+          className={defaultConnStyle === 'zigzag' ? '!border-[#f5a623] !text-[#f5a623] !bg-[#f5a623]/20' : ''}
+          title="Zigzag Connection Lines (Default)"
+        >
+          <Workflow size={16} />
+        </button>
+        <button 
+          onClick={() => setDefaultConnStyle('curve')}
+          className={defaultConnStyle === 'curve' ? '!border-[#f5a623] !text-[#f5a623] !bg-[#f5a623]/20' : ''}
+          title="Curved Connection Lines"
+        >
+          <Activity size={16} />
+        </button>
       </div>
 
       {/* Context Menu */}
@@ -3062,6 +3587,82 @@ Connections: ${JSON.stringify(boardConns.map(c => ({ from: c.from, to: c.to })))
               <div className="color-row">
                 {STORYLINE_COLORS.map(c => (
                   <div key={c} className="color-dot" style={{ backgroundColor: c }} onClick={() => handleColor(c, 'chain')} />
+                ))}
+              </div>
+              <div className="ctx-divider" />
+            </>
+          )}
+
+          {ctxMenu.linkIndex !== null && ctxMenu.linkIndex !== undefined && (
+            <>
+              <div className="ctx-label font-bold text-amber-400">Connection Style</div>
+              <div className="flex flex-col gap-1 p-1">
+                <button 
+                  className="ctx-item !py-1 text-xs" 
+                  onClick={() => {
+                    if (ctxMenu.linkIndex !== null && ctxMenu.linkIndex !== undefined) {
+                      const filteredConns = connections.filter(c => (c.boardId || 0) === (activeBoardId || 0));
+                      const targetConn = filteredConns[ctxMenu.linkIndex];
+                      if (targetConn) {
+                        const newConns = connections.map(c => c === targetConn ? { ...c, style: 'zigzag' as ConnectionStyle } : c);
+                        setConnections(newConns);
+                        engine.current.connections = newConns;
+                        captureSnapshot({ connections: newConns });
+                        renderConnections();
+                      }
+                    }
+                    setDefaultConnStyle('zigzag');
+                    hideContextMenu();
+                  }}
+                >
+                  <Workflow size={13} /> Zigzag
+                </button>
+
+                <button 
+                  className="ctx-item !py-1 text-xs" 
+                  onClick={() => {
+                    if (ctxMenu.linkIndex !== null && ctxMenu.linkIndex !== undefined) {
+                      const filteredConns = connections.filter(c => (c.boardId || 0) === (activeBoardId || 0));
+                      const targetConn = filteredConns[ctxMenu.linkIndex];
+                      if (targetConn) {
+                        const newConns = connections.map(c => c === targetConn ? { ...c, style: 'curve' as ConnectionStyle } : c);
+                        setConnections(newConns);
+                        engine.current.connections = newConns;
+                        captureSnapshot({ connections: newConns });
+                        renderConnections();
+                      }
+                    }
+                    setDefaultConnStyle('curve');
+                    hideContextMenu();
+                  }}
+                >
+                  <Activity size={13} /> Curve
+                </button>
+              </div>
+
+              <div className="ctx-divider" />
+              <div className="ctx-label">Line Color</div>
+              <div className="color-row">
+                {STORYLINE_COLORS.map(c => (
+                  <div 
+                    key={c} 
+                    className="color-dot" 
+                    style={{ backgroundColor: c }} 
+                    onClick={() => {
+                      if (ctxMenu.linkIndex !== null && ctxMenu.linkIndex !== undefined) {
+                        const filteredConns = connections.filter(c => (c.boardId || 0) === (activeBoardId || 0));
+                        const targetConn = filteredConns[ctxMenu.linkIndex];
+                        if (targetConn) {
+                          const newConns = connections.map(conn => conn === targetConn ? { ...conn, color: c } : conn);
+                          setConnections(newConns);
+                          engine.current.connections = newConns;
+                          captureSnapshot({ connections: newConns });
+                          renderConnections();
+                        }
+                      }
+                      hideContextMenu();
+                    }} 
+                  />
                 ))}
               </div>
               <div className="ctx-divider" />
@@ -3105,6 +3706,11 @@ Connections: ${JSON.stringify(boardConns.map(c => ({ from: c.from, to: c.to })))
           {/* Sequence options when beats are selected */}
           {engine.current.selectedBeatIds.size > 0 && (
             <>
+              {engine.current.selectedBeatIds.size > 1 && (
+                <div className="ctx-item text-purple-300" onClick={handleConnectSelectedBeats}>
+                  <Zap size={14} /> Connect Selected Beats
+                </div>
+              )}
               <div className="ctx-item" onClick={handleCreateGroup}>
                 <Layers size={14} /> Create Sequence (Group)
               </div>
@@ -3137,6 +3743,12 @@ Connections: ${JSON.stringify(boardConns.map(c => ({ from: c.from, to: c.to })))
           <div className="scrub-sub">Drag left/right to resequence</div>
         </div>
       )}
+
+      {/* AI Scene Generator Popup Modal */}
+      <AISceneGeneratorModal 
+        isOpen={isAiModalOpen} 
+        onClose={() => setIsAiModalOpen(false)} 
+      />
     </div>
   );
 };

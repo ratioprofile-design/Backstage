@@ -622,10 +622,10 @@ const ScriptView: React.FC = () => {
   
   const getThemeStyles = () => {
       switch(scriptConfig.paperTheme) {
-          case 'dark': return { bg: '#1a1a1a', text: '#e5e7eb', slug: '#bbbbbb', accent: '#333333', pageNum: '#555', shadow: '0 0 0 1px #333', slugBg: '#2a2a2a' };
-          case 'sepia': return { bg: '#fdf6e3', text: '#586e75', slug: '#b58900', accent: '#eee8d5', pageNum: '#93a1a1', shadow: '0 2px 10px rgba(0,0,0,0.1)', slugBg: '#eee8d5' };
-          case 'red': return { bg: '#000000', text: '#ff5555', slug: '#ff0000', accent: '#1a0000', pageNum: '#330000', shadow: '0 0 0 1px #330000', slugBg: '#111111' };
-          default: return { bg: 'white', text: 'black', slug: '#555555', accent: '#f5f5f5', pageNum: '#ccc', shadow: '0 4px 12px rgba(0,0,0,0.15)', slugBg: '#e5e7eb' }; 
+          case 'dark': return { bg: '#1a1a1a', text: '#e5e7eb', slug: '#bbbbbb', slugText: '#e5e7eb', accent: '#333333', pageNum: '#777777', shadow: '0 0 0 1px #333', slugBg: '#2a2a2a' };
+          case 'sepia': return { bg: '#fdf6e3', text: '#586e75', slug: '#b58900', slugText: '#586e75', accent: '#eee8d5', pageNum: '#93a1a1', shadow: '0 2px 10px rgba(0,0,0,0.1)', slugBg: '#eee8d5' };
+          case 'red': return { bg: '#000000', text: '#ff5555', slug: '#ff0000', slugText: '#ff5555', accent: '#1a0000', pageNum: '#770000', shadow: '0 0 0 1px #330000', slugBg: '#111111' };
+          default: return { bg: 'white', text: '#111111', slug: '#444444', slugText: '#111111', accent: '#f5f5f5', pageNum: '#888888', shadow: '0 4px 12px rgba(0,0,0,0.15)', slugBg: '#e5e7eb' }; 
       }
   };
   const theme = getThemeStyles();
@@ -926,17 +926,20 @@ const ScriptView: React.FC = () => {
                 <div className="flex items-center gap-4">
                     <button onClick={() => setShowNav(!showNav)} className={`w-8 h-8 flex items-center justify-center rounded border transition-all ${showNav ? 'bg-[#222] border-[#333] text-[#f5a623]' : 'bg-[#1a1a1a] border-[#333] text-gray-400 hover:text-white'}`} title="Toggle Navigation"><PanelLeft size={14} /></button>
                     <div className="flex items-center bg-[#1a1a1a] rounded border border-[#333] p-0.5 gap-0.5 relative">
-                        {FORMAT_BUTTONS.map((btn) => (
-                            <button 
-                                key={btn.id} 
-                                onMouseDown={(e) => { e.preventDefault(); handleFormat(btn.id); }} 
-                                className={`px-2 py-1.5 text-[10px] font-bold uppercase rounded-sm transition-all duration-200 flex items-center gap-2 min-w-[32px] justify-center ${activeFormat === btn.id ? 'bg-[#f5a623] text-black shadow-sm' : 'text-gray-400 hover:text-white hover:bg-[#222]'}`} 
-                                title={`${btn.id.charAt(0).toUpperCase() + btn.id.slice(1)} (${btn.short})`}
-                            >
-                                <btn.icon size={12} strokeWidth={2.5} />
-                                <span className="font-black opacity-80">{btn.label}</span>
-                            </button>
-                        ))}
+                        {FORMAT_BUTTONS.map((btn) => {
+                            const BtnIcon = btn.icon;
+                            return (
+                                <button 
+                                    key={btn.id} 
+                                    onMouseDown={(e) => { e.preventDefault(); handleFormat(btn.id); }} 
+                                    className={`px-2 py-1.5 text-[10px] font-bold uppercase rounded-sm transition-all duration-200 flex items-center gap-2 min-w-[32px] justify-center ${activeFormat === btn.id ? 'bg-[#f5a623] text-black shadow-sm' : 'text-gray-400 hover:text-white hover:bg-[#222]'}`} 
+                                    title={`${btn.id.charAt(0).toUpperCase() + btn.id.slice(1)} (${btn.short})`}
+                                >
+                                    <BtnIcon size={12} strokeWidth={2.5} />
+                                    <span className="font-black opacity-80">{btn.label}</span>
+                                </button>
+                            );
+                        })}
                         <div className="w-px h-4 bg-[#333] mx-1"></div>
                         <button 
                             onClick={() => setShowLanguageConfig(!showLanguageConfig)}
@@ -982,8 +985,25 @@ const ScriptView: React.FC = () => {
                 <div className="transition-transform duration-200 origin-top py-10" style={{ transform: `scale(${zoom})` }}>
                     <div style={{ position: 'relative', width: `${A4_WIDTH}px`, minHeight: `${A4_HEIGHT}px` }}>
                         <div ref={paperLayerRef} className="absolute top-0 left-0 w-full flex flex-col pointer-events-none z-0"></div>
-                        <div ref={contentRef} className="relative z-10 w-full h-full" style={{ ...editorStyle, paddingTop: `${MARGIN_TOP}px`, paddingBottom: `${MARGIN_BOTTOM}px`, paddingLeft: `${MARGIN_LEFT}px`, paddingRight: `${MARGIN_RIGHT}px`, }}>
-                            <style>{`.sc-line { color: ${theme.text}; } .sc-slug { color: ${theme.slug}; }`}</style>
+                        <div id="script-content-layer" ref={contentRef} className="relative z-10 w-full h-full" style={{ color: theme.text, ...editorStyle, paddingTop: `${MARGIN_TOP}px`, paddingBottom: `${MARGIN_BOTTOM}px`, paddingLeft: `${MARGIN_LEFT}px`, paddingRight: `${MARGIN_RIGHT}px`, }}>
+                            <style>{`
+                                #script-content-layer,
+                                #script-content-layer .script-body,
+                                #script-content-layer .script-body *,
+                                #script-content-layer .sc-line,
+                                #script-content-layer .sc-action,
+                                #script-content-layer .sc-character,
+                                #script-content-layer .sc-dialogue,
+                                #script-content-layer .sc-parenthetical,
+                                #script-content-layer .sc-transition,
+                                #script-content-layer .sc-shot,
+                                #script-content-layer .sc-lyrics {
+                                    color: ${theme.text} !important;
+                                }
+                                #script-content-layer .sc-slug {
+                                    color: ${theme.slug} !important;
+                                }
+                            `}</style>
                             {sortedBeats.map((beat, i) => {
                                 const isReady = beat.status === 'ready';
                                 const isSandbox = !isSequenceBeat(beat, connectedSet, beatOrder);
@@ -1003,10 +1023,10 @@ const ScriptView: React.FC = () => {
                                             <div className={`absolute -left-16 top-0.5 w-12 text-right font-mono text-xs font-bold select-none opacity-50 group-hover:opacity-100 transition-opacity ${isSandbox ? 'text-gray-600' : ''}`} style={{ color: isSandbox ? undefined : theme.pageNum }}>{displayNumber}</div>
                                             <div className="flex items-center gap-2 mb-2 px-2 py-0.5 transition-colors -ml-2 -mr-2" style={{ backgroundColor: activeBeatId === beat.id ? '#f5a623' : theme.slugBg }}>
                                                 <div className="flex-1 flex items-center gap-2 font-bold uppercase font-screenplay text-sm">
-                                                    <SlugInput id={`beat-prefix-${beat.id}`} value={beat.slug.prefix} onChange={v => handleSlugChange(beat.id, 'prefix', v)} onNext={() => document.getElementById(`beat-location-${beat.id}`)?.focus()} suggestions={SLUG_PREFIXES} className="w-20 shrink-0" style={{ color: activeBeatId === beat.id ? '#000' : theme.slug }} placeholder="INT." />
-                                                    <SlugInput id={`beat-location-${beat.id}`} value={beat.slug.location} onChange={v => handleSlugChange(beat.id, 'location', v)} onNext={() => document.getElementById(`beat-time-${beat.id}`)?.focus()} suggestions={uniqueLocations} className="flex-1" style={{ color: activeBeatId === beat.id ? '#000' : theme.slug }} placeholder="LOCATION" />
-                                                    <span style={{ color: activeBeatId === beat.id ? '#000' : theme.slug }}>-</span>
-                                                    <SlugInput id={`beat-time-${beat.id}`} value={beat.slug.time} onChange={v => handleSlugChange(beat.id, 'time', v)} onNext={() => editorRefs.current[beat.id]?.focus()} suggestions={SLUG_TIMES} className="w-32 shrink-0" style={{ color: activeBeatId === beat.id ? '#000' : theme.slug }} placeholder="TIME" />
+                                                    <SlugInput id={`beat-prefix-${beat.id}`} value={beat.slug.prefix} onChange={v => handleSlugChange(beat.id, 'prefix', v)} onNext={() => document.getElementById(`beat-location-${beat.id}`)?.focus()} suggestions={SLUG_PREFIXES} className="w-20 shrink-0" style={{ color: activeBeatId === beat.id ? '#000000' : (theme.slugText || theme.slug) }} placeholder="INT." />
+                                                    <SlugInput id={`beat-location-${beat.id}`} value={beat.slug.location} onChange={v => handleSlugChange(beat.id, 'location', v)} onNext={() => document.getElementById(`beat-time-${beat.id}`)?.focus()} suggestions={uniqueLocations} className="flex-1" style={{ color: activeBeatId === beat.id ? '#000000' : (theme.slugText || theme.slug) }} placeholder="LOCATION" />
+                                                    <span style={{ color: activeBeatId === beat.id ? '#000000' : (theme.slugText || theme.slug) }}>-</span>
+                                                    <SlugInput id={`beat-time-${beat.id}`} value={beat.slug.time} onChange={v => handleSlugChange(beat.id, 'time', v)} onNext={() => editorRefs.current[beat.id]?.focus()} suggestions={SLUG_TIMES} className="w-32 shrink-0" style={{ color: activeBeatId === beat.id ? '#000000' : (theme.slugText || theme.slug) }} placeholder="TIME" />
                                                 </div>
                                                 {isReady && <Lock size={12} className={activeBeatId === beat.id ? "text-black" : "text-green-500 ml-2"} />}
                                             </div>
