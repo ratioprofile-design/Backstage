@@ -1,6 +1,80 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useProject } from '../../context/ProjectContext';
-import { Beat, BreakdownData } from '../../types';
+import { Beat, BreakdownData, ViewMode, AppTask, TaskModificationHistory } from '../../types';
+
+export interface CrewViewProps {
+  allTasks?: AppTask[];
+  onUpdateTask?: (updatedTask: AppTask) => void;
+  onAddTask?: (newTask: AppTask) => void;
+  onDeleteTask?: (taskId: string) => void;
+}
+
+export interface TwoClickDeleteButtonProps {
+  onDelete: () => void;
+  className?: string;
+  iconSize?: number;
+  showText?: boolean;
+  buttonText?: string;
+  confirmText?: string;
+  title?: string;
+}
+
+export const TwoClickDeleteButton: React.FC<TwoClickDeleteButtonProps> = ({
+  onDelete,
+  className = "text-gray-500 hover:text-red-400 p-1 rounded hover:bg-[#252528] transition-colors",
+  iconSize = 12,
+  showText = false,
+  buttonText = "Delete",
+  confirmText = "Click again to delete",
+  title = "Delete task"
+}) => {
+  const [confirming, setConfirming] = useState(false);
+
+  useEffect(() => {
+    if (confirming) {
+      const timer = setTimeout(() => {
+        setConfirming(false);
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [confirming]);
+
+  const handleClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (confirming) {
+      onDelete();
+      setConfirming(false);
+    } else {
+      setConfirming(true);
+    }
+  };
+
+  if (confirming) {
+    return (
+      <button
+        type="button"
+        onClick={handleClick}
+        className="bg-red-600 hover:bg-red-700 text-white font-bold px-2 py-1 rounded text-[10px] animate-pulse flex items-center gap-1 shadow-lg transition-all border border-red-400"
+        title="Click a second time to confirm deletion"
+      >
+        <Trash2 size={iconSize} />
+        <span>{confirmText}</span>
+      </button>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={handleClick}
+      className={className}
+      title={`${title} (Click 2 times to delete)`}
+    >
+      <Trash2 size={iconSize} />
+      {showText && <span>{buttonText}</span>}
+    </button>
+  );
+};
 import { 
   Users, LayoutDashboard, Calendar, FileText, Contact, BookOpen, 
   Search, Filter, Plus, ChevronRight, CheckCircle2, Clock, AlertTriangle, 
@@ -360,9 +434,250 @@ const INITIAL_AI_INSIGHTS: AIProductionInsight[] = [
   }
 ];
 
+export interface ProductionTemplateItem {
+  id: string;
+  title: string;
+  category: 'Camera & Lighting' | 'Wardrobe & Art' | 'Sound & Audio' | 'Logistics & Safety' | 'Directing & Continuity' | 'Stunts & SFX';
+  departmentId: string;
+  departmentName: string;
+  desc: string;
+  estimatedTime: string;
+  usedCount: number;
+  lastUsed?: string;
+  isCustom?: boolean;
+  checklists: { id: string; text: string; completed: boolean }[];
+  fields: { id: string; label: string; value: string; placeholder: string; type: 'text' | 'textarea' | 'select'; options?: string[] }[];
+}
+
+const INITIAL_PRODUCTION_TEMPLATES: ProductionTemplateItem[] = [
+  {
+    id: 'tpl-1',
+    title: 'Camera Lens & Gear Checklist',
+    category: 'Camera & Lighting',
+    departmentId: 'camera',
+    departmentName: 'Camera & Cinematography',
+    desc: 'Anamorphic & spherical lens test sheet, sensor cleaning, focal length inventory, battery count & data cards log.',
+    estimatedTime: '20 mins',
+    usedCount: 14,
+    lastUsed: 'Yesterday',
+    checklists: [
+      { id: 'c1', text: 'Inspect Front & Rear Element for Dust & Scratches', completed: true },
+      { id: 'c2', text: 'Check Focus Ring Torque & Gear Pitch Alignment', completed: true },
+      { id: 'c3', text: 'Calibrate Wireless Follow Focus (Teradek / Bartech)', completed: false },
+      { id: 'c4', text: 'Format High-Speed CFexpress Cards (A & B Camera)', completed: false },
+      { id: 'c5', text: 'Verify Mattebox Trays & ND Filter Sets (.3, .6, .9, 1.2, Polarizer)', completed: true },
+      { id: 'c6', text: 'Test Wireless Video Transmitter & Client Monitors', completed: false },
+      { id: 'c7', text: 'Check V-Mount Battery Charge Levels & Dual Charger Unit', completed: false }
+    ],
+    fields: [
+      { id: 'f1', label: 'Primary Camera Body', value: 'ARRI Alexa Mini LF / RED V-Raptor', placeholder: 'e.g. ARRI Alexa 35', type: 'text' },
+      { id: 'f2', label: 'Lens Package', value: 'Cooke Anamorphic / Zeiss Master Primes', placeholder: 'e.g. Cooke 35mm-100mm', type: 'text' },
+      { id: 'f3', label: 'DIT Backup Drive ID', value: 'SSD RAID 10 - 8TB (Drive #02)', placeholder: 'e.g. RAID Drive A', type: 'text' },
+      { id: 'f4', label: 'Inspector / 1st AC', value: 'Tirru ISC / Lead Camera Tech', placeholder: '1st AC Name', type: 'text' }
+    ]
+  },
+  {
+    id: 'tpl-2',
+    title: 'Wardrobe & Costume Continuity Sheet',
+    category: 'Wardrobe & Art',
+    departmentId: 'costume',
+    departmentName: 'Costume & Wardrobe',
+    desc: 'Actor measurements, character scene outfit tags, distress levels, duplicate count & laundry logs.',
+    estimatedTime: '15 mins',
+    usedCount: 9,
+    lastUsed: '2 days ago',
+    checklists: [
+      { id: 'c1', text: 'Confirm Hero Outfit Staging for Main Cast', completed: true },
+      { id: 'c2', text: 'Check Duplicate Backup Outfits for Stunt Doubles (Min 3 sets)', completed: false },
+      { id: 'c3', text: 'Apply Ageing / Weathering / Mud Stains per Scene Script Beat', completed: true },
+      { id: 'c4', text: 'Label Garment Hangers with Character Name & Scene Range', completed: true },
+      { id: 'c5', text: 'Log Steamer & Portable Sewing Kit Inventory', completed: false },
+      { id: 'c6', text: 'Verify On-Set Dressing Trailer Rack Organization', completed: false }
+    ],
+    fields: [
+      { id: 'f1', label: 'Character / Actor Name', value: 'Hero / Lead Character', placeholder: 'Character Name', type: 'text' },
+      { id: 'f2', label: 'Costume Look ID', value: 'Look #03 (EXT Night Fight)', placeholder: 'Look ID', type: 'text' },
+      { id: 'f3', label: 'Weathering / Distressing Stage', value: 'Heavy distressing & blood stain stage 2', placeholder: 'Distressing stage', type: 'text' },
+      { id: 'f4', label: 'Costume Designer Lead', value: 'Anju Modi / Wardrobe Supervisor', placeholder: 'Designer Name', type: 'text' }
+    ]
+  },
+  {
+    id: 'tpl-3',
+    title: 'Sound Log & Wireless Frequency Report',
+    category: 'Sound & Audio',
+    departmentId: 'sound',
+    departmentName: 'Sound & Audio',
+    desc: 'Boom mic placements, lavalier transmitter frequencies, RF interference log & ambient room tone recordings.',
+    estimatedTime: '15 mins',
+    usedCount: 12,
+    lastUsed: 'Today',
+    checklists: [
+      { id: 'c1', text: 'Perform Frequency Scan for Wireless Lavalier Mics (470-608 MHz)', completed: true },
+      { id: 'c2', text: 'Test Boom Mic Shockmounts & Windjammer Furry Covers', completed: true },
+      { id: 'c3', text: 'Record 60 Seconds Clean Ambient Room Tone per Location', completed: false },
+      { id: 'c4', text: 'Set Timecode Sync between Sound Recorder & All Camera Bodies', completed: true },
+      { id: 'c5', text: 'Sanitize & Hide Skin Mics on Cast Outfits', completed: false },
+      { id: 'c6', text: 'Deliver Daily Audio File Logs to DIT / Post Supervisor', completed: false }
+    ],
+    fields: [
+      { id: 'f1', label: 'Audio Recorder Console', value: 'Sound Devices 888 / 32-Track', placeholder: 'Recorder Console', type: 'text' },
+      { id: 'f2', label: 'Wireless Mic Channels', value: 'Lectrosonics / Wisycom Dual System', placeholder: 'Wireless Frequencies', type: 'text' },
+      { id: 'f3', label: 'Room Tone Scene Tag', value: 'Scene 14 EXT Yard Room Tone', placeholder: 'Scene Tag', type: 'text' },
+      { id: 'f4', label: 'Head Sound Mixer', value: 'Resul Pookutty / Audio Supervisor', placeholder: 'Sound Mixer Name', type: 'text' }
+    ]
+  },
+  {
+    id: 'tpl-4',
+    title: 'HOD Daily Pre-Production Sync Agenda',
+    category: 'Logistics & Safety',
+    departmentId: 'production',
+    departmentName: 'Production & Logistics',
+    desc: 'Daily HOD alignment checklist, safety briefing, weather backup plans, call sheet review.',
+    estimatedTime: '30 mins',
+    usedCount: 22,
+    lastUsed: 'Today',
+    checklists: [
+      { id: 'c1', text: 'Review Script Revisions & Scene Breakdown Page Counts', completed: true },
+      { id: 'c2', text: 'Confirm Location Permit Clearances & Parking Area Assignments', completed: true },
+      { id: 'c3', text: 'Conduct Stunt & Pyro Risk Assessment Briefing', completed: false },
+      { id: 'c4', text: 'Verify Equipment Truck Transit Schedules', completed: true },
+      { id: 'c5', text: 'Set Weather Contingency Plan (Cover Set Selection)', completed: false },
+      { id: 'c6', text: 'Approve Next Day Call Sheet Draft with First AD', completed: false }
+    ],
+    fields: [
+      { id: 'f1', label: 'Production Shooting Day #', value: 'Day 12 of 45', placeholder: 'Shooting Day #', type: 'text' },
+      { id: 'f2', label: 'Cover Set Backup', value: 'INT Studio Floor 2 (Backup)', placeholder: 'Cover Set Name', type: 'text' },
+      { id: 'f3', label: 'High Risk Elements', value: 'Pyrotechnic explosion & vehicle stunt', placeholder: 'Risk Elements', type: 'text' },
+      { id: 'f4', label: 'Meeting Chair / 1st AD', value: 'Line Producer / First AD', placeholder: 'Chairperson Name', type: 'text' }
+    ]
+  },
+  {
+    id: 'tpl-5',
+    title: 'Location Risk Assessment & Tech Scout',
+    category: 'Logistics & Safety',
+    departmentId: 'locations',
+    departmentName: 'Locations & Unit',
+    desc: 'Generator KVA requirements, noise pollution check, permits, holding areas & transit map.',
+    estimatedTime: '25 mins',
+    usedCount: 8,
+    lastUsed: '3 days ago',
+    checklists: [
+      { id: 'c1', text: 'Measure Generator Distance & Sound Baffle Requirements', completed: true },
+      { id: 'c2', text: 'Check On-Site Main Power Distro Breakout Box Compatibility', completed: false },
+      { id: 'c3', text: 'Locate Crew Catering & Actor Holding Trailers Setup Area', completed: true },
+      { id: 'c4', text: 'Inspect Emergency Exits & First Aid Access Routes', completed: true },
+      { id: 'c5', text: 'Confirm Local Municipal Shooting Permit Sign-offs', completed: false },
+      { id: 'c6', text: 'Verify Nearby Ambient Noise Sources (Flight Paths, Construction)', completed: false }
+    ],
+    fields: [
+      { id: 'f1', label: 'Location Name & Address', value: 'Old Mill Heritage Site - EXT Yard', placeholder: 'Location Address', type: 'text' },
+      { id: 'f2', label: 'Generator KVA Rating', value: '125 KVA Quiet Diesel Generator', placeholder: 'Generator Capacity', type: 'text' },
+      { id: 'f3', label: 'Nearest Emergency Hospital', value: 'St. Jude Emergency Center (2.4 km)', placeholder: 'Hospital Contact', type: 'text' },
+      { id: 'f4', label: 'Location Manager Lead', value: 'Santhosh Kumar / Location Head', placeholder: 'Manager Name', type: 'text' }
+    ]
+  },
+  {
+    id: 'tpl-6',
+    title: 'Art Dept Prop & Set Dressing Log',
+    category: 'Wardrobe & Art',
+    departmentId: 'art',
+    departmentName: 'Art & Production Design',
+    desc: 'Hero props inventory, breakaways, patina/ageing, weapon clearance certification.',
+    estimatedTime: '20 mins',
+    usedCount: 11,
+    lastUsed: 'Yesterday',
+    checklists: [
+      { id: 'c1', text: 'Verify Hero Props in Staging Lockbox', completed: true },
+      { id: 'c2', text: 'Check Rubber & Sugar-Glass Breakaway Props Inventory', completed: true },
+      { id: 'c3', text: 'Match Set Dressing Furniture Placement to Storyboard Stills', completed: false },
+      { id: 'c4', text: 'Verify Fire/Weapon Safety Officer Sign-off on Blank Firing Props', completed: false },
+      { id: 'c5', text: 'Log Props Returned to Storage After Scene Wrap', completed: false }
+    ],
+    fields: [
+      { id: 'f1', label: 'Hero Prop Name', value: 'Vintage Brass Pocket Watch', placeholder: 'Prop Name', type: 'text' },
+      { id: 'f2', label: 'Duplicates Count', value: '4 identical units (1 hero, 3 stunts)', placeholder: 'Qty', type: 'text' },
+      { id: 'f3', label: 'Prop Master / Designer', value: 'Kumar Gangappan / Production Designer', placeholder: 'Prop Master Name', type: 'text' }
+    ]
+  },
+  {
+    id: 'tpl-7',
+    title: 'Director & Script Supervisor Continuity Sheet',
+    category: 'Directing & Continuity',
+    departmentId: 'direction',
+    departmentName: 'Direction & Script',
+    desc: 'Shot takes, lens height/angle, wild tracks needed, actor movement direction notes.',
+    estimatedTime: '10 mins',
+    usedCount: 19,
+    lastUsed: 'Today',
+    checklists: [
+      { id: 'c1', text: 'Log Circle Takes for Editor Assembly', completed: true },
+      { id: 'c2', text: 'Record Lens Focal Length & Distance to Subject', completed: true },
+      { id: 'c3', text: 'Check Eyeline Vector Alignment for Reverse OTS Shots', completed: false },
+      { id: 'c4', text: 'Note Dialogue Variations or Script Improvisation Notes', completed: true },
+      { id: 'c5', text: 'Ensure Props Hand-Match Across Consecutive Takes', completed: false }
+    ],
+    fields: [
+      { id: 'f1', label: 'Scene & Shot #', value: 'Scene 18 / Shot 4B', placeholder: 'Scene/Shot', type: 'text' },
+      { id: 'f2', label: 'Lens Height & Angle', value: '4 ft 2 in / Eye-Level 35mm', placeholder: 'Lens Specs', type: 'text' },
+      { id: 'f3', label: 'Script Supervisor', value: 'Lead Continuity Supervisor', placeholder: 'Supervisor Name', type: 'text' }
+    ]
+  },
+  {
+    id: 'tpl-8',
+    title: 'Grip & Electric Rigging Safety Rider',
+    category: 'Camera & Lighting',
+    departmentId: 'grip',
+    departmentName: 'Grip & Electrical',
+    desc: 'Truss load calculations, safety cable checks, C-stand sandbagging, high-wind tie downs.',
+    estimatedTime: '20 mins',
+    usedCount: 7,
+    lastUsed: '4 days ago',
+    checklists: [
+      { id: 'c1', text: 'Sandbag Every Light Stand & C-Stand (Min 2 Bag Ratio)', completed: true },
+      { id: 'c2', text: 'Inspect Overhead Truss Clamp Torque & Safety Wire Cable Attachments', completed: true },
+      { id: 'c3', text: 'Test SkyPanel / HMI Ballast Weather Proofing & Cable Covers', completed: false },
+      { id: 'c4', text: 'Perform Rigging Load Limit Checks for Overhead Diffusion Scrims', completed: false },
+      { id: 'c5', text: 'Verify High Wind Anemometer Alerts & Safety Guidelines', completed: true }
+    ],
+    fields: [
+      { id: 'f1', label: 'Rigging Grid Area', value: 'EXT Courtyard Rigging Grid', placeholder: 'Rigging Area', type: 'text' },
+      { id: 'f2', label: 'Key Grip Lead', value: 'Head Key Grip / Lead Tech', placeholder: 'Key Grip Name', type: 'text' },
+      { id: 'f3', label: 'Gaffer / Chief Lighting', value: 'Gaffer / Chief Electrician', placeholder: 'Gaffer Name', type: 'text' }
+    ]
+  },
+  {
+    id: 'tpl-9',
+    title: 'Stunts & SFX Explosive Safety Clearance',
+    category: 'Stunts & SFX',
+    departmentId: 'stunts',
+    departmentName: 'Stunts & Special Effects',
+    desc: 'Pyrotechnic clearance, stunt double harness checks, fire retardant gel, medical officer sign-off.',
+    estimatedTime: '30 mins',
+    usedCount: 5,
+    lastUsed: '5 days ago',
+    checklists: [
+      { id: 'c1', text: 'Verify Stunt Harness & High-Fall Airbag Certification', completed: true },
+      { id: 'c2', text: 'Inspect Flame-Retardant Gel Application on Stunt Doubles', completed: true },
+      { id: 'c3', text: 'Conduct Fire Extinguisher & Fire Marshal Standby Check', completed: false },
+      { id: 'c4', text: 'Test Remote Pyrotechnic Detonator Firing Circuits', completed: false },
+      { id: 'c5', text: 'Establish 50-Meter Safety Perimeter Clearance Zone', completed: false }
+    ],
+    fields: [
+      { id: 'f1', label: 'Stunt Sequence ID', value: 'EXT Car Chase & Roll Sequence', placeholder: 'Stunt ID', type: 'text' },
+      { id: 'f2', label: 'Stunt Coordinator', value: 'Lead Stunt Master', placeholder: 'Coordinator Name', type: 'text' },
+      { id: 'f3', label: 'Fire Marshal Permit #', value: 'SFX-PERMIT-2026-88', placeholder: 'Permit #', type: 'text' }
+    ]
+  }
+];
+
 // --- MAIN CREW VIEW COMPONENT ---
 
-export const CrewView: React.FC = () => {
+export const CrewView: React.FC<CrewViewProps> = ({ 
+  allTasks, 
+  onUpdateTask, 
+  onAddTask, 
+  onDeleteTask 
+}) => {
   const { beats } = useProject();
 
   // Sidebar & Global State
@@ -378,9 +693,12 @@ export const CrewView: React.FC = () => {
 
   // Dynamic States
   const [crewMembers, setCrewMembers] = useState<CrewMember[]>(INITIAL_CREW_MEMBERS);
-  const [tasks, setTasks] = useState<DepartmentTask[]>(INITIAL_TASKS);
+  const [tasks, setTasks] = useState<AppTask[]>(INITIAL_TASKS as AppTask[]);
   const [budgetItems, setBudgetItems] = useState<BudgetItem[]>(INITIAL_BUDGET);
   const [insights, setInsights] = useState<AIProductionInsight[]>(INITIAL_AI_INSIGHTS);
+
+  // Task Editing Modal State
+  const [editingTask, setEditingTask] = useState<AppTask | null>(null);
 
   // Modals & Drawers
   const [showDependencyGraphAsset, setShowDependencyGraphAsset] = useState<string | null>(null);
@@ -392,36 +710,104 @@ export const CrewView: React.FC = () => {
   const [reportsViewMode, setReportsViewMode] = useState<'table' | 'board' | 'timeline' | 'gallery'>('table');
   const [selectedReportDept, setSelectedReportDept] = useState<string>('art');
 
-  // Move task function
-  const handleMoveTask = (taskId: string, newStatus: 'To Do' | 'In Progress' | 'Review' | 'Completed') => {
-    setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: newStatus } : t));
-  };
+  // Templates View States
+  const [templatesList, setTemplatesList] = useState<ProductionTemplateItem[]>(INITIAL_PRODUCTION_TEMPLATES);
+  const [templateCategoryFilter, setTemplateCategoryFilter] = useState<string>('All');
+  const [templateSearch, setTemplateSearch] = useState<string>('');
+  const [templateDeptFilter, setTemplateDeptFilter] = useState<string>('all');
+  
+  // Active Fill Template Modal
+  const [activeModalTemplate, setActiveModalTemplate] = useState<ProductionTemplateItem | null>(null);
+  const [activeModalChecklists, setActiveModalChecklists] = useState<{ id: string; text: string; completed: boolean }[]>([]);
+  const [activeModalFields, setActiveModalFields] = useState<Record<string, string>>({});
+  const [newChecklistText, setNewChecklistText] = useState('');
+  const [templateInspectorName, setTemplateInspectorName] = useState('');
+  const [templateSceneRef, setTemplateSceneRef] = useState('');
+  
+  // Create Custom Template Modal
+  const [showCreateTemplateModal, setShowCreateTemplateModal] = useState(false);
+  
+  // Toast Banner
+  const [templateNotification, setTemplateNotification] = useState<string | null>(null);
 
-  // Delete task function
-  const handleDeleteTask = (taskId: string) => {
-    setTasks(prev => prev.filter(t => t.id !== taskId));
-  };
+  // Filtered Templates memo
+  const filteredTemplates = useMemo(() => {
+    return templatesList.filter(tpl => {
+      const matchesSearch = !templateSearch || 
+        tpl.title.toLowerCase().includes(templateSearch.toLowerCase()) || 
+        tpl.desc.toLowerCase().includes(templateSearch.toLowerCase()) ||
+        tpl.departmentName.toLowerCase().includes(templateSearch.toLowerCase());
+      
+      const matchesCategory = templateCategoryFilter === 'All' || tpl.category === templateCategoryFilter;
+      const matchesDept = templateDeptFilter === 'all' || tpl.departmentId === templateDeptFilter;
 
-  // Scene Detail Drawer
-  const [activeSceneDrawerBeat, setActiveSceneDrawerBeat] = useState<Beat | null>(null);
+      return matchesSearch && matchesCategory && matchesDept;
+    });
+  }, [templatesList, templateSearch, templateCategoryFilter, templateDeptFilter]);
+
+  // Effective tasks pool: prefers central allTasks from App.tsx, merged with fallback state
+  const effectiveTasks = useMemo(() => {
+    if (allTasks && allTasks.length > 0) {
+      return allTasks;
+    }
+    return tasks;
+  }, [allTasks, tasks]);
 
   // Selected Department Meta
   const currentDept = useMemo(() => {
     return ALL_DEPARTMENTS.find(d => d.id === selectedDeptId) || ALL_DEPARTMENTS[0];
   }, [selectedDeptId]);
 
-  // Derived tasks for selected department ensuring every department has active tasks in Kanban
+  // Move task function
+  const handleMoveTask = (taskId: string, newStatus: 'To Do' | 'In Progress' | 'Review' | 'Completed') => {
+    const existing = effectiveTasks.find(t => t.id === taskId);
+    if (existing) {
+      const updated: AppTask = {
+        ...existing,
+        status: newStatus,
+        history: [
+          ...(existing.history || []),
+          {
+            id: `h-${Date.now()}`,
+            timestamp: 'Just now',
+            author: existing.owner || 'User',
+            changeType: 'status_change',
+            fieldChanged: 'Status',
+            oldValue: existing.status,
+            newValue: newStatus,
+            comment: `Status updated to ${newStatus}`
+          }
+        ]
+      };
+      if (onUpdateTask) onUpdateTask(updated);
+    }
+    setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: newStatus } : t));
+  };
+
+  // Delete task function
+  const handleDeleteTask = (taskId: string) => {
+    if (onDeleteTask) onDeleteTask(taskId);
+    setTasks(prev => prev.filter(t => t.id !== taskId));
+  };
+
+  // Scene Detail Drawer
+  const [activeSceneDrawerBeat, setActiveSceneDrawerBeat] = useState<Beat | null>(null);
+
+  // Derived tasks for selected department ensuring every department has active tasks
   const deptTasks = useMemo(() => {
-    const filtered = tasks.filter(t => t.departmentId === selectedDeptId);
+    const filtered = effectiveTasks.filter(t => 
+      t.departmentId === selectedDeptId || 
+      (t.departmentName && t.departmentName.toLowerCase() === currentDept.name.toLowerCase())
+    );
     if (filtered.length > 0) return filtered;
 
     return [
-      { id: `tk-auto-${selectedDeptId}-1`, title: `Screenplay breakdown & requirement analysis for ${currentDept.name}`, departmentId: selectedDeptId, owner: currentDept.hod || 'HOD', priority: 'Critical' as const, deadline: '2026-08-03', status: 'To Do' as const, relatedScene: 'Scene 12' },
-      { id: `tk-auto-${selectedDeptId}-2`, title: `Coordinate equipment & staffing logistics for EXT Night sequence`, departmentId: selectedDeptId, owner: `Associate (${currentDept.name})`, priority: 'High' as const, deadline: '2026-08-04', status: 'In Progress' as const, relatedScene: 'Scene 14' },
-      { id: `tk-auto-${selectedDeptId}-3`, title: `Safety & continuity sign-off with Director`, departmentId: selectedDeptId, owner: currentDept.hod || 'HOD', priority: 'Medium' as const, deadline: '2026-08-05', status: 'Review' as const, relatedScene: 'Scene 18' },
-      { id: `tk-auto-${selectedDeptId}-4`, title: `Pre-production budget allocation & vendor contracts`, departmentId: selectedDeptId, owner: 'Line Producer', priority: 'High' as const, deadline: '2026-08-01', status: 'Completed' as const }
+      { id: `tk-auto-${selectedDeptId}-1`, title: `Screenplay breakdown & requirement analysis for ${currentDept.name}`, departmentId: selectedDeptId, departmentName: currentDept.name, owner: currentDept.hod || 'HOD', priority: 'Critical' as const, deadline: '2026-08-03', status: 'To Do' as const, relatedScene: 'Scene 12', targetView: 'crew' as ViewMode, history: [] },
+      { id: `tk-auto-${selectedDeptId}-2`, title: `Coordinate equipment & staffing logistics for EXT Night sequence`, departmentId: selectedDeptId, departmentName: currentDept.name, owner: `Associate (${currentDept.name})`, priority: 'High' as const, deadline: '2026-08-04', status: 'In Progress' as const, relatedScene: 'Scene 14', targetView: 'crew' as ViewMode, history: [] },
+      { id: `tk-auto-${selectedDeptId}-3`, title: `Safety & continuity sign-off with Director`, departmentId: selectedDeptId, departmentName: currentDept.name, owner: currentDept.hod || 'HOD', priority: 'Medium' as const, deadline: '2026-08-05', status: 'Review' as const, relatedScene: 'Scene 18', targetView: 'crew' as ViewMode, history: [] },
+      { id: `tk-auto-${selectedDeptId}-4`, title: `Pre-production budget allocation & vendor contracts`, departmentId: selectedDeptId, departmentName: currentDept.name, owner: 'Line Producer', priority: 'High' as const, deadline: '2026-08-01', status: 'Completed' as const, targetView: 'crew' as ViewMode, history: [] }
     ];
-  }, [tasks, selectedDeptId, currentDept]);
+  }, [effectiveTasks, selectedDeptId, currentDept]);
 
   // Derived Scenes related to current department
   const safeArray = (arr: any) => (Array.isArray(arr) ? arr : []);
@@ -1204,7 +1590,8 @@ export const CrewView: React.FC = () => {
                                     onDragStart={(e) => {
                                       e.dataTransfer.setData('taskId', task.id);
                                     }}
-                                    className="bg-[#1a1a1e] border border-[#2a2a2e] hover:border-amber-500/40 rounded-xl p-3.5 space-y-2.5 cursor-grab active:cursor-grabbing shadow-sm hover:shadow-md transition-all group"
+                                    onClick={() => setEditingTask(task as AppTask)}
+                                    className="bg-[#1a1a1e] border border-[#2a2a2e] hover:border-amber-500/60 rounded-xl p-3.5 space-y-2.5 cursor-pointer shadow-sm hover:shadow-md transition-all group relative"
                                   >
                                     <div className="flex items-start justify-between gap-2">
                                       <h5 className="text-xs font-bold text-white group-hover:text-amber-300 transition-colors leading-snug">
@@ -1245,7 +1632,11 @@ export const CrewView: React.FC = () => {
                                     <div className="flex items-center justify-between pt-1 text-[10px] gap-1">
                                       <select 
                                         value={task.status}
-                                        onChange={(e) => handleMoveTask(task.id, e.target.value as any)}
+                                        onClick={(e) => e.stopPropagation()}
+                                        onChange={(e) => {
+                                          e.stopPropagation();
+                                          handleMoveTask(task.id, e.target.value as any);
+                                        }}
                                         className="bg-[#222226] text-gray-300 text-[10px] font-mono rounded px-1.5 py-0.5 border border-[#333] outline-none cursor-pointer hover:border-amber-500"
                                       >
                                         <option value="To Do">To Do</option>
@@ -1254,13 +1645,22 @@ export const CrewView: React.FC = () => {
                                         <option value="Completed">Completed</option>
                                       </select>
 
-                                      <button 
-                                        onClick={() => handleDeleteTask(task.id)}
-                                        className="text-gray-500 hover:text-red-400 p-1 rounded hover:bg-[#252528] transition-colors"
-                                        title="Delete task"
-                                      >
-                                        <Trash2 size={12} />
-                                      </button>
+                                      <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                                        <button 
+                                          onClick={() => setEditingTask(task as AppTask)}
+                                          className="text-amber-400 hover:text-amber-300 p-1 rounded hover:bg-[#252528] transition-colors flex items-center gap-1 font-mono text-[10px]"
+                                          title="Edit task details"
+                                        >
+                                          <Edit3 size={12} />
+                                          <span>Edit</span>
+                                        </button>
+
+                                        <TwoClickDeleteButton 
+                                          onDelete={() => handleDeleteTask(task.id)}
+                                          iconSize={12}
+                                          confirmText="Confirm Delete?"
+                                        />
+                                      </div>
                                     </div>
                                   </div>
                                 ))}
@@ -1304,7 +1704,7 @@ export const CrewView: React.FC = () => {
                           </thead>
                           <tbody className="divide-y divide-[#222225] text-gray-300">
                             {deptTasks.map(t => (
-                              <tr key={t.id} className="hover:bg-[#1c1c20] transition-colors">
+                              <tr key={t.id} className="hover:bg-[#1c1c20] transition-colors cursor-pointer" onClick={() => setEditingTask(t as AppTask)}>
                                 <td className="p-3 font-semibold text-white">{t.title}</td>
                                 <td className="p-3 font-mono text-gray-300">{t.owner}</td>
                                 <td className="p-3">
@@ -1318,7 +1718,7 @@ export const CrewView: React.FC = () => {
                                 </td>
                                 <td className="p-3 font-mono text-amber-400">{t.deadline}</td>
                                 <td className="p-3 font-mono text-gray-400">{t.relatedScene || 'N/A'}</td>
-                                <td className="p-3">
+                                <td className="p-3" onClick={(e) => e.stopPropagation()}>
                                   <select 
                                     value={t.status}
                                     onChange={(e) => handleMoveTask(t.id, e.target.value as any)}
@@ -1330,13 +1730,19 @@ export const CrewView: React.FC = () => {
                                     <option value="Completed">Completed</option>
                                   </select>
                                 </td>
-                                <td className="p-3 text-right">
+                                <td className="p-3 text-right" onClick={(e) => e.stopPropagation()}>
                                   <button 
-                                    onClick={() => handleDeleteTask(t.id)}
-                                    className="text-gray-500 hover:text-red-400 p-1 rounded"
+                                    onClick={() => setEditingTask(t as AppTask)}
+                                    className="text-amber-400 hover:text-amber-300 p-1 rounded mr-1"
+                                    title="Edit task"
                                   >
-                                    <Trash2 size={14} />
+                                    <Edit3 size={14} />
                                   </button>
+                                  <TwoClickDeleteButton 
+                                    onDelete={() => handleDeleteTask(t.id)}
+                                    iconSize={14}
+                                    confirmText="Confirm?"
+                                  />
                                 </td>
                               </tr>
                             ))}
@@ -1694,26 +2100,241 @@ export const CrewView: React.FC = () => {
           {/* 6. TEMPLATES WORKSPACE VIEW */}
           {activeSidebarItem === 'templates' && (
             <div className="flex-1 overflow-y-auto custom-scrollbar p-6 space-y-6">
-              <div>
-                <h1 className="text-xl font-black text-white">Department Pre-Production Templates</h1>
-                <p className="text-xs text-gray-400 mt-0.5">Checklists, continuity forms, and technical riders</p>
+              
+              {/* Notification Toast */}
+              {templateNotification && (
+                <div className="bg-amber-500/10 border border-amber-500/30 text-amber-300 p-3 rounded-xl text-xs font-bold flex items-center justify-between shadow-lg animate-fade-in">
+                  <div className="flex items-center gap-2">
+                    <Sparkles size={16} className="text-amber-400 shrink-0" />
+                    <span>{templateNotification}</span>
+                  </div>
+                  <button onClick={() => setTemplateNotification(null)} className="text-gray-400 hover:text-white">
+                    <X size={14} />
+                  </button>
+                </div>
+              )}
+
+              {/* Header section */}
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                  <h1 className="text-xl font-black text-white flex items-center gap-2">
+                    <BookOpen size={22} className="text-amber-400" />
+                    Department Pre-Production Templates
+                  </h1>
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    Standardized film checklists, continuity forms, technical riders & auto-task generators
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => setShowCreateTemplateModal(true)}
+                    className="bg-[#f5a623] hover:bg-[#e0951a] text-black font-bold text-xs px-4 py-2 rounded-xl transition-all shadow-md flex items-center gap-1.5"
+                  >
+                    <Plus size={16} /> Create Custom Template
+                  </button>
+                </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {[
-                  { title: 'Camera Lens & Gear Checklist', desc: 'Standard anamorphic & spherical lens test sheet' },
-                  { title: 'Wardrobe Continuity Sheet', desc: 'Actor measurements, duplicate tags & laundry logs' },
-                  { title: 'HOD Daily Sync Agenda', desc: 'Auto-populated meeting questions template' },
-                  { title: 'Location Risk Assessment', desc: 'Power, noise, weather & safety clearance checklist' },
-                ].map((tpl, i) => (
-                  <div key={i} className="bg-[#161618] border border-[#262628] p-5 rounded-2xl space-y-2 hover:border-amber-500/40 transition-colors cursor-pointer">
-                    <BookOpen size={20} className="text-amber-400" />
-                    <h3 className="text-sm font-bold text-white">{tpl.title}</h3>
-                    <p className="text-xs text-gray-400 leading-relaxed">{tpl.desc}</p>
-                    <button className="text-amber-400 font-bold text-xs pt-2 underline">Use Template</button>
+              {/* Filters & Search Row */}
+              <div className="bg-[#161618] border border-[#262628] rounded-2xl p-4 space-y-3">
+                <div className="flex flex-col md:flex-row items-center gap-3">
+                  {/* Search input */}
+                  <div className="relative flex-1 w-full">
+                    <Search size={14} className="absolute left-3 top-2.5 text-gray-500" />
+                    <input
+                      type="text"
+                      placeholder="Search templates by title, department, or keywords..."
+                      value={templateSearch}
+                      onChange={(e) => setTemplateSearch(e.target.value)}
+                      className="w-full bg-[#0e0e11] border border-[#333] text-white pl-9 pr-3 py-1.5 rounded-xl text-xs outline-none focus:border-[#f5a623]"
+                    />
                   </div>
-                ))}
+
+                  {/* Department Filter Dropdown */}
+                  <div className="w-full md:w-56 shrink-0">
+                    <select
+                      value={templateDeptFilter}
+                      onChange={(e) => setTemplateDeptFilter(e.target.value)}
+                      className="w-full bg-[#0e0e11] border border-[#333] text-white px-3 py-1.5 rounded-xl text-xs outline-none focus:border-[#f5a623]"
+                    >
+                      <option value="all">All Departments ({ALL_DEPARTMENTS.length})</option>
+                      {ALL_DEPARTMENTS.map(d => (
+                        <option key={d.id} value={d.id}>{d.name} ({d.hod})</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {/* Category Filter Pills */}
+                <div className="flex items-center gap-2 overflow-x-auto custom-scrollbar pb-1 text-xs">
+                  {['All', 'Camera & Lighting', 'Wardrobe & Art', 'Sound & Audio', 'Logistics & Safety', 'Directing & Continuity', 'Stunts & SFX'].map(cat => (
+                    <button
+                      key={cat}
+                      onClick={() => setTemplateCategoryFilter(cat)}
+                      className={`px-3 py-1 rounded-xl text-[11px] font-bold transition-all shrink-0 border ${
+                        templateCategoryFilter === cat 
+                          ? 'bg-[#f5a623] text-black border-[#f5a623]' 
+                          : 'bg-[#1f1f23] text-gray-400 border-[#2a2a2e] hover:text-white hover:bg-[#25252a]'
+                      }`}
+                    >
+                      {cat}
+                    </button>
+                  ))}
+                </div>
               </div>
+
+              {/* Templates Cards Grid */}
+              {filteredTemplates.length === 0 ? (
+                <div className="bg-[#161618] border border-[#262628] rounded-2xl p-12 text-center space-y-3">
+                  <BookOpen size={36} className="text-gray-600 mx-auto" />
+                  <h3 className="text-sm font-bold text-gray-300">No Pre-Production Templates Found</h3>
+                  <p className="text-xs text-gray-500 max-w-md mx-auto">
+                    Try adjusting your category filter or search terms, or create a custom template for your film department.
+                  </p>
+                  <button
+                    onClick={() => { setTemplateSearch(''); setTemplateCategoryFilter('All'); setTemplateDeptFilter('all'); }}
+                    className="text-xs text-amber-400 font-bold underline hover:text-amber-300 pt-2"
+                  >
+                    Reset All Filters
+                  </button>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {filteredTemplates.map(tpl => {
+                    const completedCount = tpl.checklists.filter(c => c.completed).length;
+                    const totalCount = tpl.checklists.length;
+                    const percent = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
+
+                    return (
+                      <div 
+                        key={tpl.id} 
+                        className="bg-[#161618] border border-[#262628] p-5 rounded-2xl space-y-4 hover:border-amber-500/50 transition-all flex flex-col justify-between group shadow-lg"
+                      >
+                        <div className="space-y-3">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="flex items-center gap-2">
+                              <div className="p-2 bg-amber-500/10 border border-amber-500/20 rounded-xl text-amber-400">
+                                <BookOpen size={18} />
+                              </div>
+                              <div>
+                                <span className="text-[10px] font-mono text-amber-400 uppercase font-bold tracking-wider block">
+                                  {tpl.category}
+                                </span>
+                                <span className="bg-[#242428] text-gray-300 border border-[#333] px-1.5 py-0.2 rounded text-[9px] font-mono font-bold">
+                                  {tpl.departmentName}
+                                </span>
+                              </div>
+                            </div>
+
+                            {tpl.isCustom && (
+                              <TwoClickDeleteButton 
+                                onDelete={() => {
+                                  setTemplatesList(prev => prev.filter(t => t.id !== tpl.id));
+                                  setTemplateNotification(`Deleted custom template: ${tpl.title}`);
+                                }}
+                                iconSize={13}
+                                confirmText="Delete?"
+                                title="Delete Custom Template"
+                              />
+                            )}
+                          </div>
+
+                          <div>
+                            <h3 className="text-sm font-bold text-white group-hover:text-amber-400 transition-colors">
+                              {tpl.title}
+                            </h3>
+                            <p className="text-xs text-gray-400 leading-relaxed mt-1 line-clamp-2">
+                              {tpl.desc}
+                            </p>
+                          </div>
+
+                          {/* Progress bar and metadata */}
+                          <div className="space-y-1.5 text-[11px] font-mono text-gray-400 bg-[#101012] p-2.5 rounded-xl border border-[#222]">
+                            <div className="flex items-center justify-between">
+                              <span>Checklist Progress</span>
+                              <span className="text-amber-400 font-bold">{completedCount}/{totalCount} ({percent}%)</span>
+                            </div>
+                            <div className="w-full bg-[#222] h-1.5 rounded-full overflow-hidden">
+                              <div className="bg-[#f5a623] h-full rounded-full transition-all" style={{ width: `${percent}%` }} />
+                            </div>
+                            <div className="flex items-center justify-between text-[10px] pt-1 text-gray-500">
+                              <span>Est: {tpl.estimatedTime}</span>
+                              <span>Used: {tpl.usedCount} times</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Card Actions */}
+                        <div className="pt-2 border-t border-[#242428] flex items-center justify-between gap-2">
+                          <button
+                            onClick={() => {
+                              setActiveModalTemplate(tpl);
+                              setActiveModalChecklists([...tpl.checklists]);
+                              const initialF: Record<string, string> = {};
+                              tpl.fields.forEach(f => { initialF[f.id] = f.value; });
+                              setActiveModalFields(initialF);
+                              setTemplateInspectorName(currentDept.hod || 'Department Lead');
+                              setTemplateSceneRef('Scene 12');
+                            }}
+                            className="flex-1 bg-[#242428] hover:bg-[#2d2d32] text-amber-400 border border-amber-500/20 font-bold text-xs py-2 rounded-xl transition-all flex items-center justify-center gap-1.5"
+                          >
+                            <Play size={13} /> Use / Fill Form
+                          </button>
+
+                          <button
+                            onClick={() => {
+                              // Quick convert unchecked checklist items to tasks
+                              const unchecked = tpl.checklists.filter(c => !c.completed);
+                              if (unchecked.length === 0) {
+                                setTemplateNotification(`All items in "${tpl.title}" are already completed!`);
+                                return;
+                              }
+                              const newCreatedTasks: AppTask[] = unchecked.map((item, idx) => ({
+                                id: `tk-tpl-${Date.now()}-${idx}`,
+                                title: `${tpl.title}: ${item.text}`,
+                                departmentId: tpl.departmentId,
+                                departmentName: tpl.departmentName,
+                                owner: currentDept.hod || 'Department Lead',
+                                priority: 'High',
+                                deadline: '2026-08-10',
+                                status: 'To Do',
+                                targetView: 'crew',
+                                isRead: false,
+                                history: [
+                                  {
+                                    id: `h-${Date.now()}-${idx}`,
+                                    timestamp: 'Just now',
+                                    author: 'Template Auto-Generator',
+                                    changeType: 'created',
+                                    comment: `Generated automatically from template: ${tpl.title}`
+                                  }
+                                ]
+                              }));
+
+                              newCreatedTasks.forEach(t => {
+                                if (onAddTask) onAddTask(t);
+                              });
+                              setTasks(prev => [...newCreatedTasks, ...prev]);
+
+                              // Increment used count
+                              setTemplatesList(prev => prev.map(t => t.id === tpl.id ? { ...t, usedCount: t.usedCount + 1, lastUsed: 'Just now' } : t));
+
+                              setTemplateNotification(`Created ${newCreatedTasks.length} active tasks for ${tpl.departmentName}!`);
+                            }}
+                            className="bg-[#1f1f23] hover:bg-[#28282d] text-gray-300 hover:text-white border border-[#333] px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1"
+                            title="Instantly generate department tasks from checklist"
+                          >
+                            <Plus size={13} /> Tasks
+                          </button>
+                        </div>
+
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
             </div>
           )}
 
@@ -1894,19 +2515,33 @@ export const CrewView: React.FC = () => {
               const formData = new FormData(e.currentTarget);
               const title = formData.get('title') as string;
               const owner = formData.get('owner') as string;
-              const priority = formData.get('priority') as any;
-              const deadline = formData.get('deadline') as string;
+              const priority = (formData.get('priority') as any) || 'High';
+              const deadline = (formData.get('deadline') as string) || '2026-08-10';
               const status = (formData.get('status') as any) || defaultTaskStatus;
               if (title) {
-                setTasks(prev => [...prev, {
+                const newTask: AppTask = {
                   id: `tk-${Date.now()}`,
                   title,
                   departmentId: selectedDeptId,
-                  owner: owner || 'Department Lead',
-                  priority: priority || 'High',
-                  deadline: deadline || '2026-08-10',
-                  status
-                }]);
+                  departmentName: currentDept.name,
+                  owner: owner || currentDept.hod || 'Department Lead',
+                  priority,
+                  deadline,
+                  status,
+                  targetView: 'crew',
+                  isRead: true,
+                  history: [
+                    {
+                      id: `h-${Date.now()}`,
+                      timestamp: 'Just now',
+                      author: owner || 'User',
+                      changeType: 'created',
+                      comment: `Task created for ${currentDept.name} department`
+                    }
+                  ]
+                };
+                if (onAddTask) onAddTask(newTask);
+                setTasks(prev => [newTask, ...prev]);
                 setShowAddTaskModal(false);
               }
             }} className="space-y-3 text-xs">
@@ -1946,6 +2581,614 @@ export const CrewView: React.FC = () => {
                 <button type="button" onClick={() => setShowAddTaskModal(false)} className="px-3 py-1.5 bg-[#222] text-gray-300 rounded-lg">Cancel</button>
                 <button type="submit" className="px-4 py-1.5 bg-[#f5a623] text-black font-bold rounded-lg">Create Task</button>
               </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* EDIT TASK DETAILS MODAL */}
+      {editingTask && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[1000] flex items-center justify-center p-6">
+          <div className="bg-[#16161a] border border-[#333] rounded-2xl w-full max-w-lg p-6 space-y-4 shadow-2xl overflow-y-auto max-h-[90vh] custom-scrollbar">
+            <div className="flex items-center justify-between border-b border-[#2a2a2e] pb-3">
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                <Edit3 size={16} className="text-amber-400" /> Edit Department Task
+              </h3>
+              <button onClick={() => setEditingTask(null)} className="text-gray-400 hover:text-white">
+                <X size={16} />
+              </button>
+            </div>
+
+            <form onSubmit={(e) => {
+              e.preventDefault();
+              const formData = new FormData(e.currentTarget);
+              const title = formData.get('title') as string;
+              const departmentId = formData.get('departmentId') as string;
+              const owner = formData.get('owner') as string;
+              const priority = formData.get('priority') as any;
+              const status = formData.get('status') as any;
+              const deadline = formData.get('deadline') as string;
+              const targetView = (formData.get('targetView') as ViewMode) || 'crew';
+              const relatedScene = formData.get('relatedScene') as string;
+              const notes = formData.get('notes') as string;
+              const comment = formData.get('comment') as string;
+
+              const deptObj = ALL_DEPARTMENTS.find(d => d.id === departmentId);
+
+              const newHistoryItem: TaskModificationHistory = comment ? {
+                id: `h-${Date.now()}`,
+                timestamp: 'Just now',
+                author: owner || 'User',
+                changeType: 'comment',
+                comment
+              } : {
+                id: `h-${Date.now()}`,
+                timestamp: 'Just now',
+                author: owner || 'User',
+                changeType: 'edited',
+                comment: 'Task details updated via Crew page'
+              };
+
+              const updatedTask: AppTask = {
+                ...editingTask,
+                title,
+                departmentId,
+                departmentName: deptObj?.name || editingTask.departmentName,
+                owner,
+                priority,
+                status,
+                deadline,
+                targetView,
+                relatedScene,
+                notes,
+                history: [...(editingTask.history || []), newHistoryItem]
+              };
+
+              if (onUpdateTask) {
+                onUpdateTask(updatedTask);
+              }
+              setTasks(prev => prev.map(t => t.id === updatedTask.id ? updatedTask : t));
+              setEditingTask(null);
+            }} className="space-y-4 text-xs">
+              
+              <div>
+                <label className="block text-gray-400 mb-1 font-mono font-bold">Task Title</label>
+                <input 
+                  name="title" 
+                  defaultValue={editingTask.title} 
+                  required 
+                  className="w-full bg-[#0e0e11] border border-[#333] text-white p-2.5 rounded-lg outline-none focus:border-[#f5a623] font-semibold" 
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-gray-400 mb-1 font-mono">Department</label>
+                  <select 
+                    name="departmentId" 
+                    defaultValue={editingTask.departmentId || selectedDeptId} 
+                    className="w-full bg-[#0e0e11] border border-[#333] text-white p-2 rounded-lg outline-none focus:border-[#f5a623]"
+                  >
+                    {ALL_DEPARTMENTS.map(d => (
+                      <option key={d.id} value={d.id}>{d.name} ({d.hod})</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-gray-400 mb-1 font-mono">Assignee / Owner</label>
+                  <input 
+                    name="owner" 
+                    defaultValue={editingTask.owner} 
+                    placeholder="e.g. Tirru ISC" 
+                    className="w-full bg-[#0e0e11] border border-[#333] text-white p-2 rounded-lg outline-none focus:border-[#f5a623]" 
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-gray-400 mb-1 font-mono">Status</label>
+                  <select 
+                    name="status" 
+                    defaultValue={editingTask.status} 
+                    className="w-full bg-[#0e0e11] border border-[#333] text-white p-2 rounded-lg outline-none focus:border-[#f5a623]"
+                  >
+                    <option value="To Do">To Do</option>
+                    <option value="In Progress">In Progress</option>
+                    <option value="Review">Review</option>
+                    <option value="Completed">Completed</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-gray-400 mb-1 font-mono">Priority</label>
+                  <select 
+                    name="priority" 
+                    defaultValue={editingTask.priority} 
+                    className="w-full bg-[#0e0e11] border border-[#333] text-white p-2 rounded-lg outline-none focus:border-[#f5a623]"
+                  >
+                    <option value="Critical">Critical</option>
+                    <option value="High">High</option>
+                    <option value="Medium">Medium</option>
+                    <option value="Low">Low</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-gray-400 mb-1 font-mono">Deadline</label>
+                  <input 
+                    name="deadline" 
+                    type="date" 
+                    defaultValue={editingTask.deadline} 
+                    className="w-full bg-[#0e0e11] border border-[#333] text-white p-2 rounded-lg outline-none focus:border-[#f5a623]" 
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-gray-400 mb-1 font-mono">Related Scene</label>
+                  <input 
+                    name="relatedScene" 
+                    defaultValue={editingTask.relatedScene || ''} 
+                    placeholder="e.g. Scene 12" 
+                    className="w-full bg-[#0e0e11] border border-[#333] text-white p-2 rounded-lg outline-none focus:border-[#f5a623]" 
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-gray-400 mb-1 font-mono">Target View</label>
+                  <select 
+                    name="targetView" 
+                    defaultValue={editingTask.targetView || 'crew'} 
+                    className="w-full bg-[#0e0e11] border border-[#333] text-white p-2 rounded-lg outline-none focus:border-[#f5a623]"
+                  >
+                    <option value="script">Script View</option>
+                    <option value="board">Index Card Board</option>
+                    <option value="crew">Crew & Department Page</option>
+                    <option value="storyboard">Storyboard</option>
+                    <option value="shotlist">Shot List</option>
+                    <option value="schedule">Schedule & Call Sheet</option>
+                    <option value="breakdown">Breakdown</option>
+                    <option value="casting">Casting</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-gray-400 mb-1 font-mono">Instructions / Notes</label>
+                <textarea 
+                  name="notes" 
+                  defaultValue={editingTask.notes || ''} 
+                  rows={2} 
+                  placeholder="Add detailed task notes or requirements..." 
+                  className="w-full bg-[#0e0e11] border border-[#333] text-white p-2 rounded-lg outline-none focus:border-[#f5a623]" 
+                />
+              </div>
+
+              <div>
+                <label className="block text-gray-400 mb-1 font-mono">Add Change / Activity Comment</label>
+                <input 
+                  name="comment" 
+                  placeholder="e.g. Updated lens requirements per Director request" 
+                  className="w-full bg-[#0e0e11] border border-[#333] text-white p-2 rounded-lg outline-none focus:border-[#f5a623]" 
+                />
+              </div>
+
+              {/* Modification History preview */}
+              {editingTask.history && editingTask.history.length > 0 && (
+                <div className="pt-2 border-t border-[#2a2a2e] space-y-1.5">
+                  <span className="text-[10px] font-mono font-bold text-gray-400 uppercase">Task Activity History</span>
+                  <div className="max-h-24 overflow-y-auto space-y-1 text-[11px] font-mono text-gray-400 bg-[#0d0d0f] p-2 rounded-lg border border-[#222]">
+                    {editingTask.history.map(h => (
+                      <div key={h.id} className="flex items-center justify-between">
+                        <span className="text-gray-300">• {h.comment || `${h.fieldChanged}: ${h.newValue}`}</span>
+                        <span className="text-gray-500 text-[9px]">{h.timestamp}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="flex justify-between items-center pt-3 border-t border-[#2a2a2e]">
+                <TwoClickDeleteButton 
+                  onDelete={() => {
+                    if (onDeleteTask) onDeleteTask(editingTask.id);
+                    setTasks(prev => prev.filter(t => t.id !== editingTask.id));
+                    setEditingTask(null);
+                  }}
+                  showText={true}
+                  buttonText="Delete Task"
+                  confirmText="Click again to delete"
+                  iconSize={13}
+                  className="px-3 py-1.5 bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20 rounded-lg flex items-center gap-1 font-bold text-xs"
+                />
+
+                <div className="flex gap-2">
+                  <button type="button" onClick={() => setEditingTask(null)} className="px-3 py-1.5 bg-[#222] text-gray-300 rounded-lg">Cancel</button>
+                  <button type="submit" className="px-4 py-1.5 bg-[#f5a623] text-black font-bold rounded-lg flex items-center gap-1">
+                    <Check size={14} /> Save Changes
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* INTERACTIVE USE / FILL TEMPLATE MODAL */}
+      {activeModalTemplate && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[1000] flex items-center justify-center p-6">
+          <div className="bg-[#16161a] border border-[#333] rounded-2xl w-full max-w-2xl p-6 space-y-5 shadow-2xl overflow-y-auto max-h-[90vh] custom-scrollbar">
+            
+            {/* Header */}
+            <div className="flex items-start justify-between border-b border-[#2a2a2e] pb-4">
+              <div>
+                <span className="text-[10px] font-mono text-amber-400 uppercase font-bold tracking-wider">
+                  {activeModalTemplate.category} • {activeModalTemplate.departmentName}
+                </span>
+                <h2 className="text-lg font-black text-white flex items-center gap-2 mt-0.5">
+                  <BookOpen size={18} className="text-amber-400" />
+                  {activeModalTemplate.title}
+                </h2>
+                <p className="text-xs text-gray-400 mt-1">{activeModalTemplate.desc}</p>
+              </div>
+              <button 
+                onClick={() => setActiveModalTemplate(null)} 
+                className="p-1 text-gray-400 hover:text-white rounded-lg bg-[#222]"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Overall Progress Bar */}
+            {(() => {
+              const done = activeModalChecklists.filter(c => c.completed).length;
+              const total = activeModalChecklists.length;
+              const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+              return (
+                <div className="bg-[#0e0e11] p-3 rounded-xl border border-[#2a2a2e] space-y-1.5">
+                  <div className="flex justify-between items-center text-xs font-mono">
+                    <span className="text-gray-300 font-bold">Template Completion Progress</span>
+                    <span className="text-amber-400 font-bold">{done} of {total} checked ({pct}%)</span>
+                  </div>
+                  <div className="w-full bg-[#222] h-2 rounded-full overflow-hidden">
+                    <div className="bg-amber-400 h-full rounded-full transition-all duration-300" style={{ width: `${pct}%` }} />
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Inspector / Location Meta Inputs */}
+            <div className="grid grid-cols-2 gap-3 text-xs">
+              <div>
+                <label className="block text-gray-400 mb-1 font-mono">Inspector / Person Filling Form</label>
+                <input
+                  type="text"
+                  value={templateInspectorName}
+                  onChange={(e) => setTemplateInspectorName(e.target.value)}
+                  placeholder="e.g. Tirru ISC"
+                  className="w-full bg-[#0e0e11] border border-[#333] text-white p-2 rounded-lg outline-none focus:border-[#f5a623]"
+                />
+              </div>
+              <div>
+                <label className="block text-gray-400 mb-1 font-mono">Scene / Location Reference</label>
+                <input
+                  type="text"
+                  value={templateSceneRef}
+                  onChange={(e) => setTemplateSceneRef(e.target.value)}
+                  placeholder="e.g. Scene 12 / EXT Yard"
+                  className="w-full bg-[#0e0e11] border border-[#333] text-white p-2 rounded-lg outline-none focus:border-[#f5a623]"
+                />
+              </div>
+            </div>
+
+            {/* Dynamic Template Fields */}
+            {activeModalTemplate.fields.length > 0 && (
+              <div className="space-y-3 pt-2">
+                <h4 className="text-xs font-bold text-amber-400 uppercase font-mono tracking-wider">Form Log Specifications</h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {activeModalTemplate.fields.map(f => (
+                    <div key={f.id} className="space-y-1 text-xs">
+                      <label className="block text-gray-400 font-mono">{f.label}</label>
+                      <input
+                        type="text"
+                        value={activeModalFields[f.id] || ''}
+                        onChange={(e) => setActiveModalFields(prev => ({ ...prev, [f.id]: e.target.value }))}
+                        placeholder={f.placeholder}
+                        className="w-full bg-[#0e0e11] border border-[#333] text-white p-2 rounded-lg outline-none focus:border-[#f5a623] font-mono text-xs"
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Interactive Checklist */}
+            <div className="space-y-3 pt-2">
+              <div className="flex items-center justify-between">
+                <h4 className="text-xs font-bold text-amber-400 uppercase font-mono tracking-wider">Required Checklist Items</h4>
+                <span className="text-[10px] text-gray-500 font-mono">Click checkbox to toggle status</span>
+              </div>
+
+              <div className="space-y-2 max-h-60 overflow-y-auto custom-scrollbar bg-[#0d0d0f] p-3 rounded-xl border border-[#222]">
+                {activeModalChecklists.map((c, idx) => (
+                  <div 
+                    key={c.id} 
+                    onClick={() => {
+                      setActiveModalChecklists(prev => prev.map((item, i) => i === idx ? { ...item, completed: !item.completed } : item));
+                    }}
+                    className={`flex items-center justify-between p-2.5 rounded-lg border cursor-pointer transition-all ${
+                      c.completed ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300' : 'bg-[#18181c] border-[#2b2b30] text-gray-200 hover:border-gray-600'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2.5 text-xs">
+                      <input
+                        type="checkbox"
+                        checked={c.completed}
+                        onChange={() => {}} // handled by div onClick
+                        className="w-4 h-4 accent-[#f5a623] rounded cursor-pointer"
+                      />
+                      <span className={c.completed ? 'line-through text-gray-400' : 'font-medium'}>{c.text}</span>
+                    </div>
+
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setActiveModalChecklists(prev => prev.filter((_, i) => i !== idx));
+                      }}
+                      className="text-gray-500 hover:text-red-400 p-1"
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
+                ))}
+
+                {/* Add new checklist item input */}
+                <div className="flex items-center gap-2 pt-2">
+                  <input
+                    type="text"
+                    value={newChecklistText}
+                    onChange={(e) => setNewChecklistText(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && newChecklistText.trim()) {
+                        setActiveModalChecklists(prev => [...prev, { id: `c-${Date.now()}`, text: newChecklistText.trim(), completed: false }]);
+                        setNewChecklistText('');
+                      }
+                    }}
+                    placeholder="+ Add custom checklist item and press Enter..."
+                    className="flex-1 bg-[#141416] border border-[#333] text-white px-3 py-1.5 rounded-lg text-xs outline-none focus:border-[#f5a623]"
+                  />
+                  <button
+                    onClick={() => {
+                      if (newChecklistText.trim()) {
+                        setActiveModalChecklists(prev => [...prev, { id: `c-${Date.now()}`, text: newChecklistText.trim(), completed: false }]);
+                        setNewChecklistText('');
+                      }
+                    }}
+                    className="bg-[#2a2a2e] hover:bg-[#38383e] text-amber-400 px-3 py-1.5 rounded-lg text-xs font-bold"
+                  >
+                    Add
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Bottom Actions */}
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-4 border-t border-[#2a2a2e]">
+              <button
+                type="button"
+                onClick={() => {
+                  const unchecked = activeModalChecklists.filter(c => !c.completed);
+                  if (unchecked.length === 0) {
+                    alert('All checklist items are completed! No new tasks needed.');
+                    return;
+                  }
+
+                  const newTasksCreated: AppTask[] = unchecked.map((item, idx) => ({
+                    id: `tk-tpl-${Date.now()}-${idx}`,
+                    title: `[${activeModalTemplate.title}] ${item.text}`,
+                    departmentId: activeModalTemplate.departmentId,
+                    departmentName: activeModalTemplate.departmentName,
+                    owner: templateInspectorName || 'Department Lead',
+                    priority: 'High',
+                    deadline: '2026-08-10',
+                    status: 'To Do',
+                    relatedScene: templateSceneRef,
+                    targetView: 'crew',
+                    isRead: false,
+                    history: [
+                      {
+                        id: `h-${Date.now()}-${idx}`,
+                        timestamp: 'Just now',
+                        author: templateInspectorName || 'User',
+                        changeType: 'created',
+                        comment: `Generated from template "${activeModalTemplate.title}" for ${templateSceneRef || 'Department'}`
+                      }
+                    ]
+                  }));
+
+                  newTasksCreated.forEach(t => {
+                    if (onAddTask) onAddTask(t);
+                  });
+                  setTasks(prev => [...newTasksCreated, ...prev]);
+
+                  setTemplateNotification(`Successfully converted ${newTasksCreated.length} unchecked items into active department tasks!`);
+                }}
+                className="w-full sm:w-auto px-3.5 py-2 bg-amber-500/10 text-amber-300 border border-amber-500/30 hover:bg-amber-500/20 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5"
+              >
+                <Plus size={14} /> Convert Unchecked to Crew Tasks
+              </button>
+
+              <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+                <button
+                  type="button"
+                  onClick={() => {
+                    window.print();
+                  }}
+                  className="px-3.5 py-2 bg-[#222] hover:bg-[#2d2d2d] text-gray-300 rounded-xl text-xs font-bold flex items-center gap-1.5"
+                >
+                  <Printer size={14} /> Print / Export
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    // Update template checklist state and usedCount
+                    const updatedTpl: ProductionTemplateItem = {
+                      ...activeModalTemplate,
+                      checklists: activeModalChecklists,
+                      usedCount: activeModalTemplate.usedCount + 1,
+                      lastUsed: 'Just now'
+                    };
+
+                    setTemplatesList(prev => prev.map(t => t.id === updatedTpl.id ? updatedTpl : t));
+                    setActiveModalTemplate(null);
+                    setTemplateNotification(`Saved form report & updated template "${updatedTpl.title}"!`);
+                  }}
+                  className="px-4 py-2 bg-[#f5a623] hover:bg-[#e0951a] text-black font-bold rounded-xl text-xs flex items-center gap-1.5"
+                >
+                  <Check size={14} /> Save Filled Report
+                </button>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* CREATE CUSTOM TEMPLATE MODAL */}
+      {showCreateTemplateModal && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[1000] flex items-center justify-center p-6">
+          <div className="bg-[#16161a] border border-[#333] rounded-2xl w-full max-w-lg p-6 space-y-4 shadow-2xl overflow-y-auto max-h-[90vh] custom-scrollbar">
+            <div className="flex items-center justify-between border-b border-[#2a2a2e] pb-3">
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                <Plus size={16} className="text-amber-400" /> Create Custom Department Template
+              </h3>
+              <button onClick={() => setShowCreateTemplateModal(false)} className="text-gray-400 hover:text-white">
+                <X size={16} />
+              </button>
+            </div>
+
+            <form onSubmit={(e) => {
+              e.preventDefault();
+              const formData = new FormData(e.currentTarget);
+              const title = formData.get('title') as string;
+              const category = formData.get('category') as any;
+              const departmentId = formData.get('departmentId') as string;
+              const desc = formData.get('desc') as string;
+              const estimatedTime = (formData.get('estimatedTime') as string) || '15 mins';
+              const checklistRaw = formData.get('checklists') as string;
+
+              const deptObj = ALL_DEPARTMENTS.find(d => d.id === departmentId);
+
+              const parsedChecklists = checklistRaw 
+                ? checklistRaw.split('\n').filter(line => line.trim().length > 0).map((line, idx) => ({
+                    id: `c-${Date.now()}-${idx}`,
+                    text: line.trim(),
+                    completed: false
+                  }))
+                : [
+                    { id: `c-1`, text: 'Initial Department Safety & Setup Check', completed: false },
+                    { id: `c-2`, text: 'Log Equipment & Tool Inventory', completed: false }
+                  ];
+
+              const newTpl: ProductionTemplateItem = {
+                id: `tpl-${Date.now()}`,
+                title,
+                category,
+                departmentId,
+                departmentName: deptObj?.name || 'Department',
+                desc: desc || 'Custom film department pre-production checklist template',
+                estimatedTime,
+                usedCount: 1,
+                lastUsed: 'Just now',
+                isCustom: true,
+                checklists: parsedChecklists,
+                fields: [
+                  { id: 'f1', label: 'Inspector Name', value: currentDept.hod || 'Department Lead', placeholder: 'Inspector Name', type: 'text' },
+                  { id: 'f2', label: 'Scene Reference', value: 'Scene 12', placeholder: 'Scene #', type: 'text' }
+                ]
+              };
+
+              setTemplatesList(prev => [newTpl, ...prev]);
+              setShowCreateTemplateModal(false);
+              setTemplateNotification(`Created custom template: ${newTpl.title}`);
+            }} className="space-y-4 text-xs">
+
+              <div>
+                <label className="block text-gray-400 mb-1 font-mono font-bold">Template Title</label>
+                <input
+                  name="title"
+                  required
+                  placeholder="e.g. Special Drone Safety & Permit Checklist"
+                  className="w-full bg-[#0e0e11] border border-[#333] text-white p-2.5 rounded-lg outline-none focus:border-[#f5a623] font-semibold"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-gray-400 mb-1 font-mono">Category</label>
+                  <select
+                    name="category"
+                    defaultValue="Camera & Lighting"
+                    className="w-full bg-[#0e0e11] border border-[#333] text-white p-2 rounded-lg outline-none focus:border-[#f5a623]"
+                  >
+                    <option value="Camera & Lighting">Camera & Lighting</option>
+                    <option value="Wardrobe & Art">Wardrobe & Art</option>
+                    <option value="Sound & Audio">Sound & Audio</option>
+                    <option value="Logistics & Safety">Logistics & Safety</option>
+                    <option value="Directing & Continuity">Directing & Continuity</option>
+                    <option value="Stunts & SFX">Stunts & SFX</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-gray-400 mb-1 font-mono">Department</label>
+                  <select
+                    name="departmentId"
+                    defaultValue={selectedDeptId}
+                    className="w-full bg-[#0e0e11] border border-[#333] text-white p-2 rounded-lg outline-none focus:border-[#f5a623]"
+                  >
+                    {ALL_DEPARTMENTS.map(d => (
+                      <option key={d.id} value={d.id}>{d.name} ({d.hod})</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-gray-400 mb-1 font-mono">Description</label>
+                <textarea
+                  name="desc"
+                  rows={2}
+                  placeholder="Short description of what this template is used for..."
+                  className="w-full bg-[#0e0e11] border border-[#333] text-white p-2 rounded-lg outline-none focus:border-[#f5a623]"
+                />
+              </div>
+
+              <div>
+                <label className="block text-gray-400 mb-1 font-mono">
+                  Checklist Items <span className="text-gray-500 font-normal">(One item per line)</span>
+                </label>
+                <textarea
+                  name="checklists"
+                  rows={4}
+                  placeholder={"Inspect all battery levels\nConfirm wireless range\nCheck backup SD cards"}
+                  className="w-full bg-[#0e0e11] border border-[#333] text-white p-2 rounded-lg outline-none focus:border-[#f5a623] font-mono text-xs"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-[#2a2a2e]">
+                <button type="button" onClick={() => setShowCreateTemplateModal(false)} className="px-3 py-1.5 bg-[#222] text-gray-300 rounded-lg">
+                  Cancel
+                </button>
+                <button type="submit" className="px-4 py-1.5 bg-[#f5a623] text-black font-bold rounded-lg flex items-center gap-1">
+                  <Check size={14} /> Create Template
+                </button>
+              </div>
+
             </form>
           </div>
         </div>

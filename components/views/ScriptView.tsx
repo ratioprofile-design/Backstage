@@ -10,7 +10,7 @@ import {
   List, CheckSquare, Underline, Strikethrough, Quote, LayoutGrid, Palette, 
   Check, Clock, MoreHorizontal, MousePointer2, Layers, Link2, AlertCircle, 
   ChevronRight, ChevronDown, Settings, Copy, PlusSquare, ArrowUp, ArrowDown,
-  Highlighter, Tag, Scissors, ExternalLink, RefreshCw, FileText
+  Highlighter, Tag, Scissors, ExternalLink, RefreshCw, FileText, ArrowRight
 } from 'lucide-react';
 import { ScriptEditor, ScriptEditorHandle } from '../ScriptEditor';
 import { SlugInput } from '../SlugInput';
@@ -167,96 +167,51 @@ const runPaginationPass = (container: HTMLElement, paperLayer: HTMLElement, cont
     }
 };
 
-const InteractiveBoardPanel = ({ 
-    beats, connections, groups, activeBeatId, onBeatClick, updateBeat, setBeats, setConnections, captureSnapshot, reorderBeats
+const MilanoteCardsPanel = ({ 
+    beats, activeBeatId, onBeatClick, updateBeat, setBeats, captureSnapshot, reorderBeats, isLight
 }: { 
-    beats: Beat[], connections: Connection[], groups: Group[], activeBeatId: number | null, 
+    beats: Beat[], activeBeatId: number | null, 
     onBeatClick: (id: number) => void, updateBeat: (id: number, data: Partial<Beat>) => void, 
     setBeats: (val: Beat[] | ((prev: Beat[]) => Beat[])) => void, 
-    setConnections: (val: Connection[] | ((prev: Connection[]) => Connection[])) => void, 
     captureSnapshot: () => void,
-    reorderBeats: (draggedId: number, targetId: number, side: 'top' | 'bottom') => void
+    reorderBeats: (draggedId: number, targetId: number, side: 'top' | 'bottom') => void,
+    isLight?: boolean
 }) => {
+    const [searchTerm, setSearchTerm] = useState('');
     const [editingId, setEditingId] = useState<number | null>(null);
     const [dragOverId, setDragOverId] = useState<number | null>(null);
     const [dropSide, setDropSide] = useState<'top' | 'bottom'>('top');
 
     const safeBeats = Array.isArray(beats) ? beats : [];
-    const safeConnections = Array.isArray(connections) ? connections : [];
-    const safeGroups = Array.isArray(groups) ? groups : [];
 
-    const { connectedSet, orders } = useMemo(() => calculateGraphOrder(safeBeats, safeConnections), [safeBeats, safeConnections]);
-
-    const sortedBeats = useMemo(() => {
-        const list = [...safeBeats];
-        list.sort((a, b) => {
-            if ((a.boardId || 0) !== (b.boardId || 0)) return (a.boardId || 0) - (b.boardId || 0);
-            
-            const isSeqA = connectedSet.has(a.id) || (a.sceneNumber && a.sceneNumber !== '');
-            const isSeqB = connectedSet.has(b.id) || (b.sceneNumber && b.sceneNumber !== '');
-            if (isSeqA !== isSeqB) return isSeqA ? -1 : 1;
-
-            const orderA = orders[a.id] ?? (parseInt(a.sceneNumber || '999999'));
-            const orderB = orders[b.id] ?? (parseInt(b.sceneNumber || '999999'));
-            if (orderA !== orderB) return orderA - orderB;
-            
-            if (Math.abs((a.x || 0) - (b.x || 0)) > 50) return (a.x || 0) - (b.x || 0); 
-            return (a.y || 0) - (b.y || 0); 
+    const filteredBeats = useMemo(() => {
+        if (!searchTerm.trim()) return safeBeats;
+        const q = searchTerm.toLowerCase();
+        return safeBeats.filter(beat => {
+            const loc = (beat.slug?.location || '').toLowerCase();
+            const time = (beat.slug?.time || '').toLowerCase();
+            const prefix = (beat.slug?.prefix || '').toLowerCase();
+            const summary = (beat.summary || '').toLowerCase();
+            const title = (beat.title || '').toLowerCase();
+            const num = (beat.sceneNumber || '').toLowerCase();
+            return loc.includes(q) || summary.includes(q) || title.includes(q) || num.includes(q) || prefix.includes(q) || time.includes(q);
         });
-        return list;
-    }, [safeBeats, connectedSet, orders]);
+    }, [safeBeats, searchTerm]);
 
-    const beatHierarchyMap = useMemo(() => {
-        const map = new Map<number, Group[]>();
-        safeBeats.forEach(beat => {
-            const bx = (beat.x || 0) + 120; 
-            const by = (beat.y || 0) + 70;
-            const currentBoard = beat.boardId || 0;
-            const parents = safeGroups.filter(g => 
-                (g.boardId || 0) === currentBoard &&
-                bx >= (g.x || 0) && bx <= (g.x || 0) + (g.width || 0) &&
-                by >= (g.y || 0) && by <= (g.y || 0) + (g.height || 0)
-            ).sort((a, b) => (a.width * a.height) - (b.width * b.height));
-            map.set(beat.id, parents);
-        });
-        return map;
-    }, [safeBeats, safeGroups]);
+    const beatPageNumbers = useMemo(() => {
+        const pageMap: Record<number, string> = {};
+        let runningPages = 0;
+        safeBeats.forEach((b) => {
+            const startPg = Math.max(1, Math.floor(runningPages) + 1);
+            pageMap[b.id] = `Pg. ${startPg}`;
 
-    const { chainColors, autoSceneNumbers, connectionStatus } = useMemo(() => {
-        const adjUndir: Record<number, number[]> = {}; 
-        safeBeats.forEach(b => { adjUndir[b.id] = []; });
-        safeConnections.forEach(c => {
-            if (adjUndir[c.from]) adjUndir[c.from].push(c.to);
-            if (adjUndir[c.to]) adjUndir[c.to].push(c.from);
+            const text = (b.content ? b.content.replace(/<[^>]*>/g, ' ') : '') + ' ' + (b.summary || '');
+            const wordCount = text.trim().split(/\s+/).filter(Boolean).length;
+            const estimatedBeatPages = Math.max(0.125, wordCount / 180);
+            runningPages += estimatedBeatPages;
         });
-        const chainMap: Record<number, string> = {};
-        const visited = new Set<number>();
-        let colorIdx = 0;
-        const idSorted = [...safeBeats].sort((a,b) => a.id - b.id);
-        idSorted.forEach(startNode => {
-            if (!visited.has(startNode.id)) {
-                const componentNodes: number[] = [];
-                const queue = [startNode.id];
-                visited.add(startNode.id);
-                componentNodes.push(startNode.id);
-                while(queue.length > 0) {
-                    const u = queue.shift()!;
-                    if(adjUndir[u]) {
-                        adjUndir[u].forEach(v => {
-                            if(!visited.has(v)) { visited.add(v); queue.push(v); componentNodes.push(v); }
-                        });
-                    }
-                }
-                let chosenColor = STORYLINE_COLORS[colorIdx % STORYLINE_COLORS.length];
-                if (componentNodes.length === 1) chosenColor = '#444';
-                else colorIdx++;
-                componentNodes.forEach(id => { chainMap[id] = chosenColor; });
-            }
-        });
-        const connStatus: Record<number, boolean> = {};
-        safeBeats.forEach(b => { connStatus[b.id] = (adjUndir[b.id] && adjUndir[b.id].length > 0); });
-        return { chainColors: chainMap, autoSceneNumbers: orders, connectionStatus: connStatus };
-    }, [safeBeats, safeConnections, orders]);
+        return pageMap;
+    }, [safeBeats]);
 
     const [contextMenu, setContextMenu] = useState<{ x: number, y: number, beatId: number } | null>(null);
 
@@ -272,27 +227,8 @@ const InteractiveBoardPanel = ({
             if (window.confirm("Permanently delete this scene?")) {
                 captureSnapshot();
                 setBeats((prev: Beat[]) => prev.filter(b => b.id !== idToDelete));
-                setConnections((prev: Connection[]) => prev.filter(c => c.from !== idToDelete && c.to !== idToDelete));
             }
         }, 50);
-    };
-
-    const moveToGroup = (beatId: number, groupId: number) => {
-        const beat = safeBeats.find(b => b.id === beatId);
-        const group = safeGroups.find(g => g.id === groupId);
-        if (!beat || !group) return;
-        const beatsInGroup = safeBeats.filter(b => 
-            b.id !== beatId &&
-            (b.x || 0) >= (group.x || 0) && (b.x || 0) <= (group.x || 0) + (group.width || 0) &&
-            (b.y || 0) >= (group.y || 0) && (b.y || 0) <= (group.y || 0) + (group.height || 0)
-        );
-        let targetY = (group.y || 0) + 60; 
-        if (beatsInGroup.length > 0) {
-            const lowestBeat = beatsInGroup.reduce((prev, curr) => ((curr.y || 0) > (prev.y || 0) ? curr : prev));
-            targetY = (lowestBeat.y || 0) + 160; 
-        }
-        updateBeat(beatId, { x: (group.x || 0) + 20, y: targetY });
-        setContextMenu(null);
     };
 
     const setColor = (beatId: number, color: string) => { updateBeat(beatId, { color }); setContextMenu(null); };
@@ -334,129 +270,164 @@ const InteractiveBoardPanel = ({
 
     return (
         <div 
-            className="w-full h-full bg-[#0a0a0a] overflow-y-auto custom-scrollbar relative pb-10"
-            onClick={() => { setContextMenu(null); setEditingId(null); }}
+            className={`w-full h-full overflow-y-auto custom-scrollbar relative p-3 space-y-3 ${isLight ? 'bg-slate-100/70 text-slate-800' : 'bg-[#0a0a0c]'}`}
+            onClick={() => setContextMenu(null)}
         >
-            <div className="flex flex-col gap-3 pt-4 relative z-10 min-h-full px-4 pb-20">
-                {/* Fixed vertical line that grows with content */}
-                <div className="absolute left-[22px] top-4 bottom-0 w-[2px] bg-[#222] z-0"></div>
+            {/* Top Filter Bar */}
+            <div className="sticky top-0 z-20 pb-1">
+                <div className={`relative rounded-xl border p-1.5 backdrop-blur-md shadow-xs ${isLight ? 'bg-white/95 border-slate-200/90' : 'bg-[#14141a]/95 border-slate-800'}`}>
+                    <div className="relative flex items-center">
+                        <Search className={`absolute left-2.5 ${isLight ? 'text-slate-400' : 'text-slate-500'}`} size={13} />
+                        <input 
+                            type="text" 
+                            placeholder="Filter summary cards..." 
+                            value={searchTerm} 
+                            onChange={(e) => setSearchTerm(e.target.value)} 
+                            className={`w-full rounded-lg pl-8 pr-3 py-1 text-xs outline-none transition-colors border ${isLight ? 'bg-slate-50 border-slate-200 text-slate-900 placeholder-slate-400 focus:border-amber-500' : 'bg-[#1c1c24] border-slate-700 text-white placeholder-slate-500 focus:border-amber-400'}`} 
+                        />
+                    </div>
+                </div>
+            </div>
 
-                {sortedBeats.map((beat) => {
+            {/* Milanote Cards Feed */}
+            <div className="space-y-3.5 pb-12">
+
+                {filteredBeats.map((beat, idx) => {
                     const isActive = beat.id === activeBeatId;
                     const isReady = beat.status === 'ready';
                     const isEditing = editingId === beat.id;
                     const isDragOver = dragOverId === beat.id;
                     
-                    const hierarchy = beatHierarchyMap.get(beat.id) || [];
-                    const immediateParent = hierarchy[0];
-                    const isConnected = connectionStatus[beat.id];
-
-                    let displayColor = chainColors[beat.id] || '#444';
-                    if (immediateParent && immediateParent.color) displayColor = immediateParent.color;
-                    if (beat.color && beat.color !== '#444') displayColor = beat.color;
-
-                    const isSandbox = !isConnected && (!beat.sceneNumber || beat.sceneNumber === '');
-                    const sceneNum = isSandbox ? '•' : (beat.sceneNumber || autoSceneNumbers[beat.id] || '#');
+                    const displayColor = beat.color && beat.color !== '#444' ? beat.color : (isLight ? '#3b82f6' : '#f5a623');
+                    const sceneNum = beat.sceneNumber || (idx + 1).toString();
 
                     return (
                         <div 
                             key={beat.id}
-                            className={`flex gap-4 group/row transition-all duration-200 relative ${isDragOver && dropSide === 'top' ? 'pt-4' : ''} ${isDragOver && dropSide === 'bottom' ? 'pb-4' : ''}`}
+                            className={`flex gap-3 group/row transition-all duration-200 relative ${isDragOver && dropSide === 'top' ? 'pt-3' : ''} ${isDragOver && dropSide === 'bottom' ? 'pb-3' : ''}`}
                             draggable={!isEditing}
                             onDragStart={(e) => handleDragStart(e, beat.id)}
                             onDragEnd={handleDragEnd}
                             onDragOver={(e) => handleDragOver(e, beat.id)}
                             onDrop={(e) => handleDrop(e, beat.id)}
                         >
-                            <div className="flex flex-col items-center mt-[10px] relative">
-                                {!isConnected && !isSandbox && (
-                                    <div className="absolute -left-2 top-0.5 text-red-500 opacity-0 group-hover/row:opacity-100 transition-opacity" title="Orphaned Sequence Scene">
-                                        <AlertCircle size={10} />
-                                    </div>
-                                )}
+                            <div className="flex flex-col items-center mt-[12px] relative">
                                 <div 
-                                    className={`w-3 h-3 rounded-full border-2 transition-all z-10 ${isActive ? 'scale-125' : ''}`}
+                                    className={`w-2.5 h-2.5 rounded-full border-2 transition-all z-10 ${isActive ? 'scale-125' : ''}`}
                                     style={{ 
-                                        backgroundColor: isActive ? '#f5a623' : '#1a1a1a', 
+                                        backgroundColor: isActive ? '#f5a623' : (isLight ? '#ffffff' : '#1a1a1a'), 
                                         borderColor: isActive ? '#f5a623' : displayColor 
                                     }}
                                 ></div>
                             </div>
                             
                             <div 
-                                className={`flex-1 bg-[#2d2d2d] border rounded-md flex flex-col shadow-lg transition-all cursor-grab active:cursor-grabbing group relative 
-                                    ${isActive ? 'border-[#f5a623] ring-1 ring-[#f5a623]/20' : 'border-[#3d3d3d] hover:border-[#666]'} 
-                                    ${isEditing ? 'ring-1 ring-[#f5a623] border-[#f5a623] cursor-default' : ''}
-                                    ${isDragOver ? 'ring-2 ring-[#f5a623] scale-[1.02]' : ''}
+                                className={`flex-1 border rounded-xl flex flex-col shadow-xs transition-all cursor-grab active:cursor-grabbing group relative overflow-hidden 
+                                    ${isLight 
+                                      ? (isActive ? 'bg-amber-50/80 border-amber-500 ring-2 ring-amber-400/40 shadow-md' : 'bg-white border-slate-200 hover:border-amber-400/80 hover:shadow-xs')
+                                      : (isActive ? 'bg-[#22222a] border-[#f5a623] ring-1 ring-[#f5a623]/30 shadow-lg' : 'bg-[#16161c] border-slate-800 hover:border-slate-700 shadow-md')
+                                    } 
+                                    ${isEditing ? 'ring-2 ring-amber-500 border-amber-500 cursor-default' : ''}
+                                    ${isDragOver ? 'ring-2 ring-amber-500 scale-[1.01]' : ''}
                                 `}
                                 onClick={(e) => { e.stopPropagation(); onBeatClick(beat.id); }}
                                 onDoubleClick={(e) => { e.stopPropagation(); handleBeatDoubleClicks(beat.id); }}
                                 onContextMenu={(e) => handleContextMenu(e, beat.id)}
-                                style={{ backgroundColor: beat.tint || '#2d2d2d' }}
                             >
                                 {isDragOver && (
-                                    <div className={`absolute left-0 right-0 h-1 bg-[#f5a623] shadow-[0_0_10px_#f5a623] z-50 ${dropSide === 'top' ? '-top-[2px]' : '-bottom-[2px]'}`} />
+                                    <div className={`absolute left-0 right-0 h-1 bg-amber-500 shadow-[0_0_8px_#f5a623] z-50 ${dropSide === 'top' ? 'top-0' : 'bottom-0'}`} />
                                 )}
 
-                                <div className="h-2 w-full flex items-center px-1 gap-1 rounded-t-md" style={{ backgroundColor: displayColor }}>
-                                    {hierarchy.length > 0 && (
-                                         <div className="flex items-center gap-1 overflow-hidden">
-                                            {[...hierarchy].reverse().map((g, i) => (
-                                                <React.Fragment key={g.id}>
-                                                    {i > 0 && <span className="text-white/40 text-[5px]">/</span>}
-                                                    <span className="text-[6px] font-black uppercase text-white truncate max-w-[80px]">
-                                                        {g.title}
-                                                    </span>
-                                                </React.Fragment>
-                                            ))}
-                                         </div>
-                                    )}
-                                    <span className="ml-auto text-[7px] font-black uppercase text-white/50 bg-black/40 border border-white/10 px-1.5 py-0 rounded-full flex items-center gap-1 shadow-sm">
-                                        P{(beat.boardId || 0) + 1}
+                                {/* Top Accent Header Bar with Scene Badge & Page Number Badge */}
+                                <div className="py-1 px-3 w-full flex items-center justify-between gap-2 border-b border-black/10" style={{ backgroundColor: displayColor }}>
+                                    <div className="flex items-center gap-2 overflow-hidden">
+                                        <span className="text-[10px] font-black uppercase text-white tracking-wider bg-black/40 border border-white/20 px-2 py-0.5 rounded-md shadow-2xs shrink-0">
+                                            SCENE {sceneNum}
+                                        </span>
+                                    </div>
+                                    <span className="text-[9px] font-black uppercase text-white bg-black/40 border border-white/20 px-2 py-0.5 rounded-md shadow-2xs shrink-0">
+                                        {beatPageNumbers[beat.id] || 'Pg. 1'}
                                     </span>
                                 </div>
 
-                                <div className="absolute -top-2 -left-2 flex gap-1 z-30">
-                                     <span className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded-full shadow-sm border border-white/20 text-white bg-black/80 min-w-[20px] text-center`}>
-                                        {sceneNum}
-                                     </span>
-                                </div>
-
-                                <div className="p-2 flex-grow flex flex-col gap-1">
-                                    <input 
-                                        className={`font-bold text-xs bg-transparent border border-transparent rounded px-1 outline-none text-white placeholder-gray-500 transition-colors ${isEditing ? 'focus:border-[#f5a623] hover:border-[#444]' : 'pointer-events-none'}`}
-                                        value={beat.title}
-                                        onChange={(e) => updateBeat(beat.id, { title: e.target.value })}
-                                        placeholder="Untitled Beat"
-                                        onClick={(e) => e.stopPropagation()}
-                                        onBlur={() => setEditingId(null)}
-                                        onKeyDown={(e) => e.key === 'Enter' && setEditingId(null)}
-                                    />
-                                    <div className={`font-screenplay text-[9px] font-bold uppercase pb-0.5 border-b border-[#444] mb-0.5 ${(!beat.slug.prefix && !beat.slug.location) ? 'text-white/20' : 'text-[#ccc]'}`}>
-                                        {(!beat.slug.prefix && !beat.slug.location && !beat.slug.time) ? 'INT. LOCATION - DAY' : `${beat.slug.prefix} ${beat.slug.location} - ${beat.slug.time}`}
+                                <div className="p-3 flex-grow flex flex-col gap-2">
+                                    {/* Beat Title */}
+                                    <div className="flex items-center justify-between gap-2">
+                                        <input 
+                                            className={`font-black text-sm bg-transparent border border-transparent rounded px-1 py-0.5 outline-none transition-colors w-full ${isLight ? 'text-slate-900 placeholder-slate-400' : 'text-white placeholder-gray-500'} ${isEditing ? 'focus:border-amber-500 hover:border-slate-300' : 'pointer-events-none'}`}
+                                            value={beat.title}
+                                            onChange={(e) => updateBeat(beat.id, { title: e.target.value })}
+                                            placeholder="Untitled Beat"
+                                            onClick={(e) => e.stopPropagation()}
+                                            onBlur={() => setEditingId(null)}
+                                            onKeyDown={(e) => e.key === 'Enter' && setEditingId(null)}
+                                        />
                                     </div>
-                                    <textarea 
-                                        className={`font-sans text-[10px] text-[#ccc] bg-transparent border border-transparent rounded px-1 outline-none w-full resize-none leading-relaxed h-10 transition-colors custom-scrollbar placeholder-gray-600 ${isEditing ? 'focus:border-[#f5a623] hover:border-[#444]' : 'pointer-events-none'}`}
-                                        value={beat.summary || ''}
-                                        onChange={(e) => updateBeat(beat.id, { summary: e.target.value })}
-                                        placeholder="Write a short summary..."
-                                        onClick={(e) => e.stopPropagation()}
-                                        onBlur={() => setEditingId(null)}
-                                        onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && setEditingId(null)}
-                                    />
+
+                                    {/* Slugline Pill */}
+                                    <div className={`font-screenplay text-[10px] font-extrabold uppercase px-2.5 py-1 rounded-md border flex items-center gap-2 ${
+                                      isLight 
+                                        ? 'bg-amber-50/90 border-amber-200 text-amber-950' 
+                                        : 'bg-slate-900/80 border-slate-700 text-slate-200'
+                                    }`}>
+                                        <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0"></span>
+                                        <span className="truncate">
+                                            {(!beat.slug.prefix && !beat.slug.location && !beat.slug.time) ? 'INT. LOCATION - DAY' : `${beat.slug.prefix} ${beat.slug.location} - ${beat.slug.time}`}
+                                        </span>
+                                    </div>
+
+                                    {/* Summary Card Container */}
+                                    <div className={`p-3 rounded-xl border flex-1 flex flex-col transition-all min-h-[70px] ${
+                                        isLight 
+                                            ? 'bg-[#fefdfa] hover:bg-white border-amber-200/80 hover:border-amber-400/80 shadow-[0_2px_8px_rgba(0,0,0,0.03)]' 
+                                            : 'bg-[#18181e] hover:bg-[#1d1d24] border-slate-800 hover:border-slate-700 shadow-[0_2px_10px_rgba(0,0,0,0.25)]'
+                                    }`}>
+                                        <div className="flex items-center justify-between mb-1.5 pb-1 border-b border-slate-200/60 dark:border-slate-800/80">
+                                            <div className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-[0.12em] text-amber-700 dark:text-amber-400">
+                                                <span className="w-2 h-2 rounded-full bg-amber-500 shadow-[0_0_6px_rgba(245,166,35,0.6)] shrink-0"></span>
+                                                <span>Summary</span>
+                                            </div>
+                                            <span className={`text-[8.5px] font-mono font-bold px-2 py-0.5 rounded-full border ${
+                                                isLight 
+                                                    ? 'bg-amber-100/80 text-amber-900 border-amber-200/80' 
+                                                    : 'bg-amber-950/50 text-amber-300 border-amber-800/60'
+                                            }`}>
+                                                {beat.summary ? `${beat.summary.trim().split(/\s+/).filter(Boolean).length} words` : '0 words'}
+                                            </span>
+                                        </div>
+                                        <textarea 
+                                            className={`font-sans text-[11.5px] bg-transparent border border-transparent rounded outline-none w-full resize-none leading-relaxed flex-1 min-h-[44px] transition-colors custom-scrollbar ${isLight ? 'text-slate-800 placeholder-slate-400/80' : 'text-slate-200 placeholder-slate-500'} ${isEditing ? 'focus:border-amber-500 hover:border-slate-300' : 'pointer-events-none'}`}
+                                            value={beat.summary || ''}
+                                            onChange={(e) => updateBeat(beat.id, { summary: e.target.value })}
+                                            placeholder="Write scene overview, notes, or key plot points..."
+                                            onClick={(e) => e.stopPropagation()}
+                                            onBlur={() => setEditingId(null)}
+                                            onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && setEditingId(null)}
+                                        />
+                                    </div>
                                 </div>
 
-                                <div className="mt-auto border-t border-[#333] bg-[#222] p-1 flex justify-between items-center rounded-b-md">
+                                {/* Footer Bar */}
+                                <div className={`mt-auto border-t px-3 py-1.5 flex justify-between items-center rounded-b-xl ${isLight ? 'border-slate-200 bg-slate-50' : 'border-[#2d2d35] bg-[#16161c]'}`}>
                                     <button 
                                         onClick={(e) => { e.stopPropagation(); updateBeat(beat.id, { status: isReady ? 'not-ready' : 'ready' }); }}
-                                        className={`flex items-center gap-1.5 text-[8px] font-bold uppercase px-2 py-1 rounded transition-colors ${isReady ? 'text-green-400 bg-green-900/20 hover:bg-green-900/30' : 'text-orange-400 bg-orange-900/20 hover:bg-orange-900/30'}`}
+                                        className={`flex items-center gap-1.5 text-[9px] font-black uppercase px-2 py-0.5 rounded-md transition-colors ${
+                                          isReady 
+                                            ? 'text-emerald-700 bg-emerald-100 border border-emerald-300' 
+                                            : 'text-amber-800 bg-amber-100 border border-amber-300'
+                                        }`}
                                     >
-                                        {isReady ? <Check size={8} /> : <Clock size={8} />}
+                                        {isReady ? <Check size={10} /> : <Clock size={10} />}
                                         {isReady ? 'Ready' : 'WIP'}
                                     </button>
-                                    <div className="flex items-center gap-2">
-                                        <div className="flex items-center gap-1 text-[8px] font-bold text-gray-500 px-1">
-                                            <History size={8} />
+                                    <div className="flex items-center gap-3">
+                                        {beat.shots && beat.shots.length > 0 && (
+                                            <div className={`text-[9px] font-bold flex items-center gap-1 ${isLight ? 'text-slate-500' : 'text-gray-400'}`}>
+                                                <span>📷 {beat.shots.length} shots</span>
+                                            </div>
+                                        )}
+                                        <div className={`flex items-center gap-1 text-[9px] font-bold ${isLight ? 'text-slate-500' : 'text-gray-400'}`}>
+                                            <History size={10} />
                                             <span>v{beat.versions?.length || 0}</span>
                                         </div>
                                     </div>
@@ -469,41 +440,28 @@ const InteractiveBoardPanel = ({
 
             {contextMenu && (
                 <div 
-                    className="fixed bg-[#1a1a1a] border border-[#333] rounded-lg shadow-2xl z-[9999] py-1 w-48 animate-in fade-in zoom-in duration-100"
+                    className={`fixed rounded-lg shadow-2xl z-[9999] py-1 w-48 animate-in fade-in zoom-in duration-100 ${isLight ? 'bg-white border border-slate-200 text-slate-800' : 'bg-[#1a1a1a] border border-[#333] text-white'}`}
                     style={{ left: contextMenu.x, top: contextMenu.y }}
                     onClick={(e) => e.stopPropagation()} 
                 >
-                    <div className="px-3 py-1.5 border-b border-[#333] mb-1">
-                        <span className="text-[9px] font-bold text-gray-500 uppercase tracking-wider">Beat Options</span>
+                    <div className={`px-3 py-1.5 border-b mb-1 ${isLight ? 'border-slate-200 text-slate-500' : 'border-[#333] text-gray-500'}`}>
+                        <span className="text-[9px] font-bold uppercase tracking-wider">Beat Options</span>
                     </div>
                     <div className="px-1 mb-1">
-                        <button onClick={() => setStatus(contextMenu.beatId, 'ready')} className="w-full text-left px-2 py-1.5 text-[10px] font-bold text-green-400 hover:bg-[#333] rounded flex items-center gap-2"><Check size={10} /> Mark Ready</button>
-                        <button onClick={() => setStatus(contextMenu.beatId, 'not-ready')} className="w-full text-left px-2 py-1.5 text-[10px] font-bold text-orange-400 hover:bg-[#333] rounded flex items-center gap-2"><Clock size={10} /> Mark W.I.P</button>
+                        <button onClick={() => setStatus(contextMenu.beatId, 'ready')} className={`w-full text-left px-2 py-1.5 text-[10px] font-bold text-emerald-600 rounded flex items-center gap-2 ${isLight ? 'hover:bg-slate-100' : 'hover:bg-[#333]'}`}><Check size={10} /> Mark Ready</button>
+                        <button onClick={() => setStatus(contextMenu.beatId, 'not-ready')} className={`w-full text-left px-2 py-1.5 text-[10px] font-bold text-amber-600 rounded flex items-center gap-2 ${isLight ? 'hover:bg-slate-100' : 'hover:bg-[#333]'}`}><Clock size={10} /> Mark W.I.P</button>
                     </div>
-                    <div className="h-px bg-[#333] my-1"></div>
+                    <div className={`h-px my-1 ${isLight ? 'bg-slate-200' : 'bg-[#333]'}`}></div>
                     <div className="px-3 py-2">
-                        <div className="text-[9px] text-[#666] uppercase mb-1.5 font-bold">Tag Color</div>
+                        <div className={`text-[9px] uppercase mb-1.5 font-bold ${isLight ? 'text-slate-400' : 'text-[#666]'}`}>Tag Color</div>
                         <div className="flex gap-1.5 flex-wrap">
                             {STORYLINE_COLORS.slice(0, 5).map(c => (
-                                <button key={c} onClick={() => setColor(contextMenu.beatId, c)} className="w-4 h-4 rounded-full border border-white/10 hover:scale-125 transition-transform" style={{ backgroundColor: c }} />
+                                <button key={c} onClick={() => setColor(contextMenu.beatId, c)} className="w-4 h-4 rounded-full border border-black/10 hover:scale-125 transition-transform" style={{ backgroundColor: c }} />
                             ))}
                         </div>
                     </div>
-                    <div className="h-px bg-[#333] my-1"></div>
-                    <div className="px-1">
-                        <div className="text-[9px] px-2 py-1 text-[#666] uppercase font-bold">Move to Sequence</div>
-                        {safeGroups.length > 0 ? (
-                            <div className="max-h-32 overflow-y-auto custom-scrollbar">
-                                {safeGroups.map(g => (
-                                    <button key={g.id} onClick={() => moveToGroup(contextMenu.beatId, g.id)} className="w-full text-left px-2 py-1.5 text-[10px] font-bold text-gray-300 hover:bg-[#333] hover:text-white rounded flex items-center gap-2 truncate"><Layers size={10} className="shrink-0" /> {g.title}</button>
-                                ))}
-                            </div>
-                        ) : (
-                            <div className="px-2 py-1 text-[9px] text-gray-600 italic">No sequences created</div>
-                        )}
-                    </div>
-                    <div className="h-px bg-[#333] my-1"></div>
-                    <button onClick={(e) => executeDelete(e, contextMenu.beatId)} className="w-full text-left px-3 py-2 text-[10px] font-bold text-red-500 hover:bg-red-900/20 flex items-center gap-2"><Trash2 size={12} /> Delete Scene</button>
+                    <div className={`h-px my-1 ${isLight ? 'bg-slate-200' : 'bg-[#333]'}`}></div>
+                    <button onClick={(e) => executeDelete(e, contextMenu.beatId)} className="w-full text-left px-3 py-2 text-[10px] font-bold text-red-600 hover:bg-red-50 flex items-center gap-2"><Trash2 size={12} /> Delete Scene</button>
                 </div>
             )}
         </div>
@@ -513,11 +471,13 @@ const InteractiveBoardPanel = ({
 const LanguageSettingsPopover = ({ 
   config, 
   onUpdate, 
-  onClose 
+  onClose,
+  isLight
 }: { 
   config: any, 
   onUpdate: (elm: string, lang: string) => void, 
-  onClose: () => void 
+  onClose: () => void,
+  isLight?: boolean
 }) => {
   const elements = [
     { id: 'slugline', label: 'Slugline' },
@@ -531,21 +491,21 @@ const LanguageSettingsPopover = ({
   ];
 
   return (
-    <div className="absolute top-full left-0 mt-2 w-64 bg-[#1a1a1a] border border-[#333] rounded-lg shadow-2xl z-[1000] p-3 animate-in fade-in zoom-in duration-150">
-      <div className="flex items-center justify-between mb-3 pb-2 border-b border-[#333]">
-        <span className="text-[10px] font-black text-[#f5a623] uppercase tracking-wider flex items-center gap-2">
+    <div className={`absolute top-full left-0 mt-2 w-64 rounded-lg shadow-2xl z-[1000] p-3 animate-in fade-in zoom-in duration-150 ${isLight ? 'bg-white border border-slate-200 text-slate-800' : 'bg-[#1a1a1a] border border-[#333] text-white'}`}>
+      <div className={`flex items-center justify-between mb-3 pb-2 border-b ${isLight ? 'border-slate-200' : 'border-[#333]'}`}>
+        <span className="text-[10px] font-black text-amber-500 uppercase tracking-wider flex items-center gap-2">
           <Globe size={12} /> Typing Languages
         </span>
-        <button onClick={onClose} className="text-gray-500 hover:text-white"><X size={14} /></button>
+        <button onClick={onClose} className={isLight ? "text-slate-400 hover:text-slate-700" : "text-gray-500 hover:text-white"}><X size={14} /></button>
       </div>
       <div className="space-y-2.5">
         {elements.map(elm => (
           <div key={elm.id} className="flex items-center justify-between">
-            <span className="text-[10px] font-bold text-gray-400 uppercase">{elm.label}</span>
+            <span className={`text-[10px] font-bold uppercase ${isLight ? 'text-slate-500' : 'text-gray-400'}`}>{elm.label}</span>
             <select 
               value={config[elm.id] || 'default'} 
               onChange={(e) => onUpdate(elm.id, e.target.value)}
-              className="bg-[#0a0a0a] border border-[#333] text-[9px] font-bold text-gray-300 rounded px-2 py-1 outline-none focus:border-[#f5a623]"
+              className={`text-[9px] font-bold rounded px-2 py-1 outline-none border ${isLight ? 'bg-slate-50 border-slate-300 text-slate-800 focus:border-amber-500' : 'bg-[#0a0a0a] border-[#333] text-gray-300 focus:border-[#f5a623]'}`}
             >
               {SUPPORTED_LANGUAGES.map(lang => (
                 <option key={lang.value} value={lang.value}>{lang.label}</option>
@@ -554,15 +514,15 @@ const LanguageSettingsPopover = ({
           </div>
         ))}
       </div>
-      <div className="mt-4 pt-2 border-t border-[#333]">
-        <p className="text-[8px] text-gray-600 leading-tight italic">Mappings for later macOS/Electron language API integration.</p>
+      <div className={`mt-4 pt-2 border-t ${isLight ? 'border-slate-200' : 'border-[#333]'}`}>
+        <p className={`text-[8px] leading-tight italic ${isLight ? 'text-slate-400' : 'text-gray-600'}`}>Mappings for later macOS/Electron language API integration.</p>
       </div>
     </div>
   );
 };
 
 // --- SUB-COMPONENTS FOR NESTED CONTEXT MENU ---
-const ContextMenuItem = ({ icon: Icon, label, onClick, danger, submenu, active }: any) => {
+const ContextMenuItem = ({ icon: Icon, label, onClick, danger, submenu, active, isLight }: any) => {
     const [isHovered, setIsHovered] = useState(false);
     return (
         <div 
@@ -574,7 +534,13 @@ const ContextMenuItem = ({ icon: Icon, label, onClick, danger, submenu, active }
                 onClick={(e) => { 
                     if (onClick) { e.stopPropagation(); onClick(); }
                 }}
-                className={`w-full text-left px-3 py-2 text-[11px] font-bold flex items-center justify-between transition-colors ${danger ? 'text-red-400 hover:bg-red-900/20' : active ? 'bg-[#f5a623] text-black' : 'text-gray-300 hover:bg-[#333] hover:text-white'}`}
+                className={`w-full text-left px-3 py-2 text-[11px] font-bold flex items-center justify-between transition-colors ${
+                  danger 
+                    ? (isLight ? 'text-red-600 hover:bg-red-50' : 'text-red-400 hover:bg-red-900/20') 
+                    : active 
+                    ? 'bg-[#f5a623] text-black' 
+                    : (isLight ? 'text-slate-700 hover:bg-slate-100 hover:text-slate-900' : 'text-gray-300 hover:bg-[#333] hover:text-white')
+                }`}
             >
                 <span className="flex items-center gap-2">
                     {Icon && <Icon size={14} className={danger ? 'text-red-500/50' : ''} />}
@@ -583,8 +549,8 @@ const ContextMenuItem = ({ icon: Icon, label, onClick, danger, submenu, active }
                 {submenu && <ChevronRight size={10} className="opacity-50" />}
             </button>
             {submenu && isHovered && (
-                <div className="absolute left-full top-0 ml-px bg-[#1a1a1a] border border-[#333] rounded-lg shadow-2xl py-1 w-48 animate-in slide-in-from-left-1 duration-100 backdrop-blur-md">
-                    {submenu}
+                <div className={`absolute left-full top-0 ml-px rounded-lg shadow-2xl py-1 w-48 animate-in slide-in-from-left-1 duration-100 backdrop-blur-md ${isLight ? 'bg-white border border-slate-200 text-slate-800' : 'bg-[#1a1a1a] border border-[#333] text-white'}`}>
+                    {React.Children.map(submenu, child => React.isValidElement(child) ? React.cloneElement(child, { isLight } as any) : child)}
                 </div>
             )}
         </div>
@@ -592,7 +558,16 @@ const ContextMenuItem = ({ icon: Icon, label, onClick, danger, submenu, active }
 };
 
 const ScriptView: React.FC = () => {
-  const { beats, groups, connections, updateBeat, addBeat, setBeats, setConnections, scriptViewMode, scriptConfig, setScriptConfig, scratchpadConfig, characterData, breakdownLanguage, setBreakdownLanguage, scratchpad, setScratchpad, globalNotes, setGlobalNotes, captureSnapshot, reorderBeats, setActiveBoardId } = useProject();
+  const { beats, groups, connections, updateBeat, addBeat, setBeats, setConnections, scriptViewMode, scriptConfig, setScriptConfig, scratchpadConfig, characterData, breakdownLanguage, setBreakdownLanguage, scratchpad, setScratchpad, globalNotes, setGlobalNotes, captureSnapshot, reorderBeats, setActiveBoardId, appTheme } = useProject();
+
+  const isLight = useMemo(() => {
+    if (appTheme === 'light') return true;
+    if (appTheme === 'dark') return false;
+    if (typeof window !== 'undefined') {
+      return window.matchMedia('(prefers-color-scheme: light)').matches;
+    }
+    return false;
+  }, [appTheme]);
   
   const [searchTerm, setSearchTerm] = useState('');
   const [zoom, setZoom] = useState(1.0);
@@ -622,10 +597,74 @@ const ScriptView: React.FC = () => {
   
   const getThemeStyles = () => {
       switch(scriptConfig.paperTheme) {
-          case 'dark': return { bg: '#1a1a1a', text: '#e5e7eb', slug: '#bbbbbb', slugText: '#e5e7eb', accent: '#333333', pageNum: '#777777', shadow: '0 0 0 1px #333', slugBg: '#2a2a2a' };
-          case 'sepia': return { bg: '#fdf6e3', text: '#586e75', slug: '#b58900', slugText: '#586e75', accent: '#eee8d5', pageNum: '#93a1a1', shadow: '0 2px 10px rgba(0,0,0,0.1)', slugBg: '#eee8d5' };
-          case 'red': return { bg: '#000000', text: '#ff5555', slug: '#ff0000', slugText: '#ff5555', accent: '#1a0000', pageNum: '#770000', shadow: '0 0 0 1px #330000', slugBg: '#111111' };
-          default: return { bg: 'white', text: '#111111', slug: '#444444', slugText: '#111111', accent: '#f5f5f5', pageNum: '#888888', shadow: '0 4px 12px rgba(0,0,0,0.15)', slugBg: '#e5e7eb' }; 
+          case 'dark': 
+              return { 
+                  bg: '#16161a', 
+                  text: '#e2e8f0', 
+                  slug: '#38bdf8', 
+                  slugText: '#f1f5f9', 
+                  accent: '#222228', 
+                  pageNum: '#94a3b8', 
+                  shadow: '0 0 0 1px #2a2a32, 0 10px 30px rgba(0,0,0,0.5)', 
+                  slugBg: 'transparent',
+                  activeSlugBg: 'rgba(245, 166, 35, 0.16)',
+                  activeSlugText: '#f5a623',
+                  activeBorder: '#f5a623',
+                  dropdownBg: '#1c1c22',
+                  dropdownText: '#f1f5f9',
+                  dropdownBorder: '#33333d'
+              };
+          case 'sepia': 
+              return { 
+                  bg: '#fbf7ee', 
+                  text: '#433422', 
+                  slug: '#b58900', 
+                  slugText: '#433422', 
+                  accent: '#f4ede0', 
+                  pageNum: '#8c7b69', 
+                  shadow: '0 4px 20px rgba(80, 60, 40, 0.08)', 
+                  slugBg: 'transparent',
+                  activeSlugBg: 'rgba(181, 137, 0, 0.14)',
+                  activeSlugText: '#856400',
+                  activeBorder: '#b58900',
+                  dropdownBg: '#f8f2e3',
+                  dropdownText: '#433422',
+                  dropdownBorder: '#d6c8a5'
+              };
+          case 'red': 
+              return { 
+                  bg: '#0d0202', 
+                  text: '#ff8888', 
+                  slug: '#ff4d4d', 
+                  slugText: '#ffaaaa', 
+                  accent: '#1e0505', 
+                  pageNum: '#993333', 
+                  shadow: '0 0 0 1px #440000, 0 10px 30px rgba(0,0,0,0.7)', 
+                  slugBg: 'transparent',
+                  activeSlugBg: 'rgba(255, 0, 0, 0.22)',
+                  activeSlugText: '#ffffff',
+                  activeBorder: '#ff3333',
+                  dropdownBg: '#1a0505',
+                  dropdownText: '#ffaaaa',
+                  dropdownBorder: '#660000'
+              };
+          default: 
+              return { 
+                  bg: '#ffffff', 
+                  text: '#0f172a', 
+                  slug: '#0f172a', 
+                  slugText: '#0f172a', 
+                  accent: '#f8fafc', 
+                  pageNum: '#64748b', 
+                  shadow: '0 4px 20px rgba(0,0,0,0.06)', 
+                  slugBg: 'transparent',
+                  activeSlugBg: 'rgba(245, 158, 11, 0.12)',
+                  activeSlugText: '#0f172a',
+                  activeBorder: '#d97706',
+                  dropdownBg: '#ffffff',
+                  dropdownText: '#0f172a',
+                  dropdownBorder: '#cbd5e1'
+              }; 
       }
   };
   const theme = getThemeStyles();
@@ -809,8 +848,102 @@ const ScriptView: React.FC = () => {
   const handleTagDragOver = (e: React.DragEvent, category: keyof BreakdownData) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setDragOverCategory(category); };
   const handleTagDragLeave = (e: React.DragEvent) => { setDragOverCategory(null); };
   const handleTagDrop = (e: React.DragEvent, targetCategory: keyof BreakdownData) => { e.preventDefault(); setDragOverCategory(null); const data = e.dataTransfer.getData('text/plain'); if (!data) return; try { const { category: sourceCategory, item: itemName } = JSON.parse(data); if (sourceCategory === targetCategory) return; if (activeBeat) { const current = activeBeat.breakdown || { props: [], sound: [], costume: [], vfx: [], practical: [], cast: [], location: [] }; const getName = (i: string | BreakdownItem) => typeof i === 'string' ? i : i.name; const sourceArray = current[sourceCategory as keyof BreakdownData] || []; const itemObj = sourceArray.find(i => getName(i) === itemName); const newSourceList = sourceArray.filter(i => getName(i) !== itemName); const targetList = current[targetCategory] || []; const newTargetList = targetList.some(i => getName(i) === itemName) ? targetList : [...targetList, itemObj || { name: itemName, source: '' }]; updateBeat(activeBeat.id, { breakdown: { ...current, [sourceCategory]: newSourceList, [targetCategory]: newTargetList } }); } } catch (err) { console.error("Drop failed", err); } };
-  const TagInput = ({ category }: { category: keyof BreakdownData }) => { const [val, setVal] = useState(''); return ( <div className="flex gap-1 mt-2"> <input value={val} onChange={e => setVal(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && val.trim()) { addTag(activeBeatId!, category, val.trim()); setVal(''); } }} className="flex-1 bg-[#111] border border-[#333] rounded px-2 py-1 text-[10px] text-white focus:border-[#f5a623] outline-none" placeholder="Add..." /> <button onClick={() => { if(val.trim()) { addTag(activeBeatId!, category, val.trim()); setVal(''); } }} className="px-2 bg-[#222] hover:bg-[#333] text-gray-400 rounded"><Plus size={10}/></button> </div> ); };
-  const BreakdownSection = ({ title, category, icon: Icon, color }: any) => { const items = activeBeat?.breakdown?.[category as keyof BreakdownData] || []; const isDragOver = dragOverCategory === category; return ( <div className={`mb-4 rounded-md transition-all ${isDragOver ? 'ring-2 ring-dashed ring-[#f5a623] bg-[#222]' : ''}`} onDragOver={(e) => handleTagDragOver(e, category)} onDragLeave={handleTagDragLeave} onDrop={(e) => handleTagDrop(e, category)}> <div className={`text-[10px] font-bold uppercase tracking-wider mb-2 flex items-center gap-2 ${color}`}><Icon size={12} /> {title}</div> <div className="flex flex-wrap gap-1.5 min-h-[30px]"> {items.length === 0 && <span className="text-[10px] text-gray-700 italic select-none">None</span>} {items.map((item, i) => { const name = typeof item === 'string' ? item : item.name; const source = typeof item === 'string' ? undefined : item.source; return ( <div key={i} draggable onDragStart={(e) => handleTagDragStart(e, category, name)} onMouseEnter={() => source && highlightSourceText(source, category)} onMouseLeave={clearHighlight} className={`flex items-center gap-1 bg-[#222] px-2 py-1 rounded text-[10px] text-gray-300 border border-[#333] group cursor-move hover:border-[#f5a623] transition-colors ${showSourceHighlights && source ? 'hover:bg-[#f5a623] hover:text-black' : ''}`} title={source ? `Source: "${source}"` : "No source info"} > {name} <button onClick={() => removeTag(category as keyof BreakdownData, name)} className="text-gray-600 hover:text-red-500 opacity-0 group-hover:opacity-100"><X size={10}/></button> </div> ); })} </div> <TagInput category={category as keyof BreakdownData} /> </div> ); };
+  const TagInput = ({ category }: { category: keyof BreakdownData }) => { const [val, setVal] = useState(''); return ( <div className="flex gap-1 mt-2"> <input value={val} onChange={e => setVal(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && val.trim()) { addTag(activeBeatId!, category, val.trim()); setVal(''); } }} className={`flex-1 border rounded px-2 py-1 text-[10px] focus:border-amber-500 outline-none ${isLight ? 'bg-slate-50 border-slate-300 text-slate-900 placeholder-slate-400' : 'bg-[#111] border-[#333] text-white'}`} placeholder="Add..." /> <button onClick={() => { if(val.trim()) { addTag(activeBeatId!, category, val.trim()); setVal(''); } }} className={`px-2 rounded ${isLight ? 'bg-slate-200 hover:bg-slate-300 text-slate-700' : 'bg-[#222] hover:bg-[#333] text-gray-400'}`}><Plus size={10}/></button> </div> ); };
+  const CATEGORY_STYLES: Record<string, { lightBadge: string, darkBadge: string, lightTag: string, darkTag: string }> = {
+    location: {
+      lightBadge: 'text-orange-900 bg-orange-100/90 border-orange-200 font-extrabold',
+      darkBadge: 'text-orange-400 bg-orange-950/40 border-orange-800/50 font-bold',
+      lightTag: 'bg-orange-50/90 text-orange-950 border-orange-200/90 hover:bg-orange-100 font-semibold shadow-2xs',
+      darkTag: 'bg-orange-950/30 text-orange-200 border-orange-900/50 hover:bg-orange-900/40'
+    },
+    vfx: {
+      lightBadge: 'text-emerald-900 bg-emerald-100/90 border-emerald-200 font-extrabold',
+      darkBadge: 'text-emerald-400 bg-emerald-950/40 border-emerald-800/50 font-bold',
+      lightTag: 'bg-emerald-50/90 text-emerald-950 border-emerald-200/90 hover:bg-emerald-100 font-semibold shadow-2xs',
+      darkTag: 'bg-emerald-950/30 text-emerald-200 border-emerald-900/50 hover:bg-emerald-900/40'
+    },
+    practical: {
+      lightBadge: 'text-red-900 bg-red-100/90 border-red-200 font-extrabold',
+      darkBadge: 'text-red-400 bg-red-950/40 border-red-800/50 font-bold',
+      lightTag: 'bg-red-50/90 text-red-950 border-red-200/90 hover:bg-red-100 font-semibold shadow-2xs',
+      darkTag: 'bg-red-950/30 text-red-200 border-red-900/50 hover:bg-red-900/40'
+    },
+    props: {
+      lightBadge: 'text-rose-900 bg-rose-100/90 border-rose-200 font-extrabold',
+      darkBadge: 'text-rose-400 bg-rose-950/40 border-rose-800/50 font-bold',
+      lightTag: 'bg-rose-50/90 text-rose-950 border-rose-200/90 hover:bg-rose-100 font-semibold shadow-2xs',
+      darkTag: 'bg-rose-950/30 text-rose-200 border-rose-900/50 hover:bg-rose-900/40'
+    },
+    sound: {
+      lightBadge: 'text-sky-900 bg-sky-100/90 border-sky-200 font-extrabold',
+      darkBadge: 'text-sky-400 bg-sky-950/40 border-sky-800/50 font-bold',
+      lightTag: 'bg-sky-50/90 text-sky-950 border-sky-200/90 hover:bg-sky-100 font-semibold shadow-2xs',
+      darkTag: 'bg-sky-950/30 text-sky-200 border-sky-900/50 hover:bg-sky-900/40'
+    },
+    costume: {
+      lightBadge: 'text-purple-900 bg-purple-100/90 border-purple-200 font-extrabold',
+      darkBadge: 'text-purple-400 bg-purple-950/40 border-purple-800/50 font-bold',
+      lightTag: 'bg-purple-50/90 text-purple-950 border-purple-200/90 hover:bg-purple-100 font-semibold shadow-2xs',
+      darkTag: 'bg-purple-950/30 text-purple-200 border-purple-900/50 hover:bg-purple-900/40'
+    },
+    cast: {
+      lightBadge: 'text-amber-950 bg-amber-100/90 border-amber-200 font-extrabold',
+      darkBadge: 'text-amber-400 bg-amber-950/40 border-amber-800/50 font-bold',
+      lightTag: 'bg-amber-50/90 text-amber-950 border-amber-200/90 hover:bg-amber-100 font-semibold shadow-2xs',
+      darkTag: 'bg-amber-950/30 text-amber-200 border-amber-900/50 hover:bg-amber-900/40'
+    }
+  };
+
+  const BreakdownSection = ({ title, category, icon: Icon }: any) => { 
+    const items = activeBeat?.breakdown?.[category as keyof BreakdownData] || []; 
+    const isDragOver = dragOverCategory === category; 
+    const catStyle = CATEGORY_STYLES[category] || CATEGORY_STYLES.cast;
+
+    return ( 
+      <div className={`mb-3.5 p-3 rounded-xl border transition-all ${
+        isLight 
+          ? 'bg-slate-50/80 border-slate-200/90 shadow-2xs' 
+          : 'bg-[#181818] border-[#2b2b2b]'
+      } ${isDragOver ? (isLight ? 'ring-2 ring-dashed ring-amber-500 bg-amber-50/50 border-amber-300' : 'ring-2 ring-dashed ring-[#f5a623] bg-[#222]') : ''}`} 
+      onDragOver={(e) => handleTagDragOver(e, category)} 
+      onDragLeave={handleTagDragLeave} 
+      onDrop={(e) => handleTagDrop(e, category)}> 
+        <div className="flex items-center justify-between mb-2">
+          <div className={`text-[10px] uppercase tracking-wider px-2.5 py-0.5 rounded-full border inline-flex items-center gap-1.5 ${
+            isLight ? catStyle.lightBadge : catStyle.darkBadge
+          }`}>
+            <Icon size={12} /> {title}
+          </div>
+          <span className={`text-[9.5px] font-mono font-bold px-1.5 py-0.2 rounded ${isLight ? 'bg-slate-200/60 text-slate-600' : 'bg-slate-800 text-slate-400'}`}>{items.length}</span>
+        </div>
+        
+        <div className="flex flex-wrap gap-1.5 min-h-[28px] my-1"> 
+          {items.length === 0 && <span className={`text-[10px] italic select-none py-1 px-1 ${isLight ? 'text-slate-400' : 'text-gray-600'}`}>No items tagged</span>} 
+          {items.map((item, i) => { 
+            const name = typeof item === 'string' ? item : item.name; 
+            const source = typeof item === 'string' ? undefined : item.source; 
+            return ( 
+              <div 
+                key={i} 
+                draggable 
+                onDragStart={(e) => handleTagDragStart(e, category, name)} 
+                onMouseEnter={() => source && highlightSourceText(source, category)} 
+                onMouseLeave={clearHighlight} 
+                className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-[10.5px] border group cursor-move transition-all ${
+                  isLight ? catStyle.lightTag : catStyle.darkTag
+                } ${showSourceHighlights && source ? 'ring-2 ring-amber-400 font-bold' : ''}`} 
+                title={source ? `Source: "${source}"` : "No source info"} 
+              > 
+                <span>{name}</span> 
+                <button onClick={() => removeTag(category as keyof BreakdownData, name)} className={`opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded hover:bg-red-500 hover:text-white ${isLight ? 'text-slate-400' : 'text-gray-400'}`}><X size={10}/></button> 
+              </div> 
+            ); 
+          })} 
+        </div> 
+        <TagInput category={category as keyof BreakdownData} /> 
+      </div> 
+    ); 
+  };
 
   // --- EDITOR CONTEXT MENU HANDLERS ---
   const handleScriptContextMenu = (e: React.MouseEvent, beatId: number) => {
@@ -845,94 +978,58 @@ const ScriptView: React.FC = () => {
   };
 
   return (
-    <div className="flex w-full h-full bg-[#0c0c0c] overflow-hidden font-sans" onClick={() => setScriptContextMenu(null)}>
+    <div className={`flex w-full h-full overflow-hidden font-sans ${isLight ? 'bg-slate-100 text-slate-900' : 'bg-[#0c0c0c] text-white'}`} onClick={() => setScriptContextMenu(null)}>
       
       {showNav && (
         <div 
-            className="flex flex-col shrink-0 z-20 shadow-2xl transition-all relative border-r border-[#222]"
+            className={`flex flex-col shrink-0 z-20 shadow-2xl transition-all relative border-r ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-[#0a0a0a] border-[#222]'}`}
             style={{ width: sidebarWidth }}
         >
-            <div className="bg-[#0a0a0a] flex-1 flex flex-col overflow-hidden">
-                <div className="p-4 border-b border-[#222]">
-                    <div className="flex bg-[#111] p-1 rounded-md border border-[#222] mb-3">
-                        <button onClick={() => setNavMode('list')} className={`flex-1 py-1.5 text-[10px] font-bold uppercase rounded transition-colors flex items-center justify-center gap-2 ${navMode === 'list' ? 'bg-[#222] text-[#f5a623] shadow-sm' : 'text-gray-500 hover:text-gray-300'}`}><List size={12} /> List</button>
-                        <button onClick={() => setNavMode('board')} className={`flex-1 py-1.5 text-[10px] font-bold uppercase rounded transition-colors flex items-center justify-center gap-2 ${navMode === 'board' ? 'bg-[#222] text-[#f5a623] shadow-sm' : 'text-gray-500 hover:text-gray-300'}`}><LayoutGrid size={12} /> Board</button>
+            <div className={`flex-1 flex flex-col overflow-hidden ${isLight ? 'bg-slate-50' : 'bg-[#0a0a0a]'}`}>
+                <div className={`px-4 py-3 border-b flex items-center justify-between ${isLight ? 'border-slate-200 bg-slate-100/50' : 'border-[#222] bg-[#121216]'}`}>
+                    <div className="flex items-center gap-2">
+                        <FileText size={14} className="text-amber-500" />
+                        <span className={`text-xs font-black uppercase tracking-wider ${isLight ? 'text-slate-800' : 'text-slate-200'}`}>Summary Cards</span>
                     </div>
-                    {navMode === 'list' && (
-                        <div className="relative animate-in fade-in">
-                            <Search className="absolute left-2.5 top-2 text-[#555]" size={14} />
-                            <input type="text" placeholder="Find Scene..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full bg-[#1a1a1a] border border-[#333] rounded-md pl-8 pr-3 py-1.5 text-xs text-white placeholder-gray-600 outline-none focus:border-[#f5a623] transition-colors" />
-                        </div>
-                    )}
+                    <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border ${isLight ? 'bg-amber-50 border-amber-200 text-amber-800' : 'bg-amber-950/40 border-amber-800/60 text-amber-300'}`}>
+                        {beats.length} {beats.length === 1 ? 'scene' : 'scenes'}
+                    </span>
                 </div>
                 
                 <div className="flex-1 overflow-hidden relative">
-                    {navMode === 'list' ? (
-                        <div className="absolute inset-0 overflow-y-auto custom-scrollbar p-2 space-y-0.5 animate-in slide-in-from-left-2 duration-200">
-                            {filteredBeats.map((beat, i) => {
-                                const isSandbox = !isSequenceBeat(beat, connectedSet, beatOrder);
-                                const sceneNum = isSandbox ? '•' : (beat.sceneNumber || beatOrder[beat.id] || (i + 1).toString());
-                                const prevBeat = i > 0 ? filteredBeats[i - 1] : null;
-                                const showBoardHeader = !prevBeat || prevBeat.boardId !== beat.boardId;
-
-                                return (
-                                    <React.Fragment key={beat.id}>
-                                        {showBoardHeader && (
-                                            <div className="flex items-center gap-2 px-3 py-4 first:pt-2">
-                                                <span className="text-[10px] font-black text-gray-600 uppercase tracking-widest whitespace-nowrap">Page { (beat.boardId || 0) + 1 }</span>
-                                                <div className="h-px w-full bg-[#222]"></div>
-                                            </div>
-                                        )}
-                                        <button onClick={() => scrollToBeat(beat.id)} className={`w-full text-left p-2.5 rounded group transition-all flex items-center gap-3 border-l-2 ${activeBeatId === beat.id ? 'bg-[#1a1a1a] border-[#f5a623]' : 'border-transparent hover:bg-[#151515] hover:border-[#333]'}`}>
-                                            <span className={`text-[10px] font-bold font-mono w-5 shrink-0 text-right ${isSandbox ? 'text-gray-600' : 'text-[#444] group-hover:text-[#f5a623]'}`}>{sceneNum}</span>
-                                            <div className="flex-1 min-w-0">
-                                                <div className="flex items-center gap-2">
-                                                    <div className={`text-xs font-bold truncate uppercase flex-1 ${isSandbox ? 'text-gray-500 italic' : 'text-gray-400 group-hover:text-white'}`}>{beat.slug.location || 'UNTITLED SCENE'}</div>
-                                                    {beat.status === 'ready' && <Lock size={10} className="text-green-500" />}
-                                                </div>
-                                            </div>
-                                        </button>
-                                    </React.Fragment>
-                                )
-                            })}
-                        </div>
-                    ) : (
-                        <InteractiveBoardPanel 
-                            beats={beats} 
-                            groups={groups}
-                            connections={connections}
-                            activeBeatId={activeBeatId}
-                            onBeatClick={scrollToBeat}
-                            updateBeat={updateBeat}
-                            setBeats={setBeats}
-                            setConnections={setConnections}
-                            captureSnapshot={captureSnapshot}
-                            reorderBeats={reorderBeats}
-                        />
-                    )}
+                    <MilanoteCardsPanel 
+                        beats={beats} 
+                        activeBeatId={activeBeatId}
+                        onBeatClick={scrollToBeat}
+                        updateBeat={updateBeat}
+                        setBeats={setBeats}
+                        captureSnapshot={captureSnapshot}
+                        reorderBeats={reorderBeats}
+                        isLight={isLight}
+                    />
                 </div>
             </div>
-            <div className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-[#f5a623] transition-colors z-50 group" onMouseDown={() => { isResizingRef.current = true; document.body.style.cursor = 'col-resize'; }}>
+            <div className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-amber-500 transition-colors z-50 group" onMouseDown={() => { isResizingRef.current = true; document.body.style.cursor = 'col-resize'; }}>
                 <div className="absolute right-0 top-1/2 -translate-y-1/2 w-3 h-12 flex flex-col gap-1 items-center justify-center pointer-events-none group-hover:opacity-100 opacity-0 transition-opacity">
-                    <div className="w-0.5 h-full bg-[#f5a623]"></div>
+                    <div className="w-0.5 h-full bg-amber-500"></div>
                 </div>
             </div>
         </div>
       )}
 
       <div className="flex-1 flex flex-col h-full overflow-hidden relative">
-        <div className="w-full bg-[#111] border-b border-[#222] flex flex-col shrink-0 z-20 shadow-sm select-none">
-            <div className="flex items-center justify-between px-4 py-2 h-12 border-b border-[#222]">
+        <div className={`w-full border-b flex flex-col shrink-0 z-20 shadow-xs select-none ${isLight ? 'bg-white border-slate-200' : 'bg-[#111] border-[#222]'}`}>
+            <div className={`flex items-center justify-between px-4 py-2 h-12 border-b ${isLight ? 'border-slate-200' : 'border-[#222]'}`}>
                 <div className="flex items-center gap-4">
-                    <button onClick={() => setShowNav(!showNav)} className={`w-8 h-8 flex items-center justify-center rounded border transition-all ${showNav ? 'bg-[#222] border-[#333] text-[#f5a623]' : 'bg-[#1a1a1a] border-[#333] text-gray-400 hover:text-white'}`} title="Toggle Navigation"><PanelLeft size={14} /></button>
-                    <div className="flex items-center bg-[#1a1a1a] rounded border border-[#333] p-0.5 gap-0.5 relative">
+                    <button onClick={() => setShowNav(!showNav)} className={`w-8 h-8 flex items-center justify-center rounded border transition-all ${showNav ? (isLight ? 'bg-amber-50 border-amber-300 text-amber-600' : 'bg-[#222] border-[#333] text-[#f5a623]') : (isLight ? 'bg-slate-100 border-slate-300 text-slate-600 hover:text-slate-900 hover:bg-slate-200' : 'bg-[#1a1a1a] border-[#333] text-gray-400 hover:text-white')}`} title="Toggle Navigation"><PanelLeft size={14} /></button>
+                    <div className={`flex items-center rounded border p-0.5 gap-0.5 relative ${isLight ? 'bg-slate-100 border-slate-200' : 'bg-[#1a1a1a] border-[#333]'}`}>
                         {FORMAT_BUTTONS.map((btn) => {
                             const BtnIcon = btn.icon;
                             return (
                                 <button 
                                     key={btn.id} 
                                     onMouseDown={(e) => { e.preventDefault(); handleFormat(btn.id); }} 
-                                    className={`px-2 py-1.5 text-[10px] font-bold uppercase rounded-sm transition-all duration-200 flex items-center gap-2 min-w-[32px] justify-center ${activeFormat === btn.id ? 'bg-[#f5a623] text-black shadow-sm' : 'text-gray-400 hover:text-white hover:bg-[#222]'}`} 
+                                    className={`px-2 py-1.5 text-[10px] font-bold uppercase rounded-xs transition-all duration-200 flex items-center gap-2 min-w-[32px] justify-center ${activeFormat === btn.id ? (isLight ? 'bg-amber-500 text-slate-950 font-bold shadow-xs' : 'bg-[#f5a623] text-black shadow-sm') : (isLight ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-200' : 'text-gray-400 hover:text-white hover:bg-[#222]')}`} 
                                     title={`${btn.id.charAt(0).toUpperCase() + btn.id.slice(1)} (${btn.short})`}
                                 >
                                     <BtnIcon size={12} strokeWidth={2.5} />
@@ -940,10 +1037,10 @@ const ScriptView: React.FC = () => {
                                 </button>
                             );
                         })}
-                        <div className="w-px h-4 bg-[#333] mx-1"></div>
+                        <div className={`w-px h-4 mx-1 ${isLight ? 'bg-slate-300' : 'bg-[#333]'}`}></div>
                         <button 
                             onClick={() => setShowLanguageConfig(!showLanguageConfig)}
-                            className={`p-1.5 rounded transition-all flex items-center justify-center ${showLanguageConfig ? 'bg-[#f5a623] text-black' : 'text-gray-500 hover:text-white'}`}
+                            className={`p-1.5 rounded transition-all flex items-center justify-center ${showLanguageConfig ? (isLight ? 'bg-amber-500 text-slate-950' : 'bg-[#f5a623] text-black') : (isLight ? 'text-slate-500 hover:text-slate-900' : 'text-gray-500 hover:text-white')}`}
                             title="Configure Element Languages"
                         >
                             <Settings size={14} />
@@ -953,35 +1050,36 @@ const ScriptView: React.FC = () => {
                             config={scriptConfig.languageConfig} 
                             onUpdate={updateLanguageConfig} 
                             onClose={() => setShowLanguageConfig(false)}
+                            isLight={isLight}
                           />
                         )}
                     </div>
                 </div>
                 <div className="flex items-center gap-4">
-                    <div className="flex bg-[#1a1a1a] rounded border border-[#333] p-0.5">
-                        <button onClick={() => setActiveSidebar(activeSidebar === 'scratchpad' ? 'none' : 'scratchpad')} className={`p-1.5 rounded flex items-center gap-2 text-[10px] font-bold uppercase transition-all ${activeSidebar === 'scratchpad' ? 'bg-[#222] text-[#f5a623] shadow-sm' : 'text-gray-500 hover:text-white'}`} title="Scratchpad"><StickyNote size={14} /></button>
-                        <button onClick={() => setActiveSidebar(activeSidebar === 'breakdown' ? 'none' : 'breakdown')} className={`p-1.5 rounded flex items-center gap-2 text-[10px] font-bold uppercase transition-all ${activeSidebar === 'breakdown' ? 'bg-[#222] text-[#f5a623] shadow-sm' : 'text-gray-400 hover:text-white'}`} title="Scene Breakdown"><ListChecks size={14} /></button>
-                        <button onClick={() => setActiveSidebar(activeSidebar === 'history' ? 'none' : 'history')} className={`p-1.5 rounded flex items-center gap-2 text-[10px] font-bold uppercase transition-all ${activeSidebar === 'history' ? 'bg-[#222] text-[#f5a623] shadow-sm' : 'text-gray-400 hover:text-white'}`} title="Version History"><History size={14} /></button>
+                    <div className={`flex rounded border p-0.5 ${isLight ? 'bg-slate-100 border-slate-200' : 'bg-[#1a1a1a] border-[#333]'}`}>
+                        <button onClick={() => setActiveSidebar(activeSidebar === 'scratchpad' ? 'none' : 'scratchpad')} className={`p-1.5 rounded flex items-center gap-2 text-[10px] font-bold uppercase transition-all ${activeSidebar === 'scratchpad' ? (isLight ? 'bg-white text-amber-600 shadow-xs' : 'bg-[#222] text-[#f5a623] shadow-sm') : (isLight ? 'text-slate-600 hover:text-slate-900' : 'text-gray-500 hover:text-white')}`} title="Scratchpad"><StickyNote size={14} /></button>
+                        <button onClick={() => setActiveSidebar(activeSidebar === 'breakdown' ? 'none' : 'breakdown')} className={`p-1.5 rounded flex items-center gap-2 text-[10px] font-bold uppercase transition-all ${activeSidebar === 'breakdown' ? (isLight ? 'bg-white text-amber-600 shadow-xs' : 'bg-[#222] text-[#f5a623] shadow-sm') : (isLight ? 'text-slate-600 hover:text-slate-900' : 'text-gray-400 hover:text-white')}`} title="Scene Breakdown"><ListChecks size={14} /></button>
+                        <button onClick={() => setActiveSidebar(activeSidebar === 'history' ? 'none' : 'history')} className={`p-1.5 rounded flex items-center gap-2 text-[10px] font-bold uppercase transition-all ${activeSidebar === 'history' ? (isLight ? 'bg-white text-amber-600 shadow-xs' : 'bg-[#222] text-[#f5a623] shadow-sm') : (isLight ? 'text-slate-600 hover:text-slate-900' : 'text-gray-400 hover:text-white')}`} title="Version History"><History size={14} /></button>
                     </div>
-                    <div className="w-[1px] h-4 bg-[#333]"></div>
-                    <div className="flex bg-[#1a1a1a] rounded border border-[#333] p-0.5">
-                        <button onClick={() => setPaperTheme('white')} className={`p-1.5 rounded ${scriptConfig.paperTheme === 'white' ? 'bg-white text-black' : 'text-gray-500 hover:text-white'}`}><Sun size={12}/></button>
-                        <button onClick={() => setPaperTheme('sepia')} className={`p-1.5 rounded ${scriptConfig.paperTheme === 'sepia' ? 'bg-[#fdf6e3] text-[#586e75]' : 'text-gray-500 hover:text-white'}`}><Coffee size={12}/></button>
-                        <button onClick={() => setPaperTheme('dark')} className={`p-1.5 rounded ${scriptConfig.paperTheme === 'dark' ? 'bg-[#1a1a1a] text-white' : 'text-gray-500 hover:text-white'}`}><Moon size={12}/></button>
-                        <button onClick={() => setPaperTheme('red')} className={`p-1.5 rounded ${scriptConfig.paperTheme === 'red' ? 'bg-[#000] text-red-500' : 'text-gray-500 hover:text-white'}`}><Eye size={12}/></button>
+                    <div className={`w-[1px] h-4 ${isLight ? 'bg-slate-300' : 'bg-[#333]'}`}></div>
+                    <div className={`flex rounded border p-0.5 ${isLight ? 'bg-slate-100 border-slate-200' : 'bg-[#1a1a1a] border-[#333]'}`}>
+                        <button onClick={() => setPaperTheme('white')} className={`p-1.5 rounded ${scriptConfig.paperTheme === 'white' ? 'bg-white text-slate-900 shadow-xs font-bold' : (isLight ? 'text-slate-500 hover:text-slate-900' : 'text-gray-500 hover:text-white')}`}><Sun size={12}/></button>
+                        <button onClick={() => setPaperTheme('sepia')} className={`p-1.5 rounded ${scriptConfig.paperTheme === 'sepia' ? 'bg-[#fdf6e3] text-[#586e75] font-bold' : (isLight ? 'text-slate-500 hover:text-slate-900' : 'text-gray-500 hover:text-white')}`}><Coffee size={12}/></button>
+                        <button onClick={() => setPaperTheme('dark')} className={`p-1.5 rounded ${scriptConfig.paperTheme === 'dark' ? 'bg-slate-900 text-white font-bold' : (isLight ? 'text-slate-500 hover:text-slate-900' : 'text-gray-500 hover:text-white')}`}><Moon size={12}/></button>
+                        <button onClick={() => setPaperTheme('red')} className={`p-1.5 rounded ${scriptConfig.paperTheme === 'red' ? 'bg-black text-red-500 font-bold' : (isLight ? 'text-slate-500 hover:text-slate-900' : 'text-gray-500 hover:text-white')}`}><Eye size={12}/></button>
                     </div>
-                    <div className="w-[1px] h-4 bg-[#333]"></div>
-                    <div className="flex items-center bg-[#1a1a1a] rounded border border-[#333]">
-                        <button onClick={() => setZoom(Math.max(0.2, zoom - 0.1))} className="p-1.5 hover:bg-[#333] text-gray-400 hover:text-white border-r border-[#333]"><ZoomOut size={12} /></button>
-                        <button onClick={toggleFitZoom} className="px-3 py-1 text-[10px] font-bold text-gray-300 hover:text-white hover:bg-[#333] border-r border-[#333] transition-colors w-16 text-center">{Math.round(zoom * 100)}%</button>
-                        <button onClick={() => setZoom(Math.min(2.0, zoom + 0.1))} className="p-1.5 hover:bg-[#333] text-gray-400 hover:text-white border-l border-[#333]"><ZoomIn size={12} /></button>
+                    <div className={`w-[1px] h-4 ${isLight ? 'bg-slate-300' : 'bg-[#333]'}`}></div>
+                    <div className={`flex items-center rounded border ${isLight ? 'bg-slate-100 border-slate-200' : 'bg-[#1a1a1a] border-[#333]'}`}>
+                        <button onClick={() => setZoom(Math.max(0.2, zoom - 0.1))} className={`p-1.5 border-r ${isLight ? 'border-slate-200 text-slate-600 hover:text-slate-900' : 'border-[#333] text-gray-400 hover:text-white hover:bg-[#333]'}`}><ZoomOut size={12} /></button>
+                        <button onClick={toggleFitZoom} className={`px-3 py-1 text-[10px] font-bold border-r transition-colors w-16 text-center ${isLight ? 'border-slate-200 text-slate-700 hover:text-slate-900' : 'border-[#333] text-gray-300 hover:text-white hover:bg-[#333]'}`}>{Math.round(zoom * 100)}%</button>
+                        <button onClick={() => setZoom(Math.min(2.0, zoom + 0.1))} className={`p-1.5 border-l ${isLight ? 'border-slate-200 text-slate-600 hover:text-slate-900' : 'border-[#333] text-gray-400 hover:text-white hover:bg-[#333]'}`}><ZoomIn size={12} /></button>
                     </div>
                 </div>
             </div>
         </div>
 
         <div className="flex-1 flex overflow-hidden">
-            <div ref={scrollerRef} className="flex-1 overflow-y-auto bg-[#121212] relative flex flex-col items-center pb-96 custom-scrollbar">
+            <div ref={scrollerRef} className={`flex-1 overflow-y-auto relative flex flex-col items-center pb-96 custom-scrollbar ${isLight ? 'bg-slate-200/80' : 'bg-[#121212]'}`}>
                 <div className="transition-transform duration-200 origin-top py-10" style={{ transform: `scale(${zoom})` }}>
                     <div style={{ position: 'relative', width: `${A4_WIDTH}px`, minHeight: `${A4_HEIGHT}px` }}>
                         <div ref={paperLayerRef} className="absolute top-0 left-0 w-full flex flex-col pointer-events-none z-0"></div>
@@ -1013,22 +1111,32 @@ const ScriptView: React.FC = () => {
                                 return (
                                     <React.Fragment key={beat.id}>
                                         {isFirstSandbox && (
-                                            <div className="w-full py-12 flex items-center justify-center opacity-40 select-none pointer-events-none page-break-avoid">
-                                                <div className="h-px bg-dashed bg-gray-500 w-32 mr-4 border-b border-dashed border-gray-500"></div>
-                                                <span className="text-[10px] font-mono uppercase tracking-[0.2em] text-gray-500 font-bold">Unsequenced Fragments</span>
-                                                <div className="h-px bg-dashed bg-gray-500 w-32 ml-4 border-b border-dashed border-gray-500"></div>
+                                            <div className="w-full py-12 flex items-center justify-center select-none pointer-events-none page-break-avoid">
+                                                <div className={`h-px w-32 mr-4 border-b border-dashed ${isLight ? 'border-slate-400' : 'border-gray-500'}`}></div>
+                                                <span className={`text-[10px] font-mono uppercase tracking-[0.2em] font-bold ${isLight ? 'text-slate-500' : 'text-gray-500'}`}>Unsequenced Fragments</span>
+                                                <div className={`h-px w-32 ml-4 border-b border-dashed ${isLight ? 'border-slate-400' : 'border-gray-500'}`}></div>
                                             </div>
                                         )}
                                         <div id={`beat-${beat.id}`} className={`beat-block group relative ${activeBeatId === beat.id ? 'z-20' : 'z-10'}`} onFocusCapture={() => setActiveBeatId(beat.id)} onClick={() => setActiveBeatId(beat.id)} onContextMenu={(e) => handleScriptContextMenu(e, beat.id)}>
-                                            <div className={`absolute -left-16 top-0.5 w-12 text-right font-mono text-xs font-bold select-none opacity-50 group-hover:opacity-100 transition-opacity ${isSandbox ? 'text-gray-600' : ''}`} style={{ color: isSandbox ? undefined : theme.pageNum }}>{displayNumber}</div>
-                                            <div className="flex items-center gap-2 mb-2 px-2 py-0.5 transition-colors -ml-2 -mr-2" style={{ backgroundColor: activeBeatId === beat.id ? '#f5a623' : theme.slugBg }}>
-                                                <div className="flex-1 flex items-center gap-2 font-bold uppercase font-screenplay text-sm">
-                                                    <SlugInput id={`beat-prefix-${beat.id}`} value={beat.slug.prefix} onChange={v => handleSlugChange(beat.id, 'prefix', v)} onNext={() => document.getElementById(`beat-location-${beat.id}`)?.focus()} suggestions={SLUG_PREFIXES} className="w-20 shrink-0" style={{ color: activeBeatId === beat.id ? '#000000' : (theme.slugText || theme.slug) }} placeholder="INT." />
-                                                    <SlugInput id={`beat-location-${beat.id}`} value={beat.slug.location} onChange={v => handleSlugChange(beat.id, 'location', v)} onNext={() => document.getElementById(`beat-time-${beat.id}`)?.focus()} suggestions={uniqueLocations} className="flex-1" style={{ color: activeBeatId === beat.id ? '#000000' : (theme.slugText || theme.slug) }} placeholder="LOCATION" />
-                                                    <span style={{ color: activeBeatId === beat.id ? '#000000' : (theme.slugText || theme.slug) }}>-</span>
-                                                    <SlugInput id={`beat-time-${beat.id}`} value={beat.slug.time} onChange={v => handleSlugChange(beat.id, 'time', v)} onNext={() => editorRefs.current[beat.id]?.focus()} suggestions={SLUG_TIMES} className="w-32 shrink-0" style={{ color: activeBeatId === beat.id ? '#000000' : (theme.slugText || theme.slug) }} placeholder="TIME" />
+                                            <div className={`absolute -left-16 top-0.5 w-12 text-right font-mono text-xs font-bold select-none opacity-60 group-hover:opacity-100 transition-opacity ${isSandbox ? (isLight ? 'text-slate-400' : 'text-gray-600') : ''}`} style={{ color: isSandbox ? undefined : (isLight ? '#64748b' : theme.pageNum) }}>{displayNumber}</div>
+                                            <div 
+                                                className={`flex items-center gap-2 my-1.5 px-3 py-1.5 transition-all rounded-md -ml-3 -mr-3 border-l-2 shadow-2xs ${
+                                                    activeBeatId === beat.id 
+                                                        ? 'shadow-xs font-black' 
+                                                        : 'hover:brightness-95'
+                                                }`}
+                                                style={{
+                                                    backgroundColor: activeBeatId === beat.id ? theme.activeSlugBg : theme.slugBg,
+                                                    borderColor: activeBeatId === beat.id ? theme.activeBorder : (scriptConfig.paperTheme === 'sepia' ? 'rgba(181,137,0,0.3)' : scriptConfig.paperTheme === 'dark' ? 'rgba(255,255,255,0.1)' : scriptConfig.paperTheme === 'red' ? 'rgba(255,0,0,0.3)' : 'rgba(15,23,42,0.08)')
+                                                }}
+                                            >
+                                                <div className="flex-1 flex items-center gap-2 font-black uppercase font-screenplay text-sm tracking-wide">
+                                                    <SlugInput id={`beat-prefix-${beat.id}`} value={beat.slug.prefix} onChange={v => handleSlugChange(beat.id, 'prefix', v)} onNext={() => document.getElementById(`beat-location-${beat.id}`)?.focus()} suggestions={SLUG_PREFIXES} className="w-20 shrink-0 font-black" style={{ color: activeBeatId === beat.id ? theme.activeSlugText : theme.slugText }} placeholder="INT." dropdownStyle={{ backgroundColor: theme.dropdownBg, color: theme.dropdownText, borderColor: theme.dropdownBorder }} />
+                                                    <SlugInput id={`beat-location-${beat.id}`} value={beat.slug.location} onChange={v => handleSlugChange(beat.id, 'location', v)} onNext={() => document.getElementById(`beat-time-${beat.id}`)?.focus()} suggestions={uniqueLocations} className="flex-1 font-black" style={{ color: activeBeatId === beat.id ? theme.activeSlugText : theme.slugText }} placeholder="LOCATION" dropdownStyle={{ backgroundColor: theme.dropdownBg, color: theme.dropdownText, borderColor: theme.dropdownBorder }} />
+                                                    <span className="opacity-60 font-black" style={{ color: activeBeatId === beat.id ? theme.activeSlugText : theme.slugText }}>-</span>
+                                                    <SlugInput id={`beat-time-${beat.id}`} value={beat.slug.time} onChange={v => handleSlugChange(beat.id, 'time', v)} onNext={() => editorRefs.current[beat.id]?.focus()} suggestions={SLUG_TIMES} className="w-32 shrink-0 font-black" style={{ color: activeBeatId === beat.id ? theme.activeSlugText : theme.slugText }} placeholder="TIME" dropdownStyle={{ backgroundColor: theme.dropdownBg, color: theme.dropdownText, borderColor: theme.dropdownBorder }} />
                                                 </div>
-                                                {isReady && <Lock size={12} className={activeBeatId === beat.id ? "text-black" : "text-green-500 ml-2"} />}
+                                                {isReady && <Lock size={12} style={{ color: activeBeatId === beat.id ? theme.activeSlugText : '#10b981' }} className="ml-2 shrink-0" />}
                                             </div>
                                             <div>
                                                 <BeatEditorBlock beat={beat} isActive={activeBeatId === beat.id} isReady={isReady} uniqueCharacters={uniqueCharacters} setActiveFormat={setActiveFormat} onUpdateContent={handleContentUpdate} onFocus={() => setActiveBeatId(beat.id)} editorRefCallback={(el) => { editorRefs.current[beat.id] = el; }} />
@@ -1037,22 +1145,22 @@ const ScriptView: React.FC = () => {
                                     </React.Fragment>
                                 );
                             })}
-                            <div onClick={handleAddScene} className="mt-8 mx-auto w-full max-w-xl h-6 border-b border-transparent hover:border-[#f5a623]/30 flex items-center justify-center cursor-pointer transition-all duration-300 group opacity-20 hover:opacity-100"><span className="text-[9px] font-bold text-[#666] group-hover:text-[#f5a623] uppercase tracking-[0.2em] flex items-center gap-2 transition-colors"><Plus size={8} /> Add Scene</span></div>
+                            <div onClick={handleAddScene} className={`mt-8 mx-auto w-full max-w-xl h-6 border-b border-transparent flex items-center justify-center cursor-pointer transition-all duration-300 group opacity-40 hover:opacity-100 ${isLight ? 'hover:border-amber-500/50' : 'hover:border-[#f5a623]/30'}`}><span className={`text-[9px] font-bold uppercase tracking-[0.2em] flex items-center gap-2 transition-colors ${isLight ? 'text-slate-500 group-hover:text-amber-600' : 'text-[#666] group-hover:text-[#f5a623]'}`}><Plus size={8} /> Add Scene</span></div>
                         </div>
                     </div>
                 </div>
             </div>
 
             {activeSidebar !== 'none' && (
-                <div className="w-[400px] bg-[#161616] border-l border-[#333] flex flex-col animate-in slide-in-from-right-10 duration-200 z-30 shadow-2xl relative overflow-hidden">
-                    <div className="h-12 border-b border-[#333] flex items-center justify-between px-4 bg-[#1a1a1a] shrink-0">
-                        <div className="flex items-center gap-2"><h3 className="text-xs font-black text-[#f5a623] uppercase tracking-widest flex items-center gap-2">{activeSidebar === 'breakdown' && <><ListChecks size={14} /> Scene Breakdown</>}{activeSidebar === 'scratchpad' && <><StickyNote size={14} /> Note Blocks</>}{activeSidebar === 'history' && <><History size={14} /> Version History</>}</h3></div>
-                        <div className="flex gap-2 ml-4">{activeSidebar === 'breakdown' && (<button onClick={() => { setShowSourceHighlights(!showSourceHighlights); clearHighlight(); }} className={`p-1.5 rounded transition-colors ${showSourceHighlights ? 'bg-[#f5a623] text-black' : 'text-gray-500 hover:text-white'}`} title="Highlight source text in script on hover"><Eye size={14}/></button>)}<button onClick={() => { setActiveSidebar('none'); clearHighlight(); }} className="text-gray-500 hover:text-white"><X size={14}/></button></div>
+                <div className={`w-[400px] flex flex-col animate-in slide-in-from-right-10 duration-200 z-30 shadow-2xl relative overflow-hidden border-l ${isLight ? 'bg-white border-slate-200 text-slate-800' : 'bg-[#161616] border-[#333] text-white'}`}>
+                    <div className={`h-12 border-b flex items-center justify-between px-4 shrink-0 ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-[#1a1a1a] border-[#333]'}`}>
+                        <div className="flex items-center gap-2"><h3 className={`text-xs font-black uppercase tracking-widest flex items-center gap-2 ${isLight ? 'text-amber-600' : 'text-[#f5a623]'}`}>{activeSidebar === 'breakdown' && <><ListChecks size={14} /> Scene Breakdown</>}{activeSidebar === 'scratchpad' && <><StickyNote size={14} /> Note Blocks</>}{activeSidebar === 'history' && <><History size={14} /> Version History</>}</h3></div>
+                        <div className="flex gap-2 ml-4">{activeSidebar === 'breakdown' && (<button onClick={() => { setShowSourceHighlights(!showSourceHighlights); clearHighlight(); }} className={`p-1.5 rounded transition-colors ${showSourceHighlights ? (isLight ? 'bg-amber-500 text-slate-950 font-bold' : 'bg-[#f5a623] text-black') : (isLight ? 'text-slate-400 hover:text-slate-800' : 'text-gray-500 hover:text-white')}`} title="Highlight source text in script on hover"><Eye size={14}/></button>)}<button onClick={() => { setActiveSidebar('none'); clearHighlight(); }} className={isLight ? "text-slate-400 hover:text-slate-800" : "text-gray-500 hover:text-white"}><X size={14}/></button></div>
                     </div>
                     <div className="flex-1 relative overflow-hidden">
-                        {activeSidebar === 'breakdown' && (<div className="absolute inset-0 overflow-y-auto custom-scrollbar p-4">{activeBeat ? (<><div className="mb-6 pb-4 border-b border-[#333]"><h4 className="text-sm font-bold text-white uppercase mb-4">{activeBeat.slug.location || 'Untitled Scene'}</h4><div className="flex items-center justify-between mb-2"><span className="text-[10px] font-bold text-gray-500 uppercase">Output Language</span><div className="flex bg-[#111] rounded border border-[#333] p-0.5"><button onClick={() => setBreakdownLanguage('english')} className={`px-2 py-0.5 text-[9px] font-bold uppercase rounded ${breakdownLanguage === 'english' ? 'bg-[#f5a623] text-black' : 'text-gray-500 hover:text-white'}`}>ENG</button><button onClick={() => setBreakdownLanguage('tamil')} className={`px-2 py-0.5 text-[9px] font-bold uppercase rounded ${breakdownLanguage === 'tamil' ? 'bg-[#f5a623] text-black' : 'text-gray-500 hover:text-white'}`}>TAM</button></div></div><button onClick={handleAnalyzeBreakdown} disabled={isAnalyzing} className={`w-full py-2 font-bold text-xs uppercase rounded flex items-center justify-center gap-2 transition-all bg-[#f5a623] hover:bg-[#e09612] text-black disabled:opacity-50`}>{isAnalyzing ? <Sparkles size={14} className="animate-spin" /> : <Sparkles size={14} />} {isAnalyzing ? 'Analyzing...' : 'Auto-Analyze'}</button></div><BreakdownSection title="Location Scenario" category="location" icon={MapIcon} color="text-orange-400" /><BreakdownSection title="Visual Effects" category="vfx" icon={Wand2} color="text-green-400" /><BreakdownSection title="Practical Effects" category="practical" icon={Flame} color="text-red-500" /><BreakdownSection title="Props" category="props" icon={Package} color="text-red-400" /><BreakdownSection title="Sound / SFX" category="sound" icon={Mic2} color="text-blue-400" /><BreakdownSection title="Wardrobe" category="costume" icon={Shirt} color="text-pink-400" /><BreakdownSection title="Cast / Extras" category="cast" icon={Users} color="text-yellow-400" /></>) : (<div className="flex flex-col items-center justify-center h-full text-gray-500 gap-2"><ListChecks size={32} opacity={0.2} /><span className="text-xs text-center px-4">Select a scene to view or create breakdown items.</span></div>)}</div>)}
-                        {activeSidebar === 'scratchpad' && (<div className="absolute inset-0 flex flex-col"><div className="px-4 py-3 border-b border-[#333] bg-[#161616]"><div className="flex bg-black/40 p-1 rounded-lg border border-[#333] relative"><button onClick={() => setScratchpadMode('global')} className={`flex-1 py-1.5 text-[10px] font-bold uppercase rounded-md transition-all relative z-10 flex items-center justify-center gap-2 ${scratchpadMode === 'global' ? 'bg-[#f5a623] text-black shadow-sm' : 'text-gray-500 hover:text-gray-300'}`}><Globe size={10} /> Global Notes</button><button onClick={() => setScratchpadMode('scene')} className={`flex-1 py-1.5 text-[10px] font-bold uppercase rounded-md transition-all relative z-10 flex items-center justify-center gap-2 ${scratchpadMode === 'scene' ? 'bg-[#f5a623] text-black shadow-sm' : 'text-gray-500 hover:text-gray-300'}`}><StickyNote size={10} /> Scene Notes</button></div></div><div className="flex-1 p-4 overflow-y-auto custom-scrollbar bg-[#111]">{(scratchpadMode === 'global' ? globalNotes : (activeBeat?.notes || [])).map((note, index) => { const isConfirming = confirmDeleteNoteId === note.id; const borderColor = note.color; const subtleBorder = `${borderColor}40`; const subtleBg = `${borderColor}05`; return (<div key={note.id} draggable={false} onDragOver={(e) => handleNoteDragOver(e, index)} onDrop={(e) => handleNoteDrop(e, index)} onDragLeave={handleNoteDragLeave} className={`mb-4 rounded-md overflow-hidden transition-all shadow-sm group relative ${scratchpadConfig.glassEffect ? 'backdrop-blur-md' : ''}`} style={{ transition: 'transform 0.2s, opacity 0.2s', transform: dragOverIndex === index && scratchpadConfig.enableDragAnimations ? `scale(${scratchpadConfig.dragScale})` : 'scale(1)', opacity: dragOverIndex === index && scratchpadConfig.enableDragAnimations ? scratchpadConfig.dragOpacity : 1, border: `1px solid ${subtleBorder}`, backgroundColor: subtleBg, boxShadow: `0 1px 3px rgba(0,0,0,0.3), 0 0 2px ${subtleBorder}` }}><div draggable={true} onDragStart={(e) => handleNoteDragStart(e, index)} className="flex justify-between items-center px-2 py-1 border-b border-white/5 cursor-grab active:cursor-grabbing hover:bg-white/5 transition-colors" style={{ backgroundColor: 'rgba(0,0,0,0.2)' }}><div className="flex gap-1 items-center"><GripHorizontal size={12} className="text-gray-600 mr-2" />{STORYLINE_COLORS.slice(0,5).map(c => (<div key={c} className={`w-2 h-2 rounded-full cursor-pointer transition-transform hover:scale-125 ${note.color === c ? 'ring-1 ring-white' : 'opacity-50 hover:opacity-100'}`} style={{ backgroundColor: c }} onMouseDown={(e) => { e.stopPropagation(); updateNote(note.id, { color: c }); }}></div>))}</div><button onMouseDown={(e) => { e.stopPropagation(); if(isConfirming) deleteNote(note.id); else { setConfirmDeleteNoteId(note.id); setTimeout(() => setConfirmDeleteNoteId(null), 3000); } }} className={`transition-colors ${isConfirming ? 'text-red-500 animate-pulse bg-red-900/20 px-1 rounded' : 'text-white/30 hover:text-white'}`} title={isConfirming ? "Click again to delete" : "Delete Note"}><Trash2 size={10} /></button></div><div style={{ backgroundColor: 'transparent' }}><BlockEditor value={note.content} onChange={(val) => updateNote(note.id, { content: val })} className="bg-transparent border-none rounded-none" minHeight="80px" placeholder="Note content..." config={scratchpadConfig} style={{ lineHeight: scratchpadConfig.lineHeight }} /></div></div>); })} {(scratchpadMode === 'scene' && !activeBeat) ? (<div className="flex flex-col items-center justify-center h-full text-gray-500 gap-2"><StickyNote size={32} opacity={0.2} /><span className="text-xs text-center px-4">Select a scene to add notes.</span></div>) : (<button onClick={() => addNote()} className="w-full py-3 mt-2 border border-dashed border-[#333] hover:border-[#f5a623] hover:bg-[#f5a623]/10 text-gray-500 hover:text-[#f5a623] rounded-none text-xs font-bold uppercase transition-all flex items-center justify-center gap-2"><Plus size={14} /> Add Note</button>)}</div></div>)}
-                        {activeSidebar === 'history' && (<div className="absolute inset-0 overflow-y-auto custom-scrollbar p-4">{activeBeat ? (<div className="flex flex-col h-full"><div className="mb-4 bg-[#111] p-3 rounded border border-[#333]"><h4 className="text-xs font-bold text-white uppercase mb-1">{activeBeat.slug.location || 'Untitled'}</h4><div className="text-[10px] text-gray-500 font-mono">Current Version</div></div><button onClick={handleCreateSnapshot} className="w-full py-2 mb-6 bg-[#222] hover:bg-[#333] border border-[#333] text-gray-300 text-xs font-bold uppercase rounded flex items-center justify-center gap-2 transition-all"><Save size={12} /> Create Snapshot</button><div className="space-y-2">{activeBeat.versions && activeBeat.versions.length > 0 ? ([...activeBeat.versions].reverse().map((v, i) => (<div key={v.id} className="bg-[#111] border border-[#222] rounded p-3 group hover:border-[#444] transition-colors"><div className="flex items-center justify-between mb-2"><span className="text-[10px] font-bold text-[#f5a623] uppercase">v{activeBeat.versions!.length - i}</span><span className="text-[9px] text-gray-500 font-mono">{new Date(v.timestamp).toLocaleString()}</span></div><div className="text-[10px] text-gray-400 mb-3 line-clamp-2 italic opacity-70">{v.summary || "No summary provided."}</div><button onClick={() => handleRestoreClick(v)} className="w-full py-1.5 bg-[#1a1a1a] hover:bg-[#252525] text-gray-400 hover:text-white border border-[#333] rounded text-[9px] font-bold uppercase flex items-center justify-center gap-2 transition-colors"><RotateCcw size={10} /> Restore</button></div>))) : (<div className="text-center py-10 text-gray-600"><History size={32} className="mx-auto mb-2 opacity-20" /><span className="text-xs">No snapshots yet.</span></div>)}</div></div>) : (<div className="flex flex-col items-center justify-center h-full text-gray-500 gap-2"><History size={32} opacity={0.2} /><span className="text-xs text-center px-4">Select a scene to view version history.</span></div>)}</div>)}
+                        {activeSidebar === 'breakdown' && (<div className="absolute inset-0 overflow-y-auto custom-scrollbar p-4">{activeBeat ? (<><div className={`mb-6 pb-4 border-b ${isLight ? 'border-slate-200' : 'border-[#333]'}`}><h4 className={`text-sm font-bold uppercase mb-4 ${isLight ? 'text-slate-900' : 'text-white'}`}>{activeBeat.slug.location || 'Untitled Scene'}</h4><div className="flex items-center justify-between mb-2"><span className={`text-[10px] font-bold uppercase ${isLight ? 'text-slate-500' : 'text-gray-500'}`}>Output Language</span><div className={`flex rounded border p-0.5 ${isLight ? 'bg-slate-100 border-slate-200' : 'bg-[#111] border-[#333]'}`}><button onClick={() => setBreakdownLanguage('english')} className={`px-2 py-0.5 text-[9px] font-bold uppercase rounded ${breakdownLanguage === 'english' ? (isLight ? 'bg-amber-500 text-slate-950' : 'bg-[#f5a623] text-black') : (isLight ? 'text-slate-600 hover:text-slate-900' : 'text-gray-500 hover:text-white')}`}>ENG</button><button onClick={() => setBreakdownLanguage('tamil')} className={`px-2 py-0.5 text-[9px] font-bold uppercase rounded ${breakdownLanguage === 'tamil' ? (isLight ? 'bg-amber-500 text-slate-950' : 'bg-[#f5a623] text-black') : (isLight ? 'text-slate-600 hover:text-slate-900' : 'text-gray-500 hover:text-white')}`}>TAM</button></div></div><button onClick={handleAnalyzeBreakdown} disabled={isAnalyzing} className={`w-full py-2 font-bold text-xs uppercase rounded flex items-center justify-center gap-2 transition-all disabled:opacity-50 ${isLight ? 'bg-amber-500 hover:bg-amber-600 text-slate-950 shadow-xs' : 'bg-[#f5a623] hover:bg-[#e09612] text-black'}`}>{isAnalyzing ? <Sparkles size={14} className="animate-spin" /> : <Sparkles size={14} />} {isAnalyzing ? 'Analyzing...' : 'Auto-Analyze'}</button></div><BreakdownSection title="Location Scenario" category="location" icon={MapIcon} color="text-orange-500" /><BreakdownSection title="Visual Effects" category="vfx" icon={Wand2} color="text-emerald-500" /><BreakdownSection title="Practical Effects" category="practical" icon={Flame} color="text-red-500" /><BreakdownSection title="Props" category="props" icon={Package} color="text-rose-500" /><BreakdownSection title="Sound / SFX" category="sound" icon={Mic2} color="text-sky-500" /><BreakdownSection title="Wardrobe" category="costume" icon={Shirt} color="text-pink-500" /><BreakdownSection title="Cast / Extras" category="cast" icon={Users} color="text-amber-500" /></>) : (<div className={`flex flex-col items-center justify-center h-full gap-2 ${isLight ? 'text-slate-400' : 'text-gray-500'}`}><ListChecks size={32} opacity={0.3} /><span className="text-xs text-center px-4">Select a scene to view or create breakdown items.</span></div>)}</div>)}
+                        {activeSidebar === 'scratchpad' && (<div className="absolute inset-0 flex flex-col"><div className={`px-4 py-3 border-b ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-[#161616] border-[#333]'}`}><div className={`flex p-1 rounded-lg border relative ${isLight ? 'bg-slate-100 border-slate-200' : 'bg-black/40 border-[#333]'}`}><button onClick={() => setScratchpadMode('global')} className={`flex-1 py-1.5 text-[10px] font-bold uppercase rounded-md transition-all relative z-10 flex items-center justify-center gap-2 ${scratchpadMode === 'global' ? (isLight ? 'bg-amber-500 text-slate-950 font-bold shadow-xs' : 'bg-[#f5a623] text-black shadow-sm') : (isLight ? 'text-slate-600 hover:text-slate-900' : 'text-gray-500 hover:text-gray-300')}`}><Globe size={10} /> Global Notes</button><button onClick={() => setScratchpadMode('scene')} className={`flex-1 py-1.5 text-[10px] font-bold uppercase rounded-md transition-all relative z-10 flex items-center justify-center gap-2 ${scratchpadMode === 'scene' ? (isLight ? 'bg-amber-500 text-slate-950 font-bold shadow-xs' : 'bg-[#f5a623] text-black shadow-sm') : (isLight ? 'text-slate-600 hover:text-slate-900' : 'text-gray-500 hover:text-gray-300')}`}><StickyNote size={10} /> Scene Notes</button></div></div><div className={`flex-1 p-4 overflow-y-auto custom-scrollbar ${isLight ? 'bg-slate-50' : 'bg-[#111]'}`}>{(scratchpadMode === 'global' ? globalNotes : (activeBeat?.notes || [])).map((note, index) => { const isConfirming = confirmDeleteNoteId === note.id; const borderColor = note.color; const subtleBorder = `${borderColor}40`; const subtleBg = isLight ? '#ffffff' : `${borderColor}05`; return (<div key={note.id} draggable={false} onDragOver={(e) => handleNoteDragOver(e, index)} onDrop={(e) => handleNoteDrop(e, index)} onDragLeave={handleNoteDragLeave} className={`mb-4 rounded-md overflow-hidden transition-all shadow-xs group relative ${scratchpadConfig.glassEffect ? 'backdrop-blur-md' : ''}`} style={{ transition: 'transform 0.2s, opacity 0.2s', transform: dragOverIndex === index && scratchpadConfig.enableDragAnimations ? `scale(${scratchpadConfig.dragScale})` : 'scale(1)', opacity: dragOverIndex === index && scratchpadConfig.enableDragAnimations ? scratchpadConfig.dragOpacity : 1, border: `1px solid ${isLight ? '#e2e8f0' : subtleBorder}`, backgroundColor: subtleBg, boxShadow: isLight ? '0 1px 3px rgba(0,0,0,0.05)' : `0 1px 3px rgba(0,0,0,0.3), 0 0 2px ${subtleBorder}` }}><div draggable={true} onDragStart={(e) => handleNoteDragStart(e, index)} className={`flex justify-between items-center px-2 py-1 border-b cursor-grab active:cursor-grabbing transition-colors ${isLight ? 'border-slate-100 bg-slate-100/70 hover:bg-slate-200/60' : 'border-white/5 bg-black/20 hover:bg-white/5'}`}><div className="flex gap-1 items-center"><GripHorizontal size={12} className={isLight ? "text-slate-400 mr-2" : "text-gray-600 mr-2"} />{STORYLINE_COLORS.slice(0,5).map(c => (<div key={c} className={`w-2 h-2 rounded-full cursor-pointer transition-transform hover:scale-125 ${note.color === c ? 'ring-1 ring-slate-400' : 'opacity-50 hover:opacity-100'}`} style={{ backgroundColor: c }} onMouseDown={(e) => { e.stopPropagation(); updateNote(note.id, { color: c }); }}></div>))}</div><button onMouseDown={(e) => { e.stopPropagation(); if(isConfirming) deleteNote(note.id); else { setConfirmDeleteNoteId(note.id); setTimeout(() => setConfirmDeleteNoteId(null), 3000); } }} className={`transition-colors ${isConfirming ? 'text-red-500 animate-pulse bg-red-50 px-1 rounded' : (isLight ? 'text-slate-400 hover:text-slate-800' : 'text-white/30 hover:text-white')}`} title={isConfirming ? "Click again to delete" : "Delete Note"}><Trash2 size={10} /></button></div><div style={{ backgroundColor: 'transparent' }}><BlockEditor value={note.content} onChange={(val) => updateNote(note.id, { content: val })} className="bg-transparent border-none rounded-none text-slate-800" minHeight="80px" placeholder="Note content..." config={scratchpadConfig} style={{ lineHeight: scratchpadConfig.lineHeight }} /></div></div>); })} {(scratchpadMode === 'scene' && !activeBeat) ? (<div className={`flex flex-col items-center justify-center h-full gap-2 ${isLight ? 'text-slate-400' : 'text-gray-500'}`}><StickyNote size={32} opacity={0.3} /><span className="text-xs text-center px-4">Select a scene to add notes.</span></div>) : (<button onClick={() => addNote()} className={`w-full py-3 mt-2 border border-dashed rounded-none text-xs font-bold uppercase transition-all flex items-center justify-center gap-2 ${isLight ? 'border-slate-300 hover:border-amber-500 text-slate-600 hover:text-amber-600 hover:bg-amber-50/50' : 'border-[#333] hover:border-[#f5a623] hover:bg-[#f5a623]/10 text-gray-500 hover:text-[#f5a623]'}`}><Plus size={14} /> Add Note</button>)}</div></div>)}
+                        {activeSidebar === 'history' && (<div className="absolute inset-0 overflow-y-auto custom-scrollbar p-4">{activeBeat ? (<div className="flex flex-col h-full"><div className={`mb-4 p-3 rounded border ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-[#111] border-[#333]'}`}><h4 className={`text-xs font-bold uppercase mb-1 ${isLight ? 'text-slate-900' : 'text-white'}`}>{activeBeat.slug.location || 'Untitled'}</h4><div className={`text-[10px] font-mono ${isLight ? 'text-slate-500' : 'text-gray-500'}`}>Current Version</div></div><button onClick={handleCreateSnapshot} className={`w-full py-2 mb-6 border text-xs font-bold uppercase rounded flex items-center justify-center gap-2 transition-all ${isLight ? 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-800' : 'bg-[#222] hover:bg-[#333] border-[#333] text-gray-300'}`}><Save size={12} /> Create Snapshot</button><div className="space-y-2">{activeBeat.versions && activeBeat.versions.length > 0 ? ([...activeBeat.versions].reverse().map((v, i) => (<div key={v.id} className={`border rounded p-3 group transition-colors ${isLight ? 'bg-slate-50 border-slate-200 hover:border-slate-300' : 'bg-[#111] border-[#222] hover:border-[#444]'}`}><div className="flex items-center justify-between mb-2"><span className="text-[10px] font-bold text-amber-600 uppercase">v{activeBeat.versions!.length - i}</span><span className={`text-[9px] font-mono ${isLight ? 'text-slate-400' : 'text-gray-500'}`}>{new Date(v.timestamp).toLocaleString()}</span></div><div className={`text-[10px] mb-3 line-clamp-2 italic opacity-80 ${isLight ? 'text-slate-600' : 'text-gray-400'}`}>{v.summary || "No summary provided."}</div><button onClick={() => handleRestoreClick(v)} className={`w-full py-1.5 border rounded text-[9px] font-bold uppercase flex items-center justify-center gap-2 transition-colors ${isLight ? 'bg-white hover:bg-slate-100 border-slate-300 text-slate-700 hover:text-slate-900' : 'bg-[#1a1a1a] hover:bg-[#252525] border-[#333] text-gray-400 hover:text-white'}`}><RotateCcw size={10} /> Restore</button></div>))) : (<div className={`text-center py-10 ${isLight ? 'text-slate-400' : 'text-gray-600'}`}><History size={32} className="mx-auto mb-2 opacity-20" /><span className="text-xs">No snapshots yet.</span></div>)}</div></div>) : (<div className={`flex flex-col items-center justify-center h-full gap-2 ${isLight ? 'text-slate-400' : 'text-gray-500'}`}><History size={32} opacity={0.3} /><span className="text-xs text-center px-4">Select a scene to view version history.</span></div>)}</div>)}
                     </div>
                 </div>
             )}
@@ -1061,33 +1169,34 @@ const ScriptView: React.FC = () => {
         {/* --- DYNAMIC SCRIPT CONTEXT MENU (TIERED) --- */}
         {scriptContextMenu && (
           <div 
-            className="fixed bg-[#1a1a1a] border border-[#333] rounded-lg shadow-[0_20px_50px_rgba(0,0,0,0.8)] z-[9999] py-1 w-56 animate-in fade-in zoom-in duration-100 backdrop-blur-xl"
+            className={`fixed rounded-lg shadow-2xl z-[9999] py-1 w-56 animate-in fade-in zoom-in duration-100 backdrop-blur-xl ${isLight ? 'bg-white/95 border border-slate-200 text-slate-800' : 'bg-[#1a1a1a] border border-[#333] text-white shadow-[0_20px_50px_rgba(0,0,0,0.8)]'}`}
             style={{ left: scriptContextMenu.x, top: scriptContextMenu.y }}
             onClick={(e) => e.stopPropagation()} 
           >
             {/* Header: Scene Context */}
-            <div className="px-3 py-2 border-b border-[#222] mb-1 flex items-center justify-between bg-black/20">
-                <span className="text-[9px] font-black text-gray-500 uppercase tracking-widest">Script Terminal</span>
-                <span className="text-[9px] font-mono text-[#f5a623]">SCN: {scriptContextMenu.beatId}</span>
+            <div className={`px-3 py-2 border-b mb-1 flex items-center justify-between ${isLight ? 'border-slate-200 bg-slate-50' : 'border-[#222] bg-black/20'}`}>
+                <span className={`text-[9px] font-black uppercase tracking-widest ${isLight ? 'text-slate-400' : 'text-gray-500'}`}>Script Terminal</span>
+                <span className="text-[9px] font-mono text-amber-500">SCN: {scriptContextMenu.beatId}</span>
             </div>
 
             {/* SELECTION-SPECIFIC SECTION */}
             {scriptContextMenu.selectionText && (
                 <>
                     <div className="px-3 py-1.5">
-                        <span className="text-[8px] font-black text-[#555] uppercase tracking-wider">Selection: "{scriptContextMenu.selectionText.substring(0,15)}..."</span>
+                        <span className={`text-[8px] font-black uppercase tracking-wider ${isLight ? 'text-slate-400' : 'text-[#555]'}`}>Selection: "{scriptContextMenu.selectionText.substring(0,15)}..."</span>
                     </div>
 
                     {/* 1. Styling Submenu */}
                     <ContextMenuItem 
                         icon={Highlighter} 
                         label="Format Selection" 
+                        isLight={isLight}
                         submenu={
                             <>
-                                <ContextMenuItem icon={Bold} label="Bold" onClick={() => applyInlineStyle('bold')} />
-                                <ContextMenuItem icon={Italic} label="Italic" onClick={() => applyInlineStyle('italic')} />
-                                <ContextMenuItem icon={Underline} label="Underline" onClick={() => applyInlineStyle('underline')} />
-                                <ContextMenuItem icon={X} label="Clear Styling" onClick={() => applyInlineStyle('removeFormat')} />
+                                <ContextMenuItem icon={Bold} label="Bold" onClick={() => applyInlineStyle('bold')} isLight={isLight} />
+                                <ContextMenuItem icon={Italic} label="Italic" onClick={() => applyInlineStyle('italic')} isLight={isLight} />
+                                <ContextMenuItem icon={Underline} label="Underline" onClick={() => applyInlineStyle('underline')} isLight={isLight} />
+                                <ContextMenuItem icon={X} label="Clear Styling" onClick={() => applyInlineStyle('removeFormat')} isLight={isLight} />
                             </>
                         }
                     />
@@ -1096,16 +1205,17 @@ const ScriptView: React.FC = () => {
                     <ContextMenuItem 
                         icon={Palette} 
                         label="Color Palette" 
+                        isLight={isLight}
                         submenu={
                             <>
-                                <div className="px-3 py-1 text-[8px] font-bold uppercase text-[#555]">Text Tone</div>
+                                <div className={`px-3 py-1 text-[8px] font-bold uppercase ${isLight ? 'text-slate-400' : 'text-[#555]'}`}>Text Tone</div>
                                 {TEXT_COLORS.map(c => (
-                                    <ContextMenuItem key={c.value} label={c.name} onClick={() => applyInlineStyle('foreColor', c.value)} />
+                                    <ContextMenuItem key={c.value} label={c.name} onClick={() => applyInlineStyle('foreColor', c.value)} isLight={isLight} />
                                 ))}
-                                <div className="h-px bg-[#222] mx-2 my-1"></div>
-                                <div className="px-3 py-1 text-[8px] font-bold uppercase text-[#555]">Highlighter</div>
+                                <div className={`h-px mx-2 my-1 ${isLight ? 'bg-slate-200' : 'bg-[#222]'}`}></div>
+                                <div className={`px-3 py-1 text-[8px] font-bold uppercase ${isLight ? 'text-slate-400' : 'text-[#555]'}`}>Highlighter</div>
                                 {HILITE_COLORS.map(c => (
-                                    <ContextMenuItem key={c.value} label={c.name} onClick={() => applyInlineStyle('hiliteColor', c.value)} />
+                                    <ContextMenuItem key={c.value} label={c.name} onClick={() => applyInlineStyle('hiliteColor', c.value)} isLight={isLight} />
                                 ))}
                             </>
                         }
@@ -1115,32 +1225,34 @@ const ScriptView: React.FC = () => {
                     <ContextMenuItem 
                         icon={Tag} 
                         label="Production Tags" 
+                        isLight={isLight}
                         submenu={
                             <>
-                                <ContextMenuItem icon={MapIcon} label="Location Scenario" onClick={() => applyTagging('location')} />
-                                <ContextMenuItem icon={Wand2} label="Visual Effects" onClick={() => applyTagging('vfx')} />
-                                <ContextMenuItem icon={Flame} label="Special Effects" onClick={() => applyTagging('practical')} />
-                                <ContextMenuItem icon={Package} label="Prop" onClick={() => applyTagging('props')} />
-                                <ContextMenuItem icon={Mic2} label="Audio / SFX" onClick={() => applyTagging('sound')} />
-                                <ContextMenuItem icon={Shirt} label="Wardrobe" onClick={() => applyTagging('costume')} />
-                                <ContextMenuItem icon={Users} label="Cast / Extras" onClick={() => applyTagging('cast')} />
+                                <ContextMenuItem icon={MapIcon} label="Location Scenario" onClick={() => applyTagging('location')} isLight={isLight} />
+                                <ContextMenuItem icon={Wand2} label="Visual Effects" onClick={() => applyTagging('vfx')} isLight={isLight} />
+                                <ContextMenuItem icon={Flame} label="Special Effects" onClick={() => applyTagging('practical')} isLight={isLight} />
+                                <ContextMenuItem icon={Package} label="Prop" onClick={() => applyTagging('props')} isLight={isLight} />
+                                <ContextMenuItem icon={Mic2} label="Audio / SFX" onClick={() => applyTagging('sound')} isLight={isLight} />
+                                <ContextMenuItem icon={Shirt} label="Wardrobe" onClick={() => applyTagging('costume')} isLight={isLight} />
+                                <ContextMenuItem icon={Users} label="Cast / Extras" onClick={() => applyTagging('cast')} isLight={isLight} />
                             </>
                         }
                     />
 
-                    <ContextMenuItem icon={StickyNote} label="Send to Note Block" onClick={handleSendSelectionToNote} />
-                    <div className="h-px bg-[#222] mx-2 my-1"></div>
+                    <ContextMenuItem icon={StickyNote} label="Send to Note Block" onClick={handleSendSelectionToNote} isLight={isLight} />
+                    <div className={`h-px mx-2 my-1 ${isLight ? 'bg-slate-200' : 'bg-[#222]'}`}></div>
                 </>
             )}
 
             {/* SCENE OPERATIONS SECTION */}
             <div className="px-3 py-1.5">
-                <span className="text-[8px] font-black text-[#555] uppercase tracking-wider">Scene Control</span>
+                <span className={`text-[8px] font-black uppercase tracking-wider ${isLight ? 'text-slate-400' : 'text-[#555]'}`}>Scene Control</span>
             </div>
 
             <ContextMenuItem 
                 icon={beats.find(b => b.id === scriptContextMenu.beatId)?.status === 'ready' ? Unlock : Lock} 
                 label={beats.find(b => b.id === scriptContextMenu.beatId)?.status === 'ready' ? 'Unlock Scene' : 'Lock Scene'} 
+                isLight={isLight}
                 onClick={() => { 
                     const b = beats.find(b => b.id === scriptContextMenu.beatId);
                     if (b) updateBeat(scriptContextMenu.beatId, { status: b.status === 'ready' ? 'not-ready' : 'ready' });
@@ -1151,11 +1263,12 @@ const ScriptView: React.FC = () => {
             <ContextMenuItem 
                 icon={PlusSquare} 
                 label="Insert Content" 
+                isLight={isLight}
                 submenu={
                     <>
-                        <ContextMenuItem icon={ArrowUp} label="Insert Above" onClick={() => handleInsertScene(scriptContextMenu.beatId, 'above')} />
-                        <ContextMenuItem icon={ArrowDown} label="Insert Below" onClick={() => handleInsertScene(scriptContextMenu.beatId, 'below')} />
-                        <ContextMenuItem icon={Copy} label="Duplicate Scene" onClick={() => handleDuplicateScene(scriptContextMenu.beatId)} />
+                        <ContextMenuItem icon={ArrowUp} label="Insert Above" onClick={() => handleInsertScene(scriptContextMenu.beatId, 'above')} isLight={isLight} />
+                        <ContextMenuItem icon={ArrowDown} label="Insert Below" onClick={() => handleInsertScene(scriptContextMenu.beatId, 'below')} isLight={isLight} />
+                        <ContextMenuItem icon={Copy} label="Duplicate Scene" onClick={() => handleDuplicateScene(scriptContextMenu.beatId)} isLight={isLight} />
                     </>
                 }
             />
@@ -1163,9 +1276,10 @@ const ScriptView: React.FC = () => {
             <ContextMenuItem 
                 icon={History} 
                 label="Restore Snapshot" 
+                isLight={isLight}
                 submenu={
                     <>
-                        <div className="px-3 py-1 text-[8px] font-bold uppercase text-[#555]">Historical Versions</div>
+                        <div className={`px-3 py-1 text-[8px] font-bold uppercase ${isLight ? 'text-slate-400' : 'text-[#555]'}`}>Historical Versions</div>
                         {beats.find(b => b.id === scriptContextMenu.beatId)?.versions?.length ? (
                             [...(beats.find(b => b.id === scriptContextMenu.beatId)?.versions || [])].reverse().slice(0, 10).map((v, i) => (
                                 <ContextMenuItem 
@@ -1173,13 +1287,14 @@ const ScriptView: React.FC = () => {
                                     icon={Clock}
                                     label={`v${(beats.find(b => b.id === scriptContextMenu.beatId)?.versions?.length || 0) - i} - ${new Date(v.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}`} 
                                     onClick={() => handleRestoreClick(v)} 
+                                    isLight={isLight}
                                 />
                             ))
                         ) : (
-                            <div className="px-3 py-2 text-[9px] text-gray-600 italic">No snapshots saved</div>
+                            <div className={`px-3 py-2 text-[9px] italic ${isLight ? 'text-slate-400' : 'text-gray-600'}`}>No snapshots saved</div>
                         )}
-                        <div className="h-px bg-[#222] mx-2 my-1"></div>
-                        <ContextMenuItem icon={Save} label="Create Current Snapshot" onClick={() => { setActiveBeatId(scriptContextMenu.beatId); handleCreateSnapshot(); setScriptContextMenu(null); }} />
+                        <div className={`h-px mx-2 my-1 ${isLight ? 'bg-slate-200' : 'bg-[#222]'}`}></div>
+                        <ContextMenuItem icon={Save} label="Create Current Snapshot" onClick={() => { setActiveBeatId(scriptContextMenu.beatId); handleCreateSnapshot(); setScriptContextMenu(null); }} isLight={isLight} />
                     </>
                 }
             />
@@ -1187,25 +1302,27 @@ const ScriptView: React.FC = () => {
             <ContextMenuItem 
                 icon={Layers} 
                 label="Project Navigation" 
+                isLight={isLight}
                 submenu={
                     <>
                         <ContextMenuItem icon={MousePointer2} label="Focus on Board" onClick={() => { 
                             const b = beats.find(b => b.id === scriptContextMenu.beatId);
                             if (b) setActiveBoardId(b.boardId || 0);
                             setScriptContextMenu(null);
-                        }} />
-                        <ContextMenuItem icon={StickyNote} label="Open Scene Notes" onClick={() => { setActiveBeatId(scriptContextMenu.beatId); setScratchpadMode('scene'); setActiveSidebar('scratchpad'); setScriptContextMenu(null); }} />
-                        <ContextMenuItem icon={ListChecks} label="View Scene Breakdown" onClick={() => { setActiveBeatId(scriptContextMenu.beatId); setActiveSidebar('breakdown'); setScriptContextMenu(null); }} />
+                        }} isLight={isLight} />
+                        <ContextMenuItem icon={StickyNote} label="Open Scene Notes" onClick={() => { setActiveBeatId(scriptContextMenu.beatId); setScratchpadMode('scene'); setActiveSidebar('scratchpad'); setScriptContextMenu(null); }} isLight={isLight} />
+                        <ContextMenuItem icon={ListChecks} label="View Scene Breakdown" onClick={() => { setActiveBeatId(scriptContextMenu.beatId); setActiveSidebar('breakdown'); setScriptContextMenu(null); }} isLight={isLight} />
                     </>
                 }
             />
 
-            <div className="h-px bg-[#222] mx-2 my-1"></div>
+            <div className={`h-px mx-2 my-1 ${isLight ? 'bg-slate-200' : 'bg-[#222]'}`}></div>
             
             <ContextMenuItem 
                 danger 
                 icon={Trash2} 
                 label="Delete Scene" 
+                isLight={isLight}
                 onClick={() => handleDeleteScene(scriptContextMenu.beatId)} 
             />
           </div>

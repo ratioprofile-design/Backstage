@@ -80,6 +80,35 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [lastSessionDate, setLastSessionDate] = useState(new Date().toISOString().split('T')[0]);
   const [boardLayerOrder, setBoardLayerOrder] = useState<BoardLayer[]>(INITIAL_STATE.boardLayerOrder);
 
+  // App Appearance & Customization State
+  const [appTheme, setAppThemeState] = useState<'dark' | 'light' | 'system'>(() => {
+    return (localStorage.getItem('app_theme') as any) || INITIAL_STATE.appTheme || 'dark';
+  });
+  const [appAccentColor, setAppAccentColorState] = useState<string>(() => {
+    return localStorage.getItem('app_accent') || INITIAL_STATE.appAccentColor || '#f5a623';
+  });
+  const [appLanguage, setAppLanguageState] = useState<'english' | 'tamil' | 'spanish' | 'french' | 'german' | 'hindi'>(() => {
+    return (localStorage.getItem('app_language') as any) || INITIAL_STATE.appLanguage || 'english';
+  });
+
+  const setAppTheme = useCallback((theme: 'dark' | 'light' | 'system') => {
+    setAppThemeState(theme);
+    localStorage.setItem('app_theme', theme);
+    setHasUnsavedChanges(true);
+  }, []);
+
+  const setAppAccentColor = useCallback((color: string) => {
+    setAppAccentColorState(color);
+    localStorage.setItem('app_accent', color);
+    setHasUnsavedChanges(true);
+  }, []);
+
+  const setAppLanguage = useCallback((lang: 'english' | 'tamil' | 'spanish' | 'french' | 'german' | 'hindi') => {
+    setAppLanguageState(lang);
+    localStorage.setItem('app_language', lang);
+    setHasUnsavedChanges(true);
+  }, []);
+
   // Monitor Supabase Auth
   useEffect(() => {
     if (!isSupabaseConfigured) {
@@ -138,6 +167,9 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setNextId(data.nextId ?? INITIAL_STATE.nextId);
     setNextAnnoId(data.nextAnnoId ?? INITIAL_STATE.nextAnnoId);
     setDailyStats(data.dailyStats || INITIAL_STATE.dailyStats);
+    if (data.appTheme) setAppThemeState(data.appTheme);
+    if (data.appAccentColor) setAppAccentColorState(data.appAccentColor);
+    if (data.appLanguage) setAppLanguageState(data.appLanguage);
     
     // Reset the flag after a brief timeout to allow state to settle
     setTimeout(() => { isRemoteUpdateRef.current = false; setHasUnsavedChanges(false); }, 50);
@@ -573,7 +605,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   }, []);
 
   const value: ProjectContextType = {
-    beats, groups, connections, annotations, characterData, generatedShots, scratchpad, globalNotes, panX, panY, scale, nextId, nextAnnoId, activeBoardId, isTamilMode, tamilFontScale, tamilFontFamily, userDictionary, isOsInputMode, osInputShortcut, scriptConfig, scriptViewMode, scratchpadConfig, storyboardConfig, isStoryboardFeatureEnabled, breakdownLanguage, breakdownLockedOnly, isPdfDropEnabled, isRedoEnabled, writingGoal, geminiApiKey: '', stabilityApiKey, dailyStats, sessionStartCount, lastSessionDate, boardLayerOrder, currentUser, currentProjectId, projectList, hasUnsavedChanges, schemaError, isSaving, fileHandle, isInitialLoading, isCloudMode: !!supabaseUser, login, logout, selectProject, createProject, deleteProject, closeProject, clearSchemaError: () => { setSchemaError(null); if (supabaseUser) refreshProjectList(supabaseUser.id); }, setBeats: setBeatsWrapped, setGroups: setGroupsWrapped, setConnections: setConnectionsWrapped, setAnnotations: setAnnotationsWrapped, setCharacterData: setCharacterDataWrapped, setGeneratedShots, setScratchpad: setScratchpadWrapped, setGlobalNotes: setGlobalNotesWrapped, updateGeneratedShot: (id, u) => { setGeneratedShots(p => p.map(s => s.id === id ? { ...s, ...u } : s)); setHasUnsavedChanges(true); }, addGeneratedShot: (i) => { const n = { id: `shot-${Date.now()}`, shotSize: 'WIDE', angle: 'EYE LEVEL', description: '', subject: '', scene: '?', imageHistory: [] }; const s = [...generatedShots]; s.splice(i + 1, 0, n); setGeneratedShots(s); captureSnapshot(); }, removeGeneratedShot: (id) => { setGeneratedShots(p => p.filter(s => s.id !== id)); captureSnapshot(); }, moveGeneratedShot: (f, t) => { const s = [...generatedShots]; const [m] = s.splice(f, 1); s.splice(t, 0, m); setGeneratedShots(s); captureSnapshot(); }, setPan: (x, y) => { setPanX(x); setPanY(y); }, setScale, updateBeat, addBeat, reorderBeats, addGroup: (g) => { const id = nextId; setNextId(p => p + 1); setGroups(p => [...p, { ...g, id, boardId: activeBoardId }]); captureSnapshot(); }, updateGroup: (id, u) => { setGroups(p => p.map(g => g.id === id ? { ...g, ...u } : g)); setHasUnsavedChanges(true); }, removeGroup: (id) => { setGroups(p => p.filter(g => g.id !== id)); captureSnapshot(); }, loadProject: applyProjectState, saveProject, saveProjectAs, setActiveBoardId, setTamilMode, setTamilFontScale, setTamilFontFamily, learnTamilWord: (e, t) => { setUserDictionary(p => { const c = p[e.toLowerCase()] || []; if (!c.includes(t)) return { ...p, [e.toLowerCase()]: [t, ...c] }; return p; }); }, setOsInputMode, setOsInputShortcut, setScriptConfig, setScriptViewMode, setScratchpadConfig, setStoryboardConfig, setStoryboardFeatureEnabled, setBreakdownLanguage, setBreakdownLockedOnly, setPdfDropEnabled, setRedoEnabled, setWritingGoal, setGeminiApiKey: () => {}, setStabilityApiKey, setBoardLayerOrder, setNextId, undo, redo, canUndo: historyIndexRef.current > 0, canRedo: historyIndexRef.current < historyRef.current.length - 1, captureSnapshot, downloadProject, autoGenerate5Scenes, autoGenerateScenes
+    beats, groups, connections, annotations, characterData, generatedShots, scratchpad, globalNotes, panX, panY, scale, nextId, nextAnnoId, activeBoardId, isTamilMode, tamilFontScale, tamilFontFamily, userDictionary, isOsInputMode, osInputShortcut, scriptConfig, scriptViewMode, scratchpadConfig, storyboardConfig, isStoryboardFeatureEnabled, breakdownLanguage, breakdownLockedOnly, isPdfDropEnabled, isRedoEnabled, writingGoal, geminiApiKey: '', stabilityApiKey, dailyStats, sessionStartCount, lastSessionDate, boardLayerOrder, appTheme, appAccentColor, appLanguage, currentUser, currentProjectId, projectList, hasUnsavedChanges, schemaError, isSaving, fileHandle, isInitialLoading, isCloudMode: !!supabaseUser, login, logout, selectProject, createProject, deleteProject, closeProject, clearSchemaError: () => { setSchemaError(null); if (supabaseUser) refreshProjectList(supabaseUser.id); }, setBeats: setBeatsWrapped, setGroups: setGroupsWrapped, setConnections: setConnectionsWrapped, setAnnotations: setAnnotationsWrapped, setCharacterData: setCharacterDataWrapped, setGeneratedShots, setScratchpad: setScratchpadWrapped, setGlobalNotes: setGlobalNotesWrapped, updateGeneratedShot: (id, u) => { setGeneratedShots(p => p.map(s => s.id === id ? { ...s, ...u } : s)); setHasUnsavedChanges(true); }, addGeneratedShot: (i) => { const n = { id: `shot-${Date.now()}`, shotSize: 'WIDE', angle: 'EYE LEVEL', description: '', subject: '', scene: '?', imageHistory: [] }; const s = [...generatedShots]; s.splice(i + 1, 0, n); setGeneratedShots(s); captureSnapshot(); }, removeGeneratedShot: (id) => { setGeneratedShots(p => p.filter(s => s.id !== id)); captureSnapshot(); }, moveGeneratedShot: (f, t) => { const s = [...generatedShots]; const [m] = s.splice(f, 1); s.splice(t, 0, m); setGeneratedShots(s); captureSnapshot(); }, setPan: (x, y) => { setPanX(x); setPanY(y); }, setScale, updateBeat, addBeat, reorderBeats, addGroup: (g) => { const id = nextId; setNextId(p => p + 1); setGroups(p => [...p, { ...g, id, boardId: activeBoardId }]); captureSnapshot(); }, updateGroup: (id, u) => { setGroups(p => p.map(g => g.id === id ? { ...g, ...u } : g)); setHasUnsavedChanges(true); }, removeGroup: (id) => { setGroups(p => p.filter(g => g.id !== id)); captureSnapshot(); }, loadProject: applyProjectState, saveProject, saveProjectAs, setActiveBoardId, setTamilMode, setTamilFontScale, setTamilFontFamily, learnTamilWord: (e, t) => { setUserDictionary(p => { const c = p[e.toLowerCase()] || []; if (!c.includes(t)) return { ...p, [e.toLowerCase()]: [t, ...c] }; return p; }); }, setOsInputMode, setOsInputShortcut, setScriptConfig, setScriptViewMode, setScratchpadConfig, setStoryboardConfig, setStoryboardFeatureEnabled, setAppTheme, setAppAccentColor, setAppLanguage, setBreakdownLanguage, setBreakdownLockedOnly, setPdfDropEnabled, setRedoEnabled, setWritingGoal, setGeminiApiKey: () => {}, setStabilityApiKey, setBoardLayerOrder, setNextId, undo, redo, canUndo: historyIndexRef.current > 0, canRedo: historyIndexRef.current < historyRef.current.length - 1, captureSnapshot, downloadProject, autoGenerate5Scenes, autoGenerateScenes
   };
 
   return <ProjectContext.Provider value={value}>{children}</ProjectContext.Provider>;

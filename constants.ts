@@ -135,6 +135,32 @@ export const SUPPORTED_LANGUAGES = [
     { label: 'Tamil', value: 'ta' },
 ];
 
+export const ACCENT_COLORS = [
+  { name: 'Amber Gold', value: '#f5a623', bgClass: 'bg-[#f5a623]' },
+  { name: 'Crimson Rose', value: '#e11d48', bgClass: 'bg-rose-600' },
+  { name: 'Violet Purple', value: '#8b5cf6', bgClass: 'bg-violet-500' },
+  { name: 'Sapphire Blue', value: '#3b82f6', bgClass: 'bg-blue-500' },
+  { name: 'Emerald Green', value: '#10b981', bgClass: 'bg-emerald-500' },
+  { name: 'Cyber Cyan', value: '#06b6d4', bgClass: 'bg-cyan-500' },
+  { name: 'Sunset Orange', value: '#f97316', bgClass: 'bg-orange-500' },
+];
+
+export const APP_LANGUAGES = [
+  { label: 'English', value: 'english', flag: '🇺🇸' },
+  { label: 'Tamil (தமிழ்)', value: 'tamil', flag: '🇮🇳' },
+  { label: 'Spanish (Español)', value: 'spanish', flag: '🇪🇸' },
+  { label: 'French (Français)', value: 'french', flag: '🇫🇷' },
+  { label: 'German (Deutsch)', value: 'german', flag: '🇩🇪' },
+  { label: 'Hindi (हिंदी)', value: 'hindi', flag: '🇮🇳' },
+];
+
+export const BREAKDOWN_LANGUAGES = [
+  { label: 'English', value: 'english', flag: '🇺🇸' },
+  { label: 'Tamil (தமிழ்)', value: 'tamil', flag: '🇮🇳' },
+  { label: 'Spanish (Español)', value: 'spanish', flag: '🇪🇸' },
+  { label: 'French (Français)', value: 'french', flag: '🇫🇷' },
+];
+
 export const INITIAL_STATE: ProjectState = {
   beats: [],
   groups: [],
@@ -145,6 +171,11 @@ export const INITIAL_STATE: ProjectState = {
   
   scratchpad: '', // Legacy string content
   globalNotes: [], // Init global notes
+
+  // App Appearance
+  appTheme: 'dark',
+  appAccentColor: '#f5a623',
+  appLanguage: 'english',
 
   panX: 0,
   panY: 0,

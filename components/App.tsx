@@ -12,6 +12,7 @@ import GoalView from './views/GoalView';
 import BreakdownView from './views/BreakdownView';
 import ShotListView from './views/ShotListView';
 import CrewView from './views/CrewView';
+import { ContinuityView } from './views/ContinuityView';
 import EditorModal from './EditorModal';
 import PrintPreviewModal from './PrintPreviewModal';
 import { ViewMode, ScriptConfig } from '../types';
@@ -232,15 +233,19 @@ const AppContent: React.FC = () => {
       <main className="w-full h-[calc(100vh-50px)] mt-[50px] relative print:hidden print:mt-0 print:h-auto">
         {currentView === 'board' && <div className="w-full h-full"><BoardView key={`board-${refreshKey}`} onEditBeat={handleEditBeat} /></div>}
         {currentView === 'script' && <ScriptView key={`script-${refreshKey}`} />}
-        {currentView === 'casting' && <div className="w-full h-full"><CastingView key={`casting-${refreshKey}`} /></div>}
+        {(currentView === 'casting' || (currentView as string) === 'characters') && <div className="w-full h-full"><CastingView key={`casting-${refreshKey}`} /></div>}
         {currentView === 'breakdown' && <div className="w-full h-full"><BreakdownView key={`breakdown-${refreshKey}`} /></div>}
+        {currentView === 'continuity' && <div className="w-full h-full"><ContinuityView key={`continuity-${refreshKey}`} /></div>}
         {currentView === 'crew' && <div className="w-full h-full"><CrewView key={`crew-${refreshKey}`} /></div>}
         {currentView === 'shotlist' && <div className="w-full h-full"><ShotListView key={`shotlist-${refreshKey}`} onNavigateToStoryboard={() => setCurrentView('storyboard')} /></div>}
         {currentView === 'storyboard' && <div className="w-full h-full"><StoryboardView key={`story-${refreshKey}`} /></div>}
         {currentView === 'schedule' && <div className="w-full h-full"><ScheduleView key={`schedule-${refreshKey}`} /></div>}
         {currentView === 'statistics' && <div className="w-full h-full"><StatisticsView key={`stats-${refreshKey}`} /></div>}
-        {currentView === 'backstage' && <div className="w-full h-full"><BackstageView key={`backstage-${refreshKey}`} onNavigateToBoard={() => setCurrentView('board')} /></div>}
+        {(currentView === 'backstage' || (currentView as string) === 'inbox') && <div className="w-full h-full"><BackstageView key={`backstage-${refreshKey}`} onNavigateToBoard={() => setCurrentView('board')} /></div>}
         {currentView === 'goals' && <div className="w-full h-full"><GoalView key={`goals-${refreshKey}`} /></div>}
+        {!['board', 'script', 'casting', 'characters', 'breakdown', 'continuity', 'crew', 'shotlist', 'storyboard', 'schedule', 'statistics', 'backstage', 'inbox', 'goals'].includes(currentView) && (
+          <div className="w-full h-full"><BoardView key={`fallback-${refreshKey}`} onEditBeat={handleEditBeat} /></div>
+        )}
       </main>
 
       {currentView === 'board' && (

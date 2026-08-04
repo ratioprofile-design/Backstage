@@ -594,10 +594,10 @@ export const InboxView: React.FC<InboxViewProps> = ({
                 className={`px-2.5 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
                   displayLayout === 'gantt' ? 'bg-[#f5a623] text-black shadow' : 'text-gray-400 hover:text-white'
                 }`}
-                title="Gantt Timeline View"
+                title="Production Timeline View"
               >
                 <BarChart3 size={15} />
-                <span className="hidden xl:inline">Gantt</span>
+                <span className="hidden xl:inline">Timeline</span>
               </button>
 
               <button
@@ -1098,96 +1098,170 @@ export const InboxView: React.FC<InboxViewProps> = ({
             </div>
           )}
 
-          {/* VIEW 4: GANTT TIMELINE VIEW */}
+          {/* VIEW 4: PRODUCTION TIMELINE & SCHEDULE ROADMAP */}
           {displayLayout === 'gantt' && (
             <div className="space-y-4">
-              <div className="bg-[#141418] border border-[#222227] p-4 rounded-2xl flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-xl bg-amber-500/10 text-amber-400 flex items-center justify-center border border-amber-500/30">
+              {/* Timeline View Banner */}
+              <div className="bg-[#141418] border border-[#222227] p-4.5 rounded-2xl flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div className="flex items-center gap-3.5">
+                  <div className="w-10 h-10 rounded-xl bg-amber-500/15 text-amber-400 flex items-center justify-center border border-amber-500/30 shadow-inner shrink-0">
                     <BarChart3 size={20} />
                   </div>
                   <div>
-                    <h3 className="text-sm font-bold text-white font-mono uppercase">
-                      Production Gantt Timeline
+                    <h3 className="text-sm font-bold text-white font-mono uppercase tracking-wide flex items-center gap-2">
+                      <span>Production Schedule & Deliverables Roadmap</span>
+                      <span className="text-[10px] bg-amber-500/20 text-amber-400 border border-amber-500/40 px-2 py-0.5 rounded-full font-sans font-semibold">
+                        August 2026
+                      </span>
                     </h3>
-                    <p className="text-xs text-gray-400">
-                      Chronological task timelines and deadlines across all departments
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      Interactive chronological view across all department tasks and shooting days
                     </p>
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2 text-xs font-mono">
-                  <span className="flex items-center gap-1 text-red-400"><span className="w-2.5 h-2.5 rounded-full bg-red-500"></span> Critical</span>
-                  <span className="flex items-center gap-1 text-amber-400"><span className="w-2.5 h-2.5 rounded-full bg-amber-500"></span> In Progress</span>
-                  <span className="flex items-center gap-1 text-emerald-400"><span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span> Completed</span>
+                <div className="flex items-center gap-3 flex-wrap text-xs font-mono">
+                  <div className="flex items-center gap-2 bg-[#0c0c0e] px-3 py-1.5 rounded-xl border border-[#222227]">
+                    <span className="text-gray-400">Current Phase:</span>
+                    <span className="text-amber-400 font-bold flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping"></span>
+                      Shooting Day 1 (Aug 5)
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-3 bg-[#18181d] px-3 py-1.5 rounded-xl border border-[#282830]">
+                    <span className="flex items-center gap-1 text-red-400"><span className="w-2.5 h-2.5 rounded-full bg-red-500"></span> Critical</span>
+                    <span className="flex items-center gap-1 text-amber-400"><span className="w-2.5 h-2.5 rounded-full bg-amber-500"></span> In Progress</span>
+                    <span className="flex items-center gap-1 text-purple-400"><span className="w-2.5 h-2.5 rounded-full bg-purple-500"></span> Review</span>
+                    <span className="flex items-center gap-1 text-emerald-400"><span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span> Done</span>
+                  </div>
                 </div>
               </div>
 
-              {/* Gantt Timeline Container */}
-              <div className="bg-[#141418] border border-[#222227] rounded-2xl overflow-x-auto custom-scrollbar">
-                <div className="min-w-[900px]">
+              {/* Timeline Grid Table Container */}
+              <div className="bg-[#141418] border border-[#222227] rounded-2xl overflow-x-auto custom-scrollbar shadow-lg">
+                <div className="min-w-[1100px]">
                   
-                  {/* Timeline Header Row */}
-                  <div className="grid grid-cols-[240px_1fr] border-b border-[#222227] bg-[#18181d]">
-                    <div className="p-3 text-xs font-mono font-bold text-gray-400 uppercase border-r border-[#222227]">
-                      Department / Task Title
+                  {/* Header Row: Column Titles & Dates */}
+                  <div className="grid grid-cols-[280px_1fr] border-b border-[#222227] bg-[#18181d]">
+                    <div className="p-3.5 text-xs font-mono font-bold text-gray-400 uppercase border-r border-[#222227] flex items-center justify-between">
+                      <span>Task & Department</span>
+                      <span className="text-[10px] text-gray-500 font-normal">Source Page</span>
                     </div>
-                    <div className="grid grid-cols-22 divide-x divide-[#26262e] text-center text-[10px] font-mono text-gray-400 py-2">
-                      {ganttDays.map(gDay => (
-                        <div key={gDay.dateStr} className={`px-1 font-bold ${gDay.dateStr === '2026-08-05' ? 'text-amber-400 bg-amber-500/10' : ''}`}>
-                          {gDay.dayNumber}
-                        </div>
-                      ))}
+
+                    {/* Date Ticks */}
+                    <div className="grid grid-cols-22 text-center text-[11px] font-mono py-2.5 divide-x divide-[#22222a]">
+                      {ganttDays.map(gDay => {
+                        const isToday = gDay.dateStr === '2026-08-05';
+                        return (
+                          <div 
+                            key={gDay.dateStr} 
+                            className={`flex flex-col items-center justify-center font-bold px-0.5 ${
+                              isToday 
+                                ? 'text-amber-400 bg-amber-500/15 py-1 rounded border border-amber-500/30' 
+                                : 'text-gray-400 hover:text-white'
+                            }`}
+                          >
+                            <span className="text-[9px] font-normal text-gray-500 uppercase">{gDay.dayNumber <= 4 ? 'Pre' : gDay.dayNumber <= 15 ? 'Shoot' : 'Post'}</span>
+                            <span>{gDay.dayNumber}</span>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
 
-                  {/* Gantt Task Rows */}
-                  <div className="divide-y divide-[#1e1e24]">
+                  {/* Timeline Rows */}
+                  <div className="divide-y divide-[#1c1c22]">
                     {filteredTasks.map(task => {
-                      const dayNum = parseInt(task.deadline.split('-')[2] || '10', 10);
+                      const deadlineDay = parseInt(task.deadline.split('-')[2] || '10', 10);
+                      const clampedDeadline = Math.min(22, Math.max(1, deadlineDay));
+                      
+                      // Compute realistic start day based on priority/duration
+                      const duration = task.priority === 'Critical' ? 5 : task.priority === 'High' ? 4 : 3;
+                      const startDay = Math.max(1, clampedDeadline - duration + 1);
                       const targetLabel = TARGET_VIEW_LABELS[task.targetView] || 'Source Page';
 
                       return (
-                        <div key={task.id} className="grid grid-cols-[240px_1fr] items-center hover:bg-[#1a1a20] transition-colors">
+                        <div key={task.id} className="grid grid-cols-[280px_1fr] items-center hover:bg-[#18181e] transition-colors group">
                           
                           {/* Task Info Left Column */}
-                          <div className="p-3 border-r border-[#222227] space-y-1">
+                          <div className="p-3 border-r border-[#222227] space-y-1 bg-[#141418] group-hover:bg-[#18181e] transition-colors">
                             <div className="flex items-center justify-between text-[10px] font-mono">
-                              <span className="text-amber-400 font-bold uppercase">{task.departmentName || task.departmentId}</span>
+                              <span className="text-amber-400 font-bold uppercase truncate max-w-[140px]">
+                                {task.departmentName || task.departmentId}
+                              </span>
                               <button 
                                 onClick={() => onNavigateToView(task.targetView)}
-                                className="text-gray-400 hover:text-amber-400 flex items-center gap-1 font-bold"
-                                title={`Open ${targetLabel}`}
+                                className="text-gray-400 hover:text-amber-400 flex items-center gap-0.5 font-bold text-[10px] bg-[#1e1e24] px-1.5 py-0.5 rounded border border-[#333] transition-colors"
+                                title={`Jump directly to ${targetLabel}`}
                               >
-                                {targetLabel} <ArrowUpRight size={11} />
+                                <span>{targetLabel}</span>
+                                <ArrowUpRight size={10} />
                               </button>
                             </div>
+
                             <div 
                               onClick={() => onNavigateToView(task.targetView)}
-                              className="text-xs font-bold text-white truncate cursor-pointer hover:text-amber-400"
+                              className="text-xs font-bold text-white truncate cursor-pointer hover:text-amber-400 transition-colors"
+                              title={task.title}
                             >
                               {task.title}
                             </div>
+
+                            <div className="flex items-center justify-between text-[10px] font-mono text-gray-400 pt-0.5">
+                              <span className="flex items-center gap-1 text-gray-300">
+                                <User size={11} className="text-amber-400" />
+                                {task.owner}
+                              </span>
+                              <span className={`px-1.5 py-0.2 rounded text-[9px] font-bold ${
+                                task.status === 'Completed' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' :
+                                task.status === 'In Progress' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' :
+                                task.status === 'Review' ? 'bg-purple-500/10 text-purple-400 border border-purple-500/20' :
+                                'bg-blue-500/10 text-blue-400 border border-blue-500/20'
+                              }`}>
+                                {task.status}
+                              </span>
+                            </div>
                           </div>
 
-                          {/* Timeline Bar Right Column */}
-                          <div className="relative h-12 flex items-center px-2">
-                            {/* Marker line for deadline */}
-                            <div 
-                              className={`h-8 rounded-xl px-3 flex items-center justify-between text-xs font-mono font-bold cursor-pointer transition-all shadow-md hover:scale-[1.01] ${
-                                task.status === 'Completed' ? 'bg-emerald-500 text-black' :
-                                task.priority === 'Critical' ? 'bg-red-500 text-white' :
-                                'bg-amber-500 text-black'
-                              }`}
+                          {/* Interactive Timeline Bar Right Column */}
+                          <div className="relative h-14 grid grid-cols-22 items-center px-1">
+                            
+                            {/* Vertical "TODAY" Highlight Indicator Column (Aug 5) */}
+                            <div className="absolute top-0 bottom-0 left-[calc((4/22)*100%)] w-[calc((1/22)*100%)] bg-amber-500/5 border-x border-amber-500/20 pointer-events-none z-0"></div>
+
+                            {/* Spanning Task Bar */}
+                            <div
+                              className="relative z-10 my-auto h-9 rounded-xl px-3 flex items-center justify-between text-xs font-mono font-bold cursor-pointer transition-all shadow-md border hover:scale-[1.01] hover:shadow-amber-500/10"
                               style={{
-                                width: `${Math.max(15, (dayNum / 22) * 100)}%`
+                                gridColumnStart: startDay,
+                                gridColumnEnd: Math.max(startDay + 1, clampedDeadline + 1),
                               }}
                               onClick={() => onNavigateToView(task.targetView)}
-                              title={`Click to open ${targetLabel}`}
+                              title={`${task.title} (Aug ${startDay} - Aug ${clampedDeadline}) - Click to open ${targetLabel}`}
                             >
-                              <span className="truncate pr-2">{task.title}</span>
-                              <span className="text-[10px] shrink-0 opacity-90">Due Aug {dayNum}</span>
+                              {/* Background styling based on status/priority */}
+                              <div className={`absolute inset-0 rounded-xl opacity-90 transition-opacity ${
+                                task.status === 'Completed' ? 'bg-emerald-500/90 text-black border border-emerald-400' :
+                                task.priority === 'Critical' ? 'bg-gradient-to-r from-red-600 to-red-500 text-white border border-red-400 shadow-[0_0_10px_rgba(239,68,68,0.3)]' :
+                                task.status === 'In Progress' ? 'bg-gradient-to-r from-amber-500 to-amber-400 text-black border border-amber-300' :
+                                task.status === 'Review' ? 'bg-purple-600 text-white border border-purple-400' :
+                                'bg-blue-600 text-white border border-blue-400'
+                              }`}></div>
+
+                              {/* Content above background overlay */}
+                              <div className="relative z-10 flex items-center justify-between w-full min-w-0 gap-2">
+                                <span className={`truncate ${task.status === 'Completed' || task.status === 'In Progress' ? 'text-black' : 'text-white'}`}>
+                                  {task.title}
+                                </span>
+                                <span className={`text-[10px] shrink-0 font-bold px-1.5 py-0.5 rounded ${
+                                  task.status === 'Completed' || task.status === 'In Progress' ? 'bg-black/20 text-black' : 'bg-black/40 text-white'
+                                }`}>
+                                  Due Aug {clampedDeadline}
+                                </span>
+                              </div>
                             </div>
+
                           </div>
 
                         </div>

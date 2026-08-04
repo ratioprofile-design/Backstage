@@ -97,7 +97,33 @@ export interface ProjectMetadata {
   created: number;
 }
 
-export type ViewMode = 'board' | 'script' | 'characters' | 'casting' | 'breakdown' | 'crew' | 'shotlist' | 'storyboard' | 'schedule' | 'statistics' | 'backstage' | 'goals' | 'inbox';
+export type ViewMode = 'board' | 'script' | 'characters' | 'casting' | 'breakdown' | 'crew' | 'shotlist' | 'storyboard' | 'schedule' | 'statistics' | 'backstage' | 'goals' | 'inbox' | 'continuity';
+
+export interface ContinuityItem {
+  id: string;
+  sceneId: string;
+  sceneNumber: string;
+  sceneTitle: string;
+  shootingDay?: string;
+  category: 'costume' | 'makeup' | 'prop' | 'art_set' | 'sfx' | 'hair';
+  characterId?: string;
+  characterName?: string;
+  actorName?: string;
+  characterAvatar?: string;
+  itemTitle: string;
+  description: string;
+  damageLevel?: 'None' | 'Minor' | 'Moderate' | 'Severe' | 'Destroyed';
+  bloodLevel?: 'None' | 'Light Drops' | 'Active Bleeding' | 'Dried Blood' | 'Heavy Coverage';
+  handOrientation?: 'Left Hand' | 'Right Hand' | 'Both Hands' | 'N/A';
+  fillPercent?: number;
+  timecodeOrShot?: string;
+  photoUrl?: string;
+  referencePhotos?: string[];
+  status: 'Verified' | 'Pending Review' | 'Mismatched Warning' | 'Approved';
+  supervisorNotes?: string;
+  updatedAt: string;
+  isCustom?: boolean;
+}
 
 export interface TaskModificationHistory {
   id: string;
@@ -265,6 +291,11 @@ export interface ProjectState {
   sessionStartCount: number; // Word count at start of today's session
   lastSessionDate: string; // YYYY-MM-DD
 
+  // App Customization
+  appTheme?: 'dark' | 'light' | 'system';
+  appAccentColor?: string;
+  appLanguage?: 'english' | 'tamil' | 'spanish' | 'french' | 'german' | 'hindi';
+
   // Board Layers
   boardLayerOrder: BoardLayer[];
 }
@@ -348,6 +379,11 @@ export interface ProjectContextType extends ProjectState {
   setStoryboardConfig: (config: StoryboardConfig) => void;
   setStoryboardFeatureEnabled: (enabled: boolean) => void;
   
+  // App Customization Setters
+  setAppTheme: (theme: 'dark' | 'light' | 'system') => void;
+  setAppAccentColor: (color: string) => void;
+  setAppLanguage: (lang: 'english' | 'tamil' | 'spanish' | 'french' | 'german' | 'hindi') => void;
+
   // Breakdown Configuration
   setBreakdownLanguage: (lang: 'english' | 'tamil') => void;
   setBreakdownLockedOnly: (enabled: boolean) => void;

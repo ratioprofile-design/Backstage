@@ -552,7 +552,8 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
         if (engine.current.isLinking && beat.id !== engine.current.linkingSourceId) card.classList.add('target-mode');
         card.style.left = `${beat.x}px`;
         card.style.top = `${beat.y}px`;
-        if(beat.tint) card.style.backgroundColor = beat.tint;
+        if (beat.tint && beat.tint !== '#2d2d2d') card.style.backgroundColor = beat.tint;
+        else card.style.backgroundColor = '';
         card.dataset.id = beat.id.toString();
 
         const header = document.createElement('div');

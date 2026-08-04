@@ -5,7 +5,7 @@ import { useProject } from '../context/ProjectContext';
 import { 
     Target, Zap, Clock, Film, RotateCcw, RotateCw, CheckCircle2, 
     TrendingUp, Save, Cloud, CloudOff, Wifi, WifiOff, CloudUpload,
-    Loader2, Check, FileCode, Inbox
+    Loader2, Check, FileCode, Inbox, Sun, Moon
 } from 'lucide-react';
 import { isSupabaseConfigured } from '../services/supabase';
 import { AISceneGeneratorModal } from './AISceneGeneratorModal';
@@ -31,7 +31,7 @@ const AppHeader: React.FC<AppHeaderProps> = ({
       projectList, currentProjectId,
       undo, redo, canUndo, canRedo,
       saveProject, saveProjectAs, hasUnsavedChanges, currentUser, isCloudMode, isSaving, fileHandle,
-      autoGenerate5Scenes
+      autoGenerate5Scenes, appTheme, setAppTheme
   } = useProject();
 
   const [showSavedConfirmation, setShowSavedConfirmation] = useState(false);
@@ -49,6 +49,7 @@ const AppHeader: React.FC<AppHeaderProps> = ({
     { id: 'script', label: 'Script' },
     { id: 'casting', label: 'Casting & Roster' },
     { id: 'breakdown', label: 'Breakdown' },
+    { id: 'continuity', label: 'Continuity' },
     { id: 'crew', label: 'Crew' },
     { id: 'shotlist', label: 'Shot Division' },
     { id: 'storyboard', label: 'Storyboard', hidden: !isStoryboardFeatureEnabled },
@@ -266,6 +267,14 @@ const AppHeader: React.FC<AppHeaderProps> = ({
                     <span className="text-[11px] font-bold uppercase tracking-wide">Set Deadline</span>
                  </>
              )}
+          </button>
+          {/* THEME TOGGLE BUTTON */}
+          <button
+            onClick={() => setAppTheme(appTheme === 'light' ? 'dark' : 'light')}
+            className="w-9 h-9 rounded-[4px] bg-[#222] border border-[#3d3d3d] hover:border-[#f5a623] flex items-center justify-center text-amber-400 hover:text-amber-300 transition-all shadow-sm"
+            title={`Switch to ${appTheme === 'light' ? 'Dark' : 'Light'} Theme`}
+          >
+            {appTheme === 'light' ? <Moon size={16} /> : <Sun size={16} />}
           </button>
         </div>
       </header>

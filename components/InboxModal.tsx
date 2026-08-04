@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { ViewMode, AppTask, TaskModificationHistory } from '../types';
+import { TwoClickDeleteButton } from './views/CrewView';
 import { 
   Inbox, CheckCircle2, Clock, AlertCircle, Play, Filter, Search, 
   ArrowRight, Plus, X, MessageSquare, History, User, Tag, Film,
@@ -644,13 +645,12 @@ export const InboxModal: React.FC<InboxModalProps> = ({
                             {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                           </button>
 
-                          <button
-                            onClick={() => onDeleteTask(task.id)}
+                          <TwoClickDeleteButton 
+                            onDelete={() => onDeleteTask(task.id)}
+                            iconSize={14}
+                            confirmText="Confirm Delete?"
                             className="p-1.5 text-gray-500 hover:text-red-400 rounded-xl hover:bg-[#25252b] transition-colors"
-                            title="Delete Task"
-                          >
-                            <Trash2 size={14} />
-                          </button>
+                          />
                         </div>
                       </div>
 

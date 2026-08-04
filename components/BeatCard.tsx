@@ -120,7 +120,7 @@ const BeatCard: React.FC<BeatCardProps> = ({
       ${isSelected ? 'border-[#f5a623] shadow-[0_0_0_1px_#f5a623,0_8px_20px_rgba(0,0,0,0.5)] z-20' : 'border-[#3d3d3d] shadow-lg'}
       ${creationStep ? 'shadow-[0_0_20px_rgba(245,166,35,0.3)] border-[#f5a623]' : ''}
       `}
-      style={{ left: beat.x, top: beat.y, backgroundColor: beat.tint || '#2d2d2d' }}
+      style={{ left: beat.x, top: beat.y, backgroundColor: (beat.tint && beat.tint !== '#2d2d2d') ? beat.tint : undefined }}
       onMouseDown={(e) => onMouseDown(e, beat.id)}
       onDoubleClick={() => onDoubleClick(beat.id)}
     >

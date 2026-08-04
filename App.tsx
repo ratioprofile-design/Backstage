@@ -13,6 +13,7 @@ import GoalView from './components/views/GoalView';
 import BreakdownView from './components/views/BreakdownView';
 import CrewView from './components/views/CrewView';
 import ShotListView from './components/views/ShotListView';
+import ContinuityView from './components/views/ContinuityView';
 import EditorModal from './components/EditorModal';
 import PrintPreviewModal from './components/PrintPreviewModal';
 import InboxModal, { DEFAULT_INBOX_TASKS } from './components/InboxModal';
@@ -21,10 +22,30 @@ import { ViewMode, ScriptConfig, AppTask } from './types';
 import { Loader2, Film } from 'lucide-react';
 
 const StyleInjector: React.FC = () => {
-  const { scriptConfig, scratchpadConfig } = useProject();
+  const { scriptConfig, scratchpadConfig, appTheme, appAccentColor } = useProject();
   const { blockBounds, paperTheme, slugline } = scriptConfig;
 
   useEffect(() => {
+    const accent = appAccentColor || '#f5a623';
+    
+    // Set --app-accent globally on document element and body
+    document.documentElement.style.setProperty('--app-accent', accent);
+    document.body.style.setProperty('--app-accent', accent);
+    
+    // Apply app theme class to body/html
+    const isLight = appTheme === 'light' || (appTheme === 'system' && window.matchMedia('(prefers-color-scheme: light)').matches);
+    if (isLight) {
+      document.documentElement.classList.add('light-theme');
+      document.documentElement.classList.remove('dark-theme');
+      document.body.classList.add('light-theme');
+      document.body.classList.remove('dark-theme');
+    } else {
+      document.documentElement.classList.add('dark-theme');
+      document.documentElement.classList.remove('light-theme');
+      document.body.classList.add('dark-theme');
+      document.body.classList.remove('light-theme');
+    }
+
     const styleId = 'dynamic-script-styling';
     let styleEl = document.getElementById(styleId) as HTMLStyleElement;
     if (!styleEl) {
@@ -116,10 +137,17 @@ const StyleInjector: React.FC = () => {
 
     styleEl.innerHTML = `
       :root {
+        --app-accent: ${accent};
         ${elementVars}
         ${slugVars}
         ${spVars}
         ${themeCss}
+      }
+      .light-theme {
+        color-scheme: light;
+      }
+      .dark-theme {
+        color-scheme: dark;
       }
       ${blockBounds.enabled ? `${selector} { ${funStyles} transition: all 0.2s ease; }` : ''}
       .sc-active-block { position: relative; z-index: 1; }
@@ -141,7 +169,7 @@ const StyleInjector: React.FC = () => {
         color: var(--color-slug);
       }
     `;
-  }, [scriptConfig, scratchpadConfig]);
+  }, [scriptConfig, scratchpadConfig, appTheme, appAccentColor]);
 
   return null;
 };
@@ -264,7 +292,18 @@ const AppContent: React.FC = () => {
         {currentView === 'script' && <ScriptView key={`script-${refreshKey}`} />}
         {currentView === 'casting' && <div className="w-full h-full"><CastingView key={`casting-${refreshKey}`} /></div>}
         {currentView === 'breakdown' && <div className="w-full h-full"><BreakdownView key={`breakdown-${refreshKey}`} /></div>}
-        {currentView === 'crew' && <div className="w-full h-full"><CrewView key={`crew-${refreshKey}`} /></div>}
+        {currentView === 'continuity' && <div className="w-full h-full"><ContinuityView key={`continuity-${refreshKey}`} /></div>}
+        {currentView === 'crew' && (
+          <div className="w-full h-full">
+            <CrewView 
+              key={`crew-${refreshKey}`} 
+              allTasks={inboxTasks}
+              onUpdateTask={handleUpdateTask}
+              onAddTask={handleAddTask}
+              onDeleteTask={handleDeleteTask}
+            />
+          </div>
+        )}
         {currentView === 'shotlist' && <div className="w-full h-full"><ShotListView key={`shotlist-${refreshKey}`} onNavigateToStoryboard={() => setCurrentView('storyboard')} /></div>}
         {currentView === 'storyboard' && <div className="w-full h-full"><StoryboardView key={`story-${refreshKey}`} /></div>}
         {currentView === 'schedule' && <div className="w-full h-full"><ScheduleView key={`schedule-${refreshKey}`} /></div>}
@@ -272,6 +311,9 @@ const AppContent: React.FC = () => {
         {currentView === 'backstage' && <div className="w-full h-full"><BackstageView key={`backstage-${refreshKey}`} onNavigateToBoard={() => setCurrentView('board')} /></div>}
         {currentView === 'goals' && <div className="w-full h-full"><GoalView key={`goals-${refreshKey}`} /></div>}
         {currentView === 'inbox' && <div className="w-full h-full"><InboxView key={`inbox-${refreshKey}`} tasks={inboxTasks} onNavigateToView={setCurrentView} onUpdateTask={handleUpdateTask} onAddTask={handleAddTask} onDeleteTask={handleDeleteTask} /></div>}
+        {!['board', 'script', 'casting', 'characters', 'breakdown', 'continuity', 'crew', 'shotlist', 'storyboard', 'schedule', 'statistics', 'backstage', 'inbox', 'goals'].includes(currentView) && (
+          <div className="w-full h-full"><BoardView key={`fallback-${refreshKey}`} onEditBeat={handleEditBeat} /></div>
+        )}
       </main>
 
       {currentView === 'board' && (

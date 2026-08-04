@@ -12,7 +12,9 @@ export const SlugInput = ({
   style,
   align = 'left',
   openOnFocus = true,
-  readOnly = false
+  readOnly = false,
+  dropdownClassName,
+  dropdownStyle
 }: { 
   id?: string,
   value: string, 
@@ -24,7 +26,9 @@ export const SlugInput = ({
   style?: React.CSSProperties,
   align?: 'left' | 'right',
   openOnFocus?: boolean,
-  readOnly?: boolean
+  readOnly?: boolean,
+  dropdownClassName?: string,
+  dropdownStyle?: React.CSSProperties
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [filtered, setFiltered] = useState<string[]>([]);
@@ -131,17 +135,24 @@ export const SlugInput = ({
         readOnly={readOnly}
         onFocus={handleOpen}
         onMouseDown={handleOpen} // Force open on click
-        className={`uppercase bg-transparent outline-none w-full transition-colors print:border-none print:bg-transparent leading-tight placeholder-gray-400/50 ${readOnly ? 'cursor-default opacity-80' : 'hover:bg-black/5'}`}
+        className={`uppercase bg-transparent outline-none w-full transition-colors print:border-none print:bg-transparent leading-tight placeholder:opacity-40 ${readOnly ? 'cursor-default opacity-80' : 'hover:bg-current/10 focus:bg-current/15 rounded px-1'}`}
         style={style}
         placeholder={placeholder}
         autoComplete="off"
       />
       {!readOnly && isOpen && (
-        <div className={`absolute top-full ${align === 'right' ? 'right-0' : 'left-0'} min-w-full w-max bg-white border border-gray-300 shadow-xl z-[9999] max-h-60 overflow-y-auto mt-1 rounded-sm print:hidden text-left`}>
+        <div 
+          className={`absolute top-full ${align === 'right' ? 'right-0' : 'left-0'} min-w-full w-max bg-white dark:bg-[#1a1a1e] border border-slate-200 dark:border-slate-700/80 shadow-2xl z-[9999] max-h-60 overflow-y-auto mt-1 rounded-md p-1 print:hidden text-left backdrop-blur-md ${dropdownClassName || ''}`}
+          style={dropdownStyle}
+        >
           {filtered.map((s, i) => (
             <div 
               key={s}
-              className={`px-3 py-1.5 cursor-pointer text-sm font-bold whitespace-nowrap ${i === selectedIndex ? 'bg-orange-100 text-orange-800' : 'text-gray-700 hover:bg-gray-100'}`}
+              className={`px-3 py-1.5 cursor-pointer text-xs font-extrabold whitespace-nowrap transition-colors ${
+                i === selectedIndex 
+                  ? 'bg-amber-400 text-slate-950 font-black rounded' 
+                  : 'hover:bg-slate-500/10 rounded'
+              }`}
               onMouseDown={(e) => { e.preventDefault(); handleSelect(s); if(onNext) onNext(); }}
             >
               {s}
