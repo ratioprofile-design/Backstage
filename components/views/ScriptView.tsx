@@ -19,7 +19,6 @@ import { BreakdownData, BreakdownItem, BeatVersion, Note, Beat, Group, Connectio
 import { BlockEditor } from '../BlockEditor';
 import DiffModal from '../DiffModal';
 import { STORYLINE_COLORS, SUPPORTED_LANGUAGES } from '../../constants';
-
 // --- CONSTANTS ---
 const A4_WIDTH = 794;  
 const A4_HEIGHT = 1123;
@@ -167,10 +166,10 @@ const runPaginationPass = (container: HTMLElement, paperLayer: HTMLElement, cont
     }
 };
 
-const MilanoteCardsPanel = ({ 
-    beats, activeBeatId, onBeatClick, updateBeat, setBeats, captureSnapshot, reorderBeats, isLight
+const SummaryCardsPanel = ({ 
+    beats, groups, connections, activeBeatId, onBeatClick, updateBeat, setBeats, captureSnapshot, reorderBeats, isLight
 }: { 
-    beats: Beat[], activeBeatId: number | null, 
+    beats: Beat[], groups: Group[], connections: Connection[], activeBeatId: number | null, 
     onBeatClick: (id: number) => void, updateBeat: (id: number, data: Partial<Beat>) => void, 
     setBeats: (val: Beat[] | ((prev: Beat[]) => Beat[])) => void, 
     captureSnapshot: () => void,
@@ -198,13 +197,13 @@ const MilanoteCardsPanel = ({
         });
     }, [safeBeats, searchTerm]);
 
+    // Compute page numbers from word count
     const beatPageNumbers = useMemo(() => {
-        const pageMap: Record<number, string> = {};
+        const pageMap: Record<number, number> = {};
         let runningPages = 0;
         safeBeats.forEach((b) => {
             const startPg = Math.max(1, Math.floor(runningPages) + 1);
-            pageMap[b.id] = `Pg. ${startPg}`;
-
+            pageMap[b.id] = startPg;
             const text = (b.content ? b.content.replace(/<[^>]*>/g, ' ') : '') + ' ' + (b.summary || '');
             const wordCount = text.trim().split(/\s+/).filter(Boolean).length;
             const estimatedBeatPages = Math.max(0.125, wordCount / 180);
@@ -212,6 +211,48 @@ const MilanoteCardsPanel = ({
         });
         return pageMap;
     }, [safeBeats]);
+
+    // Build sequence info using the graph order logic
+    const sequenceInfo = useMemo(() => {
+        const connectedSet = new Set<number>();
+        connections.forEach(c => { connectedSet.add(c.from); connectedSet.add(c.to); });
+        
+        // Compute graph order
+        const orders = calculateGraphOrder(safeBeats, connections).orders;
+        
+        const info: Record<number, { isSequenced: boolean; seqOrder: number | null; fromCount: number; toCount: number }> = {};
+        safeBeats.forEach(b => {
+            const hasManual = b.sceneNumber && !isNaN(parseInt(b.sceneNumber));
+            const isConnected = connectedSet.has(b.id);
+            const isSeq = isConnected || !!hasManual || orders[b.id] !== undefined;
+            info[b.id] = {
+                isSequenced: isSeq,
+                seqOrder: orders[b.id] ?? (hasManual ? parseInt(b.sceneNumber!) : null),
+                fromCount: connections.filter(c => c.from === b.id).length,
+                toCount: connections.filter(c => c.to === b.id).length,
+            };
+        });
+        return info;
+    }, [safeBeats, connections]);
+
+    // Extract characters from beat content
+    const extractCharacters = (content: string): string[] => {
+        const div = document.createElement('div');
+        div.innerHTML = content;
+        const chars = new Set<string>();
+        div.querySelectorAll('.sc-character').forEach(el => {
+            const name = el.textContent?.trim().replace(/\s*\(.*\)$/, '').toUpperCase();
+            if (name && name.length > 1) chars.add(name);
+        });
+        return Array.from(chars).slice(0, 4);
+    };
+
+    // Get word count from content
+    const getWordCount = (content: string): number => {
+        const text = content.replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').trim();
+        if (text.length === 0) return 0;
+        return text.split(/\s+/).filter(w => w.length > 0).length;
+    };
 
     const [contextMenu, setContextMenu] = useState<{ x: number, y: number, beatId: number } | null>(null);
 
@@ -233,7 +274,6 @@ const MilanoteCardsPanel = ({
 
     const setColor = (beatId: number, color: string) => { updateBeat(beatId, { color }); setContextMenu(null); };
     const setStatus = (beatId: number, status: BeatStatus) => { updateBeat(beatId, { status }); setContextMenu(null); };
-    const handleBeatDoubleClicks = (id: number) => { setEditingId(id); };
 
     const handleDragStart = (e: React.DragEvent, id: number) => {
         e.dataTransfer.setData('application/backstage-beat-id', id.toString());
@@ -270,182 +310,229 @@ const MilanoteCardsPanel = ({
 
     return (
         <div 
-            className={`w-full h-full overflow-y-auto custom-scrollbar relative p-3 space-y-3 ${isLight ? 'bg-slate-100/70 text-slate-800' : 'bg-[#0a0a0c]'}`}
+            className={`w-full h-full overflow-y-auto custom-scrollbar relative ${isLight ? 'bg-slate-100/70 text-slate-800' : 'bg-[#08080c]'}`}
             onClick={() => setContextMenu(null)}
         >
-            {/* Top Filter Bar */}
-            <div className="sticky top-0 z-20 pb-1">
-                <div className={`relative rounded-xl border p-1.5 backdrop-blur-md shadow-xs ${isLight ? 'bg-white/95 border-slate-200/90' : 'bg-[#14141a]/95 border-slate-800'}`}>
-                    <div className="relative flex items-center">
-                        <Search className={`absolute left-2.5 ${isLight ? 'text-slate-400' : 'text-slate-500'}`} size={13} />
+            {/* Search Bar */}
+            <div className="sticky top-0 z-20 px-3 pt-3 pb-1">
+                <div className={`relative border backdrop-blur-xl shadow-xs ${isLight ? 'bg-white/95 border-slate-200/90' : 'bg-[#14141a]/95 border-slate-800/80'}`}>
+                    <div className="relative flex items-center px-1.5 py-1">
+                        <Search className={`absolute left-3.5 ${isLight ? 'text-slate-400' : 'text-slate-500'}`} size={13} />
                         <input 
                             type="text" 
-                            placeholder="Filter summary cards..." 
+                            placeholder="Search scenes..." 
                             value={searchTerm} 
                             onChange={(e) => setSearchTerm(e.target.value)} 
-                            className={`w-full rounded-lg pl-8 pr-3 py-1 text-xs outline-none transition-colors border ${isLight ? 'bg-slate-50 border-slate-200 text-slate-900 placeholder-slate-400 focus:border-amber-500' : 'bg-[#1c1c24] border-slate-700 text-white placeholder-slate-500 focus:border-amber-400'}`} 
+                            className={`w-full pl-8 pr-3 py-1 text-xs outline-none transition-colors border-none bg-transparent ${isLight ? 'text-slate-900 placeholder-slate-400' : 'text-white placeholder-slate-500'}`} 
                         />
+                        {searchTerm && (
+                            <button onClick={() => setSearchTerm('')} className={`p-0.5 ${isLight ? 'text-slate-400 hover:text-slate-700' : 'text-slate-500 hover:text-white'}`}>
+                                <X size={12} />
+                            </button>
+                        )}
                     </div>
                 </div>
             </div>
 
-            {/* Milanote Cards Feed */}
-            <div className="space-y-3.5 pb-12">
-
+            {/* Cards */}
+            <div className="px-3 pb-12 pt-2 space-y-2.5">
                 {filteredBeats.map((beat, idx) => {
                     const isActive = beat.id === activeBeatId;
                     const isReady = beat.status === 'ready';
                     const isEditing = editingId === beat.id;
                     const isDragOver = dragOverId === beat.id;
-                    
-                    const displayColor = beat.color && beat.color !== '#444' ? beat.color : (isLight ? '#3b82f6' : '#f5a623');
+                    const displayColor = beat.color && beat.color !== '#444' ? beat.color : (isLight ? '#6366f1' : '#f5a623');
                     const sceneNum = beat.sceneNumber || (idx + 1).toString();
+                    const seqData = sequenceInfo[beat.id];
+                    const boardNum = (beat.boardId || 0) + 1;
+                    const pageNum = beatPageNumbers[beat.id] || 1;
+                    const characters = extractCharacters(beat.content);
+                    const wordCount = getWordCount(beat.content);
+                    const summaryText = beat.summary || '';
 
                     return (
                         <div 
                             key={beat.id}
-                            className={`flex gap-3 group/row transition-all duration-200 relative ${isDragOver && dropSide === 'top' ? 'pt-3' : ''} ${isDragOver && dropSide === 'bottom' ? 'pb-3' : ''}`}
+                            className={`transition-all duration-200 relative ${isDragOver && dropSide === 'top' ? 'pt-2' : ''} ${isDragOver && dropSide === 'bottom' ? 'pb-2' : ''}`}
                             draggable={!isEditing}
                             onDragStart={(e) => handleDragStart(e, beat.id)}
                             onDragEnd={handleDragEnd}
                             onDragOver={(e) => handleDragOver(e, beat.id)}
                             onDrop={(e) => handleDrop(e, beat.id)}
                         >
-                            <div className="flex flex-col items-center mt-[12px] relative">
-                                <div 
-                                    className={`w-2.5 h-2.5 rounded-full border-2 transition-all z-10 ${isActive ? 'scale-125' : ''}`}
-                                    style={{ 
-                                        backgroundColor: isActive ? '#f5a623' : (isLight ? '#ffffff' : '#1a1a1a'), 
-                                        borderColor: isActive ? '#f5a623' : displayColor 
-                                    }}
-                                ></div>
-                            </div>
-                            
+                            {isDragOver && (
+                                <div className={`absolute left-2 right-2 h-[2px] bg-amber-500 shadow-[0_0_10px_rgba(245,166,35,0.6)] z-50 ${dropSide === 'top' ? 'top-0' : 'bottom-0'}`} />
+                            )}
+
                             <div 
-                                className={`flex-1 border rounded-xl flex flex-col shadow-xs transition-all cursor-grab active:cursor-grabbing group relative overflow-hidden 
+                                className={`relative border overflow-hidden transition-all duration-200 cursor-pointer group
                                     ${isLight 
-                                      ? (isActive ? 'bg-amber-50/80 border-amber-500 ring-2 ring-amber-400/40 shadow-md' : 'bg-white border-slate-200 hover:border-amber-400/80 hover:shadow-xs')
-                                      : (isActive ? 'bg-[#22222a] border-[#f5a623] ring-1 ring-[#f5a623]/30 shadow-lg' : 'bg-[#16161c] border-slate-800 hover:border-slate-700 shadow-md')
-                                    } 
-                                    ${isEditing ? 'ring-2 ring-amber-500 border-amber-500 cursor-default' : ''}
-                                    ${isDragOver ? 'ring-2 ring-amber-500 scale-[1.01]' : ''}
+                                      ? (isActive 
+                                          ? 'bg-white border-amber-500 ring-1 ring-amber-400/60 shadow-md' 
+                                          : 'bg-white/90 hover:bg-white shadow-xs border-slate-200 hover:border-slate-300')
+                                      : (isActive 
+                                          ? 'bg-[#1a1a22] border-[#f5a623] ring-1 ring-[#f5a623]/40 shadow-lg' 
+                                          : 'bg-[#131318] hover:bg-[#1a1a22] shadow-xs border-white/[0.06] hover:border-white/[0.12]')
+                                    }
                                 `}
                                 onClick={(e) => { e.stopPropagation(); onBeatClick(beat.id); }}
-                                onDoubleClick={(e) => { e.stopPropagation(); handleBeatDoubleClicks(beat.id); }}
                                 onContextMenu={(e) => handleContextMenu(e, beat.id)}
                             >
-                                {isDragOver && (
-                                    <div className={`absolute left-0 right-0 h-1 bg-amber-500 shadow-[0_0_8px_#f5a623] z-50 ${dropSide === 'top' ? 'top-0' : 'bottom-0'}`} />
-                                )}
-
-                                {/* Top Accent Header Bar with Scene Badge & Page Number Badge */}
-                                <div className="py-1 px-3 w-full flex items-center justify-between gap-2 border-b border-black/10" style={{ backgroundColor: displayColor }}>
-                                    <div className="flex items-center gap-2 overflow-hidden">
-                                        <span className="text-[10px] font-black uppercase text-white tracking-wider bg-black/40 border border-white/20 px-2 py-0.5 rounded-md shadow-2xs shrink-0">
-                                            SCENE {sceneNum}
-                                        </span>
+                                {/* ── Scene Number Banner ── */}
+                                <div className="relative overflow-hidden">
+                                    <div 
+                                        className="px-3 py-2 flex items-center justify-between gap-3"
+                                        style={{ 
+                                            background: isLight 
+                                                ? `linear-gradient(135deg, ${displayColor}12, ${displayColor}06)`
+                                                : `linear-gradient(135deg, ${displayColor}18, ${displayColor}08)`,
+                                            borderBottom: `1px solid ${isLight ? displayColor + '18' : displayColor + '20'}`
+                                        }}
+                                    >
+                                        <div className="flex items-center gap-2.5 min-w-0">
+                                            {/* Scene Number Badge (Sharp Edges) */}
+                                            <div 
+                                                className="shrink-0 w-8 h-8 flex items-center justify-center text-xs font-black text-white shadow-xs"
+                                                style={{ 
+                                                    background: `linear-gradient(135deg, ${displayColor}, ${displayColor}cc)`
+                                                }}
+                                            >
+                                                {sceneNum}
+                                            </div>
+                                            {/* Title */}
+                                            <div className="min-w-0 flex-1">
+                                                {isEditing ? (
+                                                    <input 
+                                                        className={`font-bold text-[12px] bg-transparent border-b outline-none w-full ${isLight ? 'text-slate-900 border-amber-400' : 'text-white border-amber-500'}`}
+                                                        value={beat.title}
+                                                        onChange={(e) => updateBeat(beat.id, { title: e.target.value })}
+                                                        autoFocus
+                                                        onClick={(e) => e.stopPropagation()}
+                                                        onBlur={() => setEditingId(null)}
+                                                        onKeyDown={(e) => e.key === 'Enter' && setEditingId(null)}
+                                                    />
+                                                ) : (
+                                                    <div 
+                                                        className={`font-bold text-[12px] truncate ${isLight ? 'text-slate-900' : 'text-white'}`}
+                                                        onDoubleClick={(e) => { e.stopPropagation(); setEditingId(beat.id); }}
+                                                    >
+                                                        {beat.title || 'Untitled Scene'}
+                                                    </div>
+                                                )}
+                                                <div className={`font-screenplay text-[9.5px] font-bold uppercase truncate mt-0.5 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+                                                    {beat.slug.prefix} {beat.slug.location || 'LOCATION'} — {beat.slug.time || 'DAY'}
+                                                </div>
+                                            </div>
+                                        </div>
+                                        {/* Status Indicator */}
+                                        <div className={`shrink-0 w-2 h-2 ${isReady ? 'bg-emerald-400' : 'bg-amber-400'}`} title={isReady ? 'Ready' : 'Work in Progress'} />
                                     </div>
-                                    <span className="text-[9px] font-black uppercase text-white bg-black/40 border border-white/20 px-2 py-0.5 rounded-md shadow-2xs shrink-0">
-                                        {beatPageNumbers[beat.id] || 'Pg. 1'}
+                                </div>
+
+                                {/* ── Metadata Ribbon (Sharp Badges) ── */}
+                                <div className={`px-3 py-1.5 flex items-center gap-1.5 flex-wrap border-b ${isLight ? 'border-slate-100 bg-slate-50/60' : 'border-white/[0.03] bg-white/[0.01]'}`}>
+                                    {/* Sequence Detail */}
+                                    <span className={`inline-flex items-center gap-1 text-[9px] font-bold uppercase px-1.5 py-[2px] border ${
+                                        seqData?.isSequenced
+                                            ? (isLight ? 'bg-indigo-50 text-indigo-700 border-indigo-200' : 'bg-indigo-950/40 text-indigo-300 border-indigo-800/50')
+                                            : (isLight ? 'bg-slate-100 text-slate-500 border-slate-200' : 'bg-slate-800/40 text-slate-500 border-slate-700/50')
+                                    }`}>
+                                        <Link2 size={8} />
+                                        {seqData?.isSequenced ? `Seq #${seqData.seqOrder || '—'}` : 'Unsequenced'}
+                                    </span>
+                                    {/* Board Number */}
+                                    <span className={`inline-flex items-center gap-1 text-[9px] font-bold uppercase px-1.5 py-[2px] border ${
+                                        isLight ? 'bg-violet-50 text-violet-700 border-violet-200' : 'bg-violet-950/30 text-violet-300 border-violet-800/50'
+                                    }`}>
+                                        <Layers size={8} />
+                                        Board {boardNum}
+                                    </span>
+                                    {/* Page Number */}
+                                    <span className={`inline-flex items-center gap-1 text-[9px] font-bold uppercase px-1.5 py-[2px] border ${
+                                        isLight ? 'bg-sky-50 text-sky-700 border-sky-200' : 'bg-sky-950/30 text-sky-300 border-sky-800/50'
+                                    }`}>
+                                        <FileText size={8} />
+                                        Page {pageNum}
+                                    </span>
+                                    {/* Word Count */}
+                                    <span className={`inline-flex items-center gap-1 text-[9px] font-mono font-bold px-1.5 py-[2px] border ${
+                                        isLight ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-emerald-950/30 text-emerald-300 border-emerald-800/50'
+                                    }`}>
+                                        {wordCount}w
                                     </span>
                                 </div>
 
-                                <div className="p-3 flex-grow flex flex-col gap-2">
-                                    {/* Beat Title */}
-                                    <div className="flex items-center justify-between gap-2">
-                                        <input 
-                                            className={`font-black text-sm bg-transparent border border-transparent rounded px-1 py-0.5 outline-none transition-colors w-full ${isLight ? 'text-slate-900 placeholder-slate-400' : 'text-white placeholder-gray-500'} ${isEditing ? 'focus:border-amber-500 hover:border-slate-300' : 'pointer-events-none'}`}
-                                            value={beat.title}
-                                            onChange={(e) => updateBeat(beat.id, { title: e.target.value })}
-                                            placeholder="Untitled Beat"
-                                            onClick={(e) => e.stopPropagation()}
-                                            onBlur={() => setEditingId(null)}
-                                            onKeyDown={(e) => e.key === 'Enter' && setEditingId(null)}
-                                        />
-                                    </div>
-
-                                    {/* Slugline Pill */}
-                                    <div className={`font-screenplay text-[10px] font-extrabold uppercase px-2.5 py-1 rounded-md border flex items-center gap-2 ${
-                                      isLight 
-                                        ? 'bg-amber-50/90 border-amber-200 text-amber-950' 
-                                        : 'bg-slate-900/80 border-slate-700 text-slate-200'
-                                    }`}>
-                                        <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0"></span>
-                                        <span className="truncate">
-                                            {(!beat.slug.prefix && !beat.slug.location && !beat.slug.time) ? 'INT. LOCATION - DAY' : `${beat.slug.prefix} ${beat.slug.location} - ${beat.slug.time}`}
-                                        </span>
-                                    </div>
-
-                                    {/* Summary Card Container */}
-                                    <div className={`p-3 rounded-xl border flex-1 flex flex-col transition-all min-h-[70px] ${
-                                        isLight 
-                                            ? 'bg-[#fefdfa] hover:bg-white border-amber-200/80 hover:border-amber-400/80 shadow-[0_2px_8px_rgba(0,0,0,0.03)]' 
-                                            : 'bg-[#18181e] hover:bg-[#1d1d24] border-slate-800 hover:border-slate-700 shadow-[0_2px_10px_rgba(0,0,0,0.25)]'
-                                    }`}>
-                                        <div className="flex items-center justify-between mb-1.5 pb-1 border-b border-slate-200/60 dark:border-slate-800/80">
-                                            <div className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-[0.12em] text-amber-700 dark:text-amber-400">
-                                                <span className="w-2 h-2 rounded-full bg-amber-500 shadow-[0_0_6px_rgba(245,166,35,0.6)] shrink-0"></span>
-                                                <span>Summary</span>
-                                            </div>
-                                            <span className={`text-[8.5px] font-mono font-bold px-2 py-0.5 rounded-full border ${
-                                                isLight 
-                                                    ? 'bg-amber-100/80 text-amber-900 border-amber-200/80' 
-                                                    : 'bg-amber-950/50 text-amber-300 border-amber-800/60'
-                                            }`}>
-                                                {beat.summary ? `${beat.summary.trim().split(/\s+/).filter(Boolean).length} words` : '0 words'}
-                                            </span>
-                                        </div>
+                                {/* ── Summary Body ── */}
+                                <div className="px-4 py-3">
+                                    {isEditing ? (
                                         <textarea 
-                                            className={`font-sans text-[11.5px] bg-transparent border border-transparent rounded outline-none w-full resize-none leading-relaxed flex-1 min-h-[44px] transition-colors custom-scrollbar ${isLight ? 'text-slate-800 placeholder-slate-400/80' : 'text-slate-200 placeholder-slate-500'} ${isEditing ? 'focus:border-amber-500 hover:border-slate-300' : 'pointer-events-none'}`}
-                                            value={beat.summary || ''}
+                                            className={`w-full text-[12px] leading-relaxed bg-transparent border rounded-lg outline-none resize-none min-h-[80px] p-2 custom-scrollbar ${isLight ? 'text-slate-700 border-amber-300 placeholder-slate-400' : 'text-slate-300 border-amber-700/50 placeholder-slate-600'}`}
+                                            value={summaryText}
                                             onChange={(e) => updateBeat(beat.id, { summary: e.target.value })}
-                                            placeholder="Write scene overview, notes, or key plot points..."
+                                            placeholder="Write a complete scene summary — story beats, emotional arc, key plot points..."
                                             onClick={(e) => e.stopPropagation()}
                                             onBlur={() => setEditingId(null)}
-                                            onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && setEditingId(null)}
                                         />
-                                    </div>
+                                    ) : (
+                                        <div 
+                                            className={`text-[12px] leading-[1.7] whitespace-pre-wrap ${summaryText ? (isLight ? 'text-slate-700' : 'text-slate-300') : (isLight ? 'text-slate-400 italic' : 'text-slate-600 italic')}`}
+                                            onDoubleClick={(e) => { e.stopPropagation(); setEditingId(beat.id); }}
+                                        >
+                                            {summaryText || 'Double-click to add a summary…'}
+                                        </div>
+                                    )}
                                 </div>
 
-                                {/* Footer Bar */}
-                                <div className={`mt-auto border-t px-3 py-1.5 flex justify-between items-center rounded-b-xl ${isLight ? 'border-slate-200 bg-slate-50' : 'border-[#2d2d35] bg-[#16161c]'}`}>
-                                    <button 
-                                        onClick={(e) => { e.stopPropagation(); updateBeat(beat.id, { status: isReady ? 'not-ready' : 'ready' }); }}
-                                        className={`flex items-center gap-1.5 text-[9px] font-black uppercase px-2 py-0.5 rounded-md transition-colors ${
-                                          isReady 
-                                            ? 'text-emerald-700 bg-emerald-100 border border-emerald-300' 
-                                            : 'text-amber-800 bg-amber-100 border border-amber-300'
-                                        }`}
-                                    >
-                                        {isReady ? <Check size={10} /> : <Clock size={10} />}
-                                        {isReady ? 'Ready' : 'WIP'}
-                                    </button>
-                                    <div className="flex items-center gap-3">
-                                        {beat.shots && beat.shots.length > 0 && (
-                                            <div className={`text-[9px] font-bold flex items-center gap-1 ${isLight ? 'text-slate-500' : 'text-gray-400'}`}>
-                                                <span>📷 {beat.shots.length} shots</span>
-                                            </div>
-                                        )}
-                                        <div className={`flex items-center gap-1 text-[9px] font-bold ${isLight ? 'text-slate-500' : 'text-gray-400'}`}>
-                                            <History size={10} />
-                                            <span>v{beat.versions?.length || 0}</span>
+                                {/* ── Characters & Footer ── */}
+                                {(characters.length > 0 || (beat.shots && beat.shots.length > 0) || (beat.versions && beat.versions.length > 0)) && (
+                                    <div className={`px-4 py-2 flex items-center justify-between gap-2 border-t ${isLight ? 'border-slate-100 bg-slate-50/40' : 'border-white/[0.03] bg-white/[0.01]'}`}>
+                                        {/* Characters */}
+                                        <div className="flex items-center gap-1 min-w-0 flex-1">
+                                            {characters.length > 0 && (
+                                                <div className="flex items-center gap-1 flex-wrap">
+                                                    <User size={9} className={isLight ? 'text-slate-400' : 'text-slate-600'} />
+                                                    {characters.map((c, ci) => (
+                                                        <span key={ci} className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded ${isLight ? 'bg-slate-100 text-slate-600' : 'bg-slate-800/60 text-slate-400'}`}>
+                                                            {c}
+                                                        </span>
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </div>
+                                        {/* Shots & Versions */}
+                                        <div className={`flex items-center gap-2.5 shrink-0 text-[9px] font-bold ${isLight ? 'text-slate-400' : 'text-slate-600'}`}>
+                                            {beat.shots && beat.shots.length > 0 && (
+                                                <span className="flex items-center gap-1"><Camera size={9} /> {beat.shots.length}</span>
+                                            )}
+                                            {beat.versions && beat.versions.length > 0 && (
+                                                <span className="flex items-center gap-1"><History size={9} /> v{beat.versions.length}</span>
+                                            )}
                                         </div>
                                     </div>
-                                </div>
+                                )}
                             </div>
                         </div>
                     );
                 })}
+
+                {filteredBeats.length === 0 && (
+                    <div className={`flex flex-col items-center justify-center py-16 gap-3 ${isLight ? 'text-slate-400' : 'text-slate-600'}`}>
+                        <Search size={28} strokeWidth={1.5} className="opacity-40" />
+                        <span className="text-xs font-medium">
+                            {searchTerm ? 'No scenes match your search' : 'No scenes yet'}
+                        </span>
+                    </div>
+                )}
             </div>
 
             {contextMenu && (
                 <div 
-                    className={`fixed rounded-lg shadow-2xl z-[9999] py-1 w-48 animate-in fade-in zoom-in duration-100 ${isLight ? 'bg-white border border-slate-200 text-slate-800' : 'bg-[#1a1a1a] border border-[#333] text-white'}`}
+                    className={`fixed rounded-xl shadow-2xl z-[9999] py-1.5 w-48 animate-in fade-in zoom-in duration-100 backdrop-blur-xl ${isLight ? 'bg-white/95 border border-slate-200 text-slate-800' : 'bg-[#1a1a1a]/95 border border-[#333] text-white'}`}
                     style={{ left: contextMenu.x, top: contextMenu.y }}
                     onClick={(e) => e.stopPropagation()} 
                 >
                     <div className={`px-3 py-1.5 border-b mb-1 ${isLight ? 'border-slate-200 text-slate-500' : 'border-[#333] text-gray-500'}`}>
-                        <span className="text-[9px] font-bold uppercase tracking-wider">Beat Options</span>
+                        <span className="text-[9px] font-bold uppercase tracking-wider">Scene Options</span>
                     </div>
                     <div className="px-1 mb-1">
                         <button onClick={() => setStatus(contextMenu.beatId, 'ready')} className={`w-full text-left px-2 py-1.5 text-[10px] font-bold text-emerald-600 rounded flex items-center gap-2 ${isLight ? 'hover:bg-slate-100' : 'hover:bg-[#333]'}`}><Check size={10} /> Mark Ready</button>
@@ -461,9 +548,129 @@ const MilanoteCardsPanel = ({
                         </div>
                     </div>
                     <div className={`h-px my-1 ${isLight ? 'bg-slate-200' : 'bg-[#333]'}`}></div>
-                    <button onClick={(e) => executeDelete(e, contextMenu.beatId)} className="w-full text-left px-3 py-2 text-[10px] font-bold text-red-600 hover:bg-red-50 flex items-center gap-2"><Trash2 size={12} /> Delete Scene</button>
+                    <button onClick={(e) => executeDelete(e, contextMenu.beatId)} className={`w-full text-left px-3 py-2 text-[10px] font-bold text-red-500 flex items-center gap-2 ${isLight ? 'hover:bg-red-50' : 'hover:bg-red-950/30'}`}><Trash2 size={12} /> Delete Scene</button>
                 </div>
             )}
+        </div>
+    );
+};
+
+const LocationNavPanel = ({ 
+    beats, activeBeatId, onBeatClick, isLight
+}: { 
+    beats: Beat[], activeBeatId: number | null, 
+    onBeatClick: (id: number) => void, isLight?: boolean
+}) => {
+    const [searchTerm, setSearchTerm] = useState('');
+    const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+
+    const safeBeats = Array.isArray(beats) ? beats : [];
+
+    const locationGroups = useMemo(() => {
+        const q = searchTerm.trim().toLowerCase();
+        const map: Record<string, Beat[]> = {};
+        safeBeats.forEach(b => {
+            const loc = (b.slug?.location || '').trim().toUpperCase() || 'UNKNOWN';
+            if (q) {
+                const hay = [loc, b.slug?.prefix || '', b.slug?.time || '', b.title || '', b.sceneNumber || ''].join(' ').toLowerCase();
+                if (!hay.includes(q)) return;
+            }
+            if (!map[loc]) map[loc] = [];
+            map[loc].push(b);
+        });
+        const orderOf = (b: Beat) => {
+            const n = b.sceneNumber && !isNaN(parseInt(b.sceneNumber)) ? parseInt(b.sceneNumber) : null;
+            if (n !== null) return n;
+            const idx = safeBeats.findIndex(x => x.id === b.id);
+            return idx >= 0 ? idx : Number.MAX_SAFE_INTEGER;
+        };
+        const groups = Object.entries(map).map(([loc, locBeats]) => ({
+            loc,
+            beats: [...locBeats].sort((a, b) => orderOf(a) - orderOf(b)),
+        }));
+        return groups.sort((a, b) => orderOf(a.beats[0]) - orderOf(b.beats[0]));
+    }, [safeBeats, searchTerm]);
+
+    const toggleGroup = (loc: string) => setCollapsed(prev => ({ ...prev, [loc]: !prev[loc] }));
+
+    return (
+        <div className={`w-full h-full overflow-y-auto custom-scrollbar relative ${isLight ? 'bg-slate-100/70 text-slate-800' : 'bg-[#08080c]'}`}>
+            {/* Search Bar */}
+            <div className="sticky top-0 z-20 px-3 pt-3 pb-1">
+                <div className={`relative border backdrop-blur-xl shadow-xs ${isLight ? 'bg-white/95 border-slate-200/90' : 'bg-[#14141a]/95 border-slate-800/80'}`}>
+                    <div className="relative flex items-center px-1.5 py-1">
+                        <Search className={`absolute left-3.5 ${isLight ? 'text-slate-400' : 'text-slate-500'}`} size={13} />
+                        <input 
+                            type="text" 
+                            placeholder="Search locations..." 
+                            value={searchTerm} 
+                            onChange={(e) => setSearchTerm(e.target.value)} 
+                            className={`w-full pl-8 pr-3 py-1 text-xs outline-none transition-colors border-none bg-transparent ${isLight ? 'text-slate-900 placeholder-slate-400' : 'text-white placeholder-slate-500'}`} 
+                        />
+                        {searchTerm && (
+                            <button onClick={() => setSearchTerm('')} className={`p-0.5 ${isLight ? 'text-slate-400 hover:text-slate-700' : 'text-slate-500 hover:text-white'}`}>
+                                <X size={12} />
+                            </button>
+                        )}
+                    </div>
+                </div>
+            </div>
+
+            {/* Location Groups */}
+            <div className="px-3 pb-12 pt-2 space-y-2.5">
+                {locationGroups.map(({ loc, beats: locBeats }) => {
+                    const isCollapsed = collapsed[loc];
+                    return (
+                        <div key={loc} className={`border overflow-hidden transition-all ${isLight ? 'bg-white/90 border-slate-200' : 'bg-[#131318] border-white/[0.06]'}`}>
+                            <button 
+                                onClick={() => toggleGroup(loc)} 
+                                className={`w-full flex items-center justify-between gap-2 px-3 py-2 border-b transition-colors ${isLight ? 'bg-slate-50 hover:bg-slate-100 border-slate-100' : 'bg-white/[0.02] hover:bg-white/[0.04] border-white/[0.03]'}`}
+                            >
+                                <span className={`flex items-center gap-2 text-[10px] font-black uppercase tracking-wider ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
+                                    <MapIcon size={11} className="text-amber-500" />
+                                    {loc}
+                                </span>
+                                <span className={`text-[9px] font-mono font-bold px-1.5 py-0.5 ${isLight ? 'bg-slate-100 text-slate-500' : 'bg-slate-800 text-slate-400'}`}>{locBeats.length}</span>
+                            </button>
+                            {!isCollapsed && (
+                                <div>
+                                    {locBeats.map((beat) => {
+                                        const globalIdx = safeBeats.findIndex(b => b.id === beat.id);
+                                        const sceneNum = beat.sceneNumber || (globalIdx + 1).toString();
+                                        const isActive = beat.id === activeBeatId;
+                                        return (
+                                            <button 
+                                                key={beat.id} 
+                                                onClick={() => onBeatClick(beat.id)}
+                                                className={`w-full flex items-center gap-2.5 px-3 py-2 text-left transition-colors ${isActive ? (isLight ? 'bg-amber-50 border-l-2 border-amber-500' : 'bg-amber-950/30 border-l-2 border-amber-500') : (isLight ? 'hover:bg-slate-50' : 'hover:bg-white/[0.03]')}`}
+                                            >
+                                                <span 
+                                                    className={`shrink-0 w-7 h-7 flex items-center justify-center text-[10px] font-black ${isActive ? 'text-white' : isLight ? 'text-slate-500 bg-slate-100' : 'text-slate-400 bg-slate-800/60'}`}
+                                                    style={isActive ? { background: 'linear-gradient(135deg, #f5a623, #f5a623cc)' } : undefined}
+                                                >
+                                                    {sceneNum}
+                                                </span>
+                                                <span className="min-w-0 flex-1">
+                                                    <span className={`block text-[11px] font-bold truncate ${isLight ? 'text-slate-800' : 'text-slate-200'}`}>{beat.title || 'Untitled Scene'}</span>
+                                                    <span className={`block text-[9px] font-screenplay font-bold uppercase truncate ${isLight ? 'text-slate-400' : 'text-slate-500'}`}>{beat.slug.prefix} {beat.slug.location || 'LOCATION'} — {beat.slug.time || 'DAY'}</span>
+                                                </span>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                        </div>
+                    );
+                })}
+                {locationGroups.length === 0 && (
+                    <div className={`flex flex-col items-center justify-center py-16 gap-3 ${isLight ? 'text-slate-400' : 'text-slate-600'}`}>
+                        <MapIcon size={28} strokeWidth={1.5} className="opacity-40" />
+                        <span className="text-xs font-medium">
+                            {searchTerm ? 'No locations match your search' : 'No locations yet'}
+                        </span>
+                    </div>
+                )}
+            </div>
         </div>
     );
 };
@@ -557,7 +764,7 @@ const ContextMenuItem = ({ icon: Icon, label, onClick, danger, submenu, active, 
     );
 };
 
-const ScriptView: React.FC = () => {
+const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'casting') => void }> = ({ onNavigateToView }) => {
   const { beats, groups, connections, updateBeat, addBeat, setBeats, setConnections, scriptViewMode, scriptConfig, setScriptConfig, scratchpadConfig, characterData, breakdownLanguage, setBreakdownLanguage, scratchpad, setScratchpad, globalNotes, setGlobalNotes, captureSnapshot, reorderBeats, setActiveBoardId, appTheme } = useProject();
 
   const isLight = useMemo(() => {
@@ -575,7 +782,7 @@ const ScriptView: React.FC = () => {
   const [activeFormat, setActiveFormat] = useState('action');
   const [showNav, setShowNav] = useState(true);
   const [navMode, setNavMode] = useState<'list' | 'board'>('board');
-  const [sidebarWidth, setSidebarWidth] = useState(300); 
+  const [sidebarWidth, setSidebarWidth] = useState(380); 
   const [activeSidebar, setActiveSidebar] = useState<'none' | 'breakdown' | 'scratchpad' | 'history'>('none');
   const [scratchpadMode, setScratchpadMode] = useState<'global' | 'scene'>('global');
   const [draggedNoteIndex, setDraggedNoteIndex] = useState<number | null>(null);
@@ -606,8 +813,8 @@ const ScriptView: React.FC = () => {
                   accent: '#222228', 
                   pageNum: '#94a3b8', 
                   shadow: '0 0 0 1px #2a2a32, 0 10px 30px rgba(0,0,0,0.5)', 
-                  slugBg: 'transparent',
-                  activeSlugBg: 'rgba(245, 166, 35, 0.16)',
+                  slugBg: 'rgba(148, 163, 184, 0.2)',
+                  activeSlugBg: 'rgba(148, 163, 184, 0.28)',
                   activeSlugText: '#f5a623',
                   activeBorder: '#f5a623',
                   dropdownBg: '#1c1c22',
@@ -623,8 +830,8 @@ const ScriptView: React.FC = () => {
                   accent: '#f4ede0', 
                   pageNum: '#8c7b69', 
                   shadow: '0 4px 20px rgba(80, 60, 40, 0.08)', 
-                  slugBg: 'transparent',
-                  activeSlugBg: 'rgba(181, 137, 0, 0.14)',
+                  slugBg: 'rgba(107, 114, 128, 0.15)',
+                  activeSlugBg: 'rgba(107, 114, 128, 0.22)',
                   activeSlugText: '#856400',
                   activeBorder: '#b58900',
                   dropdownBg: '#f8f2e3',
@@ -640,8 +847,8 @@ const ScriptView: React.FC = () => {
                   accent: '#1e0505', 
                   pageNum: '#993333', 
                   shadow: '0 0 0 1px #440000, 0 10px 30px rgba(0,0,0,0.7)', 
-                  slugBg: 'transparent',
-                  activeSlugBg: 'rgba(255, 0, 0, 0.22)',
+                  slugBg: 'rgba(148, 163, 184, 0.2)',
+                  activeSlugBg: 'rgba(148, 163, 184, 0.28)',
                   activeSlugText: '#ffffff',
                   activeBorder: '#ff3333',
                   dropdownBg: '#1a0505',
@@ -657,8 +864,8 @@ const ScriptView: React.FC = () => {
                   accent: '#f8fafc', 
                   pageNum: '#64748b', 
                   shadow: '0 4px 20px rgba(0,0,0,0.06)', 
-                  slugBg: 'transparent',
-                  activeSlugBg: 'rgba(245, 158, 11, 0.12)',
+                  slugBg: 'rgba(107, 114, 128, 0.15)',
+                  activeSlugBg: 'rgba(107, 114, 128, 0.22)',
                   activeSlugText: '#0f172a',
                   activeBorder: '#d97706',
                   dropdownBg: '#ffffff',
@@ -711,6 +918,7 @@ const ScriptView: React.FC = () => {
   }, [sortedBeats, searchTerm]);
 
   const activeBeat = useMemo(() => beats.find(b => b.id === activeBeatId), [beats, activeBeatId]);
+  const locationCount = useMemo(() => new Set(beats.map(b => (b.slug?.location || '').trim().toUpperCase()).filter(Boolean)).size, [beats]);
   const uniqueLocations = useMemo(() => { const locs = new Set<string>(); ['HOUSE', 'KITCHEN', 'BEDROOM', 'OFFICE', 'PARK', 'STREET', 'CAR', 'APARTMENT', 'SCHOOL', 'HOSPITAL'].forEach(l => locs.add(l)); beats.forEach(b => { if (b.slug.location && b.slug.location.trim()) { locs.add(b.slug.location.trim()); } }); return Array.from(locs).sort(); }, [beats]);
   const uniqueCharacters = useMemo(() => { const chars = new Set<string>(); Object.values(characterData).forEach((c: any) => { if (c.name) chars.add(c.name.toUpperCase()); }); beats.forEach(b => { const div = document.createElement('div'); div.innerHTML = b.content; div.querySelectorAll('.sc-character').forEach(el => { const name = el.textContent?.trim().replace(/\s*\(.*\)$/, '').toUpperCase(); if (name && name.length > 1) chars.add(name); }); }); return Array.from(chars).sort(); }, [beats, characterData]);
 
@@ -719,7 +927,7 @@ const ScriptView: React.FC = () => {
   useEffect(() => {
       const handleMouseMove = (e: MouseEvent) => {
           if (isResizingRef.current) {
-              const newWidth = Math.max(200, Math.min(800, e.clientX));
+              const newWidth = Math.max(260, Math.min(900, e.clientX));
               setSidebarWidth(newWidth);
           }
       };
@@ -900,7 +1108,7 @@ const ScriptView: React.FC = () => {
     const catStyle = CATEGORY_STYLES[category] || CATEGORY_STYLES.cast;
 
     return ( 
-      <div className={`mb-3.5 p-3 rounded-xl border transition-all ${
+      <div className={`mb-3.5 border transition-all ${
         isLight 
           ? 'bg-slate-50/80 border-slate-200/90 shadow-2xs' 
           : 'bg-[#181818] border-[#2b2b2b]'
@@ -908,16 +1116,15 @@ const ScriptView: React.FC = () => {
       onDragOver={(e) => handleTagDragOver(e, category)} 
       onDragLeave={handleTagDragLeave} 
       onDrop={(e) => handleTagDrop(e, category)}> 
-        <div className="flex items-center justify-between mb-2">
-          <div className={`text-[10px] uppercase tracking-wider px-2.5 py-0.5 rounded-full border inline-flex items-center gap-1.5 ${
-            isLight ? catStyle.lightBadge : catStyle.darkBadge
-          }`}>
+        <div className={`flex items-center justify-between gap-2 px-3 py-2 border-b ${isLight ? catStyle.lightBadge : catStyle.darkBadge}`}>
+          <span className="text-[10px] uppercase tracking-wider inline-flex items-center gap-1.5">
             <Icon size={12} /> {title}
-          </div>
-          <span className={`text-[9.5px] font-mono font-bold px-1.5 py-0.2 rounded ${isLight ? 'bg-slate-200/60 text-slate-600' : 'bg-slate-800 text-slate-400'}`}>{items.length}</span>
+          </span>
+          <span className={`text-[9.5px] font-mono font-bold px-1.5 py-0.5 ${isLight ? 'bg-white/70 text-slate-600' : 'bg-black/30 text-slate-300'}`}>{items.length}</span>
         </div>
         
-        <div className="flex flex-wrap gap-1.5 min-h-[28px] my-1"> 
+        <div className="p-3">
+          <div className="flex flex-wrap gap-1.5 min-h-[28px] my-1"> 
           {items.length === 0 && <span className={`text-[10px] italic select-none py-1 px-1 ${isLight ? 'text-slate-400' : 'text-gray-600'}`}>No items tagged</span>} 
           {items.map((item, i) => { 
             const name = typeof item === 'string' ? item : item.name; 
@@ -939,8 +1146,9 @@ const ScriptView: React.FC = () => {
               </div> 
             ); 
           })} 
+          </div> 
+          <TagInput category={category as keyof BreakdownData} /> 
         </div> 
-        <TagInput category={category as keyof BreakdownData} /> 
       </div> 
     ); 
   };
@@ -977,6 +1185,17 @@ const ScriptView: React.FC = () => {
       setScriptContextMenu(null);
   };
 
+  const rightPanelCount = activeSidebar === 'breakdown'
+      ? (() => {
+          const b = activeBeat?.breakdown;
+          if (!b) return 0;
+          return (b.props?.length || 0) + (b.sound?.length || 0) + (b.costume?.length || 0) + (b.vfx?.length || 0) + (b.practical?.length || 0) + (b.cast?.length || 0) + (b.location?.length || 0);
+      })()
+      : activeSidebar === 'scratchpad'
+          ? (scratchpadMode === 'global' ? globalNotes.length : (activeBeat?.notes?.length || 0))
+          : (activeBeat?.versions?.length || 0);
+  const rightPanelLabel = activeSidebar === 'breakdown' ? 'tags' : activeSidebar === 'scratchpad' ? 'notes' : 'versions';
+
   return (
     <div className={`flex w-full h-full overflow-hidden font-sans ${isLight ? 'bg-slate-100 text-slate-900' : 'bg-[#0c0c0c] text-white'}`} onClick={() => setScriptContextMenu(null)}>
       
@@ -988,25 +1207,41 @@ const ScriptView: React.FC = () => {
             <div className={`flex-1 flex flex-col overflow-hidden ${isLight ? 'bg-slate-50' : 'bg-[#0a0a0a]'}`}>
                 <div className={`px-4 py-3 border-b flex items-center justify-between ${isLight ? 'border-slate-200 bg-slate-100/50' : 'border-[#222] bg-[#121216]'}`}>
                     <div className="flex items-center gap-2">
-                        <FileText size={14} className="text-amber-500" />
-                        <span className={`text-xs font-black uppercase tracking-wider ${isLight ? 'text-slate-800' : 'text-slate-200'}`}>Summary Cards</span>
+                        {navMode === 'board' ? <FileText size={14} className="text-amber-500" /> : <MapIcon size={14} className="text-amber-500" />}
+                        <span className={`text-xs font-black uppercase tracking-wider ${isLight ? 'text-slate-800' : 'text-slate-200'}`}>{navMode === 'board' ? 'Summary Cards' : 'Locations'}</span>
                     </div>
                     <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border ${isLight ? 'bg-amber-50 border-amber-200 text-amber-800' : 'bg-amber-950/40 border-amber-800/60 text-amber-300'}`}>
-                        {beats.length} {beats.length === 1 ? 'scene' : 'scenes'}
+                        {navMode === 'board' ? `${beats.length} ${beats.length === 1 ? 'scene' : 'scenes'}` : `${locationCount} ${locationCount === 1 ? 'location' : 'locations'}`}
                     </span>
+                </div>
+
+                <div className={`px-2.5 py-2 border-b flex items-center gap-1 ${isLight ? 'border-slate-200 bg-slate-50' : 'border-[#222] bg-[#0d0d0d]'}`}>
+                    <button onClick={() => setNavMode('board')} className={`flex-1 py-1.5 rounded text-[9px] font-black uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all ${navMode === 'board' ? (isLight ? 'bg-amber-500 text-slate-950 shadow-xs' : 'bg-[#f5a623] text-black') : (isLight ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100' : 'text-gray-500 hover:text-white hover:bg-white/5')}`}><FileText size={10} /> Summary</button>
+                    <button onClick={() => setNavMode('list')} className={`flex-1 py-1.5 rounded text-[9px] font-black uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all ${navMode === 'list' ? (isLight ? 'bg-amber-500 text-slate-950 shadow-xs' : 'bg-[#f5a623] text-black') : (isLight ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100' : 'text-gray-500 hover:text-white hover:bg-white/5')}`}><MapIcon size={10} /> Locations</button>
                 </div>
                 
                 <div className="flex-1 overflow-hidden relative">
-                    <MilanoteCardsPanel 
-                        beats={beats} 
-                        activeBeatId={activeBeatId}
-                        onBeatClick={scrollToBeat}
-                        updateBeat={updateBeat}
-                        setBeats={setBeats}
-                        captureSnapshot={captureSnapshot}
-                        reorderBeats={reorderBeats}
-                        isLight={isLight}
-                    />
+                    {navMode === 'board' ? (
+                        <SummaryCardsPanel 
+                            beats={beats} 
+                            groups={groups}
+                            connections={connections}
+                            activeBeatId={activeBeatId}
+                            onBeatClick={scrollToBeat}
+                            updateBeat={updateBeat}
+                            setBeats={setBeats}
+                            captureSnapshot={captureSnapshot}
+                            reorderBeats={reorderBeats}
+                            isLight={isLight}
+                        />
+                    ) : (
+                        <LocationNavPanel 
+                            beats={sortedBeats} 
+                            activeBeatId={activeBeatId}
+                            onBeatClick={scrollToBeat}
+                            isLight={isLight}
+                        />
+                    )}
                 </div>
             </div>
             <div className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-amber-500 transition-colors z-50 group" onMouseDown={() => { isResizingRef.current = true; document.body.style.cursor = 'col-resize'; }}>
@@ -1052,6 +1287,16 @@ const ScriptView: React.FC = () => {
                             onClose={() => setShowLanguageConfig(false)}
                             isLight={isLight}
                           />
+                        )}
+                        <div className={`w-px h-4 mx-1 ${isLight ? 'bg-slate-300' : 'bg-[#333]'}`}></div>
+                        {onNavigateToView && (
+                            <button 
+                                onClick={() => onNavigateToView('characterdesign')}
+                                className={`px-2.5 py-1.5 rounded transition-all flex items-center gap-1.5 text-[10px] font-bold uppercase ${isLight ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-200' : 'text-gray-400 hover:text-white hover:bg-[#222]'}`}
+                                title="Open Writer Casting Page"
+                            >
+                                <Users size={13} strokeWidth={2.5} /> Characters
+                            </button>
                         )}
                     </div>
                 </div>
@@ -1101,6 +1346,10 @@ const ScriptView: React.FC = () => {
                                 #script-content-layer .sc-slug {
                                     color: ${theme.slug} !important;
                                 }
+                                #script-content-layer .script-body .sc-slugline {
+                                    background-color: ${theme.slugBg} !important;
+                                    color: ${theme.slugText} !important;
+                                }
                             `}</style>
                             {sortedBeats.map((beat, i) => {
                                 const isReady = beat.status === 'ready';
@@ -1120,14 +1369,14 @@ const ScriptView: React.FC = () => {
                                         <div id={`beat-${beat.id}`} className={`beat-block group relative ${activeBeatId === beat.id ? 'z-20' : 'z-10'}`} onFocusCapture={() => setActiveBeatId(beat.id)} onClick={() => setActiveBeatId(beat.id)} onContextMenu={(e) => handleScriptContextMenu(e, beat.id)}>
                                             <div className={`absolute -left-16 top-0.5 w-12 text-right font-mono text-xs font-bold select-none opacity-60 group-hover:opacity-100 transition-opacity ${isSandbox ? (isLight ? 'text-slate-400' : 'text-gray-600') : ''}`} style={{ color: isSandbox ? undefined : (isLight ? '#64748b' : theme.pageNum) }}>{displayNumber}</div>
                                             <div 
-                                                className={`flex items-center gap-2 my-1.5 px-3 py-1.5 transition-all rounded-md -ml-3 -mr-3 border-l-2 shadow-2xs ${
+                                                className={`flex items-center gap-2 my-1.5 px-3 py-1.5 transition-all border-l-2 shadow-2xs ${
                                                     activeBeatId === beat.id 
                                                         ? 'shadow-xs font-black' 
                                                         : 'hover:brightness-95'
                                                 }`}
                                                 style={{
                                                     backgroundColor: activeBeatId === beat.id ? theme.activeSlugBg : theme.slugBg,
-                                                    borderColor: activeBeatId === beat.id ? theme.activeBorder : (scriptConfig.paperTheme === 'sepia' ? 'rgba(181,137,0,0.3)' : scriptConfig.paperTheme === 'dark' ? 'rgba(255,255,255,0.1)' : scriptConfig.paperTheme === 'red' ? 'rgba(255,0,0,0.3)' : 'rgba(15,23,42,0.08)')
+                                                    borderColor: activeBeatId === beat.id ? theme.activeBorder : (scriptConfig.paperTheme === 'sepia' ? 'rgba(107,114,128,0.25)' : scriptConfig.paperTheme === 'dark' ? 'rgba(148,163,184,0.25)' : scriptConfig.paperTheme === 'red' ? 'rgba(148,163,184,0.25)' : 'rgba(107,114,128,0.25)'),
                                                 }}
                                             >
                                                 <div className="flex-1 flex items-center gap-2 font-black uppercase font-screenplay text-sm tracking-wide">
@@ -1152,9 +1401,9 @@ const ScriptView: React.FC = () => {
             </div>
 
             {activeSidebar !== 'none' && (
-                <div className={`w-[400px] flex flex-col animate-in slide-in-from-right-10 duration-200 z-30 shadow-2xl relative overflow-hidden border-l ${isLight ? 'bg-white border-slate-200 text-slate-800' : 'bg-[#161616] border-[#333] text-white'}`}>
-                    <div className={`h-12 border-b flex items-center justify-between px-4 shrink-0 ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-[#1a1a1a] border-[#333]'}`}>
-                        <div className="flex items-center gap-2"><h3 className={`text-xs font-black uppercase tracking-widest flex items-center gap-2 ${isLight ? 'text-amber-600' : 'text-[#f5a623]'}`}>{activeSidebar === 'breakdown' && <><ListChecks size={14} /> Scene Breakdown</>}{activeSidebar === 'scratchpad' && <><StickyNote size={14} /> Note Blocks</>}{activeSidebar === 'history' && <><History size={14} /> Version History</>}</h3></div>
+                <div className={`w-[400px] flex flex-col animate-in slide-in-from-right-10 duration-200 z-30 shadow-2xl relative overflow-hidden border-l ${isLight ? 'bg-slate-50 border-slate-200 text-slate-800' : 'bg-[#0a0a0a] border-[#222] text-white'}`}>
+                    <div className={`px-4 py-3 border-b flex items-center justify-between shrink-0 ${isLight ? 'border-slate-200 bg-slate-100/50' : 'border-[#222] bg-[#121216]'}`}>
+                        <div className="flex items-center gap-2"><h3 className={`text-xs font-black uppercase tracking-wider flex items-center gap-2 ${isLight ? 'text-slate-800' : 'text-slate-200'}`}>{activeSidebar === 'breakdown' && <><ListChecks size={14} className="text-amber-500" /> Scene Breakdown</>}{activeSidebar === 'scratchpad' && <><StickyNote size={14} className="text-amber-500" /> Note Blocks</>}{activeSidebar === 'history' && <><History size={14} className="text-amber-500" /> Version History</>}</h3><span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border ${isLight ? 'bg-amber-50 border-amber-200 text-amber-800' : 'bg-amber-950/40 border-amber-800/60 text-amber-300'}`}>{rightPanelCount} {rightPanelLabel}</span></div>
                         <div className="flex gap-2 ml-4">{activeSidebar === 'breakdown' && (<button onClick={() => { setShowSourceHighlights(!showSourceHighlights); clearHighlight(); }} className={`p-1.5 rounded transition-colors ${showSourceHighlights ? (isLight ? 'bg-amber-500 text-slate-950 font-bold' : 'bg-[#f5a623] text-black') : (isLight ? 'text-slate-400 hover:text-slate-800' : 'text-gray-500 hover:text-white')}`} title="Highlight source text in script on hover"><Eye size={14}/></button>)}<button onClick={() => { setActiveSidebar('none'); clearHighlight(); }} className={isLight ? "text-slate-400 hover:text-slate-800" : "text-gray-500 hover:text-white"}><X size={14}/></button></div>
                     </div>
                     <div className="flex-1 relative overflow-hidden">

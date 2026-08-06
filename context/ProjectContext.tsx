@@ -79,6 +79,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [sessionStartCount, setSessionStartCount] = useState(INITIAL_STATE.sessionStartCount);
   const [lastSessionDate, setLastSessionDate] = useState(new Date().toISOString().split('T')[0]);
   const [boardLayerOrder, setBoardLayerOrder] = useState<BoardLayer[]>(INITIAL_STATE.boardLayerOrder);
+  const [characterDesignLocked, setCharacterDesignLocked] = useState(INITIAL_STATE.characterDesignLocked);
 
   // App Appearance & Customization State
   const [appTheme, setAppThemeState] = useState<'dark' | 'light' | 'system'>(() => {
@@ -167,6 +168,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setNextId(data.nextId ?? INITIAL_STATE.nextId);
     setNextAnnoId(data.nextAnnoId ?? INITIAL_STATE.nextAnnoId);
     setDailyStats(data.dailyStats || INITIAL_STATE.dailyStats);
+    setCharacterDesignLocked(data.characterDesignLocked ?? INITIAL_STATE.characterDesignLocked);
     if (data.appTheme) setAppThemeState(data.appTheme);
     if (data.appAccentColor) setAppAccentColorState(data.appAccentColor);
     if (data.appLanguage) setAppLanguageState(data.appLanguage);
@@ -243,6 +245,12 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const historyRef = useRef<string[]>([]);
   const historyIndexRef = useRef<number>(-1);
   const isTimeTraveling = useRef(false);
+
+  // Refs that always hold the latest nextId and activeBoardId for use in stable callbacks
+  const nextIdRef = useRef(nextId);
+  useEffect(() => { nextIdRef.current = nextId; }, [nextId]);
+  const activeBoardIdRef = useRef(activeBoardId);
+  useEffect(() => { activeBoardIdRef.current = activeBoardId; }, [activeBoardId]);
 
   const captureSnapshot = useCallback((overrideState?: Partial<{ beats: Beat[]; connections: Connection[]; groups: Group[]; annotations: Annotation[] }>) => {
     if (isTimeTraveling.current || isRemoteUpdateRef.current) return;
@@ -393,6 +401,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       breakdownLanguage, breakdownLockedOnly, isPdfDropEnabled, isRedoEnabled, 
       writingGoal, geminiApiKey: '', stabilityApiKey, 
       dailyStats, sessionStartCount, lastSessionDate, boardLayerOrder,
+      characterDesignLocked,
       lastInstanceId: INSTANCE_ID // Tag the update with this instance ID
     };
     try {
@@ -422,7 +431,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     isTamilMode, tamilFontScale, tamilFontFamily, userDictionary, isOsInputMode, osInputShortcut,
     scriptConfig, scriptViewMode, scratchpadConfig, storyboardConfig, isStoryboardFeatureEnabled,
     breakdownLanguage, breakdownLockedOnly, isPdfDropEnabled, isRedoEnabled, writingGoal, stabilityApiKey,
-    dailyStats, sessionStartCount, lastSessionDate, boardLayerOrder, supabaseUser, fileHandle
+    dailyStats, sessionStartCount, lastSessionDate, boardLayerOrder, characterDesignLocked, supabaseUser, fileHandle
   ]);
 
   const saveProjectAs = useCallback(async () => {
@@ -447,7 +456,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const downloadProject = useCallback(() => {
     if (!currentProjectId) return;
-    const projectData = { beats, groups, connections, annotations, characterData, generatedShots, scratchpad, globalNotes, panX, panY, scale, nextId, nextAnnoId, activeBoardId, isTamilMode, tamilFontScale, tamilFontFamily, userDictionary, isOsInputMode, osInputShortcut, scriptConfig, scriptViewMode, scratchpadConfig, storyboardConfig, isStoryboardFeatureEnabled, breakdownLanguage, breakdownLockedOnly, isPdfDropEnabled, isRedoEnabled, writingGoal, geminiApiKey: '', stabilityApiKey, dailyStats, sessionStartCount, lastSessionDate, boardLayerOrder };
+    const projectData = { beats, groups, connections, annotations, characterData, generatedShots, scratchpad, globalNotes, panX, panY, scale, nextId, nextAnnoId, activeBoardId, isTamilMode, tamilFontScale, tamilFontFamily, userDictionary, isOsInputMode, osInputShortcut, scriptConfig, scriptViewMode, scratchpadConfig, storyboardConfig, isStoryboardFeatureEnabled, breakdownLanguage, breakdownLockedOnly, isPdfDropEnabled, isRedoEnabled, writingGoal, geminiApiKey: '', stabilityApiKey, dailyStats, sessionStartCount, lastSessionDate, boardLayerOrder, characterDesignLocked };
     const blob = new Blob([JSON.stringify(projectData, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -458,7 +467,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
     saveProject();
-  }, [currentProjectId, projectList, beats, groups, connections, annotations, characterData, generatedShots, scratchpad, globalNotes, panX, panY, scale, nextId, nextAnnoId, activeBoardId, isTamilMode, tamilFontScale, tamilFontFamily, userDictionary, isOsInputMode, osInputShortcut, scriptConfig, scriptViewMode, scratchpadConfig, storyboardConfig, isStoryboardFeatureEnabled, breakdownLanguage, breakdownLockedOnly, isPdfDropEnabled, isRedoEnabled, writingGoal, stabilityApiKey, dailyStats, sessionStartCount, lastSessionDate, boardLayerOrder, saveProject]);
+  }, [currentProjectId, projectList, beats, groups, connections, annotations, characterData, generatedShots, scratchpad, globalNotes, panX, panY, scale, nextId, nextAnnoId, activeBoardId, isTamilMode, tamilFontScale, tamilFontFamily, userDictionary, isOsInputMode, osInputShortcut, scriptConfig, scriptViewMode, scratchpadConfig, storyboardConfig, isStoryboardFeatureEnabled, breakdownLanguage, breakdownLockedOnly, isPdfDropEnabled, isRedoEnabled, writingGoal, stabilityApiKey, dailyStats, sessionStartCount, lastSessionDate, boardLayerOrder, characterDesignLocked, saveProject]);
 
   const updateBeat = (id: number, updates: Partial<Beat>) => {
     if (isRemoteUpdateRef.current) return;
@@ -511,19 +520,18 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     captureSnapshot();
   }, [captureSnapshot, activeBoardId]);
 
-  const addBeat = (x: number, y: number) => {
-    const id = nextId;
-    setNextId(p => p + 1);
-    
-    // Auto-numbering logic removed to ensure beats start unnumbered
-    // until manually assigned or connected to a numbered chain.
-
+  // addBeat is a stable useCallback (refs ensure nextId/activeBoardId are always fresh
+  // even when the callback is captured in long-lived event listener closures)
+  const addBeat = useCallback((x: number, y: number) => {
+    const id = nextIdRef.current;
+    nextIdRef.current++;      // pre-increment so rapid successive calls get unique IDs
+    setNextId(id + 1);
     setBeats(p => [...p, { 
       id, 
       x, 
       y, 
       title: '', 
-      sceneNumber: undefined, // Default to unnumbered
+      sceneNumber: undefined,
       slug: { prefix: '', location: '', time: '' }, 
       content: '<div class="sc-line sc-action"><br></div>', 
       color: '#444', 
@@ -531,11 +539,11 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       status: 'not-ready', 
       versions: [], 
       notes: [], 
-      boardId: activeBoardId 
+      boardId: activeBoardIdRef.current 
     }]);
     captureSnapshot();
     return id;
-  };
+  }, [captureSnapshot]);
 
   const autoGenerateScenes = useCallback((count: 5 | 20 | 50 = 5) => {
     captureSnapshot();
@@ -604,8 +612,14 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setHasUnsavedChanges(true);
   }, []);
 
+  const setCharacterDesignLockedWrapped = useCallback((val: boolean) => {
+    if (isRemoteUpdateRef.current) return;
+    setCharacterDesignLocked(val);
+    setHasUnsavedChanges(true);
+  }, []);
+
   const value: ProjectContextType = {
-    beats, groups, connections, annotations, characterData, generatedShots, scratchpad, globalNotes, panX, panY, scale, nextId, nextAnnoId, activeBoardId, isTamilMode, tamilFontScale, tamilFontFamily, userDictionary, isOsInputMode, osInputShortcut, scriptConfig, scriptViewMode, scratchpadConfig, storyboardConfig, isStoryboardFeatureEnabled, breakdownLanguage, breakdownLockedOnly, isPdfDropEnabled, isRedoEnabled, writingGoal, geminiApiKey: '', stabilityApiKey, dailyStats, sessionStartCount, lastSessionDate, boardLayerOrder, appTheme, appAccentColor, appLanguage, currentUser, currentProjectId, projectList, hasUnsavedChanges, schemaError, isSaving, fileHandle, isInitialLoading, isCloudMode: !!supabaseUser, login, logout, selectProject, createProject, deleteProject, closeProject, clearSchemaError: () => { setSchemaError(null); if (supabaseUser) refreshProjectList(supabaseUser.id); }, setBeats: setBeatsWrapped, setGroups: setGroupsWrapped, setConnections: setConnectionsWrapped, setAnnotations: setAnnotationsWrapped, setCharacterData: setCharacterDataWrapped, setGeneratedShots, setScratchpad: setScratchpadWrapped, setGlobalNotes: setGlobalNotesWrapped, updateGeneratedShot: (id, u) => { setGeneratedShots(p => p.map(s => s.id === id ? { ...s, ...u } : s)); setHasUnsavedChanges(true); }, addGeneratedShot: (i) => { const n = { id: `shot-${Date.now()}`, shotSize: 'WIDE', angle: 'EYE LEVEL', description: '', subject: '', scene: '?', imageHistory: [] }; const s = [...generatedShots]; s.splice(i + 1, 0, n); setGeneratedShots(s); captureSnapshot(); }, removeGeneratedShot: (id) => { setGeneratedShots(p => p.filter(s => s.id !== id)); captureSnapshot(); }, moveGeneratedShot: (f, t) => { const s = [...generatedShots]; const [m] = s.splice(f, 1); s.splice(t, 0, m); setGeneratedShots(s); captureSnapshot(); }, setPan: (x, y) => { setPanX(x); setPanY(y); }, setScale, updateBeat, addBeat, reorderBeats, addGroup: (g) => { const id = nextId; setNextId(p => p + 1); setGroups(p => [...p, { ...g, id, boardId: activeBoardId }]); captureSnapshot(); }, updateGroup: (id, u) => { setGroups(p => p.map(g => g.id === id ? { ...g, ...u } : g)); setHasUnsavedChanges(true); }, removeGroup: (id) => { setGroups(p => p.filter(g => g.id !== id)); captureSnapshot(); }, loadProject: applyProjectState, saveProject, saveProjectAs, setActiveBoardId, setTamilMode, setTamilFontScale, setTamilFontFamily, learnTamilWord: (e, t) => { setUserDictionary(p => { const c = p[e.toLowerCase()] || []; if (!c.includes(t)) return { ...p, [e.toLowerCase()]: [t, ...c] }; return p; }); }, setOsInputMode, setOsInputShortcut, setScriptConfig, setScriptViewMode, setScratchpadConfig, setStoryboardConfig, setStoryboardFeatureEnabled, setAppTheme, setAppAccentColor, setAppLanguage, setBreakdownLanguage, setBreakdownLockedOnly, setPdfDropEnabled, setRedoEnabled, setWritingGoal, setGeminiApiKey: () => {}, setStabilityApiKey, setBoardLayerOrder, setNextId, undo, redo, canUndo: historyIndexRef.current > 0, canRedo: historyIndexRef.current < historyRef.current.length - 1, captureSnapshot, downloadProject, autoGenerate5Scenes, autoGenerateScenes
+    beats, groups, connections, annotations, characterData, generatedShots, scratchpad, globalNotes, panX, panY, scale, nextId, nextAnnoId, activeBoardId, isTamilMode, tamilFontScale, tamilFontFamily, userDictionary, isOsInputMode, osInputShortcut, scriptConfig, scriptViewMode, scratchpadConfig, storyboardConfig, isStoryboardFeatureEnabled, breakdownLanguage, breakdownLockedOnly, isPdfDropEnabled, isRedoEnabled, writingGoal, geminiApiKey: '', stabilityApiKey, dailyStats, sessionStartCount, lastSessionDate, boardLayerOrder, characterDesignLocked, setCharacterDesignLocked: setCharacterDesignLockedWrapped, appTheme, appAccentColor, appLanguage, currentUser, currentProjectId, projectList, hasUnsavedChanges, schemaError, isSaving, fileHandle, isInitialLoading, isCloudMode: !!supabaseUser, login, logout, selectProject, createProject, deleteProject, closeProject, clearSchemaError: () => { setSchemaError(null); if (supabaseUser) refreshProjectList(supabaseUser.id); }, setBeats: setBeatsWrapped, setGroups: setGroupsWrapped, setConnections: setConnectionsWrapped, setAnnotations: setAnnotationsWrapped, setCharacterData: setCharacterDataWrapped, setGeneratedShots, setScratchpad: setScratchpadWrapped, setGlobalNotes: setGlobalNotesWrapped, updateGeneratedShot: (id, u) => { setGeneratedShots(p => p.map(s => s.id === id ? { ...s, ...u } : s)); setHasUnsavedChanges(true); }, addGeneratedShot: (i) => { const n = { id: `shot-${Date.now()}`, shotSize: 'WIDE', angle: 'EYE LEVEL', description: '', subject: '', scene: '?', imageHistory: [] }; const s = [...generatedShots]; s.splice(i + 1, 0, n); setGeneratedShots(s); captureSnapshot(); }, removeGeneratedShot: (id) => { setGeneratedShots(p => p.filter(s => s.id !== id)); captureSnapshot(); }, moveGeneratedShot: (f, t) => { const s = [...generatedShots]; const [m] = s.splice(f, 1); s.splice(t, 0, m); setGeneratedShots(s); captureSnapshot(); }, setPan: (x, y) => { setPanX(x); setPanY(y); }, setScale, updateBeat, addBeat, reorderBeats, addGroup: (g) => { const id = nextId; setNextId(p => p + 1); setGroups(p => [...p, { ...g, id, boardId: activeBoardId }]); captureSnapshot(); }, updateGroup: (id, u) => { setGroups(p => p.map(g => g.id === id ? { ...g, ...u } : g)); setHasUnsavedChanges(true); }, removeGroup: (id) => { setGroups(p => p.filter(g => g.id !== id)); captureSnapshot(); }, loadProject: applyProjectState, saveProject, saveProjectAs, setActiveBoardId, setTamilMode, setTamilFontScale, setTamilFontFamily, learnTamilWord: (e, t) => { setUserDictionary(p => { const c = p[e.toLowerCase()] || []; if (!c.includes(t)) return { ...p, [e.toLowerCase()]: [t, ...c] }; return p; }); }, setOsInputMode, setOsInputShortcut, setScriptConfig, setScriptViewMode, setScratchpadConfig, setStoryboardConfig, setStoryboardFeatureEnabled, setAppTheme, setAppAccentColor, setAppLanguage, setBreakdownLanguage, setBreakdownLockedOnly, setPdfDropEnabled, setRedoEnabled, setWritingGoal, setGeminiApiKey: () => {}, setStabilityApiKey, setBoardLayerOrder, setNextId, undo, redo, canUndo: historyIndexRef.current > 0, canRedo: historyIndexRef.current < historyRef.current.length - 1, captureSnapshot, downloadProject, autoGenerate5Scenes, autoGenerateScenes
   };
 
   return <ProjectContext.Provider value={value}>{children}</ProjectContext.Provider>;

@@ -435,8 +435,10 @@ const StoryboardView: React.FC = () => {
       beats, generatedShots, setGeneratedShots, updateGeneratedShot, 
       addGeneratedShot, removeGeneratedShot, moveGeneratedShot, storyboardConfig, setStoryboardConfig,
       characterData, setAnnotations, panX, panY, scale,
-      stabilityApiKey, projectList = [], currentProjectId = null
+      stabilityApiKey, projectList = [], currentProjectId = null, appTheme
   } = useProject();
+  
+  const isLight = appTheme === 'light' || (appTheme === 'system' && typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: light)').matches);
   
   // Range Analysis State
   const [startScene, setStartScene] = useState(1);
@@ -940,9 +942,9 @@ const StoryboardView: React.FC = () => {
   const isApiConnected = storyboardConfig.provider === 'stability' ? !!stabilityApiKey : true;
 
   return (
-    <div className="w-full h-full bg-[#181818] flex flex-col overflow-hidden relative">
+    <div className={`w-full h-full flex flex-col overflow-hidden relative ${isLight ? 'bg-slate-100 text-slate-800' : 'bg-[#181818] text-white'}`}>
       
-      <div className="bg-[#111] h-14 border-b border-[#222] px-4 flex items-center justify-between shrink-0 shadow-sm z-20 gap-4">
+      <div className={`h-14 border-b px-4 flex items-center justify-between shrink-0 shadow-sm z-20 gap-4 ${isLight ? 'bg-white border-slate-200' : 'bg-[#111] border-[#222]'}`}>
         
         <div className="flex items-center gap-4">
             <div className="flex items-center gap-2 bg-[#000] border border-[#333] rounded-md px-2 py-1">

@@ -232,6 +232,8 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
     isRedoEnabled, setRedoEnabled
   } = useProject();
 
+  const isLight = appTheme === 'light' || (appTheme === 'system' && typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: light)').matches);
+
   const [activeCategory, setActiveCategory] = useState<'appearance' | 'project' | 'formatting' | 'scratchpad' | 'board' | 'storyboard' | 'features'>('appearance');
   const [selectedFormatElement, setSelectedFormatElement] = useState<keyof ScriptConfig | 'visualization'>('action');
   
@@ -393,9 +395,9 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
   const firstBeat = beats.length > 0 ? beats[0] : null;
 
   return (
-    <div className="w-full h-full bg-[#050505] flex overflow-hidden font-sans">
+    <div className={`w-full h-full flex overflow-hidden font-sans ${isLight ? 'bg-slate-100 text-slate-800' : 'bg-[#050505] text-white'}`}>
         {/* Left Navigation Sidebar */}
-        <div className="w-64 bg-[#0a0a0a] border-r border-[#222] flex flex-col shrink-0 z-20 shadow-2xl">
+        <div className={`w-64 border-r flex flex-col shrink-0 z-20 shadow-xl ${isLight ? 'bg-white border-slate-200' : 'bg-[#0a0a0a] border-[#222]'}`}>
            <div className="p-6">
               <h2 className="text-xs font-black uppercase tracking-[0.2em] flex items-center gap-2 mb-1" style={{ color: appAccentColor }}>
                   <SettingsIcon size={14} /> Backstage Settings

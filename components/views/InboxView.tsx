@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { useProject } from '../../context/ProjectContext';
 import { ViewMode, AppTask, TaskModificationHistory } from '../../types';
 import { 
   Inbox, CheckCircle2, Clock, AlertCircle, Play, Filter, Search, 
@@ -39,6 +40,8 @@ export const InboxView: React.FC<InboxViewProps> = ({
   onAddTask,
   onDeleteTask
 }) => {
+  const { appTheme } = useProject();
+  const isLight = appTheme === 'light' || (appTheme === 'system' && typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: light)').matches);
   // Sidebar Quick Filter State
   const [quickFilter, setQuickFilter] = useState<'all' | 'my' | 'high' | 'unread' | 'due' | 'history'>('all');
   const [selectedDept, setSelectedDept] = useState<string>('all');
@@ -275,10 +278,10 @@ export const InboxView: React.FC<InboxViewProps> = ({
   }, []);
 
   return (
-    <div className="flex flex-col lg:flex-row h-full min-h-[calc(100vh-60px)] bg-[#0c0c0e] text-white">
+    <div className={`flex flex-col lg:flex-row h-full min-h-[calc(100vh-60px)] ${isLight ? 'bg-slate-100 text-slate-800' : 'bg-[#0c0c0e] text-white'}`}>
       
       {/* LEFT SIDEBAR: FILTERS & DEPARTMENTS */}
-      <div className="w-full lg:w-72 bg-[#121215] border-r border-[#222227] p-4 flex flex-col gap-5 shrink-0 overflow-y-auto custom-scrollbar">
+      <div className={`w-full lg:w-72 border-r p-4 flex flex-col gap-5 shrink-0 overflow-y-auto custom-scrollbar ${isLight ? 'bg-white border-slate-200' : 'bg-[#121215] border-[#222227]'}`}>
         
         {/* Header Title */}
         <div className="flex items-center justify-between border-b border-[#222227] pb-3">

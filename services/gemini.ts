@@ -340,3 +340,43 @@ export async function generateImage(promptOrOptions: any): Promise<string | null
     throw error;
   }
 }
+
+export async function identifyActorFromImage(base64Image: string): Promise<string | null> {
+  try {
+    const match = base64Image.match(/^data:(image\/[a-zA-Z+.-]+);base64,(.+)$/);
+    let mimeType = 'image/jpeg';
+    let base64Data = base64Image;
+    if (match) {
+      mimeType = match[1];
+      base64Data = match[2];
+    } else {
+      if (base64Image.startsWith('http')) {
+        return null;
+      }
+    }
+
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: [
+        {
+          inlineData: {
+            mimeType: mimeType,
+            data: base64Data
+          }
+        },
+        "Who is the well-known actor/actress in this image? Return ONLY their full name. If you cannot identify a famous actor or the person is unrecognized, return exactly 'Unknown'."
+      ]
+    });
+    
+    const text = (response.text || '').trim().replace(/['"']/g, '');
+    if (text && text.toLowerCase() !== 'unknown' && text.length < 100) {
+      return text;
+    }
+    return null;
+  } catch (error) {
+    console.error("Actor Identification Error:", error);
+    return null;
+  }
+}
+

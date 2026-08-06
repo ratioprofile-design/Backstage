@@ -78,14 +78,21 @@ type TabType = 'beats' | 'script' | 'characters' | 'breakdown' | 'shotdivision' 
 
 const StatisticsView: React.FC = () => {
     const { 
-        beats = [], 
-        connections = [], 
-        groups = [], 
-        characterData = {}, 
-        generatedShots = [], 
-        scriptConfig = { noteFont: 'Courier New' },
-        writingGoal
+        beats, 
+        connections, 
+        groups, 
+        characterData, 
+        generatedShots,
+        scriptConfig, 
+        scratchpadConfig,
+        dailyStats,
+        sessionStartCount,
+        lastSessionDate,
+        writingGoal,
+        appTheme
     } = useProject();
+
+    const isLight = appTheme === 'light' || (appTheme === 'system' && typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: light)').matches);
 
     const boards = (useProject() as any).boards || [];
     const goals = writingGoal;
@@ -591,9 +598,9 @@ const StatisticsView: React.FC = () => {
     }, [generatedShots, selectedStoryFilter]);
 
     return (
-        <div className="w-full h-full bg-[#0a0a0a] text-gray-200 font-sans flex flex-col overflow-hidden">
+        <div className={`w-full h-full font-sans flex flex-col overflow-hidden ${isLight ? 'bg-slate-100 text-slate-800' : 'bg-[#0a0a0a] text-gray-200'}`}>
             {/* --- HEADER BAR WITH TAB NAVIGATION --- */}
-            <div className="bg-[#121212] border-b border-[#262626] px-6 py-4 flex flex-wrap items-center justify-between gap-4 shrink-0 shadow-md">
+            <div className={`px-6 py-4 flex flex-wrap items-center justify-between gap-4 shrink-0 border-b shadow-md ${isLight ? 'bg-white border-slate-200' : 'bg-[#121212] border-[#262626]'}`}>
                 <div>
                     <div className="flex items-center gap-2">
                         <BarChart3 className="text-[#f5a623]" size={22} />

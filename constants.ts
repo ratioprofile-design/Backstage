@@ -203,7 +203,7 @@ export const INITIAL_STATE: ProjectState = {
     slugline: { fontSize: 14, fontFamily: 'Courier Prime', textAlign: 'left', lineHeight: 1.2, letterSpacing: 0, paddingVertical: 4, paddingHorizontal: 8, paddingEnabled: false, sceneNumberFontSize: 16, marginTop: 0, marginBottom: 0.2, bold: true, italic: false, underline: false, color: '#000000', highlightColor: null },
     // GLOBAL BOUNDS / LAYOUT VIZ
     blockBounds: { 
-      enabled: true, 
+      enabled: false, 
       mode: 'active', 
       color: '#f5a623', 
       opacity: 10, 
@@ -295,7 +295,8 @@ export const INITIAL_STATE: ProjectState = {
   lastSessionDate: new Date().toISOString().split('T')[0],
   // Order from Bottom (index 0) to Top (index 4)
   // Drawings -> Text -> Connections -> Groups -> Beats
-  boardLayerOrder: ['annotations', 'text', 'connections', 'groups', 'beats']
+  boardLayerOrder: ['annotations', 'text', 'connections', 'groups', 'beats'],
+  characterDesignLocked: false
 };
 
 export const SCRIPT_FORMATS = [

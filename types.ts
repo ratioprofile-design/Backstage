@@ -97,7 +97,7 @@ export interface ProjectMetadata {
   created: number;
 }
 
-export type ViewMode = 'board' | 'script' | 'characters' | 'casting' | 'breakdown' | 'crew' | 'shotlist' | 'storyboard' | 'schedule' | 'statistics' | 'backstage' | 'goals' | 'inbox' | 'continuity';
+export type ViewMode = 'board' | 'script' | 'characters' | 'casting' | 'characterdesign' | 'breakdown' | 'crew' | 'shotlist' | 'storyboard' | 'schedule' | 'statistics' | 'backstage' | 'goals' | 'inbox' | 'continuity';
 
 export interface ContinuityItem {
   id: string;
@@ -217,6 +217,7 @@ export interface CharacterData {
   psychology: string;
   backstory: string;
   images: string[];
+  aiImages?: string[];
   relationships: { target: string; type: string; description: string }[];
   aliases?: string[];
   isImplicit?: boolean;
@@ -298,6 +299,9 @@ export interface ProjectState {
 
   // Board Layers
   boardLayerOrder: BoardLayer[];
+
+  // Writer's Page Lock: prevents crew from editing the Character Design page
+  characterDesignLocked?: boolean;
 }
 
 export interface ProjectContextType extends ProjectState {
@@ -401,6 +405,7 @@ export interface ProjectContextType extends ProjectState {
 
   // Board Layers
   setBoardLayerOrder: (order: BoardLayer[]) => void;
+  setCharacterDesignLocked: (locked: boolean) => void;
 
   // ID Management
   setNextId: (val: number | ((prev: number) => number)) => void;

@@ -695,7 +695,7 @@
   color: inherit;
 }
 
-.light-theme .text-white:not(button *, [class*="bg-amber"] *, [class*="bg-[#f5a623]"] *, [class*="bg-emerald"] *, [class*="bg-blue"] *, [class*="bg-red"] *, [class*="bg-indigo"] *, [class*="bg-purple"] *),
+.light-theme .text-white:not(button *, [class*="bg-amber"] *, [class*="bg-[#f5a623]"] *, [class*="bg-emerald"] *, [class*="bg-blue"] *, [class*="bg-red"] *, [class*="bg-indigo"] *, [class*="bg-purple"] *, [class*="bg-[#2962ff]"] *),
 .light-theme .text-gray-100:not(button *, [class*="bg-"] *),
 .light-theme .text-gray-200:not(button *, [class*="bg-"] *),
 .light-theme .text-zinc-100:not(button *, [class*="bg-"] *),
@@ -909,6 +909,150 @@ input:focus, textarea:focus, select:focus {
 .border-app-accent,
 .border-\[\#f5a623\] {
   border-color: var(--app-accent, #f5a623) !important;
+}
+
+
+/* ==========================================
+   CONTINUITY STUDIO — DEDICATED LIGHT THEME
+   ========================================== */
+
+
+/* Force white text on blue/accent elements and all elements with text-white class in light theme */
+.light-theme .continuity-studio-wrapper .text-white,
+.light-theme .continuity-studio-wrapper .text-white *,
+.light-theme .bg-\[\#2962ff\],
+.light-theme .bg-\[\#2962ff\] *,
+.light-theme .bg-blue-600,
+.light-theme .bg-blue-600 *,
+.light-theme .bg-blue-700,
+.light-theme .bg-blue-700 * {
+  color: #ffffff !important;
+}
+
+/* Timeline ruler columns in light mode */
+.light-theme .continuity-ruler-col {
+  border-color: #e2e8f0 !important;
+  color: #475569 !important;
+}
+
+/* Track row baseline in light mode */
+.light-theme .continuity-track-row {
+  border-color: #e2e8f0 !important;
+}
+
+.light-theme .continuity-track-row:hover {
+  background-color: rgba(241, 245, 249, 0.8) !important;
+}
+
+/* Timeline left sticky sidebar cells */
+.light-theme .continuity-sidebar-cell {
+  background-color: #ffffff !important;
+  border-color: #e2e8f0 !important;
+  color: #1e293b !important;
+}
+
+/* Department header rows */
+.light-theme .continuity-dept-header {
+  background-color: #f1f5f9 !important;
+  border-color: #e2e8f0 !important;
+  color: #0f172a !important;
+}
+
+.light-theme .continuity-dept-header:hover {
+  background-color: #e2e8f0 !important;
+}
+
+/* Minimap in light mode */
+.light-theme .continuity-minimap {
+  background-color: #e2e8f0 !important;
+  border-color: #cbd5e1 !important;
+}
+
+/* Inspector drawer */
+.light-theme .continuity-inspector {
+  background-color: #ffffff !important;
+  border-color: #e2e8f0 !important;
+  box-shadow: -4px 0 20px rgba(0, 0, 0, 0.06) !important;
+}
+
+/* Inspector tab nav */
+.light-theme .continuity-inspector-tabs {
+  background-color: #f1f5f9 !important;
+  border-color: #e2e8f0 !important;
+}
+
+/* Inspector sub-panels */
+.light-theme .continuity-inspector-panel {
+  background-color: #f8fafc !important;
+  border-color: #e2e8f0 !important;
+}
+
+/* Polaroid / look image no-photo placeholder in light mode */
+.light-theme .continuity-no-photo {
+  background-color: #e2e8f0 !important;
+  color: #94a3b8 !important;
+}
+
+/* Dept Deck cards in light mode */
+.light-theme .continuity-deck-card {
+  background-color: #ffffff !important;
+  border-color: #e2e8f0 !important;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04) !important;
+}
+
+.light-theme .continuity-deck-card:hover {
+  background-color: #f8fafc !important;
+  border-color: #cbd5e1 !important;
+}
+
+/* Look span bars - keep their vivid background, just tweak shadow */
+.light-theme .look-box-item {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15) !important;
+}
+
+.light-theme .look-box-item:hover {
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.2) !important;
+}
+
+/* Audit section positive states */
+.light-theme .continuity-audit-ok {
+  background-color: rgba(16, 185, 129, 0.08) !important;
+  border-color: rgba(16, 185, 129, 0.3) !important;
+  color: #065f46 !important;
+}
+
+/* Audit conflicts */
+.light-theme .continuity-audit-conflict {
+  background-color: rgba(239, 68, 68, 0.08) !important;
+  border-color: rgba(239, 68, 68, 0.3) !important;
+  color: #7f1d1d !important;
+}
+
+/* Sequence cards */
+.light-theme .continuity-sequence-card {
+  background-color: #ffffff !important;
+  border-color: #e2e8f0 !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04) !important;
+}
+
+/* Scene stepper mini controls */
+.light-theme .continuity-stepper-btn {
+  background-color: #e2e8f0 !important;
+  color: #1e293b !important;
+  border: none !important;
+}
+
+.light-theme .continuity-stepper-btn:hover {
+  background-color: #cbd5e1 !important;
+}
+
+/* Scrollbar fine-tuning in continuity view for light mode */
+.light-theme .continuity-scroll::-webkit-scrollbar-thumb {
+  background-color: #cbd5e1 !important;
+}
+
+.light-theme .continuity-scroll::-webkit-scrollbar-track {
+  background-color: #f8fafc !important;
 }
 
 

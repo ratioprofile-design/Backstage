@@ -675,6 +675,9 @@ const ScheduleView: React.FC = () => {
     const projectList = project.projectList || [];
     const currentProjectId = project.currentProjectId;
     const currentProjectName = projectList.find((p: any) => p.id === currentProjectId)?.name || 'Untitled Feature Film';
+    const appTheme = project.appTheme || 'dark';
+
+    const isLight = appTheme === 'light' || (appTheme === 'system' && typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: light)').matches);
 
     // Master Anchor & Setup Config
     const [defaultShotMins, setDefaultShotMins] = useState<number>(15);
@@ -1195,9 +1198,9 @@ const ScheduleView: React.FC = () => {
     };
 
     return (
-        <div className="w-full h-full bg-[#0c0c0e] text-gray-200 font-sans flex flex-col overflow-hidden">
+        <div className={`w-full h-full font-sans flex flex-col overflow-hidden ${isLight ? 'bg-slate-100 text-slate-800' : 'bg-[#0c0c0e] text-gray-200'}`}>
             {/* --- TOP HEADER COMMAND BAR --- */}
-            <div className="bg-[#121216] border-b border-[#22222a] px-4 py-2.5 flex items-center justify-between gap-3 shrink-0 shadow-lg">
+            <div className={`px-4 py-2.5 flex items-center justify-between gap-3 shrink-0 border-b shadow-md ${isLight ? 'bg-white border-slate-200' : 'bg-[#121216] border-[#22222a]'}`}>
                 <div className="flex items-center gap-3">
                     <div className="p-1.5 bg-[#f5a623]/10 border border-[#f5a623]/30 rounded-lg text-[#f5a623]">
                         <Calendar size={18} />

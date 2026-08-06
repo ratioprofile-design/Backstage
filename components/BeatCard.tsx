@@ -20,7 +20,8 @@ const BeatCard: React.FC<BeatCardProps> = ({
   beat, isSelected, onMouseDown, onDoubleClick, onLinkStart, sceneNumber, isError,
   creationStep, onCreationStepChange
 }) => {
-  const { updateBeat } = useProject();
+  const { updateBeat, appTheme } = useProject();
+  const isLight = appTheme === 'light' || (appTheme === 'system' && typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: light)').matches);
   const nameInputRef = useRef<HTMLInputElement>(null);
   const summaryInputRef = useRef<HTMLTextAreaElement>(null);
   const [activeDropdown, setActiveDropdown] = useState<'status' | 'version' | null>(null);
@@ -116,8 +117,9 @@ const BeatCard: React.FC<BeatCardProps> = ({
 
   return (
     <div
-      className={`absolute w-[240px] min-h-[160px] bg-[#2d2d2d] border rounded-md flex flex-col select-none cursor-default z-10 transition-all duration-300
-      ${isSelected ? 'border-[#f5a623] shadow-[0_0_0_1px_#f5a623,0_8px_20px_rgba(0,0,0,0.5)] z-20' : 'border-[#3d3d3d] shadow-lg'}
+      className={`beat-card absolute w-[240px] min-h-[160px] border flex flex-col select-none cursor-default z-10 transition-all duration-300
+      ${isLight ? 'bg-white text-slate-900 border-slate-200 shadow-sm' : 'bg-[#2d2d2d] text-white border-[#3d3d3d] shadow-lg'}
+      ${isSelected ? (isLight ? 'border-amber-500 ring-2 ring-amber-400/50 shadow-md' : 'border-[#f5a623] shadow-[0_0_0_1px_#f5a623,0_8px_20px_rgba(0,0,0,0.5)] z-20') : ''}
       ${creationStep ? 'shadow-[0_0_20px_rgba(245,166,35,0.3)] border-[#f5a623]' : ''}
       `}
       style={{ left: beat.x, top: beat.y, backgroundColor: (beat.tint && beat.tint !== '#2d2d2d') ? beat.tint : undefined }}
@@ -125,12 +127,12 @@ const BeatCard: React.FC<BeatCardProps> = ({
       onDoubleClick={() => onDoubleClick(beat.id)}
     >
       <div 
-        className="h-3 rounded-t flex items-center justify-between px-1.5 cursor-grab active:cursor-grabbing"
+        className="h-3 flex items-center justify-between px-1.5 cursor-grab active:cursor-grabbing"
         style={{ backgroundColor: beat.color || '#444' }}
       >
         {sceneNumber !== null && (
           <span 
-            className={`text-[10px] font-extrabold px-1.5 py-0.5 rounded-full -mt-2 -mr-1 shadow-sm border border-white/20 text-white ${isError ? 'bg-red-500' : 'bg-black/50'}`}
+            className={`text-[10px] font-extrabold px-1.5 py-0.5 shadow-xs border border-white/20 text-white ${isError ? 'bg-red-500' : 'bg-black/50'}`}
           >
             {sceneNumber}
           </span>
@@ -142,7 +144,7 @@ const BeatCard: React.FC<BeatCardProps> = ({
         {creationStep === 'name' ? (
           <input
             ref={nameInputRef}
-            className="font-bold text-sm mb-2 px-1 rounded bg-[#111] text-white border border-[#f5a623] outline-none w-full animate-pulse"
+            className={`font-bold text-sm mb-2 px-1 border outline-none w-full animate-pulse ${isLight ? 'bg-slate-50 text-slate-900 border-amber-500' : 'bg-[#111] text-white border-[#f5a623]'}`}
             value={localTitle}
             onChange={(e) => setLocalTitle(e.target.value)}
             onKeyDown={handleNameKeyDown}
@@ -152,12 +154,14 @@ const BeatCard: React.FC<BeatCardProps> = ({
             autoFocus
           />
         ) : (
-          <div className="font-bold text-sm mb-2 px-1 rounded min-h-[1.25em]">
-            {beat.title || <span className="text-gray-500 italic">Untitled Beat</span>}
+          <div className="font-bold text-sm mb-2 px-1 min-h-[1.25em]">
+            {beat.title || <span className={isLight ? "text-slate-400 italic" : "text-gray-500 italic"}>Untitled Beat</span>}
           </div>
         )}
 
-        <div className={`font-screenplay text-[11px] font-bold uppercase mb-1 pb-1 border-b border-[#444] ${(!beat.slug.prefix && !beat.slug.location) ? 'text-white/20' : 'text-[#ccc]'}`}>
+        <div className={`font-screenplay text-[11px] font-bold uppercase mb-1 pb-1 border-b ${
+          isLight ? 'border-slate-200 text-slate-600' : 'border-[#444] text-[#ccc]'
+        }`}>
           {(!beat.slug.prefix && !beat.slug.location && !beat.slug.time) ? 'INT. LOCATION - DAY' : `${beat.slug.prefix} ${beat.slug.location} - ${beat.slug.time}`}
         </div>
         
@@ -165,7 +169,9 @@ const BeatCard: React.FC<BeatCardProps> = ({
         {creationStep === 'summary' ? (
            <textarea 
              ref={summaryInputRef}
-             className="font-sans text-[11px] text-white bg-[#111] border border-[#f5a623] outline-none w-full resize-none p-1 rounded leading-relaxed h-20 animate-pulse"
+             className={`font-sans text-[11px] border outline-none w-full resize-none p-1 leading-relaxed h-20 animate-pulse ${
+               isLight ? 'bg-slate-50 text-slate-900 border-amber-500' : 'bg-[#111] text-white border-[#f5a623]'
+             }`}
              value={localSummary}
              onChange={(e) => setLocalSummary(e.target.value)}
              onKeyDown={handleSummaryKeyDown}
@@ -175,7 +181,9 @@ const BeatCard: React.FC<BeatCardProps> = ({
              autoFocus
            />
         ) : (
-           <div className="font-sans text-[11px] text-[#aaa] leading-relaxed pointer-events-none line-clamp-3 mb-2">
+           <div className={`font-sans text-[11px] leading-relaxed pointer-events-none line-clamp-3 mb-2 ${
+             isLight ? 'text-slate-600' : 'text-[#aaa]'
+           }`}>
               {beat.summary || <span className="opacity-30 italic">No summary...</span>}
            </div>
         )}
@@ -184,8 +192,10 @@ const BeatCard: React.FC<BeatCardProps> = ({
       {/* FOOTER: Dropdowns */}
       <div 
         ref={footerRef}
-        className="mt-auto border-t border-[#3d3d3d] bg-[#222] p-1.5 flex justify-between items-center rounded-b relative"
-        onMouseDown={(e) => e.stopPropagation()} // Prevent drag when clicking footer
+        className={`mt-auto border-t p-1.5 flex justify-between items-center relative ${
+          isLight ? 'border-slate-200 bg-slate-50' : 'border-[#3d3d3d] bg-[#222]'
+        }`}
+        onMouseDown={(e) => e.stopPropagation()}
       >
           {/* Status Dropdown (Left) */}
           <div className="relative">

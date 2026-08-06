@@ -13,14 +13,14 @@ import {
 import * as XLSX from 'xlsx';
 
 const CATEGORIES = [
-    { id: 'all', label: 'Total Manifest', icon: ListChecks, color: 'text-gray-300', bg: 'bg-gray-500/20', border: 'border-gray-500/30' },
-    { id: 'cast', label: 'Cast & Extras', icon: Users, color: 'text-yellow-400', bg: 'bg-yellow-500/20', border: 'border-yellow-500/30' },
-    { id: 'props', label: 'Props', icon: Package, color: 'text-red-400', bg: 'bg-red-500/20', border: 'border-red-500/30' },
-    { id: 'costume', label: 'Wardrobe', icon: Shirt, color: 'text-pink-400', bg: 'bg-pink-500/20', border: 'border-pink-500/30' },
-    { id: 'vfx', label: 'Visual Effects', icon: Wand2, color: 'text-green-400', bg: 'bg-green-500/20', border: 'border-green-500/30' },
-    { id: 'practical', label: 'Special Effects', icon: Flame, color: 'text-orange-500', bg: 'bg-orange-500/20', border: 'border-orange-500/30' },
-    { id: 'sound', label: 'Sound / SFX', icon: Mic2, color: 'text-blue-400', bg: 'bg-blue-500/20', border: 'border-blue-500/30' },
-    { id: 'location', label: 'Locations', icon: MapPin, color: 'text-purple-400', bg: 'bg-purple-500/20', border: 'border-purple-500/30' },
+    { id: 'all', label: 'Total Manifest', icon: ListChecks, color: 'text-zinc-300', bg: 'bg-zinc-500/20', border: 'border-zinc-500/30', lightColor: 'text-slate-800', lightBg: 'bg-slate-100', lightBorder: 'border-slate-300' },
+    { id: 'cast', label: 'Cast & Extras', icon: Users, color: 'text-amber-400', bg: 'bg-amber-500/20', border: 'border-amber-500/30', lightColor: 'text-amber-800', lightBg: 'bg-amber-50', lightBorder: 'border-amber-300' },
+    { id: 'props', label: 'Props', icon: Package, color: 'text-rose-400', bg: 'bg-rose-500/20', border: 'border-rose-500/30', lightColor: 'text-rose-800', lightBg: 'bg-rose-50', lightBorder: 'border-rose-300' },
+    { id: 'costume', label: 'Wardrobe', icon: Shirt, color: 'text-pink-400', bg: 'bg-pink-500/20', border: 'border-pink-500/30', lightColor: 'text-pink-800', lightBg: 'bg-pink-50', lightBorder: 'border-pink-300' },
+    { id: 'vfx', label: 'Visual Effects', icon: Wand2, color: 'text-emerald-400', bg: 'bg-emerald-500/20', border: 'border-emerald-500/30', lightColor: 'text-emerald-800', lightBg: 'bg-emerald-50', lightBorder: 'border-emerald-300' },
+    { id: 'practical', label: 'Special Effects', icon: Flame, color: 'text-orange-400', bg: 'bg-orange-500/20', border: 'border-orange-500/30', lightColor: 'text-orange-800', lightBg: 'bg-orange-50', lightBorder: 'border-orange-300' },
+    { id: 'sound', label: 'Sound / SFX', icon: Mic2, color: 'text-sky-400', bg: 'bg-sky-500/20', border: 'border-sky-500/30', lightColor: 'text-sky-800', lightBg: 'bg-sky-50', lightBorder: 'border-sky-300' },
+    { id: 'location', label: 'Locations', icon: MapPin, color: 'text-purple-400', bg: 'bg-purple-500/20', border: 'border-purple-500/30', lightColor: 'text-purple-800', lightBg: 'bg-purple-50', lightBorder: 'border-purple-300' },
 ];
 
 const BreakdownView: React.FC = () => {
@@ -34,8 +34,11 @@ const BreakdownView: React.FC = () => {
         scratchpadConfig,
         generatedShots,
         projectList = [],
-        currentProjectId = null
+        currentProjectId = null,
+        appTheme
     } = useProject();
+
+    const isLight = appTheme === 'light' || (appTheme === 'system' && typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: light)').matches);
 
     const [selectedCategory, setSelectedCategory] = useState<string>('all');
     const [searchTerm, setSearchTerm] = useState('');
@@ -674,19 +677,19 @@ const BreakdownView: React.FC = () => {
     const activeInspectorShots = activeInspectorBeat ? getShotsForScene(activeInspectorBeat.sceneNumber || '1', beats.indexOf(activeInspectorBeat)) : [];
 
     return (
-        <div className="flex w-full h-full bg-[#121212] overflow-hidden font-sans text-gray-300">
+        <div className={`flex w-full h-full overflow-hidden font-sans ${isLight ? 'bg-slate-100 text-slate-800' : 'bg-[#121212] text-gray-300'}`}>
             {/* Sidebar Manifest Categories */}
-            <div className="w-72 bg-[#1a1a1a] border-r border-[#333] flex flex-col shrink-0 z-20 shadow-xl relative">
-                <div className="p-5 border-b border-[#333] bg-[#1a1a1a]">
+            <div className={`w-72 border-r flex flex-col shrink-0 z-20 shadow-xl relative ${isLight ? 'bg-white border-slate-200' : 'bg-[#1a1a1a] border-[#333]'}`}>
+                <div className={`p-5 border-b ${isLight ? 'border-slate-200 bg-slate-50' : 'border-[#333] bg-[#1a1a1a]'}`}>
                     <div className="flex items-center justify-between mb-1">
-                        <h2 className="text-xs font-black text-white uppercase tracking-wider flex items-center gap-2">
+                        <h2 className={`text-xs font-black uppercase tracking-wider flex items-center gap-2 ${isLight ? 'text-slate-900' : 'text-white'}`}>
                             <ListChecks size={16} className="text-[#f5a623]" /> Breakdown Manifest
                         </h2>
-                        <span className="text-[9px] font-mono bg-green-900/30 text-green-400 border border-green-700/30 px-1.5 py-0.5 rounded uppercase">
+                        <span className={`text-[9px] font-mono border px-1.5 py-0.5 rounded uppercase ${isLight ? 'bg-emerald-50 text-emerald-700 border-emerald-300' : 'bg-green-900/30 text-green-400 border-green-700/30'}`}>
                             Live Sync
                         </span>
                     </div>
-                    <p className="text-[10px] text-[#777] font-medium uppercase">Script & Storyboard Assets</p>
+                    <p className={`text-[10px] font-medium uppercase ${isLight ? 'text-slate-500' : 'text-[#777]'}`}>Script & Storyboard Assets</p>
                 </div>
 
                 <div className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-1.5">
@@ -694,20 +697,27 @@ const BreakdownView: React.FC = () => {
                         const count = categoryCounts[cat.id] || 0;
                         const isActive = selectedCategory === cat.id;
                         const CatIcon = cat.icon;
+                        const colorClass = isLight ? cat.lightColor : cat.color;
+                        const bgClass = isLight ? cat.lightBg : cat.bg;
+                        const borderClass = isLight ? cat.lightBorder : cat.border;
                         return (
                             <button 
                                 key={cat.id} 
                                 onClick={() => setSelectedCategory(cat.id)} 
-                                className={`w-full text-left px-3.5 py-2.5 rounded-xl flex items-center justify-between transition-all duration-200 group ${isActive ? 'bg-[#2a2a2a] shadow-inner text-white' : 'hover:bg-[#222] text-[#888]'}`}
+                                className={`w-full text-left px-3.5 py-2.5 rounded-lg flex items-center justify-between transition-all duration-200 group ${
+                                    isActive 
+                                        ? (isLight ? `${bgClass} border ${borderClass} ${colorClass} font-bold shadow-xs` : `${bgClass} border ${borderClass} text-white font-bold shadow-inner`)
+                                        : (isLight ? 'hover:bg-slate-100 text-slate-700' : 'hover:bg-[#222] text-[#888]')
+                                }`}
                             >
                                 <div className="flex items-center gap-2.5">
-                                    <div className={`p-1.5 rounded-lg ${isActive ? cat.bg : 'bg-[#222] group-hover:bg-[#2a2a2a]'} transition-colors`}>
-                                        <CatIcon size={15} className={isActive ? cat.color : 'text-gray-500'} />
+                                    <div className={`p-1.5 rounded-md ${isActive ? (isLight ? bgClass : cat.bg) : (isLight ? 'bg-slate-100 group-hover:bg-slate-200' : 'bg-[#222] group-hover:bg-[#2a2a2a]')} transition-colors`}>
+                                        <CatIcon size={15} className={isActive ? colorClass : (isLight ? 'text-slate-600' : 'text-gray-500')} />
                                     </div>
                                     <span className="text-xs font-bold">{cat.label}</span>
                                 </div>
                                 {count > 0 && (
-                                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${isActive ? 'bg-[#f5a623] text-black' : 'bg-[#333] text-gray-500'}`}>
+                                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${isActive ? 'bg-[#f5a623] text-black' : (isLight ? 'bg-slate-200 text-slate-700' : 'bg-[#333] text-gray-400')}`}>
                                         {count}
                                     </span>
                                 )}
@@ -717,38 +727,42 @@ const BreakdownView: React.FC = () => {
                 </div>
 
                 {/* Quick Summary Metrics Box */}
-                <div className="p-4 border-t border-[#333] bg-[#141414] space-y-2">
-                    <div className="text-[10px] font-bold uppercase text-gray-500 tracking-wider">Sync Overview</div>
+                <div className={`p-4 border-t space-y-2 ${isLight ? 'border-slate-200 bg-slate-50' : 'border-[#333] bg-[#141414]'}`}>
+                    <div className={`text-[10px] font-bold uppercase tracking-wider ${isLight ? 'text-slate-500' : 'text-gray-500'}`}>Sync Overview</div>
                     <div className="grid grid-cols-2 gap-2 text-center">
-                        <div className="bg-[#1e1e1e] border border-[#333] rounded-lg p-2">
-                            <div className="text-base font-black text-white">{beats.length}</div>
-                            <div className="text-[9px] text-gray-500 uppercase font-bold">Scenes</div>
+                        <div className={`border rounded-lg p-2 ${isLight ? 'bg-white border-slate-200 shadow-xs' : 'bg-[#1e1e1e] border-[#333]'}`}>
+                            <div className={`text-base font-black ${isLight ? 'text-slate-800' : 'text-white'}`}>{beats.length}</div>
+                            <div className={`text-[9px] uppercase font-bold ${isLight ? 'text-slate-400' : 'text-gray-500'}`}>Scenes</div>
                         </div>
-                        <div className="bg-[#1e1e1e] border border-[#333] rounded-lg p-2">
+                        <div className={`border rounded-lg p-2 ${isLight ? 'bg-white border-slate-200 shadow-xs' : 'bg-[#1e1e1e] border-[#333]'}`}>
                             <div className="text-base font-black text-[#f5a623]">{generatedShots.length}</div>
-                            <div className="text-[9px] text-gray-500 uppercase font-bold">Storyboard Shots</div>
+                            <div className={`text-[9px] uppercase font-bold ${isLight ? 'text-slate-400' : 'text-gray-500'}`}>Storyboard Shots</div>
                         </div>
                     </div>
                 </div>
             </div>
 
             {/* Main Content Workspace */}
-            <div className="flex-1 flex flex-col min-h-0 overflow-hidden relative bg-[#121212]">
+            <div className={`flex-1 flex flex-col min-h-0 overflow-hidden relative ${isLight ? 'bg-slate-100 text-slate-800' : 'bg-[#121212] text-gray-300'}`}>
                 {/* Control Header Bar */}
-                <div className="bg-[#111] h-14 border-b border-[#222] px-4 flex items-center justify-between shrink-0 shadow-sm z-20 gap-4">
+                <div className={`h-14 border-b px-4 flex items-center justify-between shrink-0 shadow-sm z-20 gap-4 ${isLight ? 'bg-white border-slate-200' : 'bg-[#111] border-[#222]'}`}>
                     <div className="flex items-center gap-3">
-                        <div className="flex items-center gap-2 bg-[#000] border border-[#333] rounded-md px-2 py-1">
-                           <span className="text-[10px] font-bold text-[#666] uppercase mr-1">SCENE</span>
-                           <input type="number" className="w-8 bg-transparent text-center text-xs font-bold text-white outline-none focus:text-[#f5a623]" value={startScene} onChange={e => setStartScene(Math.max(1, parseInt(e.target.value)))} min={1} disabled={isAnalyzing} />
-                           <span className="text-gray-600 font-bold text-xs">-</span>
-                           <input type="number" className="w-8 bg-transparent text-center text-xs font-bold text-white outline-none focus:text-[#f5a623]" value={endScene} onChange={e => setEndScene(Math.max(1, parseInt(e.target.value)))} min={1} disabled={isAnalyzing} />
+                        <div className={`flex items-center gap-2 border rounded-md px-2 py-1 ${isLight ? 'bg-slate-50 border-slate-250' : 'bg-[#000] border-[#333]'}`}>
+                           <span className={`text-[10px] font-bold uppercase mr-1 ${isLight ? 'text-slate-500' : 'text-[#666]'}`}>SCENE</span>
+                           <input type="number" className={`w-8 bg-transparent text-center text-xs font-bold outline-none focus:text-[#f5a623] ${isLight ? 'text-slate-900' : 'text-white'}`} value={startScene} onChange={e => setStartScene(Math.max(1, parseInt(e.target.value)))} min={1} disabled={isAnalyzing} />
+                           <span className={`${isLight ? 'text-slate-400' : 'text-gray-600'} font-bold text-xs`}>-</span>
+                           <input type="number" className={`w-8 bg-transparent text-center text-xs font-bold outline-none focus:text-[#f5a623] ${isLight ? 'text-slate-900' : 'text-white'}`} value={endScene} onChange={e => setEndScene(Math.max(1, parseInt(e.target.value)))} min={1} disabled={isAnalyzing} />
                         </div>
 
                         <button 
                             onClick={() => setBreakdownLockedOnly(!breakdownLockedOnly)} 
                             disabled={isAnalyzing} 
                             title={breakdownLockedOnly ? "Analyzing Locked Scenes Only" : "Analyze All Scenes"}
-                            className={`flex items-center justify-center h-8 px-2.5 gap-1.5 rounded-md border text-xs font-bold transition-all ${breakdownLockedOnly ? 'bg-green-900/20 text-green-400 border-green-800/50' : 'bg-[#1a1a1a] border-[#333] text-gray-500 hover:text-white hover:bg-[#333]'}`}
+                            className={`flex items-center justify-center h-8 px-2.5 gap-1.5 rounded-md border text-xs font-bold transition-all ${
+                                breakdownLockedOnly 
+                                    ? (isLight ? 'bg-emerald-50 text-emerald-700 border-emerald-300' : 'bg-green-900/20 text-green-400 border-green-800/50') 
+                                    : (isLight ? 'bg-white border-slate-300 text-slate-600 hover:bg-slate-50 hover:text-slate-950' : 'bg-[#1a1a1a] border-[#333] text-gray-500 hover:text-white hover:bg-[#333]')
+                            }`}
                         >
                             {breakdownLockedOnly ? <Lock size={13} /> : <Unlock size={13} />}
                             <span className="text-[10px] uppercase">{breakdownLockedOnly ? "Locked Only" : "All Drafts"}</span>
@@ -757,7 +771,11 @@ const BreakdownView: React.FC = () => {
                         <button 
                             onClick={handleAnalyze} 
                             disabled={isAnalyzing} 
-                            className="flex items-center gap-2 border border-[#333] px-3.5 py-1.5 rounded-md text-xs font-bold uppercase transition-all bg-[#222] hover:bg-[#f5a623] hover:text-black text-gray-300 disabled:opacity-50"
+                            className={`flex items-center gap-2 border px-3.5 py-1.5 rounded-md text-xs font-bold uppercase transition-all disabled:opacity-50 ${
+                                isLight 
+                                    ? 'bg-slate-100 hover:bg-[#f5a623] hover:text-black text-slate-700 border-slate-300' 
+                                    : 'bg-[#222] hover:bg-[#f5a623] hover:text-black text-gray-300 border-[#333]'
+                            }`}
                         >
                             {isAnalyzing ? <Loader2 className="animate-spin" size={14} /> : <Wand2 size={14} className="text-[#f5a623]" />} 
                             {isAnalyzing ? 'Analyzing Script...' : 'AI Analyze All'}
@@ -765,64 +783,68 @@ const BreakdownView: React.FC = () => {
                     </div>
 
                     <div className="flex items-center gap-3">
-                        <div className="hidden lg:flex items-center gap-2 bg-[#1a1a1a] border border-[#333] px-3 py-1 rounded-md">
-                            <FileText size={12} className="text-green-400" />
-                            <span className="text-[10px] font-bold text-gray-400 uppercase">Script & Storyboard Synced</span>
+                        <div className={`hidden lg:flex items-center gap-2 border px-3 py-1 rounded-md ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-[#1a1a1a] border-[#333]'}`}>
+                            <FileText size={12} className="text-green-500" />
+                            <span className={`text-[10px] font-bold uppercase ${isLight ? 'text-slate-600' : 'text-gray-400'}`}>Script & Storyboard Synced</span>
                             <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span>
                         </div>
 
-                        <div className="flex bg-[#222] rounded-md border border-[#333] p-0.5 gap-1">
+                        <div className={`flex rounded-md border p-0.5 gap-1 ${isLight ? 'bg-slate-100 border-slate-300' : 'bg-[#222] border-[#333]'}`}>
                             <button onClick={() => { setShareCategory(selectedCategory === 'all' ? 'props' : selectedCategory); setIsShareModalOpen(true); }} className="px-2.5 py-1 bg-[#f5a623] hover:bg-[#e0951a] text-black font-bold rounded text-[10px] uppercase transition-all flex items-center gap-1.5 shadow-sm" title="Get formatted list to send to department person">
                                 <Share2 size={12} /> Send / Copy List
                             </button>
-                            <button onClick={() => handlePrintBreakdown(selectedCategory === 'all' ? 'props' : selectedCategory)} className="px-2.5 py-1 bg-[#28282e] hover:bg-[#383840] text-gray-200 font-bold rounded text-[10px] uppercase transition-all flex items-center gap-1.5" title="Print Breakdown Manifest">
-                                <Printer size={12} className="text-amber-400" /> Print
+                            <button onClick={() => handlePrintBreakdown(selectedCategory === 'all' ? 'props' : selectedCategory)} className={`px-2.5 py-1 font-bold rounded text-[10px] uppercase transition-all flex items-center gap-1.5 ${isLight ? 'bg-slate-200 hover:bg-slate-350 text-slate-800' : 'bg-[#28282e] hover:bg-[#383840] text-gray-200'}`} title="Print Breakdown Manifest">
+                                <Printer size={12} className={isLight ? 'text-amber-600' : 'text-amber-400'} /> Print
                             </button>
-                            <button onClick={() => handleExport('excel')} className="px-2.5 py-1 rounded text-[10px] font-bold uppercase text-gray-400 hover:text-white transition-all flex items-center gap-1.5"><FileSpreadsheet size={12} className="text-green-400" /> Excel</button>
-                            <button onClick={() => handleExport('csv')} className="px-2.5 py-1 rounded text-[10px] font-bold uppercase text-gray-400 hover:text-white transition-all flex items-center gap-1.5"><Download size={12} /> CSV</button>
+                            <button onClick={() => handleExport('excel')} className={`px-2.5 py-1 rounded text-[10px] font-bold uppercase transition-all flex items-center gap-1.5 ${isLight ? 'text-slate-600 hover:text-slate-900' : 'text-gray-400 hover:text-white'}`}><FileSpreadsheet size={12} className="text-green-500" /> Excel</button>
+                            <button onClick={() => handleExport('csv')} className={`px-2.5 py-1 rounded text-[10px] font-bold uppercase transition-all flex items-center gap-1.5 ${isLight ? 'text-slate-600 hover:text-slate-900' : 'text-gray-400 hover:text-white'}`}><Download size={12} /> CSV</button>
                         </div>
 
-                        <div className="flex bg-[#000] rounded-md p-1 border border-[#333] gap-1">
-                           <button onClick={() => setViewType('by-scene')} className={`p-1.5 rounded transition-colors ${viewType === 'by-scene' ? 'bg-[#333] text-white' : 'text-gray-500 hover:text-gray-300'}`} title="Scene View with Storyboard"><ListIcon size={14} /></button>
-                           <button onClick={() => setViewType('by-category')} className={`p-1.5 rounded transition-colors ${viewType === 'by-category' ? 'bg-[#333] text-white' : 'text-gray-500 hover:text-gray-300'}`} title="Manifest Asset View"><LayoutGrid size={14} /></button>
+                        <div className={`flex rounded-md p-1 border gap-1 ${isLight ? 'bg-slate-100 border-slate-300' : 'bg-[#000] border-[#333]'}`}>
+                           <button onClick={() => setViewType('by-scene')} className={`p-1.5 rounded transition-colors ${viewType === 'by-scene' ? (isLight ? 'bg-slate-300 text-slate-900' : 'bg-[#333] text-white') : (isLight ? 'text-slate-500 hover:text-slate-800' : 'text-gray-500 hover:text-gray-300')}`} title="Scene View with Storyboard"><ListIcon size={14} /></button>
+                           <button onClick={() => setViewType('by-category')} className={`p-1.5 rounded transition-colors ${viewType === 'by-category' ? (isLight ? 'bg-slate-300 text-slate-900' : 'bg-[#333] text-white') : (isLight ? 'text-slate-500 hover:text-slate-800' : 'text-gray-500 hover:text-gray-300')}`} title="Manifest Asset View"><LayoutGrid size={14} /></button>
                            {viewType === 'by-scene' && (
                               <button 
                                  onClick={() => setShowEmptyCategories(!showEmptyCategories)} 
                                  className={`px-2 py-1 rounded text-[10px] font-bold uppercase border transition-all ${
                                     showEmptyCategories 
-                                       ? 'bg-amber-950/40 text-amber-400 border-amber-800/50' 
-                                       : 'bg-[#181818] text-gray-400 border-[#333] hover:text-white'
-                                 }`}
+                                       ? (isLight ? 'bg-amber-100 text-amber-800 border-amber-300' : 'bg-amber-950/40 text-amber-400 border-amber-800/50') 
+                                       : (isLight ? 'bg-white text-slate-600 border-slate-300 hover:text-slate-900' : 'bg-[#181818] text-gray-400 border-[#333] hover:text-white')
+                                  }`}
                                  title={showEmptyCategories ? "Showing all categories (including empty)" : "Hiding empty categories to optimize screen space"}
                               >
-                                 {showEmptyCategories ? "Full Grid" : "Compact"}
+                                  {showEmptyCategories ? "Full Grid" : "Compact"}
                               </button>
                            )}
                         </div>
                     </div>
 
                     <div className="relative w-56">
-                        <Search className="absolute left-2.5 top-2.5 text-[#555]" size={13} />
+                        <Search className={`absolute left-2.5 top-2.5 ${isLight ? 'text-slate-400' : 'text-[#555]'}`} size={13} />
                         <input 
                             type="text" 
                             placeholder="Search Breakdown..." 
                             value={searchTerm} 
                             onChange={(e) => setSearchTerm(e.target.value)} 
-                            className="w-full bg-[#000] border border-[#333] rounded-md pl-8 pr-3 py-1.5 text-xs text-white outline-none focus:border-[#f5a623]" 
+                            className={`w-full border rounded-md pl-8 pr-3 py-1.5 text-xs outline-none focus:border-[#f5a623] ${
+                                isLight 
+                                    ? 'bg-white border-slate-300 text-slate-900 placeholder-slate-400' 
+                                    : 'bg-[#000] border-[#333] text-white placeholder-gray-600'
+                            }`} 
                         />
                     </div>
                 </div>
 
                 {/* Progress Bar during Batch AI Analysis */}
                 {isAnalyzing && (
-                    <div className="bg-[#1a1a1a] border-b border-[#f5a623]/30 px-8 py-3 flex items-center gap-4 shrink-0 shadow-lg z-20">
+                    <div className={`px-8 py-3 flex items-center gap-4 shrink-0 shadow-lg z-20 border-b ${isLight ? 'bg-white border-slate-200' : 'bg-[#1a1a1a] border-[#f5a623]/30'}`}>
                         <div className="text-[10px] font-bold text-[#f5a623] uppercase animate-pulse flex items-center gap-2 shrink-0 min-w-[200px]">
-                            <Loader2 size={14} className="animate-spin" /> Processing: <span className="text-white truncate max-w-[200px]">{progress.currentScene || `Scene ${startScene + progress.current - 1}`}</span>
+                            <Loader2 size={14} className="animate-spin" /> Processing: <span className={`${isLight ? 'text-slate-900' : 'text-white'} truncate max-w-[200px]`}>{progress.currentScene || `Scene ${startScene + progress.current - 1}`}</span>
                         </div>
-                        <div className="flex-1 h-1.5 bg-[#333] rounded-full overflow-hidden">
+                        <div className={`flex-1 h-1.5 rounded-full overflow-hidden ${isLight ? 'bg-slate-250' : 'bg-[#333]'}`}>
                             <div className="h-full bg-[#f5a623] transition-all duration-300" style={{ width: `${(progress.current / progress.total) * 100}%` }} />
                         </div>
-                        <button onClick={() => { abortRef.current = true; }} className="text-[10px] font-bold uppercase text-red-400 hover:text-red-300 bg-red-950/40 border border-red-900/50 px-2.5 py-1 rounded">
+                        <button onClick={() => { abortRef.current = true; }} className={`text-[10px] font-bold uppercase px-2.5 py-1 rounded ${isLight ? 'text-red-600 bg-red-50 border border-red-200 hover:bg-red-100' : 'text-red-400 hover:text-red-300 bg-red-950/40 border border-red-900/50'}`}>
                             Stop
                         </button>
                     </div>
@@ -832,15 +854,22 @@ const BreakdownView: React.FC = () => {
                 <div className="flex-1 flex overflow-hidden">
                     <div className="flex-1 overflow-y-auto custom-scrollbar p-6">
                         {selectedCategory !== 'all' && (
-                            <div className="max-w-6xl mx-auto mb-4 bg-[#1c1c22] border border-[#f5a623]/30 rounded-xl px-4 py-2.5 flex items-center justify-between shadow-md">
-                                <div className="flex items-center gap-2.5 text-xs font-bold text-white">
-                                    <span className="text-gray-400 uppercase text-[10px] tracking-wider font-mono">Active Filter:</span>
+                            <div className={`max-w-6xl mx-auto mb-4 rounded-xl px-4 py-2.5 flex items-center justify-between shadow-md border ${
+                                isLight 
+                                    ? 'bg-amber-50/50 border-amber-200 text-slate-800' 
+                                    : 'bg-[#1c1c22] border-[#f5a623]/30 text-white'
+                            }`}>
+                                <div className="flex items-center gap-2.5 text-xs font-bold">
+                                    <span className={`uppercase text-[10px] tracking-wider font-mono ${isLight ? 'text-slate-500' : 'text-gray-400'}`}>Active Filter:</span>
                                     {(() => {
                                         const cat = CATEGORIES.find(c => c.id === selectedCategory);
                                         if (!cat) return null;
                                         const Icon = cat.icon;
+                                        const colorClass = isLight ? cat.lightColor : cat.color;
+                                        const bgClass = isLight ? cat.lightBg : cat.bg;
+                                        const borderClass = isLight ? cat.lightBorder : cat.border;
                                         return (
-                                            <span className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-bold ${cat.bg} ${cat.border} ${cat.color}`}>
+                                            <span className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-bold ${bgClass} ${borderClass} ${colorClass}`}>
                                                 <Icon size={14} />
                                                 {cat.label} ({categoryCounts[selectedCategory] || 0} items)
                                             </span>
@@ -849,7 +878,11 @@ const BreakdownView: React.FC = () => {
                                 </div>
                                 <button 
                                     onClick={() => setSelectedCategory('all')} 
-                                    className="text-[10px] font-bold uppercase text-gray-400 hover:text-white bg-[#282828] hover:bg-[#333] px-2.5 py-1 rounded-md transition-colors flex items-center gap-1"
+                                    className={`text-[10px] font-bold uppercase px-2.5 py-1 rounded-md transition-colors flex items-center gap-1 ${
+                                        isLight 
+                                            ? 'text-slate-650 hover:text-slate-900 bg-slate-200 hover:bg-slate-300' 
+                                            : 'text-gray-400 hover:text-white bg-[#282828] hover:bg-[#333]'
+                                    }`}
                                 >
                                     <X size={12} /> Reset Category Filter
                                 </button>
@@ -872,16 +905,22 @@ const BreakdownView: React.FC = () => {
                                         : CATEGORIES.filter(c => c.id === selectedCategory);
 
                                     return (
-                                        <div key={item.beat.id} className="bg-[#1a1a1a] border border-[#333] rounded-xl overflow-hidden hover:border-[#444] transition-all group shadow-md">
+                                        <div key={item.beat.id} className={`border rounded-xl overflow-hidden hover:border-[#444] transition-all group shadow-md ${
+                                            isLight ? 'bg-white border-slate-200 hover:border-slate-350' : 'bg-[#1a1a1a] border-[#333]'
+                                        }`}>
                                             {/* Scene Header Strip */}
-                                            <div className="bg-[#222] px-5 py-3.5 border-b border-[#333] flex flex-wrap justify-between items-center gap-4">
+                                            <div className={`px-5 py-3.5 border-b flex flex-wrap justify-between items-center gap-4 ${
+                                                isLight ? 'bg-slate-50 border-slate-200' : 'bg-[#222] border-[#333]'
+                                            }`}>
                                                 <div className="flex items-center gap-4">
-                                                    <div className="flex flex-col items-center justify-center min-w-[48px] h-12 bg-[#141414] rounded-lg border border-[#333] shadow-inner px-2">
-                                                        <span className="text-[8px] font-bold text-[#666] uppercase tracking-wider">SCENE</span>
-                                                        <span className="text-base font-black text-white">{item.beat.sceneNumber || item.sceneIndex}</span>
+                                                    <div className={`flex flex-col items-center justify-center min-w-[48px] h-12 rounded-lg border shadow-inner px-2 ${
+                                                        isLight ? 'bg-slate-200 border-slate-300' : 'bg-[#141414] border-[#333]'
+                                                    }`}>
+                                                        <span className={`text-[8px] font-bold uppercase tracking-wider ${isLight ? 'text-slate-500' : 'text-[#666]'}`}>SCENE</span>
+                                                        <span className={`text-base font-black ${isLight ? 'text-slate-900' : 'text-white'}`}>{item.beat.sceneNumber || item.sceneIndex}</span>
                                                     </div>
                                                     <div>
-                                                        <h4 className="text-sm font-bold text-gray-200 group-hover:text-white transition-colors" style={fontStyle}>
+                                                        <h4 className={`text-sm font-bold transition-colors ${isLight ? 'text-slate-900 group-hover:text-slate-950' : 'text-gray-200 group-hover:text-white'}`} style={fontStyle}>
                                                             {item.beat.slug.prefix || 'INT.'} {item.beat.slug.location || 'UNKNOWN LOCATION'} {item.beat.slug.time ? `- ${item.beat.slug.time}` : ''}
                                                         </h4>
                                                         {/* Department Summary Badges in Header */}
@@ -889,15 +928,18 @@ const BreakdownView: React.FC = () => {
                                                             {activeCatsForScene.map(cat => {
                                                                 const count = item.beat.breakdown?.[cat.id as keyof BreakdownData]?.length || 0;
                                                                 const CatIcon = cat.icon;
+                                                                const colorClass = isLight ? cat.lightColor : cat.color;
+                                                                const bgClass = isLight ? cat.lightBg : cat.bg;
+                                                                const borderClass = isLight ? cat.lightBorder : cat.border;
                                                                 return (
-                                                                    <span key={cat.id} className={`text-[9px] font-bold px-2 py-0.5 rounded-md border flex items-center gap-1 ${cat.bg} ${cat.border} ${cat.color}`}>
+                                                                    <span key={cat.id} className={`text-[9px] font-bold px-2 py-0.5 rounded-md border flex items-center gap-1 ${bgClass} ${borderClass} ${colorClass}`}>
                                                                         <CatIcon size={10} />
                                                                         <span>{cat.label.split(' ')[0]}: {count}</span>
                                                                     </span>
                                                                 );
                                                             })}
                                                             {activeCatsForScene.length === 0 && (
-                                                                <span className="text-[10px] text-gray-500 font-mono italic">No breakdown items logged</span>
+                                                                <span className={`text-[10px] font-mono italic ${isLight ? 'text-slate-400' : 'text-gray-500'}`}>No breakdown items logged</span>
                                                             )}
                                                         </div>
                                                     </div>
@@ -907,7 +949,11 @@ const BreakdownView: React.FC = () => {
                                                     {/* Copy Scene Breakdown */}
                                                     <button 
                                                         onClick={() => copySceneBreakdown(item.beat, (item.beat.sceneNumber || item.sceneIndex).toString())}
-                                                        className="p-1.5 bg-[#181818] hover:bg-[#333] border border-[#333] text-gray-400 hover:text-white rounded transition-colors"
+                                                        className={`p-1.5 border rounded transition-colors ${
+                                                            isLight 
+                                                                ? 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-600 hover:text-slate-900' 
+                                                                : 'bg-[#181818] hover:bg-[#333] border-[#333] text-gray-400 hover:text-white'
+                                                        }`}
                                                         title="Copy Scene Breakdown List"
                                                     >
                                                         <Copy size={13} />
@@ -916,10 +962,14 @@ const BreakdownView: React.FC = () => {
                                                     {/* Print Scene Breakdown */}
                                                     <button 
                                                         onClick={() => handlePrintScene(item.beat)}
-                                                        className="p-1.5 bg-[#181818] hover:bg-[#333] border border-[#333] text-gray-400 hover:text-white rounded transition-colors"
+                                                        className={`p-1.5 border rounded transition-colors ${
+                                                            isLight 
+                                                                ? 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-600 hover:text-slate-900' 
+                                                                : 'bg-[#181818] hover:bg-[#333] border-[#333] text-gray-400 hover:text-white'
+                                                        }`}
                                                         title="Print Scene Breakdown Sheet"
                                                     >
-                                                        <Printer size={13} className="text-amber-400" />
+                                                        <Printer size={13} className={isLight ? 'text-amber-600' : 'text-amber-400'} />
                                                     </button>
                                                     {/* Toggle Script Snippet */}
                                                     <button 
@@ -928,7 +978,9 @@ const BreakdownView: React.FC = () => {
                                                             [item.beat.id]: { ...prev[item.beat.id], script: !isScriptOpen }
                                                         }))}
                                                         className={`px-2.5 py-1 rounded text-[10px] font-bold uppercase border flex items-center gap-1.5 transition-colors ${
-                                                            isScriptOpen ? 'bg-blue-950/40 text-blue-400 border-blue-800/40' : 'bg-[#181818] text-gray-400 border-[#333] hover:text-white'
+                                                            isScriptOpen 
+                                                                ? (isLight ? 'bg-blue-50 text-blue-700 border-blue-300' : 'bg-blue-950/40 text-blue-400 border-blue-800/40') 
+                                                                : (isLight ? 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-600 hover:text-slate-900' : 'bg-[#181818] text-gray-400 border-[#333] hover:text-white')
                                                         }`}
                                                     >
                                                         <FileText size={12} />
@@ -943,7 +995,9 @@ const BreakdownView: React.FC = () => {
                                                             [item.beat.id]: { ...prev[item.beat.id], shots: !isShotsOpen }
                                                         }))}
                                                         className={`px-2.5 py-1 rounded text-[10px] font-bold uppercase border flex items-center gap-1.5 transition-colors ${
-                                                            isShotsOpen ? 'bg-purple-950/40 text-purple-400 border-purple-800/40' : 'bg-[#181818] text-gray-400 border-[#333] hover:text-white'
+                                                            isShotsOpen 
+                                                                ? (isLight ? 'bg-purple-50 text-purple-700 border-purple-300' : 'bg-purple-950/40 text-purple-400 border-purple-800/40') 
+                                                                : (isLight ? 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-600 hover:text-slate-900' : 'bg-[#181818] text-gray-400 border-[#333] hover:text-white')
                                                         }`}
                                                     >
                                                         <Camera size={12} />
@@ -956,7 +1010,11 @@ const BreakdownView: React.FC = () => {
                                                         onClick={() => handleAnalyzeSingleBeat(item.beat)}
                                                         disabled={isBeingAnalyzed || isAnalyzing}
                                                         title="Re-Analyze Breakdown for this scene"
-                                                        className="px-2.5 py-1 bg-[#181818] hover:bg-[#f5a623] hover:text-black border border-[#333] text-gray-400 rounded text-[10px] font-bold uppercase flex items-center gap-1 transition-all disabled:opacity-50"
+                                                        className={`px-2.5 py-1 border rounded text-[10px] font-bold uppercase flex items-center gap-1 transition-all disabled:opacity-50 ${
+                                                            isLight 
+                                                                ? 'bg-slate-100 hover:bg-[#f5a623] hover:text-black border-slate-300 text-slate-600' 
+                                                                : 'bg-[#181818] hover:bg-[#f5a623] hover:text-black border-[#333] text-gray-400'
+                                                        }`}
                                                     >
                                                         {isBeingAnalyzed ? <Loader2 size={12} className="animate-spin text-[#f5a623]" /> : <Wand2 size={12} className="text-[#f5a623]" />}
                                                         <span>{isBeingAnalyzed ? 'Analyzing...' : 'Re-Break'}</span>
@@ -966,7 +1024,9 @@ const BreakdownView: React.FC = () => {
                                                     <button 
                                                         onClick={() => setActiveInspectorBeatId(activeInspectorBeatId === item.beat.id ? null : item.beat.id)}
                                                         className={`p-1.5 rounded border transition-colors ${
-                                                            activeInspectorBeatId === item.beat.id ? 'bg-[#f5a623] text-black border-[#f5a623]' : 'bg-[#181818] text-gray-400 border-[#333] hover:text-white'
+                                                            activeInspectorBeatId === item.beat.id 
+                                                                ? 'bg-[#f5a623] text-black border-[#f5a623]' 
+                                                                : (isLight ? 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-600 hover:text-slate-900' : 'bg-[#181818] text-gray-400 border-[#333] hover:text-white')
                                                         }`}
                                                         title="Open Scene Inspector"
                                                     >
@@ -977,45 +1037,47 @@ const BreakdownView: React.FC = () => {
 
                                             {/* Expandable Script Section */}
                                             {isScriptOpen && (
-                                                <div className="bg-[#141414] p-4 border-b border-[#2a2a2a] text-xs font-mono text-gray-300 leading-relaxed max-h-60 overflow-y-auto custom-scrollbar border-l-2 border-l-blue-500">
-                                                    <div className="text-[9px] font-bold uppercase text-blue-400 mb-2 tracking-widest flex items-center gap-1">
+                                                <div className={`p-4 border-b text-xs font-mono leading-relaxed max-h-60 overflow-y-auto custom-scrollbar border-l-2 border-l-blue-500 ${
+                                                    isLight ? 'bg-slate-50 border-slate-200 text-slate-700' : 'bg-[#141414] border-[#2a2a2a] text-gray-300'
+                                                }`}>
+                                                    <div className="text-[9px] font-bold uppercase text-blue-500 mb-2 tracking-widest flex items-center gap-1">
                                                         <FileText size={10} /> Script Content (Scene {item.sceneNum})
                                                     </div>
                                                     <div 
-                                                        className="prose prose-invert max-w-none text-xs text-gray-300"
-                                                        dangerouslySetInnerHTML={{ __html: item.beat.content || '<em class="text-gray-600">No script content written for this scene.</em>' }}
+                                                        className={`prose max-w-none text-xs ${isLight ? 'prose-slate text-slate-800' : 'prose-invert text-gray-300'}`}
+                                                        dangerouslySetInnerHTML={{ __html: item.beat.content || `<em class="${isLight ? 'text-slate-400' : 'text-gray-600'}">No script content written for this scene.</em>` }}
                                                     />
                                                 </div>
                                             )}
 
                                             {/* Expandable Storyboard Shots Section */}
                                             {isShotsOpen && (
-                                                <div className="bg-[#111] p-4 border-b border-[#2a2a2a] border-l-2 border-l-purple-500">
+                                                <div className={`p-4 border-b border-l-2 border-l-purple-500 ${isLight ? 'bg-slate-100 border-slate-200' : 'bg-[#111] border-[#2a2a2a]'}`}>
                                                     <div className="text-[9px] font-bold uppercase text-purple-400 mb-3 tracking-widest flex items-center gap-1.5">
                                                         <Camera size={11} /> Storyboard Shot Division ({item.shots.length} Shots)
                                                     </div>
                                                     {item.shots.length > 0 ? (
                                                         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
                                                             {item.shots.map((shot, sIdx) => (
-                                                                <div key={shot.id || sIdx} className="bg-[#1a1a1a] border border-[#333] rounded-lg overflow-hidden flex flex-col group/shot hover:border-purple-500/50 transition-colors">
+                                                                <div key={shot.id || sIdx} className={`border rounded-lg overflow-hidden flex flex-col group/shot hover:border-purple-500/50 transition-colors ${isLight ? 'bg-white border-slate-250' : 'bg-[#1a1a1a] border-[#333]'}`}>
                                                                     <div className="h-20 bg-black relative flex items-center justify-center overflow-hidden">
                                                                         {shot.imageUrl ? (
                                                                             <img src={shot.imageUrl} className="w-full h-full object-cover" />
                                                                         ) : (
-                                                                            <Film size={20} className="text-gray-700" />
+                                                                            <Film size={20} className={isLight ? 'text-slate-400' : 'text-gray-700'} />
                                                                         )}
                                                                         <div className="absolute top-1 left-1 bg-black/70 text-white font-mono text-[8px] font-bold px-1 rounded border border-white/20">
                                                                             SHOT #{sIdx + 1}
                                                                         </div>
                                                                     </div>
                                                                     <div className="p-2 space-y-1">
-                                                                        <div className="text-[10px] font-bold text-gray-200 truncate">{shot.shotSize || 'Wide'} • {shot.angle || 'Eye Level'}</div>
+                                                                        <div className={`text-[10px] font-bold truncate ${isLight ? 'text-slate-900' : 'text-gray-200'}`}>{shot.shotSize || 'Wide'} • {shot.angle || 'Eye Level'}</div>
                                                                         {(shot.lens || shot.movement) && (
                                                                             <div className="text-[8px] font-mono text-[#f5a623] truncate">
                                                                                 {shot.lens} {shot.movement ? `(${shot.movement})` : ''}
                                                                             </div>
                                                                         )}
-                                                                        <div className="text-[9px] text-gray-400 line-clamp-2 leading-tight">{shot.subject || shot.description || 'No camera notes'}</div>
+                                                                        <div className={`text-[9px] line-clamp-2 leading-tight ${isLight ? 'text-slate-500' : 'text-gray-400'}`}>{shot.subject || shot.description || 'No camera notes'}</div>
                                                                     </div>
                                                                 </div>
                                                             ))}
@@ -1036,10 +1098,14 @@ const BreakdownView: React.FC = () => {
                                                     const inputValue = newItemInputs[inputKey] || '';
 
                                                     return (
-                                                        <div key={cat.id} className="bg-[#151515] border border-[#2a2a2a] rounded-lg p-3 flex flex-col">
-                                                            <div className={`text-[10px] font-bold uppercase flex items-center justify-between pb-2 mb-2 border-b border-[#282828] ${cat.color}`}>
-                                                                <span className="flex items-center gap-1.5">{(() => { const CatIcon = cat.icon; return <CatIcon size={13} />; })()} {cat.label}</span>
-                                                                <span className="text-[9px] text-gray-600 font-mono">({items.length})</span>
+                                                        <div key={cat.id} className={`rounded-lg p-3 flex flex-col border ${
+                                                            isLight ? 'bg-slate-50 border-slate-200' : 'bg-[#151515] border-[#2a2a2a]'
+                                                        }`}>
+                                                            <div className={`text-[10px] font-bold uppercase flex items-center justify-between pb-2 mb-2 border-b ${
+                                                                isLight ? `${cat.lightColor} border-slate-200` : `${cat.color} border-[#282828]`
+                                                            }`}>
+                                                                <span className="flex items-center gap-1.5">{(() => { const CatIcon = cat.icon; return <CatIcon size={13} className={isLight ? cat.lightColor : cat.color} />; })()} {cat.label}</span>
+                                                                <span className={`text-[9px] font-mono ${isLight ? 'text-slate-500 font-bold' : 'text-gray-600'}`}>({items.length})</span>
                                                             </div>
 
                                                             {/* Item Chips List */}
@@ -1049,7 +1115,11 @@ const BreakdownView: React.FC = () => {
                                                                     return (
                                                                         <div 
                                                                             key={idx} 
-                                                                            className="text-[11px] text-gray-300 bg-[#1e1e1e] hover:bg-[#252525] border border-[#303030] rounded px-2 py-1 flex items-center justify-between group/item transition-colors" 
+                                                                            className={`text-[11px] px-2 py-1 flex items-center justify-between group/item transition-colors border rounded ${
+                                                                                isLight 
+                                                                                    ? 'text-slate-800 bg-white hover:bg-slate-100 border-slate-200' 
+                                                                                    : 'text-gray-300 bg-[#1e1e1e] hover:bg-[#252525] border-[#303030]'
+                                                                            }`} 
                                                                             style={fontStyle}
                                                                         >
                                                                             <span className="truncate pr-1">{name}</span>
@@ -1064,12 +1134,12 @@ const BreakdownView: React.FC = () => {
                                                                     );
                                                                 })}
                                                                 {items.length === 0 && (
-                                                                    <div className="text-[10px] text-gray-600 italic py-1">No items logged</div>
+                                                                    <div className={`text-[10px] italic py-1 ${isLight ? 'text-slate-400' : 'text-gray-600'}`}>No items logged</div>
                                                                 )}
                                                             </div>
 
                                                             {/* Quick In-line Item Input */}
-                                                            <div className="mt-auto pt-2 border-t border-[#222] flex items-center gap-1">
+                                                            <div className={`mt-auto pt-2 flex items-center gap-1 border-t ${isLight ? 'border-slate-200' : 'border-[#222]'}`}>
                                                                 <input 
                                                                     type="text" 
                                                                     placeholder={`+ Add ${cat.label.split(' ')[0]}...`}
@@ -1081,11 +1151,19 @@ const BreakdownView: React.FC = () => {
                                                                             handleAddItemToBeat(item.beat.id, cat.id as keyof BreakdownData, inputValue);
                                                                         }
                                                                     }}
-                                                                    className="w-full bg-[#0a0a0a] border border-[#2a2a2a] rounded px-2 py-1 text-[10px] text-white outline-none focus:border-[#f5a623]"
+                                                                    className={`w-full rounded px-2 py-1 text-[10px] outline-none focus:border-[#f5a623] border ${
+                                                                        isLight 
+                                                                            ? 'bg-white border-slate-350 text-slate-900 placeholder-slate-400' 
+                                                                            : 'bg-[#0a0a0a] border-[#2a2a2a] text-white placeholder-gray-650'
+                                                                    }`}
                                                                 />
                                                                 <button 
                                                                     onClick={() => handleAddItemToBeat(item.beat.id, cat.id as keyof BreakdownData, inputValue)}
-                                                                    className="p-1 bg-[#252525] hover:bg-[#f5a623] hover:text-black rounded text-gray-400 transition-colors"
+                                                                    className={`p-1 rounded transition-colors ${
+                                                                        isLight 
+                                                                            ? 'bg-slate-200 hover:bg-[#f5a623] hover:text-black text-slate-600' 
+                                                                            : 'bg-[#252525] hover:bg-[#f5a623] hover:text-black text-gray-400'
+                                                                    }`}
                                                                     title="Add"
                                                                 >
                                                                     <Plus size={12} />
@@ -1099,17 +1177,25 @@ const BreakdownView: React.FC = () => {
                                     );
                                 })}
                                 {displayedScenes.length === 0 && (
-                                    <div className="h-96 flex flex-col items-center justify-center text-[#333] border-2 border-dashed border-[#222] rounded-2xl bg-[#161616]">
+                                    <div className={`h-96 flex flex-col items-center justify-center border-2 border-dashed rounded-2xl ${
+                                        isLight 
+                                            ? 'bg-white border-slate-300 text-slate-400' 
+                                            : 'bg-[#161616] border-[#222] text-[#333]'
+                                    }`}>
                                         <Sparkles size={48} className="mb-4 opacity-10 text-[#f5a623]" />
-                                        <p className="text-sm font-bold uppercase tracking-widest text-[#555]">No Scenes Found</p>
-                                        <p className="text-xs text-gray-600 mt-1">
+                                        <p className={`text-sm font-bold uppercase tracking-widest ${isLight ? 'text-slate-600' : 'text-[#555]'}`}>No Scenes Found</p>
+                                        <p className={`text-xs mt-1 ${isLight ? 'text-slate-500' : 'text-gray-600'}`}>
                                             {selectedCategory !== 'all' 
                                                 ? `No scenes contain items logged under "${CATEGORIES.find(c => c.id === selectedCategory)?.label}".` 
                                                 : 'No scenes match your current filter.'}
                                         </p>
                                         <button 
                                             onClick={() => { setSelectedCategory('all'); setSearchTerm(''); }}
-                                            className="mt-4 px-3.5 py-1.5 bg-[#252525] hover:bg-[#333] text-gray-300 text-xs font-bold rounded-lg uppercase transition-colors"
+                                            className={`mt-4 px-3.5 py-1.5 text-xs font-bold rounded-lg uppercase transition-colors ${
+                                                isLight 
+                                                    ? 'bg-slate-200 hover:bg-slate-300 text-slate-800' 
+                                                    : 'bg-[#252525] hover:bg-[#333] text-gray-300'
+                                            }`}
                                         >
                                             Reset Filters
                                         </button>
@@ -1121,33 +1207,44 @@ const BreakdownView: React.FC = () => {
                             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-5 animate-in fade-in duration-300 max-w-7xl mx-auto">
                                 {filteredData.map((item, idx) => {
                                     const catMeta = getCategoryMeta(item.category);
+                                    const colorClass = isLight ? (catMeta?.lightColor || 'text-slate-800') : (catMeta?.color || 'text-gray-200');
+                                    const bgClass = isLight ? (catMeta?.lightBg || 'bg-slate-100') : (catMeta?.bg || 'bg-[#222]');
+                                    const borderClass = isLight ? (catMeta?.lightBorder || 'border-slate-200') : (catMeta?.border || 'border-[#333]');
                                     return (
-                                        <div key={idx} className="bg-[#1a1a1a] border border-[#333] rounded-xl p-5 flex flex-col hover:border-[#555] transition-all group shadow-sm">
+                                        <div key={idx} className={`border rounded-xl p-5 flex flex-col hover:border-amber-500/50 transition-all group shadow-sm ${
+                                            isLight ? 'bg-white border-slate-200 hover:shadow-md' : 'bg-[#1a1a1a] border-[#333]'
+                                        }`}>
                                             <div className="flex justify-between items-start mb-3">
                                                 <div className="flex items-center gap-3">
-                                                    <div className={`p-2 rounded-lg ${catMeta?.bg} border ${catMeta?.border}`}>
-                                                        {catMeta && (() => { const CatMetaIcon = catMeta.icon; return <CatMetaIcon size={18} className={catMeta.color} />; })()}
+                                                    <div className={`p-2 rounded-lg ${bgClass} border ${borderClass}`}>
+                                                        {catMeta && (() => { const CatMetaIcon = catMeta.icon; return <CatMetaIcon size={18} className={colorClass} />; })()}
                                                     </div>
                                                     <div>
-                                                        <h3 className="text-sm font-bold text-gray-200 group-hover:text-white transition-colors" style={fontStyle}>
+                                                        <h3 className={`text-sm font-bold transition-colors ${isLight ? 'text-slate-800 group-hover:text-slate-950' : 'text-gray-200 group-hover:text-white'}`} style={fontStyle}>
                                                             {item.name}
                                                         </h3>
-                                                        <div className="text-[10px] text-[#666] font-medium uppercase mt-0.5">{catMeta?.label}</div>
+                                                        <div className={`text-[10px] font-bold uppercase mt-0.5 ${colorClass}`}>{catMeta?.label}</div>
                                                     </div>
                                                 </div>
-                                                <span className="text-[10px] font-bold bg-[#252525] text-gray-400 px-2.5 py-1 rounded-full border border-[#333]">
+                                                <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full border ${
+                                                    isLight ? 'bg-slate-100 text-slate-650 border-slate-200' : 'bg-[#252525] text-gray-400 border-[#333]'
+                                                }`}>
                                                     {item.scenes.length} Scene{item.scenes.length === 1 ? '' : 's'}
                                                 </span>
                                             </div>
 
                                             <div className="space-y-1.5 mt-2">
-                                                <div className="text-[9px] font-bold uppercase text-gray-500">Occurrences</div>
+                                                <div className={`text-[9px] font-bold uppercase ${isLight ? 'text-slate-500' : 'text-gray-500'}`}>Occurrences</div>
                                                 <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto custom-scrollbar">
                                                     {item.scenes.map((scene, sIdx) => (
-                                                        <div key={sIdx} className="text-[9px] font-bold bg-[#222] text-gray-300 px-2 py-1 rounded border border-[#333] flex items-center gap-1" title={scene.slug}>
+                                                        <div key={sIdx} className={`text-[9px] font-bold px-2 py-1 rounded border flex items-center gap-1 ${
+                                                            isLight ? 'bg-slate-50 text-slate-700 border-slate-200' : 'bg-[#222] text-gray-300 border-[#333]'
+                                                        }`} title={scene.slug}>
                                                             <span>SC {scene.sceneNum}</span>
                                                             {scene.shotCount > 0 && (
-                                                                <span className="text-[8px] bg-purple-950 text-purple-300 px-1 rounded">
+                                                                <span className={`text-[8px] px-1 rounded ${
+                                                                    isLight ? 'bg-purple-100 text-purple-700' : 'bg-purple-950 text-purple-300'
+                                                                }`}>
                                                                     {scene.shotCount} shots
                                                                 </span>
                                                             )}
@@ -1159,10 +1256,14 @@ const BreakdownView: React.FC = () => {
                                     );
                                 })}
                                 {filteredData.length === 0 && (
-                                    <div className="col-span-full h-96 flex flex-col items-center justify-center text-[#333] border-2 border-dashed border-[#222] rounded-2xl bg-[#161616]">
+                                    <div className={`col-span-full h-96 flex flex-col items-center justify-center border-2 border-dashed rounded-2xl ${
+                                        isLight 
+                                            ? 'bg-white border-slate-300 text-slate-400' 
+                                            : 'bg-[#161616] border-[#222] text-[#333]'
+                                    }`}>
                                         <Sparkles size={48} className="mb-4 opacity-10 text-[#f5a623]" />
-                                        <p className="text-sm font-bold uppercase tracking-widest text-[#555]">Manifest Empty</p>
-                                        <p className="text-xs text-gray-600 mt-1">Run AI Analyze or add breakdown items manually to scenes.</p>
+                                        <p className={`text-sm font-bold uppercase tracking-widest ${isLight ? 'text-slate-600' : 'text-[#555]'}`}>Manifest Empty</p>
+                                        <p className={`text-xs mt-1 ${isLight ? 'text-slate-500' : 'text-gray-600'}`}>Run AI Analyze or add breakdown items manually to scenes.</p>
                                     </div>
                                 )}
                             </div>
@@ -1171,22 +1272,26 @@ const BreakdownView: React.FC = () => {
 
                     {/* Right Inspector Drawer for Detailed Scene Syncing */}
                     {activeInspectorBeat && (
-                        <div className="w-96 bg-[#161616] border-l border-[#333] flex flex-col shrink-0 z-30 shadow-2xl animate-in slide-in-from-right duration-200">
-                            <div className="p-4 border-b border-[#333] bg-[#1d1d1d] flex items-center justify-between">
+                        <div className={`w-96 border-l flex flex-col shrink-0 z-30 shadow-2xl animate-in slide-in-from-right duration-200 ${
+                            isLight ? 'bg-slate-50 border-slate-200' : 'bg-[#161616] border-[#333]'
+                        }`}>
+                            <div className={`p-4 border-b flex items-center justify-between ${
+                                isLight ? 'bg-white border-slate-200' : 'bg-[#1d1d1d] border-[#333]'
+                            }`}>
                                 <div className="flex items-center gap-2">
                                     <Layers size={16} className="text-[#f5a623]" />
                                     <div>
-                                        <h3 className="text-xs font-black text-white uppercase">
+                                        <h3 className={`text-xs font-black uppercase ${isLight ? 'text-slate-900' : 'text-white'}`}>
                                             Scene {activeInspectorBeat.sceneNumber || (beats.indexOf(activeInspectorBeat) + 1)} Inspector
                                         </h3>
-                                        <p className="text-[9px] text-gray-500 truncate max-w-[200px]">
+                                        <p className={`text-[9px] truncate max-w-[200px] ${isLight ? 'text-slate-500' : 'text-gray-500'}`}>
                                             {activeInspectorBeat.slug.location || 'Location'}
                                         </p>
                                     </div>
                                 </div>
                                 <button 
                                     onClick={() => setActiveInspectorBeatId(null)}
-                                    className="p-1 text-gray-500 hover:text-white rounded hover:bg-[#333]"
+                                    className={`p-1 rounded hover:bg-[#333] transition-colors ${isLight ? 'text-slate-500 hover:text-slate-950 hover:bg-slate-200' : 'text-gray-500 hover:text-white'}`}
                                 >
                                     <X size={16} />
                                 </button>
@@ -1195,14 +1300,16 @@ const BreakdownView: React.FC = () => {
                             <div className="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-6">
                                 {/* Storyboard Shots for Active Scene */}
                                 <div>
-                                    <h4 className="text-[10px] font-bold text-purple-400 uppercase tracking-wider mb-2 flex items-center justify-between">
+                                    <h4 className="text-[10px] font-bold text-purple-500 uppercase tracking-wider mb-2 flex items-center justify-between">
                                         <span className="flex items-center gap-1.5"><Camera size={12} /> Storyboard Division</span>
                                         <span className="text-[9px] font-mono text-gray-500">{activeInspectorShots.length} Shots</span>
                                     </h4>
                                     {activeInspectorShots.length > 0 ? (
                                         <div className="space-y-2">
                                             {activeInspectorShots.map((shot, sIdx) => (
-                                                <div key={shot.id || sIdx} className="bg-[#1e1e1e] border border-[#333] p-2.5 rounded-lg flex gap-3">
+                                                <div key={shot.id || sIdx} className={`p-2.5 rounded-lg flex gap-3 border ${
+                                                    isLight ? 'bg-white border-slate-200' : 'bg-[#1e1e1e] border-[#333]'
+                                                }`}>
                                                     <div className="w-16 h-12 bg-black rounded border border-[#333] overflow-hidden shrink-0 relative flex items-center justify-center">
                                                         {shot.imageUrl ? (
                                                             <img src={shot.imageUrl} className="w-full h-full object-cover" />
@@ -1211,15 +1318,17 @@ const BreakdownView: React.FC = () => {
                                                         )}
                                                     </div>
                                                     <div className="flex-1 min-w-0">
-                                                        <div className="text-[10px] font-bold text-white truncate">Shot #{sIdx + 1}: {shot.shotSize || 'Wide'}</div>
+                                                        <div className={`text-[10px] font-bold truncate ${isLight ? 'text-slate-900' : 'text-white'}`}>Shot #{sIdx + 1}: {shot.shotSize || 'Wide'}</div>
                                                         <div className="text-[9px] text-[#f5a623] font-mono truncate">{shot.lens} • {shot.movement}</div>
-                                                        <div className="text-[9px] text-gray-400 truncate">{shot.subject || shot.description}</div>
+                                                        <div className={`text-[9px] truncate ${isLight ? 'text-slate-500' : 'text-gray-400'}`}>{shot.subject || shot.description}</div>
                                                     </div>
                                                 </div>
                                             ))}
                                         </div>
                                     ) : (
-                                        <div className="text-[10px] text-gray-500 italic bg-[#1e1e1e] p-3 rounded border border-[#333]">
+                                        <div className={`text-[10px] italic p-3 rounded border ${
+                                            isLight ? 'bg-white border-slate-200 text-slate-400' : 'bg-[#1e1e1e] border-[#333] text-gray-500'
+                                        }`}>
                                             No storyboard shots assigned to this scene.
                                         </div>
                                     )}
@@ -1227,11 +1336,13 @@ const BreakdownView: React.FC = () => {
 
                                 {/* Formatted Script Text */}
                                 <div>
-                                    <h4 className="text-[10px] font-bold text-blue-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                                    <h4 className="text-[10px] font-bold text-blue-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
                                         <FileText size={12} /> Full Script
                                     </h4>
                                     <div 
-                                        className="bg-[#111] p-3 rounded-lg border border-[#333] text-xs font-mono text-gray-300 leading-relaxed max-h-72 overflow-y-auto custom-scrollbar prose prose-invert"
+                                        className={`p-3 rounded-lg border text-xs font-mono leading-relaxed max-h-72 overflow-y-auto custom-scrollbar prose ${
+                                            isLight ? 'bg-white border-slate-200 text-slate-800 prose-slate' : 'bg-[#111] border-[#333] text-gray-300 prose-invert'
+                                        }`}
                                         dangerouslySetInnerHTML={{ __html: activeInspectorBeat.content || '<em>No script content.</em>' }}
                                     />
                                 </div>
@@ -1240,7 +1351,9 @@ const BreakdownView: React.FC = () => {
                     )}
                     {/* Toast Feedback Notification */}
                     {toastMessage && (
-                        <div className="fixed bottom-6 right-6 z-50 bg-[#1e1e24] border border-[#f5a623] text-white px-4 py-3 rounded-xl shadow-2xl flex items-center gap-3 animate-in fade-in slide-in-from-bottom-3 duration-200">
+                        <div className={`fixed bottom-6 right-6 z-50 border border-[#f5a623] px-4 py-3 rounded-xl shadow-2xl flex items-center gap-3 animate-in fade-in slide-in-from-bottom-3 duration-200 ${
+                            isLight ? 'bg-white text-slate-900 shadow-slate-200/50' : 'bg-[#1e1e24] text-white shadow-black/50'
+                        }`}>
                             <Check size={18} className="text-emerald-400" />
                             <span className="text-xs font-bold font-mono">{toastMessage}</span>
                         </div>
@@ -1249,37 +1362,45 @@ const BreakdownView: React.FC = () => {
                     {/* Department Quick List Share / Copy Modal */}
                     {isShareModalOpen && (
                         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
-                            <div className="bg-[#18181b] border border-[#333] rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl flex flex-col max-h-[85vh]">
+                            <div className={`border rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl flex flex-col max-h-[85vh] ${
+                                isLight ? 'bg-white border-slate-305 text-slate-800' : 'bg-[#18181b] border border-[#333]'
+                            }`}>
                                 {/* Modal Header */}
-                                <div className="bg-[#202024] p-4 border-b border-[#333] flex items-center justify-between">
+                                <div className={`p-4 border-b flex items-center justify-between ${
+                                    isLight ? 'bg-slate-50 border-slate-205' : 'bg-[#202024] border-[#333]'
+                                }`}>
                                     <div className="flex items-center gap-2.5">
                                         <Share2 size={18} className="text-[#f5a623]" />
                                         <div>
-                                            <h3 className="text-sm font-black text-white uppercase tracking-wider">
+                                            <h3 className={`text-sm font-black uppercase tracking-wider ${isLight ? 'text-slate-900' : 'text-white'}`}>
                                                 Send / Copy Department Manifest List
                                             </h3>
-                                            <p className="text-[11px] text-gray-400">
+                                            <p className={`text-[11px] ${isLight ? 'text-slate-500' : 'text-gray-400'}`}>
                                                 Copy formatted list to send directly to props master, costume designer, sound team, etc.
                                             </p>
                                         </div>
                                     </div>
                                     <button 
                                         onClick={() => setIsShareModalOpen(false)}
-                                        className="p-1 text-gray-400 hover:text-white rounded-lg hover:bg-[#333] transition-colors"
+                                        className={`p-1 rounded-lg transition-colors ${
+                                            isLight ? 'text-slate-500 hover:text-slate-805 hover:bg-slate-205' : 'text-gray-400 hover:text-white hover:bg-[#333]'
+                                        }`}
                                     >
                                         <X size={18} />
                                     </button>
                                 </div>
 
                                 {/* Project Metadata Header Customization Bar */}
-                                <div className="px-4 py-2.5 bg-[#161619] border-b border-[#28282e] flex flex-wrap items-center gap-3">
+                                <div className={`px-4 py-2.5 border-b flex flex-wrap items-center gap-3 ${
+                                    isLight ? 'bg-slate-100 border-slate-205' : 'bg-[#161619] border-[#28282e]'
+                                }`}>
                                     <div className="flex items-center gap-2">
-                                        <label className="text-[10px] font-mono font-bold text-amber-400 uppercase tracking-wider flex items-center gap-1.5 cursor-pointer">
+                                        <label className="text-[10px] font-mono font-bold text-amber-500 uppercase tracking-wider flex items-center gap-1.5 cursor-pointer">
                                             <input 
                                                 type="checkbox" 
                                                 checked={includeProjectMetadata} 
                                                 onChange={(e) => setIncludeProjectMetadata(e.target.checked)}
-                                                className="rounded border-gray-700 accent-[#f5a623] cursor-pointer"
+                                                className={`rounded accent-[#f5a623] cursor-pointer ${isLight ? 'border-slate-350' : 'border-gray-700'}`}
                                             />
                                             Header Metadata:
                                         </label>
@@ -1287,69 +1408,89 @@ const BreakdownView: React.FC = () => {
 
                                     {includeProjectMetadata && (
                                         <div className="flex items-center gap-2 flex-1 flex-wrap">
-                                            <div className="flex items-center gap-1.5 bg-[#0e0e11] border border-[#333] px-2 py-1 rounded-lg">
+                                            <div className={`flex items-center gap-1.5 border px-2 py-1 rounded-lg ${
+                                                isLight ? 'bg-white border-slate-250' : 'bg-[#0e0e11] border-[#333]'
+                                            }`}>
                                                 <span className="text-[9px] font-mono text-gray-500 uppercase">Project:</span>
                                                 <input 
                                                     type="text" 
                                                     value={customProjectName} 
                                                     onChange={(e) => setCustomProjectName(e.target.value)}
                                                     placeholder={activeProjectName}
-                                                    className="bg-transparent text-xs text-white font-bold outline-none w-28 focus:w-36 transition-all placeholder-gray-600"
+                                                    className={`bg-transparent text-xs font-bold outline-none w-28 focus:w-36 transition-all ${
+                                                        isLight ? 'text-slate-900 placeholder-slate-400' : 'text-white placeholder-gray-600'
+                                                    }`}
                                                 />
                                             </div>
-                                            <div className="flex items-center gap-1.5 bg-[#0e0e11] border border-[#333] px-2 py-1 rounded-lg">
+                                            <div className={`flex items-center gap-1.5 border px-2 py-1 rounded-lg ${
+                                                isLight ? 'bg-white border-slate-250' : 'bg-[#0e0e11] border-[#333]'
+                                            }`}>
                                                 <span className="text-[9px] font-mono text-gray-500 uppercase">Production:</span>
                                                 <input 
                                                     type="text" 
                                                     value={productionCompany} 
                                                     onChange={(e) => setProductionCompany(e.target.value)}
                                                     placeholder="Apex Pictures"
-                                                    className="bg-transparent text-xs text-white font-bold outline-none w-28 focus:w-36 transition-all placeholder-gray-600"
+                                                    className={`bg-transparent text-xs font-bold outline-none w-28 focus:w-36 transition-all ${
+                                                        isLight ? 'text-slate-900 placeholder-slate-400' : 'text-white placeholder-gray-600'
+                                                    }`}
                                                 />
                                             </div>
-                                            <div className="flex items-center gap-1.5 bg-[#0e0e11] border border-[#333] px-2 py-1 rounded-lg">
+                                            <div className={`flex items-center gap-1.5 border px-2 py-1 rounded-lg ${
+                                                isLight ? 'bg-white border-slate-250' : 'bg-[#0e0e11] border-[#333]'
+                                            }`}>
                                                 <span className="text-[9px] font-mono text-gray-500 uppercase">Director:</span>
                                                 <input 
                                                     type="text" 
                                                     value={directorName} 
                                                     onChange={(e) => setDirectorName(e.target.value)}
                                                     placeholder="Director Name"
-                                                    className="bg-transparent text-xs text-white font-bold outline-none w-24 focus:w-32 transition-all placeholder-gray-600"
+                                                    className={`bg-transparent text-xs font-bold outline-none w-24 focus:w-32 transition-all ${
+                                                        isLight ? 'text-slate-900 placeholder-slate-400' : 'text-white placeholder-gray-600'
+                                                    }`}
                                                 />
                                             </div>
 
-                                            <div className="h-4 w-px bg-[#333] mx-1"></div>
+                                            <div className={`h-4 w-px mx-1 ${isLight ? 'bg-slate-300' : 'bg-[#333]'}`}></div>
 
-                                            <label className="text-[10px] font-mono font-bold text-cyan-400 uppercase tracking-wider flex items-center gap-1.5 cursor-pointer ml-1">
+                                            <label className="text-[10px] font-mono font-bold text-cyan-500 uppercase tracking-wider flex items-center gap-1.5 cursor-pointer ml-1">
                                                 <input 
                                                     type="checkbox" 
                                                     checked={includeHodSignoff} 
                                                     onChange={(e) => setIncludeHodSignoff(e.target.checked)}
-                                                    className="rounded border-gray-700 accent-cyan-500 cursor-pointer"
+                                                    className={`rounded accent-cyan-500 cursor-pointer ${isLight ? 'border-slate-350' : 'border-gray-700'}`}
                                                 />
                                                 HOD Sign-off:
                                             </label>
 
                                             {includeHodSignoff && (
                                                 <>
-                                                    <div className="flex items-center gap-1.5 bg-[#0e0e11] border border-[#333] px-2 py-1 rounded-lg">
+                                                    <div className={`flex items-center gap-1.5 border px-2 py-1 rounded-lg ${
+                                                        isLight ? 'bg-white border-slate-250' : 'bg-[#0e0e11] border-[#333]'
+                                                    }`}>
                                                         <span className="text-[9px] font-mono text-gray-500 uppercase">HOD:</span>
                                                         <input 
                                                             type="text" 
                                                             value={hodName} 
                                                             onChange={(e) => setHodName(e.target.value)}
                                                             placeholder="Dept Head"
-                                                            className="bg-transparent text-xs text-white font-bold outline-none w-24 focus:w-32 transition-all placeholder-gray-600"
+                                                            className={`bg-transparent text-xs font-bold outline-none w-24 focus:w-32 transition-all ${
+                                                                isLight ? 'text-slate-900 placeholder-slate-400' : 'text-white placeholder-gray-600'
+                                                            }`}
                                                         />
                                                     </div>
-                                                    <div className="flex items-center gap-1.5 bg-[#0e0e11] border border-[#333] px-2 py-1 rounded-lg">
+                                                    <div className={`flex items-center gap-1.5 border px-2 py-1 rounded-lg ${
+                                                        isLight ? 'bg-white border-slate-250' : 'bg-[#0e0e11] border-[#333]'
+                                                    }`}>
                                                         <span className="text-[9px] font-mono text-gray-500 uppercase">Dept:</span>
                                                         <input 
                                                             type="text" 
                                                             value={hodDept} 
                                                             onChange={(e) => setHodDept(e.target.value)}
                                                             placeholder="Camera / Art"
-                                                            className="bg-transparent text-xs text-white font-bold outline-none w-24 focus:w-32 transition-all placeholder-gray-600"
+                                                            className={`bg-transparent text-xs font-bold outline-none w-24 focus:w-32 transition-all ${
+                                                                isLight ? 'text-slate-900 placeholder-slate-400' : 'text-white placeholder-gray-600'
+                                                            }`}
                                                         />
                                                     </div>
                                                 </>
@@ -1359,7 +1500,9 @@ const BreakdownView: React.FC = () => {
                                 </div>
 
                                 {/* Modal Category Picker */}
-                                <div className="p-4 border-b border-[#28282e] bg-[#121214] flex items-center gap-2 overflow-x-auto custom-scrollbar">
+                                <div className={`p-4 border-b flex items-center gap-2 overflow-x-auto custom-scrollbar ${
+                                    isLight ? 'bg-slate-50 border-slate-205' : 'bg-[#121214] border-[#28282e]'
+                                }`}>
                                     {CATEGORIES.map(cat => {
                                         const CatIcon = cat.icon;
                                         const isSel = shareCategory === cat.id;
@@ -1370,7 +1513,7 @@ const BreakdownView: React.FC = () => {
                                                 className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 shrink-0 transition-all ${
                                                     isSel 
                                                         ? 'bg-[#f5a623] text-black shadow' 
-                                                        : 'bg-[#222226] text-gray-400 hover:text-white hover:bg-[#2c2c32]'
+                                                        : (isLight ? 'bg-slate-200 text-slate-650 hover:text-slate-900 hover:bg-slate-250' : 'bg-[#222226] text-gray-400 hover:text-white hover:bg-[#2c2c32]')
                                                 }`}
                                             >
                                                 <CatIcon size={14} />
@@ -1381,38 +1524,48 @@ const BreakdownView: React.FC = () => {
                                 </div>
 
                                 {/* Text Area Preview */}
-                                <div className="p-4 flex-1 overflow-y-auto custom-scrollbar bg-[#0d0d0f]">
+                                <div className={`p-4 flex-1 overflow-y-auto custom-scrollbar ${
+                                    isLight ? 'bg-slate-100' : 'bg-[#0d0d0f]'
+                                }`}>
                                     <div className="flex items-center justify-between mb-2">
-                                        <span className="text-[10px] font-mono font-bold text-gray-500 uppercase">
+                                        <span className={`text-[10px] font-mono font-bold uppercase ${isLight ? 'text-slate-500' : 'text-gray-500'}`}>
                                             Formatted Plain Text (Ready to Copy/Send)
                                         </span>
-                                        <span className="text-[10px] text-emerald-400 font-mono">
+                                        <span className="text-[10px] text-emerald-500 font-mono font-bold">
                                             Auto-Synced with Script Breakdown
                                         </span>
                                     </div>
                                     <textarea 
                                         readOnly
                                         value={generateCategoryTextList(shareCategory)}
-                                        className="w-full h-64 bg-[#141417] border border-[#26262a] text-xs font-mono text-gray-200 p-3.5 rounded-xl outline-none select-all custom-scrollbar leading-relaxed"
+                                        className={`w-full h-64 border text-xs font-mono p-3.5 rounded-xl outline-none select-all custom-scrollbar leading-relaxed ${
+                                            isLight ? 'bg-white border-slate-350 text-slate-800' : 'bg-[#141417] border-[#26262a] text-gray-200'
+                                        }`}
                                     />
                                 </div>
 
                                 {/* Modal Actions */}
-                                <div className="p-4 border-t border-[#333] bg-[#1a1a1e] flex items-center justify-between">
-                                    <div className="text-[11px] text-gray-400 font-mono">
+                                <div className={`p-4 border-t flex items-center justify-between ${
+                                    isLight ? 'bg-slate-50 border-slate-205 text-slate-650' : 'bg-[#1a1a1e] border-[#333] text-gray-400'
+                                }`}>
+                                    <div className="text-[11px] font-mono font-bold">
                                         Tip: Paste this list into WhatsApp, Email, or Slack
                                     </div>
                                     <div className="flex items-center gap-2">
                                         <button 
                                             onClick={() => handlePrintBreakdown(shareCategory)}
-                                            className="px-4 py-2 rounded-xl text-xs font-bold text-gray-200 bg-[#282830] hover:bg-[#383842] border border-[#444] transition-all flex items-center gap-1.5"
+                                            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border ${
+                                                isLight ? 'text-slate-700 bg-slate-200 hover:bg-slate-250 border-slate-300' : 'text-gray-200 bg-[#282830] hover:bg-[#383842] border-[#444]'
+                                            }`}
                                         >
-                                            <Printer size={14} className="text-amber-400" />
+                                            <Printer size={14} className={isLight ? 'text-amber-600' : 'text-amber-400'} />
                                             <span>Print List / PDF</span>
                                         </button>
                                         <button 
                                             onClick={() => setIsShareModalOpen(false)}
-                                            className="px-4 py-2 rounded-xl text-xs font-bold text-gray-400 hover:text-white bg-[#26262a] hover:bg-[#333] transition-colors"
+                                            className={`px-4 py-2 rounded-xl text-xs font-bold transition-colors ${
+                                                isLight ? 'text-slate-500 hover:text-slate-800 bg-slate-100 hover:bg-slate-200' : 'text-gray-400 hover:text-white bg-[#26262a] hover:bg-[#333]'
+                                            }`}
                                         >
                                             Close
                                         </button>

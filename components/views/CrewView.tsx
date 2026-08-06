@@ -678,7 +678,8 @@ export const CrewView: React.FC<CrewViewProps> = ({
   onAddTask, 
   onDeleteTask 
 }) => {
-  const { beats } = useProject();
+  const { beats, appTheme } = useProject();
+  const isLight = appTheme === 'light' || (appTheme === 'system' && typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: light)').matches);
 
   // Sidebar & Global State
   const [activeSidebarItem, setActiveSidebarItem] = useState<'dashboard' | 'departments' | 'meetings' | 'reports' | 'contacts' | 'templates'>('departments');
@@ -709,6 +710,49 @@ export const CrewView: React.FC<CrewViewProps> = ({
   const [taskViewMode, setTaskViewMode] = useState<'table' | 'kanban' | 'calendar' | 'timeline'>('kanban');
   const [reportsViewMode, setReportsViewMode] = useState<'table' | 'board' | 'timeline' | 'gallery'>('table');
   const [selectedReportDept, setSelectedReportDept] = useState<string>('art');
+
+  // Custom states for interactive scenes, assets, and budget features
+  const [assignedScenes, setAssignedScenes] = useState<Record<string, string[]>>({
+    direction: ['Scene 12', 'Scene 14', 'Scene 27', 'Scene 18', 'Scene 22'],
+    production: ['Scene 12', 'Scene 14', 'Scene 27', 'Scene 18', 'Scene 22'],
+    camera: ['Scene 12', 'Scene 14', 'Scene 27', 'Scene 18', 'Scene 22'],
+    art: ['Scene 14'],
+    costume: ['Scene 12', 'Scene 27'],
+    vfx: ['Scene 22'],
+  });
+
+  const [customAssets, setCustomAssets] = useState<DepartmentAsset[]>([]);
+  const [deletedAssetNames, setDeletedAssetNames] = useState<string[]>([]);
+
+  // Asset Form fields
+  const [newAssetName, setNewAssetName] = useState('');
+  const [newAssetCategory, setNewAssetCategory] = useState('');
+  const [newAssetQty, setNewAssetQty] = useState<number>(1);
+  const [newAssetStatus, setNewAssetStatus] = useState<'In Stock' | 'On Order' | 'In Use' | 'Maintenance' | 'Missing'>('In Stock');
+  const [newAssetCondition, setNewAssetCondition] = useState<'Mint' | 'Good' | 'Worn' | 'Damaged'>('Good');
+  const [newAssetLocation, setNewAssetLocation] = useState('');
+
+  // Budget Form fields
+  const [newBudgetCategory, setNewBudgetCategory] = useState('');
+  const [newBudgetItem, setNewBudgetItem] = useState('');
+  const [newBudgetEstimated, setNewBudgetEstimated] = useState<number>(0);
+  const [newBudgetActual, setNewBudgetActual] = useState<number>(0);
+  const [newBudgetStatus, setNewBudgetStatus] = useState<'Approved' | 'Pending' | 'Over Budget' | 'Draft'>('Approved');
+  const [allocatedBudgets, setAllocatedBudgets] = useState<Record<string, number>>({
+    direction: 500000,
+    production: 1500000,
+    camera: 1000000,
+    art: 1200000,
+    costume: 400000,
+    makeup: 150000,
+    props: 200000,
+    lighting: 300000,
+    grip: 250000,
+    vfx: 800000,
+    sound: 200000,
+  });
+
+  const [scenesFilter, setScenesFilter] = useState<'all' | 'assigned'>('all');
 
   // Templates View States
   const [templatesList, setTemplatesList] = useState<ProductionTemplateItem[]>(INITIAL_PRODUCTION_TEMPLATES);
@@ -860,7 +904,7 @@ export const CrewView: React.FC<CrewViewProps> = ({
   }, [beats, selectedDeptId]);
 
   // Derived Assets across screenplay breakdown matching department
-  const deptAssets = useMemo(() => {
+  const baseDeptAssets = useMemo(() => {
     const assetsList: DepartmentAsset[] = [];
     if (beats && Array.isArray(beats)) {
       beats.forEach((b, idx) => {
@@ -917,6 +961,12 @@ export const CrewView: React.FC<CrewViewProps> = ({
 
     return assetsList;
   }, [beats, selectedDeptId]);
+
+  const deptAssets = useMemo(() => {
+    const base = baseDeptAssets.filter(a => !deletedAssetNames.includes(a.name.toLowerCase()));
+    const custom = customAssets.filter(a => a.departmentId === selectedDeptId && !deletedAssetNames.includes(a.name.toLowerCase()));
+    return [...base, ...custom];
+  }, [baseDeptAssets, customAssets, selectedDeptId, deletedAssetNames]);
 
   // Derived Crew Roster ensuring all departments have structured personnel with authentic department roles
   const deptCrew = useMemo(() => {
@@ -1795,15 +1845,44 @@ export const CrewView: React.FC<CrewViewProps> = ({
                 {/* 3. SCENES TAB */}
                 {deptTab === 'scenes' && (
                   <div className="space-y-4">
-                    <div className="flex items-center justify-between">
-                      <h3 className="text-sm font-bold text-white">Screenplay Scenes for {currentDept.name}</h3>
-                      <span className="text-xs text-gray-500 font-mono">{beats.length} Total Scenes</span>
+                    <div className="flex items-center justify-between flex-wrap gap-3">
+                      <div>
+                        <h3 className={`text-sm font-bold ${isLight ? 'text-slate-900' : 'text-white'}`}>Screenplay Scenes for {currentDept.name}</h3>
+                        <p className={`text-[11px] mt-0.5 ${isLight ? 'text-slate-500' : 'text-gray-400'}`}>
+                          Assign scenes to the department to track specialized scheduling and crew prep.
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => setScenesFilter('all')}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                            scenesFilter === 'all'
+                              ? 'bg-amber-500 text-black shadow-sm'
+                              : (isLight ? 'bg-slate-100 text-slate-600 hover:bg-slate-200' : 'bg-[#1e1e21] text-gray-400 hover:text-white')
+                          }`}
+                        >
+                          All Scenes ({beats.length})
+                        </button>
+                        <button
+                          onClick={() => setScenesFilter('assigned')}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                            scenesFilter === 'assigned'
+                              ? 'bg-amber-500 text-black shadow-sm'
+                              : (isLight ? 'bg-slate-100 text-slate-600 hover:bg-slate-200' : 'bg-[#1e1e21] text-gray-400 hover:text-white')
+                          }`}
+                        >
+                          Assigned Only ({(assignedScenes[selectedDeptId] || []).length})
+                        </button>
+                      </div>
                     </div>
 
-                    <div className="bg-[#161618] border border-[#262628] rounded-xl overflow-hidden shadow">
+                    <div className={`border rounded-xl overflow-hidden shadow ${isLight ? 'bg-white border-slate-200' : 'bg-[#161618] border-[#262628]'}`}>
                       <table className="w-full text-left text-xs">
-                        <thead className="bg-[#1f1f22] text-gray-400 uppercase font-mono text-[10px] border-b border-[#2d2d30]">
+                        <thead className={`uppercase font-mono text-[10px] border-b ${
+                          isLight ? 'bg-slate-50 border-slate-200 text-slate-500' : 'bg-[#1f1f22] border-[#2d2d30] text-gray-400'
+                        }`}>
                           <tr>
+                            <th className="p-3 text-center w-12">Assign</th>
                             <th className="p-3">Scene #</th>
                             <th className="p-3">INT / EXT Location</th>
                             <th className="p-3">Time</th>
@@ -1814,43 +1893,81 @@ export const CrewView: React.FC<CrewViewProps> = ({
                             <th className="p-3 text-right">Action</th>
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-[#222225] text-gray-300">
-                          {deptScenes.map((s, idx) => (
-                            <tr key={idx} className="hover:bg-[#1c1c20] transition-colors">
-                              <td className="p-3 font-mono font-bold text-amber-400">{s.sceneNum}</td>
-                              <td className="p-3 font-semibold text-white">{s.location}</td>
-                              <td className="p-3 font-mono">{s.isDay ? 'DAY' : 'NIGHT'}</td>
-                              <td className="p-3 font-mono text-gray-400">{s.pages}</td>
-                              <td className="p-3">
-                                <span className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded text-[10px] font-bold">
-                                  {s.status}
-                                </span>
-                              </td>
-                              <td className="p-3">
-                                <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${s.priority === 'Critical' ? 'bg-red-500/10 text-red-400' : 'bg-blue-500/10 text-blue-400'}`}>
-                                  {s.priority}
-                                </span>
-                              </td>
-                              <td className="p-3">
-                                <div className="flex gap-1 flex-wrap">
-                                  {s.relatedAssets.slice(0, 2).map((a, i) => (
-                                    <span key={i} className="bg-[#26262a] text-gray-300 px-1.5 py-0.5 rounded text-[10px]">
-                                      {a}
+                        <tbody className={`divide-y ${isLight ? 'divide-slate-105 text-slate-700' : 'divide-[#222225] text-gray-300'}`}>
+                          {deptScenes
+                            .filter(s => {
+                              if (scenesFilter === 'assigned') {
+                                return (assignedScenes[selectedDeptId] || []).includes(s.sceneNum);
+                              }
+                              return true;
+                            })
+                            .map((s, idx) => {
+                              const isAssigned = (assignedScenes[selectedDeptId] || []).includes(s.sceneNum);
+                              return (
+                                <tr key={idx} className={`transition-colors ${
+                                  isLight 
+                                    ? `hover:bg-slate-50/50 ${isAssigned ? 'bg-blue-50/20' : ''}` 
+                                    : `hover:bg-[#1c1c20] ${isAssigned ? 'bg-blue-900/5' : ''}`
+                                }`}>
+                                  <td className="p-3 text-center">
+                                    <input
+                                      type="checkbox"
+                                      checked={isAssigned}
+                                      onChange={() => {
+                                        setAssignedScenes(prev => {
+                                          const currentList = prev[selectedDeptId] || [];
+                                          const newList = currentList.includes(s.sceneNum)
+                                            ? currentList.filter(id => id !== s.sceneNum)
+                                            : [...currentList, s.sceneNum];
+                                          return { ...prev, [selectedDeptId]: newList };
+                                        });
+                                      }}
+                                      className="rounded border-gray-350 dark:border-zinc-700 text-amber-500 focus:ring-amber-500 w-4 h-4 cursor-pointer"
+                                    />
+                                  </td>
+                                  <td className="p-3 font-mono font-bold text-amber-500">{s.sceneNum}</td>
+                                  <td className={`p-3 font-semibold ${isLight ? 'text-slate-900' : 'text-white'}`}>{s.location}</td>
+                                  <td className="p-3 font-mono">{s.isDay ? 'DAY' : 'NIGHT'}</td>
+                                  <td className="p-3 font-mono text-gray-400">{s.pages}</td>
+                                  <td className="p-3">
+                                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
+                                      s.status === 'Ready' 
+                                        ? 'bg-emerald-500/10 text-emerald-500 border-emerald-550/20' 
+                                        : 'bg-amber-500/10 text-amber-500 border-amber-550/20'
+                                    }`}>
+                                      {s.status}
                                     </span>
-                                  ))}
-                                  {s.relatedAssets.length > 2 && <span className="text-[10px] text-gray-500">+{s.relatedAssets.length - 2}</span>}
-                                </div>
-                              </td>
-                              <td className="p-3 text-right">
-                                <button 
-                                  onClick={() => setActiveSceneDrawerBeat(s.beat)}
-                                  className="text-amber-400 hover:text-amber-300 font-bold text-xs underline"
-                                >
-                                  Open Detail
-                                </button>
-                              </td>
-                            </tr>
-                          ))}
+                                  </td>
+                                  <td className="p-3">
+                                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                      s.priority === 'Critical' ? 'bg-red-500/10 text-red-500 border-red-500/20' : 'bg-blue-500/10 text-blue-500 border-blue-500/20'
+                                    }`}>
+                                      {s.priority}
+                                    </span>
+                                  </td>
+                                  <td className="p-3">
+                                    <div className="flex gap-1 flex-wrap">
+                                      {s.relatedAssets.slice(0, 2).map((a, i) => (
+                                        <span key={i} className={`px-1.5 py-0.5 rounded text-[10px] ${
+                                          isLight ? 'bg-slate-100 text-slate-700' : 'bg-[#26262a] text-gray-300'
+                                        }`}>
+                                          {a}
+                                        </span>
+                                      ))}
+                                      {s.relatedAssets.length > 2 && <span className="text-[10px] text-gray-500">+{s.relatedAssets.length - 2}</span>}
+                                    </div>
+                                  </td>
+                                  <td className="p-3 text-right">
+                                    <button 
+                                      onClick={() => setActiveSceneDrawerBeat(s.beat)}
+                                      className="text-amber-500 hover:text-amber-600 dark:text-amber-400 dark:hover:text-amber-300 font-bold text-xs underline cursor-pointer"
+                                    >
+                                      Open Detail
+                                    </button>
+                                  </td>
+                                </tr>
+                              );
+                            })}
                         </tbody>
                       </table>
                     </div>
@@ -1859,80 +1976,505 @@ export const CrewView: React.FC<CrewViewProps> = ({
 
                 {/* 4. ASSETS TAB */}
                 {deptTab === 'assets' && (
-                  <div className="space-y-4">
-                    <div className="flex items-center justify-between">
-                      <h3 className="text-sm font-bold text-white">Department Assets & Screenplay Mapping</h3>
+                  <div className="space-y-6 animate-in fade-in duration-200">
+                    <div className="flex items-center justify-between flex-wrap gap-4">
+                      <div>
+                        <h3 className={`text-sm font-bold ${isLight ? 'text-slate-900' : 'text-white'}`}>Department Assets & Equipment Inventory</h3>
+                        <p className={`text-[11px] mt-0.5 ${isLight ? 'text-slate-505' : 'text-gray-400'}`}>
+                          Track and manage inventory items allocated to the {currentDept.name} department.
+                        </p>
+                      </div>
                       <button 
                         onClick={() => setShowDependencyGraphAsset('Hero Gun')}
-                        className="bg-[#242428] hover:bg-[#333] text-amber-400 border border-[#3d3d42] text-xs font-bold px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5"
+                        className={`text-xs font-bold px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5 border border-dashed ${
+                          isLight 
+                            ? 'bg-slate-100 hover:bg-slate-200 text-slate-800 border-slate-300' 
+                            : 'bg-[#242428] hover:bg-[#333] text-amber-400 border-[#3d3d42]'
+                        }`}
                       >
                         <GitFork size={14} /> Open Dependency Graph
                       </button>
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                      {deptAssets.map(ast => (
-                        <div key={ast.id} className="bg-[#161618] border border-[#262628] rounded-xl p-4 space-y-3 hover:border-amber-500/40 transition-colors">
-                          <div className="flex items-start justify-between">
-                            <div>
-                              <h4 className="text-sm font-bold text-white">{ast.name}</h4>
-                              <span className="text-[10px] font-mono text-amber-400 uppercase">{ast.category}</span>
-                            </div>
-                            <span className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold px-2 py-0.5 rounded">
-                              {ast.status}
-                            </span>
-                          </div>
-
-                          <div className="text-xs text-gray-400 space-y-1 font-mono">
-                            <div>Appears in Scenes: <strong className="text-white">{ast.sceneIds.join(', ')}</strong></div>
-                            <div>Location: <span className="text-gray-300">{ast.location}</span></div>
-                            <div>Qty: <strong className="text-white">{ast.quantity}</strong> | Condition: <strong className="text-emerald-400">{ast.condition}</strong></div>
-                          </div>
-
-                          <button 
-                            onClick={() => setShowDependencyGraphAsset(ast.name)}
-                            className="w-full bg-[#202024] hover:bg-[#28282d] text-amber-400 text-xs font-bold py-1.5 rounded-lg transition-colors flex items-center justify-center gap-1.5"
-                          >
-                            <GitFork size={12} /> View Production Dependencies
-                          </button>
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-stretch">
+                      {/* Left: Inventory List Table */}
+                      <div className={`lg:col-span-2 p-4 rounded-xl border space-y-4 ${
+                        isLight ? 'bg-white border-slate-200' : 'bg-[#161618] border-[#262628]'
+                      }`}>
+                        <div className="flex items-center justify-between">
+                          <h4 className="text-xs uppercase font-mono font-bold text-gray-400">Inventory Ledger</h4>
+                          <span className={`text-[10px] font-mono px-2 py-0.5 rounded font-bold ${
+                            isLight ? 'bg-blue-50 text-blue-600' : 'bg-blue-500/10 text-blue-400'
+                          }`}>
+                            {deptAssets.reduce((acc, curr) => acc + curr.quantity, 0)} Total Units
+                          </span>
                         </div>
-                      ))}
+
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-left text-xs">
+                            <thead className={`uppercase font-mono text-[10px] border-b ${
+                              isLight ? 'bg-slate-50 border-slate-200 text-slate-505' : 'bg-[#1f1f22] border-[#2d2d30] text-gray-500'
+                            }`}>
+                              <tr>
+                                <th className="p-2.5">Asset Item</th>
+                                <th className="p-2.5">Category</th>
+                                <th className="p-2.5 text-center">Qty</th>
+                                <th className="p-2.5">Condition</th>
+                                <th className="p-2.5">Status</th>
+                                <th className="p-2.5">Location</th>
+                                <th className="p-2.5 text-right">Action</th>
+                              </tr>
+                            </thead>
+                            <tbody className={`divide-y ${isLight ? 'divide-slate-105 text-slate-700' : 'divide-[#222225] text-gray-300'}`}>
+                              {deptAssets.length > 0 ? (
+                                deptAssets.map((asset) => (
+                                  <tr key={asset.id} className={isLight ? 'hover:bg-slate-50/50' : 'hover:bg-[#1a1a1d]'}>
+                                    <td className="p-2.5">
+                                      <div className={`font-bold ${isLight ? 'text-slate-900' : 'text-white'}`}>{asset.name}</div>
+                                      {asset.sceneIds && asset.sceneIds.length > 0 && (
+                                        <div className="text-[9px] text-gray-500">Scenes: {asset.sceneIds.join(', ')}</div>
+                                      )}
+                                    </td>
+                                    <td className="p-2.5 font-mono text-[10px] uppercase text-amber-500">{asset.category}</td>
+                                    <td className="p-2.5 text-center font-bold font-mono">{asset.quantity}</td>
+                                    <td className="p-2.5 font-mono">
+                                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                                        asset.condition === 'Mint'
+                                          ? 'text-emerald-500'
+                                          : asset.condition === 'Good'
+                                            ? 'text-blue-500'
+                                            : 'text-amber-500'
+                                      }`}>
+                                        {asset.condition}
+                                      </span>
+                                    </td>
+                                    <td className="p-2.5">
+                                      <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold border ${
+                                        asset.status === 'In Stock' || asset.status === 'Ready' as any
+                                          ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20'
+                                          : asset.status === 'In Use'
+                                            ? 'bg-blue-500/10 text-blue-500 border-blue-500/20'
+                                            : 'bg-red-500/10 text-red-500 border-red-500/20'
+                                      }`}>
+                                        {asset.status}
+                                      </span>
+                                    </td>
+                                    <td className="p-2.5 text-gray-500 font-mono text-[10px]">{asset.location || 'N/A'}</td>
+                                    <td className="p-2.5 text-right">
+                                      <button
+                                        onClick={() => {
+                                          setDeletedAssetNames(prev => [...prev, asset.name.toLowerCase()]);
+                                        }}
+                                        className="text-red-500 hover:text-red-655 transition-colors p-1 rounded-lg"
+                                        title="Delete asset"
+                                      >
+                                        <Trash2 size={13} />
+                                      </button>
+                                    </td>
+                                  </tr>
+                                ))
+                              ) : (
+                                <tr>
+                                  <td colSpan={7} className="text-center py-8 text-gray-550 italic">
+                                    No assets cataloged for this department yet. Log equipment on the right to start.
+                                  </td>
+                                </tr>
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+
+                      {/* Right: Add Asset Form */}
+                      <div className={`p-4 rounded-xl border flex flex-col gap-4 ${
+                        isLight ? 'bg-white border-slate-200' : 'bg-[#161618] border-[#262628]'
+                      }`}>
+                        <h4 className="text-xs uppercase font-mono font-bold text-gray-400">Log New Equipment Asset</h4>
+                        <form
+                          onSubmit={(e) => {
+                            e.preventDefault();
+                            if (!newAssetName.trim()) return;
+                            const newAsset: DepartmentAsset = {
+                              id: `ast-cst-${Date.now()}`,
+                              name: newAssetName.trim(),
+                              category: newAssetCategory.trim() || 'General',
+                              departmentId: selectedDeptId,
+                              sceneIds: [],
+                              quantity: newAssetQty,
+                              status: newAssetStatus,
+                              condition: newAssetCondition,
+                              location: newAssetLocation.trim() || 'Storage Block A'
+                            };
+                            setCustomAssets(prev => [...prev, newAsset]);
+                            setNewAssetName('');
+                            setNewAssetCategory('');
+                            setNewAssetQty(1);
+                            setNewAssetStatus('In Stock');
+                            setNewAssetCondition('Good');
+                            setNewAssetLocation('');
+                          }}
+                          className="space-y-3.5 text-xs font-mono"
+                        >
+                          <div className="space-y-1">
+                            <label className="block text-[10px] uppercase font-bold text-gray-400">Asset Name / Model</label>
+                            <input
+                              type="text"
+                              required
+                              placeholder="e.g. Arri Alexa Prime Lenses"
+                              value={newAssetName}
+                              onChange={(e) => setNewAssetName(e.target.value)}
+                              className={`w-full rounded px-2.5 py-1.5 outline-none border focus:ring-1 focus:ring-amber-500 ${
+                                isLight ? 'bg-slate-50 border-slate-300 text-slate-900' : 'bg-[#0e0e11] border-[#333] text-white'
+                              }`}
+                            />
+                          </div>
+
+                          <div className="space-y-1">
+                            <label className="block text-[10px] uppercase font-bold text-gray-400">Category / Type</label>
+                            <input
+                              type="text"
+                              placeholder="e.g. Wardrobe, Lens, Set Prop"
+                              value={newAssetCategory}
+                              onChange={(e) => setNewAssetCategory(e.target.value)}
+                              className={`w-full rounded px-2.5 py-1.5 outline-none border focus:ring-1 focus:ring-amber-500 ${
+                                isLight ? 'bg-slate-50 border-slate-300 text-slate-900' : 'bg-[#0e0e11] border-[#333] text-white'
+                              }`}
+                            />
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-3">
+                            <div className="space-y-1">
+                              <label className="block text-[10px] uppercase font-bold text-gray-400">Quantity</label>
+                              <input
+                                type="number"
+                                min={1}
+                                required
+                                value={newAssetQty}
+                                onChange={(e) => setNewAssetQty(parseInt(e.target.value, 10) || 1)}
+                                className={`w-full rounded px-2.5 py-1.5 outline-none border focus:ring-1 focus:ring-amber-500 ${
+                                  isLight ? 'bg-slate-50 border-slate-300 text-slate-900' : 'bg-[#0e0e11] border-[#333] text-white'
+                                }`}
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <label className="block text-[10px] uppercase font-bold text-gray-400">Condition</label>
+                              <select
+                                value={newAssetCondition}
+                                onChange={(e) => setNewAssetCondition(e.target.value as any)}
+                                className={`w-full rounded px-2.5 py-1.5 outline-none border focus:ring-1 focus:ring-amber-500 ${
+                                  isLight ? 'bg-slate-550 border-slate-300 text-slate-900 focus:bg-white' : 'bg-[#0e0e11] border-[#333] text-white focus:bg-[#08080a]'
+                                }`}
+                              >
+                                <option value="Mint">Mint</option>
+                                <option value="Good">Good</option>
+                                <option value="Worn">Worn</option>
+                                <option value="Damaged">Damaged</option>
+                              </select>
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-3">
+                            <div className="space-y-1">
+                              <label className="block text-[10px] uppercase font-bold text-gray-400">Status</label>
+                              <select
+                                value={newAssetStatus}
+                                onChange={(e) => setNewAssetStatus(e.target.value as any)}
+                                className={`w-full rounded px-2.5 py-1.5 outline-none border focus:ring-1 focus:ring-amber-500 ${
+                                  isLight ? 'bg-slate-550 border-slate-300 text-slate-900 focus:bg-white' : 'bg-[#0e0e11] border-[#333] text-white focus:bg-[#08080a]'
+                                }`}
+                              >
+                                <option value="In Stock">In Stock</option>
+                                <option value="On Order">On Order</option>
+                                <option value="In Use">In Use</option>
+                                <option value="Maintenance">Maintenance</option>
+                                <option value="Missing">Missing</option>
+                              </select>
+                            </div>
+                            <div className="space-y-1">
+                              <label className="block text-[10px] uppercase font-bold text-gray-400">Location</label>
+                              <input
+                                type="text"
+                                placeholder="e.g. Stage 3"
+                                value={newAssetLocation}
+                                onChange={(e) => setNewAssetLocation(e.target.value)}
+                                className={`w-full rounded px-2.5 py-1.5 outline-none border focus:ring-1 focus:ring-amber-500 ${
+                                  isLight ? 'bg-slate-550 border-slate-300 text-slate-900 focus:bg-white' : 'bg-[#0e0e11] border-[#333] text-white focus:bg-[#08080a]'
+                                }`}
+                              />
+                            </div>
+                          </div>
+
+                          <button
+                            type="submit"
+                            className="w-full bg-[#f5a623] hover:bg-[#e0951a] text-black font-black py-2 rounded-xl transition-all shadow-sm flex items-center justify-center gap-1.5 mt-2 cursor-pointer"
+                          >
+                            <Plus size={14} />
+                            <span>Catalog Asset</span>
+                          </button>
+                        </form>
+                      </div>
                     </div>
                   </div>
                 )}
 
                 {/* 5. BUDGET TAB */}
                 {deptTab === 'budget' && (
-                  <div className="space-y-4">
-                    <h3 className="text-sm font-bold text-white">Department Budget & Expenditure (₹)</h3>
-                    <div className="bg-[#161618] border border-[#262628] rounded-xl overflow-hidden">
-                      <table className="w-full text-left text-xs">
-                        <thead className="bg-[#1f1f22] text-gray-400 uppercase font-mono text-[10px]">
-                          <tr>
-                            <th className="p-3">Category</th>
-                            <th className="p-3">Item</th>
-                            <th className="p-3">Estimated</th>
-                            <th className="p-3">Actual Spend</th>
-                            <th className="p-3">Status</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-[#222225] text-gray-300">
-                          {budgetItems.map(b => (
-                            <tr key={b.id}>
-                              <td className="p-3 font-mono text-amber-400">{b.category}</td>
-                              <td className="p-3 font-semibold text-white">{b.item}</td>
-                              <td className="p-3 font-mono">₹{b.estimatedCost.toLocaleString('en-IN')}</td>
-                              <td className="p-3 font-mono font-bold text-emerald-400">₹{b.actualCost.toLocaleString('en-IN')}</td>
-                              <td className="p-3">
-                                <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${b.status === 'Over Budget' ? 'bg-red-500/10 text-red-400' : 'bg-emerald-500/10 text-emerald-400'}`}>
-                                  {b.status}
-                                </span>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
+                  <div className="space-y-6 animate-in fade-in duration-200">
+                    {(() => {
+                      const currentDeptBudgetItems = budgetItems.filter(b => b.departmentId === selectedDeptId);
+                      const totalAllocated = allocatedBudgets[selectedDeptId] || 100000;
+                      const totalEstimated = currentDeptBudgetItems.reduce((sum, item) => sum + item.estimatedCost, 0);
+                      const totalSpent = currentDeptBudgetItems.reduce((sum, item) => sum + item.actualCost, 0);
+                      const remaining = totalAllocated - totalSpent;
+                      const percentSpent = Math.min(100, totalAllocated > 0 ? Math.round((totalSpent / totalAllocated) * 100) : 0);
+
+                      return (
+                        <>
+                          <div className="flex items-center justify-between flex-wrap gap-4">
+                            <div>
+                              <h3 className={`text-sm font-bold ${isLight ? 'text-slate-900' : 'text-white'}`}>Department Budget & Expenditure</h3>
+                              <p className={`text-[11px] mt-0.5 ${isLight ? 'text-slate-505' : 'text-gray-400'}`}>
+                                Allocate capital, log actual spends, and track budget utilization for {currentDept.name} department.
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-3">
+                              <span className={`text-xs font-bold ${isLight ? 'text-slate-500' : 'text-gray-450'}`}>Adjust Allocation Limit:</span>
+                              <div className="flex items-center gap-1.5">
+                                <span className={isLight ? 'text-slate-900 font-bold' : 'text-white font-bold'}>₹</span>
+                                <input
+                                  type="number"
+                                  value={totalAllocated}
+                                  onChange={(e) => {
+                                    const val = Math.max(0, parseInt(e.target.value, 10) || 0);
+                                    setAllocatedBudgets(prev => ({
+                                      ...prev,
+                                      [selectedDeptId]: val
+                                    }));
+                                  }}
+                                  className={`w-28 rounded-lg px-2.5 py-1 text-xs outline-none border focus:ring-1 focus:ring-amber-500 font-bold font-mono text-center ${
+                                    isLight ? 'bg-white border-slate-300 text-slate-805' : 'bg-[#0e0e11] border-[#333] text-white'
+                                  }`}
+                                />
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Budget Summary Cards */}
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs font-mono">
+                            <div className={`p-4 rounded-xl border transition-colors ${
+                              isLight ? 'bg-white border-slate-200' : 'bg-[#161618] border-[#262628]'
+                            }`}>
+                              <div className="text-[10px] text-gray-500 uppercase font-bold">Allocated Budget Cap</div>
+                              <div className={`text-xl font-black mt-1 ${isLight ? 'text-slate-900' : 'text-white'}`}>₹{totalAllocated.toLocaleString('en-IN')}</div>
+                            </div>
+                            <div className={`p-4 rounded-xl border transition-colors ${
+                              isLight ? 'bg-white border-slate-200' : 'bg-[#161618] border-[#262628]'
+                            }`}>
+                              <div className="text-[10px] text-gray-500 uppercase font-bold">Total Spent (Actual)</div>
+                              <div className={`text-xl font-black mt-1 ${percentSpent > 90 ? 'text-red-500' : 'text-blue-500'}`}>
+                                ₹{totalSpent.toLocaleString('en-IN')}
+                              </div>
+                            </div>
+                            <div className={`p-4 rounded-xl border transition-colors ${
+                              isLight ? 'bg-white border-slate-200' : 'bg-[#161618] border-[#262628]'
+                            }`}>
+                              <div className="text-[10px] text-gray-500 uppercase font-bold">Remaining Capital</div>
+                              <div className={`text-xl font-black mt-1 ${remaining < 0 ? 'text-red-500' : 'text-emerald-500'}`}>
+                                ₹{remaining.toLocaleString('en-IN')}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Progress Bar */}
+                          <div className={`p-4 rounded-xl border space-y-2 transition-colors ${
+                            isLight ? 'bg-white border-slate-200' : 'bg-[#161618] border-[#262628]'
+                          }`}>
+                            <div className="flex items-center justify-between text-[10px] font-mono font-bold text-gray-405">
+                              <span>BUDGET UTILIZATION</span>
+                              <span>{percentSpent}% USED</span>
+                            </div>
+                            <div className={`w-full h-3 rounded-full overflow-hidden ${isLight ? 'bg-slate-100' : 'bg-[#1f1f23]'}`}>
+                              <div
+                                style={{ width: `${percentSpent}%` }}
+                                className={`h-full rounded-full transition-all duration-300 ${
+                                  percentSpent > 90 ? 'bg-red-500' : percentSpent > 70 ? 'bg-amber-550' : 'bg-blue-500'
+                                }`}
+                              />
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                            {/* Expense list Table */}
+                            <div className={`lg:col-span-2 p-4 rounded-xl border space-y-4 ${
+                              isLight ? 'bg-white border-slate-200' : 'bg-[#161618] border-[#262628]'
+                            }`}>
+                              <h4 className="text-xs uppercase font-mono font-bold text-gray-400">Expense Ledger</h4>
+                              <div className="overflow-x-auto">
+                                <table className="w-full text-left text-xs font-mono">
+                                  <thead className={`border-b ${isLight ? 'border-slate-200 text-slate-400' : 'border-[#2d2d30] text-gray-500'}`}>
+                                    <tr>
+                                      <th className="pb-2">Expense / Line Item</th>
+                                      <th className="pb-2">Category</th>
+                                      <th className="pb-2 text-right">Estimated</th>
+                                      <th className="pb-2 text-right">Actual Spend</th>
+                                      <th className="pb-2 text-center">Status</th>
+                                      <th className="pb-2 text-right">Action</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className={`divide-y ${isLight ? 'divide-slate-105 text-slate-700' : 'divide-[#222225] text-gray-300'}`}>
+                                    {currentDeptBudgetItems.length > 0 ? (
+                                      currentDeptBudgetItems.map((item) => (
+                                        <tr key={item.id} className={isLight ? 'hover:bg-slate-50/50' : 'hover:bg-[#1a1a1d]'}>
+                                          <td className={`py-2.5 font-bold ${isLight ? 'text-slate-900' : 'text-white'}`}>{item.item}</td>
+                                          <td className="py-2.5 font-semibold text-amber-500 uppercase text-[10px]">{item.category}</td>
+                                          <td className="py-2.5 text-right">₹{item.estimatedCost.toLocaleString('en-IN')}</td>
+                                          <td className={`py-2.5 text-right font-black ${isLight ? 'text-slate-900' : 'text-white'}`}>₹{item.actualCost.toLocaleString('en-IN')}</td>
+                                          <td className="py-2.5 text-center">
+                                            <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold border ${
+                                              item.status === 'Approved'
+                                                ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20'
+                                                : item.status === 'Pending'
+                                                  ? 'bg-amber-500/10 text-amber-500 border-amber-500/20'
+                                                  : 'bg-red-500/10 text-red-500 border-red-500/20'
+                                            }`}>
+                                              {item.status}
+                                            </span>
+                                          </td>
+                                          <td className="py-2.5 text-right">
+                                            <button
+                                              onClick={() => {
+                                                setBudgetItems(prev => prev.filter(i => i.id !== item.id));
+                                              }}
+                                              className="text-red-505 hover:text-red-750 transition-colors p-1"
+                                              title="Delete transaction"
+                                            >
+                                              <Trash2 size={13} />
+                                            </button>
+                                          </td>
+                                        </tr>
+                                      ))
+                                    ) : (
+                                      <tr>
+                                        <td colSpan={6} className="text-center py-8 text-gray-550 italic">
+                                          No expense ledger entries logged. Use the form on the right to log costs.
+                                        </td>
+                                      </tr>
+                                    )}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </div>
+
+                            {/* Add Expense Form */}
+                            <div className={`p-4 rounded-xl border flex flex-col gap-4 ${
+                              isLight ? 'bg-white border-slate-200' : 'bg-[#161618] border-[#262628]'
+                            }`}>
+                              <h4 className="text-xs uppercase font-mono font-bold text-gray-400">Log New Expense</h4>
+                              <form
+                                onSubmit={(e) => {
+                                  e.preventDefault();
+                                  if (!newBudgetItem.trim()) return;
+                                  const newItem: BudgetItem = {
+                                    id: `bg-cst-${Date.now()}`,
+                                    departmentId: selectedDeptId,
+                                    category: newBudgetCategory.trim() || 'General',
+                                    item: newBudgetItem.trim(),
+                                    estimatedCost: newBudgetEstimated,
+                                    actualCost: newBudgetActual,
+                                    status: newBudgetStatus
+                                  };
+                                  setBudgetItems(prev => [...prev, newItem]);
+                                  setNewBudgetItem('');
+                                  setNewBudgetCategory('');
+                                  setNewBudgetEstimated(0);
+                                  setNewBudgetActual(0);
+                                  setNewBudgetStatus('Approved');
+                                }}
+                                className="space-y-3.5 text-xs font-mono"
+                              >
+                                <div className="space-y-1">
+                                  <label className="block text-[10px] uppercase font-bold text-gray-400">Expense Item Description</label>
+                                  <input
+                                    type="text"
+                                    required
+                                    placeholder="e.g. Extra lens shipment premium"
+                                    value={newBudgetItem}
+                                    onChange={(e) => setNewBudgetItem(e.target.value)}
+                                    className={`w-full rounded px-2.5 py-1.5 outline-none border focus:ring-1 focus:ring-amber-500 ${
+                                      isLight ? 'bg-slate-50 border-slate-300 text-slate-900' : 'bg-[#0e0e11] border-[#333] text-white'
+                                    }`}
+                                  />
+                                </div>
+
+                                <div className="space-y-1">
+                                  <label className="block text-[10px] uppercase font-bold text-gray-400">Category</label>
+                                  <input
+                                    type="text"
+                                    placeholder="e.g. Equipment, Wardrobe, Permits"
+                                    value={newBudgetCategory}
+                                    onChange={(e) => setNewBudgetCategory(e.target.value)}
+                                    className={`w-full rounded px-2.5 py-1.5 outline-none border focus:ring-1 focus:ring-amber-500 ${
+                                      isLight ? 'bg-slate-50 border-slate-300 text-slate-900' : 'bg-[#0e0e11] border-[#333] text-white'
+                                    }`}
+                                  />
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-3">
+                                  <div className="space-y-1">
+                                    <label className="block text-[10px] uppercase font-bold text-gray-400">Estimated Cost (₹)</label>
+                                    <input
+                                      type="number"
+                                      min={0}
+                                      value={newBudgetEstimated}
+                                      onChange={(e) => setNewBudgetEstimated(parseInt(e.target.value, 10) || 0)}
+                                      className={`w-full rounded px-2.5 py-1.5 outline-none border focus:ring-1 focus:ring-amber-500 ${
+                                        isLight ? 'bg-slate-50 border-slate-300 text-slate-900' : 'bg-[#0e0e11] border-[#333] text-white'
+                                      }`}
+                                    />
+                                  </div>
+                                  <div className="space-y-1">
+                                    <label className="block text-[10px] uppercase font-bold text-gray-400">Actual Spend (₹)</label>
+                                    <input
+                                      type="number"
+                                      min={0}
+                                      value={newBudgetActual}
+                                      onChange={(e) => setNewBudgetActual(parseInt(e.target.value, 10) || 0)}
+                                      className={`w-full rounded px-2.5 py-1.5 outline-none border focus:ring-1 focus:ring-amber-500 ${
+                                        isLight ? 'bg-slate-50 border-slate-300 text-slate-900' : 'bg-[#0e0e11] border-[#333] text-white'
+                                      }`}
+                                    />
+                                  </div>
+                                </div>
+
+                                <div className="space-y-1">
+                                  <label className="block text-[10px] uppercase font-bold text-gray-400">Approval Status</label>
+                                  <select
+                                    value={newBudgetStatus}
+                                    onChange={(e) => setNewBudgetStatus(e.target.value as any)}
+                                    className={`w-full rounded px-2.5 py-1.5 outline-none border focus:ring-1 focus:ring-amber-500 ${
+                                      isLight ? 'bg-slate-550 border-slate-300 text-slate-900 focus:bg-white' : 'bg-[#0e0e11] border-[#333] text-white focus:bg-[#08080a]'
+                                    }`}
+                                  >
+                                    <option value="Approved">Approved</option>
+                                    <option value="Pending">Pending</option>
+                                    <option value="Over Budget">Over Budget</option>
+                                    <option value="Draft">Draft</option>
+                                  </select>
+                                </div>
+
+                                <button
+                                  type="submit"
+                                  className="w-full bg-[#f5a623] hover:bg-[#e0951a] text-black font-black py-2 rounded-xl transition-all shadow-sm flex items-center justify-center gap-1.5 mt-2 cursor-pointer"
+                                >
+                                  <Plus size={14} />
+                                  <span>Log Expense</span>
+                                </button>
+                              </form>
+                            </div>
+                          </div>
+                        </>
+                      );
+                    })()}
                   </div>
                 )}
 

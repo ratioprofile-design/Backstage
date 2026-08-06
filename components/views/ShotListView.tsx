@@ -48,8 +48,11 @@ export const ShotListView: React.FC<ShotListViewProps> = ({ onNavigateToStoryboa
     setGeneratedShots, 
     storyboardConfig,
     captureSnapshot,
-    characterData
+    characterData,
+    appTheme
   } = useProject();
+
+  const isLight = appTheme === 'light' || (appTheme === 'system' && typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: light)').matches);
 
   // Active Scene Filter
   const [selectedSceneId, setSelectedSceneId] = useState<string>('ALL');
@@ -496,10 +499,10 @@ export const ShotListView: React.FC<ShotListViewProps> = ({ onNavigateToStoryboa
   };
 
   return (
-    <div className="w-full h-full bg-[#0a0a0a] text-gray-200 font-sans flex flex-col overflow-hidden">
+    <div className={`w-full h-full font-sans flex flex-col overflow-hidden ${isLight ? 'bg-slate-100 text-slate-800' : 'bg-[#0a0a0a] text-gray-200'}`}>
       
       {/* TOP HEADER BAR */}
-      <div className="h-14 border-b border-[#222] bg-[#111] px-6 flex items-center justify-between shrink-0">
+      <div className={`h-14 border-b px-6 flex items-center justify-between shrink-0 ${isLight ? 'bg-white border-slate-200' : 'bg-[#111] border-[#222]'}`}>
         <div className="flex items-center gap-3">
           <div className="p-2 bg-[#f5a623]/10 text-[#f5a623] rounded-lg border border-[#f5a623]/20">
             <Clapperboard size={18} />

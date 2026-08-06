@@ -26,9 +26,11 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
     beats, groups, connections, panX, panY, scale, annotations, activeBoardId, nextId,
     setPan, setScale, updateBeat, setConnections, addBeat, setBeats, setGroups, addGroup, updateGroup, removeGroup,
     setAnnotations, captureSnapshot, geminiApiKey, isPdfDropEnabled, setActiveBoardId, setNextId,
-    autoGenerate5Scenes, undo, redo,
+    autoGenerate5Scenes, undo, redo, appTheme,
     boardLayerOrder = ['annotations', 'text', 'connections', 'groups', 'beats']
   } = useProject();
+
+  const isLight = appTheme === 'light' || (appTheme === 'system' && typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: light)').matches);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const minimapRef = useRef<HTMLCanvasElement>(null);
@@ -148,17 +150,17 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
 
   const styles = `
     :root {
-        --bg-canvas: #1e1e1e;
-        --bg-grid: #2a2a2a;
+        --bg-canvas: ${isLight ? '#f1f5f9' : '#1e1e1e'};
+        --bg-grid: ${isLight ? '#cbd5e1' : '#2a2a2a'};
     }
     .board-wrapper {
-        width: 100%; height: 100%; overflow: hidden; background-color: #1e1e1e; font-family: 'Inter', 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #e0e0e0; position: relative; outline: none;
+        width: 100%; height: 100%; overflow: hidden; background-color: ${isLight ? '#f1f5f9' : '#1e1e1e'}; font-family: 'Inter', 'Helvetica Neue', Helvetica, Arial, sans-serif; color: ${isLight ? '#0f172a' : '#e0e0e0'}; position: relative; outline: none;
         -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; text-rendering: optimizeLegibility;
     }
     #viewport {
         width: 100%; height: 100%; cursor: grab; position: absolute; top: 0; left: 0; overflow: hidden; display: block;
-        background-color: #1e1e1e;
-        background-image: linear-gradient(#2a2a2a 1px, transparent 1px), linear-gradient(90deg, #2a2a2a 1px, transparent 1px);
+        background-color: ${isLight ? '#f8fafc' : '#1e1e1e'};
+        background-image: linear-gradient(${isLight ? '#e2e8f0' : '#2a2a2a'} 1px, transparent 1px), linear-gradient(90deg, ${isLight ? '#e2e8f0' : '#2a2a2a'} 1px, transparent 1px);
         background-size: 50px 50px;
         background-position: 0px 0px;
     }
@@ -580,7 +582,7 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
         header.appendChild(badge);
 
         const boardIndicator = document.createElement('span');
-        boardIndicator.className = 'absolute top-1 right-1 text-[6px] font-black uppercase text-white/40 px-1.5 py-0 rounded-full bg-black/40 border border-white/5';
+        boardIndicator.style.cssText = 'position:absolute;top:4px;right:4px;font-size:6px;font-weight:900;text-transform:uppercase;color:rgba(255,255,255,0.4);padding:0 4px;border-radius:9999px;background:rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.05);';
         boardIndicator.innerText = `P${(beat.boardId || 0) + 1}`;
         header.appendChild(boardIndicator);
 
@@ -1295,13 +1297,27 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
                   // @ts-ignore
                   const startDrag = (e) => {
                       e.stopPropagation(); e.preventDefault();
-                      const filteredConns = connections.filter(c => (c.boardId || 0) === (activeBoardId || 0));
-                      const targetConn = filteredConns[index];
+                      // Use engine.current.connections[index] — always authoritative (never stale)
+                      const targetConn = engine.current.connections[index];
                       if (targetConn) {
-                          const newConns = connections.filter(c => c !== targetConn);
-                          setConnections(newConns);
-                          captureSnapshot({ connections: newConns });
+                          // Remove from engine first, then sync React state via functional update
                           engine.current.connections = engine.current.connections.filter((_, i) => i !== index);
+                          setConnections(prev => {
+                              // Match by value (engine objects are deep-copies, not same references)
+                              let removed = false;
+                              const updated = prev.filter(c => {
+                                  if (!removed &&
+                                      c.from === targetConn.from &&
+                                      c.to === targetConn.to &&
+                                      (c.boardId ?? 0) === (targetConn.boardId ?? 0)) {
+                                      removed = true;
+                                      return false;
+                                  }
+                                  return true;
+                              });
+                              captureSnapshot({ connections: updated });
+                              return updated;
+                          });
                       } else {
                           captureSnapshot();
                       }
@@ -1429,7 +1445,7 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
       const mapH = canvas.height;
       const scale = Math.min(mapW / worldW, mapH / worldH);
       const offsetX = (mapW - worldW * scale) / 2;
-      const offsetY = (mapH - worldW * scale) / 2;
+      const offsetY = (mapH - worldH * scale) / 2;
       const toMapX = (wx: number) => offsetX + (wx - minX) * scale;
       const toMapY = (wy: number) => offsetY + (wy - minY) * scale;
       ctx.clearRect(0, 0, mapW, mapH);
@@ -1550,9 +1566,15 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
               if (!exists) {
                   const newConn = { from: targetId, to: fixedTargetId, boardId: activeBoardId };
                   engine.current.connections.push(newConn);
-                  const updatedConns = [...connections, newConn];
-                  setConnections(updatedConns);
-                  captureSnapshot({ connections: updatedConns });
+                  // Functional update: avoids stale 'connections' closure; preserves other boards
+                  setConnections(prev => {
+                      const updated = [
+                          ...prev.filter(c => (c.boardId ?? 0) !== activeBoardId),
+                          ...engine.current.connections
+                      ];
+                      captureSnapshot({ connections: updated });
+                      return updated;
+                  });
               }
           }
       } else {
@@ -1562,9 +1584,15 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
                   if (!exists) {
                       const newConn = { from: engine.current.linkingSourceId!, to: targetId, boardId: activeBoardId };
                       engine.current.connections.push(newConn);
-                      const updatedConns = [...connections, newConn];
-                      setConnections(updatedConns);
-                      captureSnapshot({ connections: updatedConns });
+                      // Functional update: avoids stale 'connections' closure; preserves other boards
+                      setConnections(prev => {
+                          const updated = [
+                              ...prev.filter(c => (c.boardId ?? 0) !== activeBoardId),
+                              ...engine.current.connections
+                          ];
+                          captureSnapshot({ connections: updated });
+                          return updated;
+                      });
                   }
               }
           }
@@ -1937,7 +1965,7 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
   };
 
   const handlePaste = () => {
-    if (clipboard.length === 0 || !ctxMenu) return;
+    if (clipboard.length === 0) return;
     captureSnapshot();
 
     let minX = Infinity, minY = Infinity;
@@ -1946,12 +1974,20 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
       if (b.y < minY) minY = b.y;
     });
 
+    // Paste at context menu position, or fall back to current viewport center
+    const worldX = ctxMenu
+      ? ctxMenu.worldX
+      : (-engine.current.panX + (containerRef.current?.clientWidth ?? 600) / 2) / engine.current.scale;
+    const worldY = ctxMenu
+      ? ctxMenu.worldY
+      : (-engine.current.panY + (containerRef.current?.clientHeight ?? 400) / 2) / engine.current.scale;
+
     let startId = nextId;
     const pasted = clipboard.map((b, i) => ({
       ...JSON.parse(JSON.stringify(b)),
       id: startId + i,
-      x: ctxMenu.worldX + (b.x - minX),
-      y: ctxMenu.worldY + (b.y - minY),
+      x: worldX + (b.x - minX),
+      y: worldY + (b.y - minY),
       boardId: activeBoardId
     }));
 
@@ -2291,7 +2327,6 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
   };
 
   const handleAIBeautifyBoard = async () => {
-      return;
       const boardBeats = beats.filter(b => (b.boardId || 0) === activeBoardId);
       if (boardBeats.length === 0) {
           alert("No beats on current board to beautify! Double-click anywhere on the board to create a beat.");
@@ -2343,7 +2378,7 @@ Connections: ${JSON.stringify(boardConns.map(c => ({ from: c.from, to: c.to })))
 
               const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
               const response = await ai.models.generateContent({
-                  model: 'gemini-3-flash-preview',
+                  model: 'gemini-2.0-flash',
                   contents: prompt,
                   config: { responseMimeType: 'application/json' }
               });
@@ -2750,6 +2785,20 @@ Connections: ${JSON.stringify(boardConns.map(c => ({ from: c.from, to: c.to })))
       }
   }, [captureSnapshot, activeBoardId, setAnnotations]);
 
+  // Stable ref for keyboard handler functions — prevents stale closures in the event listener useEffect
+  const kbRef = useRef({
+    handleCopy,
+    handlePaste,
+    handleDuplicate,
+    handleDelete,
+    undo,
+    redo,
+  });
+  // Keep the ref current on every render (intentionally no deps array)
+  useEffect(() => {
+    kbRef.current = { handleCopy, handlePaste, handleDuplicate, handleDelete, undo, redo };
+  });
+
   useEffect(() => {
       const container = containerRef.current;
       if (!container) return;
@@ -3128,15 +3177,26 @@ Connections: ${JSON.stringify(boardConns.map(c => ({ from: c.from, to: c.to })))
 
               if (engine.current.dragTarget !== null) {
                   captureSnapshot();
-                  setBeats(JSON.parse(JSON.stringify(engine.current.beats)));
+                  // Functional update: merges current-board engine positions with other boards from prev state
+                  // Prevents other boards' beats from being erased (engine only holds the current board)
+                  setBeats(prev => [
+                      ...prev.filter(b => (b.boardId ?? 0) !== activeBoardId),
+                      ...engine.current.beats
+                  ]);
                   engine.current.dragTarget = null;
                   renderBeats();
                   renderConnections();
               }
               if (engine.current.dragGroupTarget !== null || engine.current.groupResizeTarget !== null) {
                   captureSnapshot();
-                  setGroups(JSON.parse(JSON.stringify(engine.current.groups)));
-                  setBeats(JSON.parse(JSON.stringify(engine.current.beats)));
+                  setGroups(prev => [
+                      ...prev.filter(g => (g.boardId ?? 0) !== activeBoardId),
+                      ...engine.current.groups
+                  ]);
+                  setBeats(prev => [
+                      ...prev.filter(b => (b.boardId ?? 0) !== activeBoardId),
+                      ...engine.current.beats
+                  ]);
                   engine.current.dragGroupTarget = null;
                   engine.current.groupResizeTarget = null;
                   engine.current.dragGroupChildIds.clear();
@@ -3146,7 +3206,10 @@ Connections: ${JSON.stringify(boardConns.map(c => ({ from: c.from, to: c.to })))
               }
               if (engine.current.dragAnnotationId !== null || engine.current.imageResizeTarget !== null) {
                   captureSnapshot();
-                  setAnnotations(JSON.parse(JSON.stringify(engine.current.annotations)));
+                  setAnnotations(prev => [
+                      ...prev.filter(a => (a.boardId ?? 0) !== activeBoardId),
+                      ...engine.current.annotations
+                  ]);
                   engine.current.dragAnnotationId = null;
                   engine.current.imageResizeTarget = null;
                   renderConnections();
@@ -3156,7 +3219,10 @@ Connections: ${JSON.stringify(boardConns.map(c => ({ from: c.from, to: c.to })))
               engine.current.isDrawing = false;
               engine.current.currentAnnoId = null;
               captureSnapshot();
-              setAnnotations(JSON.parse(JSON.stringify(engine.current.annotations)));
+              setAnnotations(prev => [
+                  ...prev.filter(a => (a.boardId ?? 0) !== activeBoardId),
+                  ...engine.current.annotations
+              ]);
           }
           if (engine.current.isPanning) {
               engine.current.isPanning = false;
@@ -3280,13 +3346,13 @@ Connections: ${JSON.stringify(boardConns.map(c => ({ from: c.from, to: c.to })))
 
           if (isMeta && keyLower === 'c') {
               e.preventDefault();
-              handleCopy();
+              kbRef.current.handleCopy();
           } else if (isMeta && keyLower === 'v') {
               e.preventDefault();
-              handlePaste();
+              kbRef.current.handlePaste();
           } else if (isMeta && keyLower === 'd') {
               e.preventDefault();
-              handleDuplicate();
+              kbRef.current.handleDuplicate();
           } else if (isMeta && keyLower === 'a') {
               e.preventDefault();
               engine.current.selectedBeatIds.clear();
@@ -3295,11 +3361,11 @@ Connections: ${JSON.stringify(boardConns.map(c => ({ from: c.from, to: c.to })))
               renderConnections();
           } else if (isMeta && keyLower === 'z') {
               e.preventDefault();
-              if (e.shiftKey) redo();
-              else undo();
+              if (e.shiftKey) kbRef.current.redo();
+              else kbRef.current.undo();
           } else if (isMeta && keyLower === 'y') {
               e.preventDefault();
-              redo();
+              kbRef.current.redo();
           } else if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
               if (engine.current.selectedBeatIds.size > 0) {
                   e.preventDefault();
@@ -3327,10 +3393,11 @@ Connections: ${JSON.stringify(boardConns.map(c => ({ from: c.from, to: c.to })))
           } else if (e.key === 'Delete' || e.key === 'Backspace') {
               if (engine.current.selectedBeatIds.size > 0 || engine.current.selectedAnnoId !== null) {
                   e.preventDefault();
-                  handleDelete();
+                  kbRef.current.handleDelete();
               }
           } else if (e.key === 'Escape') {
               hideContextMenu();
+              setToolMode('none');
           }
       };
 

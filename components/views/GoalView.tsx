@@ -9,7 +9,8 @@ import {
 } from 'lucide-react';
 
 const GoalView: React.FC = () => {
-  const { writingGoal, setWritingGoal, beats, dailyStats } = useProject();
+  const { writingGoal, setWritingGoal, beats, dailyStats, appTheme } = useProject();
+  const isLight = appTheme === 'light' || (appTheme === 'system' && typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: light)').matches);
 
   // --- STATE ---
   const [targetAmount, setTargetAmount] = useState(writingGoal.targetAmount || 110);
@@ -88,7 +89,7 @@ const GoalView: React.FC = () => {
   };
 
   return (
-    <div className="w-full h-full bg-[#0c0c0c] text-gray-300 font-sans flex flex-col items-center justify-center p-8 overflow-y-auto">
+    <div className={`w-full h-full font-sans flex flex-col items-center justify-center p-8 overflow-y-auto ${isLight ? 'bg-slate-100 text-slate-800' : 'bg-[#0c0c0c] text-gray-300'}`}>
         
         <div className="max-w-5xl w-full space-y-8">
             
