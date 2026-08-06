@@ -53,7 +53,7 @@ const AppHeader: React.FC<AppHeaderProps> = ({
     { id: 'crew', label: 'Crew' },
     { id: 'shotlist', label: 'Shot Division' },
     { id: 'storyboard', label: 'Storyboard', hidden: !isStoryboardFeatureEnabled },
-    { id: 'schedule', label: 'Scheduling' },
+    { id: 'schedule', label: 'Production Plan' },
     { id: 'statistics', label: 'Statistics' }
   ].filter(v => !v.hidden);
 

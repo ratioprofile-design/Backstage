@@ -25,7 +25,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   // Auth State
   const [currentUser, setCurrentUser] = useState<string | null>(() => localStorage.getItem('currentUser') || 'Default User');
   const [supabaseUser, setSupabaseUser] = useState<any>(null);
-  const [currentProjectId, setCurrentProjectId] = useState<string | null>(() => localStorage.getItem('currentProjectId') || 'default-project');
+  const [currentProjectId, setCurrentProjectId] = useState<string | null>(() => localStorage.getItem('currentProjectId') || 'empty-project');
   const [projectList, setProjectList] = useState<ProjectMetadata[]>([]);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -145,33 +145,42 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const applyProjectState = useCallback((data: any) => {
     if (!data) return;
+    
+    // Auto-detect and filter out any preloaded demo datasets
+    const hasDemoBeats = Array.isArray(data.beats) && data.beats.some((b: any) => 
+      (b.title && (b.title.includes('Cyber-Lab') || b.title.includes('மெரினா') || b.title.includes('அபிராமி') || b.title.includes('Ikaros') || b.title.includes('Vane'))) ||
+      (b.content && (b.content.includes('MAYA') || b.content.includes('KALE') || b.content.includes('அபிராமி') || b.content.includes('VANE') || b.content.includes('Ikaros')))
+    );
+
+    const cleanData = hasDemoBeats ? INITIAL_STATE : data;
+
     isRemoteUpdateRef.current = true; // Block auto-save trigger
     
-    setBeats(Array.isArray(data.beats) ? data.beats : INITIAL_STATE.beats);
-    setGroups(Array.isArray(data.groups) ? data.groups : INITIAL_STATE.groups);
-    setConnections(Array.isArray(data.connections) ? data.connections : INITIAL_STATE.connections);
-    setAnnotations(Array.isArray(data.annotations) ? data.annotations : INITIAL_STATE.annotations);
-    setCharacterData(data.characterData && typeof data.characterData === 'object' ? data.characterData : INITIAL_STATE.characterData);
-    setGeneratedShots(Array.isArray(data.generatedShots) ? data.generatedShots : INITIAL_STATE.generatedShots);
-    setScratchpad(typeof data.scratchpad === 'string' ? data.scratchpad : INITIAL_STATE.scratchpad);
-    setGlobalNotes(Array.isArray(data.globalNotes) ? data.globalNotes : INITIAL_STATE.globalNotes);
-    setActiveBoardId(data.activeBoardId ?? INITIAL_STATE.activeBoardId);
-    setScriptConfig(data.scriptConfig || INITIAL_STATE.scriptConfig);
-    setScriptViewMode(data.scriptViewMode || INITIAL_STATE.scriptViewMode);
-    setScratchpadConfig(data.scratchpadConfig || INITIAL_STATE.scratchpadConfig);
-    setStoryboardConfig(data.storyboardConfig || INITIAL_STATE.storyboardConfig);
-    setWritingGoal(data.writingGoal || INITIAL_STATE.writingGoal);
-    setBoardLayerOrder(data.boardLayerOrder || INITIAL_STATE.boardLayerOrder);
-    setTamilMode(data.isTamilMode ?? INITIAL_STATE.isTamilMode);
-    setPdfDropEnabled(data.isPdfDropEnabled ?? INITIAL_STATE.isPdfDropEnabled);
-    setRedoEnabled(data.isRedoEnabled ?? INITIAL_STATE.isRedoEnabled);
-    setNextId(data.nextId ?? INITIAL_STATE.nextId);
-    setNextAnnoId(data.nextAnnoId ?? INITIAL_STATE.nextAnnoId);
-    setDailyStats(data.dailyStats || INITIAL_STATE.dailyStats);
-    setCharacterDesignLocked(data.characterDesignLocked ?? INITIAL_STATE.characterDesignLocked);
-    if (data.appTheme) setAppThemeState(data.appTheme);
-    if (data.appAccentColor) setAppAccentColorState(data.appAccentColor);
-    if (data.appLanguage) setAppLanguageState(data.appLanguage);
+    setBeats(Array.isArray(cleanData.beats) ? cleanData.beats : INITIAL_STATE.beats);
+    setGroups(Array.isArray(cleanData.groups) ? cleanData.groups : INITIAL_STATE.groups);
+    setConnections(Array.isArray(cleanData.connections) ? cleanData.connections : INITIAL_STATE.connections);
+    setAnnotations(Array.isArray(cleanData.annotations) ? cleanData.annotations : INITIAL_STATE.annotations);
+    setCharacterData(cleanData.characterData && typeof cleanData.characterData === 'object' ? cleanData.characterData : INITIAL_STATE.characterData);
+    setGeneratedShots(Array.isArray(cleanData.generatedShots) ? cleanData.generatedShots : INITIAL_STATE.generatedShots);
+    setScratchpad(typeof cleanData.scratchpad === 'string' ? cleanData.scratchpad : INITIAL_STATE.scratchpad);
+    setGlobalNotes(Array.isArray(cleanData.globalNotes) ? cleanData.globalNotes : INITIAL_STATE.globalNotes);
+    setActiveBoardId(cleanData.activeBoardId ?? INITIAL_STATE.activeBoardId);
+    setScriptConfig(cleanData.scriptConfig || INITIAL_STATE.scriptConfig);
+    setScriptViewMode(cleanData.scriptViewMode || INITIAL_STATE.scriptViewMode);
+    setScratchpadConfig(cleanData.scratchpadConfig || INITIAL_STATE.scratchpadConfig);
+    setStoryboardConfig(cleanData.storyboardConfig || INITIAL_STATE.storyboardConfig);
+    setWritingGoal(cleanData.writingGoal || INITIAL_STATE.writingGoal);
+    setBoardLayerOrder(cleanData.boardLayerOrder || INITIAL_STATE.boardLayerOrder);
+    setTamilMode(cleanData.isTamilMode ?? INITIAL_STATE.isTamilMode);
+    setPdfDropEnabled(cleanData.isPdfDropEnabled ?? INITIAL_STATE.isPdfDropEnabled);
+    setRedoEnabled(cleanData.isRedoEnabled ?? INITIAL_STATE.isRedoEnabled);
+    setNextId(cleanData.nextId ?? INITIAL_STATE.nextId);
+    setNextAnnoId(cleanData.nextAnnoId ?? INITIAL_STATE.nextAnnoId);
+    setDailyStats(cleanData.dailyStats || INITIAL_STATE.dailyStats);
+    setCharacterDesignLocked(cleanData.characterDesignLocked ?? INITIAL_STATE.characterDesignLocked);
+    if (cleanData.appTheme) setAppThemeState(cleanData.appTheme);
+    if (cleanData.appAccentColor) setAppAccentColorState(cleanData.appAccentColor);
+    if (cleanData.appLanguage) setAppLanguageState(cleanData.appLanguage);
     
     // Reset the flag after a brief timeout to allow state to settle
     setTimeout(() => { isRemoteUpdateRef.current = false; setHasUnsavedChanges(false); }, 50);

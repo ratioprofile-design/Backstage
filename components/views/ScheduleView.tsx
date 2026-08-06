@@ -8,7 +8,7 @@ import {
     X, ChevronRight, FileText, Download, Calendar, RefreshCw,
     ChevronLeft, Filter, Layers, Zap, Clock, Eye, Sliders,
     Search, CheckSquare, Square, Users, MapPin, Wrench, Shield,
-    Check, Plus, ArrowRight, ListFilter, AlertOctagon
+    Check, Plus, ArrowRight, ListFilter, AlertOctagon, Edit2, Trash2
 } from 'lucide-react';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
@@ -153,6 +153,8 @@ const ScheduleView: React.FC = () => {
     const project = useProject() || {};
     const generatedShots: Shot[] = project.generatedShots || [];
     const beats: Beat[] = project.beats || [];
+    const appTheme = project.appTheme || 'dark';
+    const isLight = appTheme === 'light' || (appTheme === 'system' && typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: light)').matches);
     const projectList = project.projectList || [];
     const currentProjectId = project.currentProjectId;
     const currentProjectName = projectList.find((p: any) => p.id === currentProjectId)?.name || 'PROJECT';
@@ -186,6 +188,57 @@ const ScheduleView: React.FC = () => {
     const [popupEquipment, setPopupEquipment] = useState<string>('ALL');
     const [popupStatus, setPopupStatus] = useState<string>('ALL');
     const [selectedSceneIdsForScrub, setSelectedSceneIdsForScrub] = useState<string[]>([]);
+
+    // Edit & Delete strip state
+    const [editingStrip, setEditingStrip] = useState<StripItem | null>(null);
+    const [editFormTitle, setEditFormTitle] = useState('');
+    const [editFormSceneNo, setEditFormSceneNo] = useState('');
+    const [editFormPrefix, setEditFormPrefix] = useState('INT');
+    const [editFormLocation, setEditFormLocation] = useState('');
+    const [editFormTime, setEditFormTime] = useState('DAY');
+
+    const handleOpenEditModal = (s: StripItem, e: React.MouseEvent) => {
+        e.stopPropagation();
+        const beatId = Number(s.id.replace('strip-', ''));
+        const beat = beats.find(b => b.id === beatId);
+        
+        setEditingStrip(s);
+        setEditFormTitle(beat?.title || '');
+        setEditFormSceneNo(beat?.sceneNumber || s.sceneNo);
+        setEditFormPrefix(beat?.slug?.prefix || 'INT');
+        setEditFormLocation(beat?.slug?.location || '');
+        setEditFormTime(beat?.slug?.time || 'DAY');
+    };
+
+    const handleSaveEdit = () => {
+        if (!editingStrip) return;
+        const beatId = Number(editingStrip.id.replace('strip-', ''));
+        if (project.updateBeat) {
+            project.updateBeat(beatId, {
+                sceneNumber: editFormSceneNo,
+                title: editFormTitle,
+                slug: {
+                    prefix: editFormPrefix,
+                    location: editFormLocation,
+                    time: editFormTime
+                }
+            });
+        }
+        setEditingStrip(null);
+    };
+
+    const handleDeleteStrip = (stripId: string, e: React.MouseEvent) => {
+        e.stopPropagation();
+        const beatId = Number(stripId.replace('strip-', ''));
+        if (confirm('Are you sure you want to delete this scene?')) {
+            if (project.setBeats) {
+                project.setBeats((prev: Beat[]) => prev.filter((b: Beat) => b.id !== beatId));
+            }
+            if (selectedStripId === stripId) {
+                setSelectedStripId('');
+            }
+        }
+    };
 
     // Shot Division Sync Status
     const [lastSyncTime, setLastSyncTime] = useState<string | null>(new Date().toLocaleTimeString());
@@ -607,8 +660,8 @@ const ScheduleView: React.FC = () => {
             if (s.slug.toLowerCase().includes('meera')) castSet.add('Meera (Child Artist)');
         });
         if (castSet.size === 0 && selectedStrips.length > 0) {
-            castSet.add('Vikram Rana (Lead)');
-            castSet.add('Meera (Child Artist)');
+            // Fallback to tags that are uppercase (often characters) or first few tags
+            selectedStrips.flatMap(s => s.tags).slice(0, 3).forEach(t => castSet.add(t));
         }
 
         const locationSet = new Set<string>();
@@ -617,7 +670,7 @@ const ScheduleView: React.FC = () => {
             else if (s.slug.toUpperCase().includes('WELL') || s.slug.toUpperCase().includes('VILLAGE')) locationSet.add('Village Square & Well (EXT)');
             else if (s.slug.toUpperCase().includes('PALACE') || s.slug.toUpperCase().includes('CORONATION')) locationSet.add('Heritage Palace Hall (INT)');
             else if (s.slug.toUpperCase().includes('WAREHOUSE') || s.slug.toUpperCase().includes('ROOFTOP')) locationSet.add('Warehouse Industrial Complex (EXT)');
-            else locationSet.add(`${s.blockTitle} Location`);
+            else locationSet.add(`${s.blockTitle || 'General'} Location`);
         });
 
         const equipSet = new Set<string>();
@@ -629,8 +682,7 @@ const ScheduleView: React.FC = () => {
             });
         });
         if (equipSet.size === 0 && selectedStrips.length > 0) {
-            equipSet.add('Camera Crane & Gimbal');
-            equipSet.add('Playback Monitor Array');
+            // No hardcoded equipment fallback
         }
 
         const warnings: string[] = [];
@@ -961,33 +1013,35 @@ const ScheduleView: React.FC = () => {
                 {isCalendarOpen && (
                     <>
                         {/* Quick Presets Row */}
-                        <div className="flex items-center gap-2 overflow-x-auto custom-scrollbar text-xs font-mono pt-1">
-                            <span className="text-[10px] text-[#726A5C] uppercase tracking-wider shrink-0">Presets:</span>
-                            <button 
-                                onClick={() => applyScrubPreset(null)}
-                                className="px-2 py-0.5 rounded bg-[#26221A] hover:bg-[#322C22] text-[#A9A190] hover:text-[#F2EEE2] border border-[rgba(242,238,226,0.1)] cursor-pointer whitespace-nowrap"
-                            >
-                                All Days
-                            </button>
-                            <button 
-                                onClick={() => applyScrubPreset(['2026-08-10', '2026-08-12'])}
-                                className="px-2 py-0.5 rounded bg-[#26221A] hover:bg-[#322C22] text-[#E0A339] border border-[#E0A339]/30 cursor-pointer whitespace-nowrap"
-                            >
-                                Aug 10–12 (Vikram Rana Window)
-                            </button>
-                            <button 
-                                onClick={() => applyScrubPreset(['2026-08-14', '2026-08-18'])}
-                                className="px-2 py-0.5 rounded bg-[#26221A] hover:bg-[#322C22] text-[#4FB0A6] border border-[#4FB0A6]/30 cursor-pointer whitespace-nowrap"
-                            >
-                                Aug 14–18 (Hospital Set)
-                            </button>
-                            <button 
-                                onClick={() => applyScrubPreset(['2026-08-20', '2026-08-22'])}
-                                className="px-2 py-0.5 rounded bg-[#26221A] hover:bg-[#322C22] text-[#5B8DBE] border border-[#5B8DBE]/30 cursor-pointer whitespace-nowrap"
-                            >
-                                Aug 20–22 (Night Action)
-                            </button>
-                        </div>
+                        {allStrips.length > 0 && (
+                            <div className="flex items-center gap-2 overflow-x-auto custom-scrollbar text-xs font-mono pt-1">
+                                <span className="text-[10px] text-[#726A5C] uppercase tracking-wider shrink-0">Presets:</span>
+                                <button 
+                                    onClick={() => applyScrubPreset(null)}
+                                    className="px-2 py-0.5 rounded bg-[#26221A] hover:bg-[#322C22] text-[#A9A190] hover:text-[#F2EEE2] border border-[rgba(242,238,226,0.1)] cursor-pointer whitespace-nowrap"
+                                >
+                                    All Days
+                                </button>
+                                <button 
+                                    onClick={() => applyScrubPreset(['2026-08-10', '2026-08-12'])}
+                                    className="px-2 py-0.5 rounded bg-[#26221A] hover:bg-[#322C22] text-[#E0A339] border border-[#E0A339]/30 cursor-pointer whitespace-nowrap"
+                                >
+                                    Aug 10–12 (Vikram Rana Window)
+                                </button>
+                                <button 
+                                    onClick={() => applyScrubPreset(['2026-08-14', '2026-08-18'])}
+                                    className="px-2 py-0.5 rounded bg-[#26221A] hover:bg-[#322C22] text-[#4FB0A6] border border-[#4FB0A6]/30 cursor-pointer whitespace-nowrap"
+                                >
+                                    Aug 14–18 (Hospital Set)
+                                </button>
+                                <button 
+                                    onClick={() => applyScrubPreset(['2026-08-20', '2026-08-22'])}
+                                    className="px-2 py-0.5 rounded bg-[#26221A] hover:bg-[#322C22] text-[#5B8DBE] border border-[#5B8DBE]/30 cursor-pointer whitespace-nowrap"
+                                >
+                                    Aug 20–22 (Night Action)
+                                </button>
+                            </div>
+                        )}
 
                         {/* Multi-Month Calendar Grid */}
                         <div className={`grid gap-4 ${
@@ -1223,6 +1277,23 @@ const ScheduleView: React.FC = () => {
                                                     </div>
                                                 </div>
 
+                                                <div className="flex items-center gap-1 px-2.5 border-l border-[rgba(242,238,226,0.08)] bg-black/10">
+                                                    <button 
+                                                        onClick={(e) => handleOpenEditModal(s, e)}
+                                                        className="p-1 rounded text-[#A9A190] hover:text-[#E0A339] hover:bg-[#322C22] transition-colors cursor-pointer"
+                                                        title="Edit Scene Details"
+                                                    >
+                                                        <Edit2 size={13} />
+                                                    </button>
+                                                    <button 
+                                                        onClick={(e) => handleDeleteStrip(s.id, e)}
+                                                        className="p-1 rounded text-[#A9A190] hover:text-[#C1443A] hover:bg-[#322C22] transition-colors cursor-pointer"
+                                                        title="Delete Scene"
+                                                    >
+                                                        <Trash2 size={13} />
+                                                    </button>
+                                                </div>
+
                                                 {s.conflictType && (
                                                     <div className="px-2.5 flex items-center">
                                                         {s.conflictType === 'warn' ? (
@@ -1456,28 +1527,30 @@ const ScheduleView: React.FC = () => {
             </div>
 
             {/* --- FOOTER TICKER --- */}
-            <footer className="px-6 py-2.5 border-t border-[rgba(242,238,226,0.10)] bg-[#1E1B15] flex items-center gap-6 overflow-x-auto custom-scrollbar text-xs text-[#A9A190] shrink-0">
-                <div className="flex items-center gap-2 whitespace-nowrap">
-                    <span className="w-1.5 h-1.5 rounded-full bg-[#E0A339]"></span>
-                    <span>5 idle days for Vikram Rana between blocks</span>
-                </div>
-                <div className="flex items-center gap-2 whitespace-nowrap">
-                    <span className="w-1.5 h-1.5 rounded-full bg-[#C1443A]"></span>
-                    <span>Scene 13 breaches temple permit (6 PM cutoff)</span>
-                </div>
-                <div className="flex items-center gap-2 whitespace-nowrap">
-                    <span className="w-1.5 h-1.5 rounded-full bg-[#E0A339]"></span>
-                    <span>Drone booked twice — Aug 15</span>
-                </div>
-                <div className="flex items-center gap-2 whitespace-nowrap">
-                    <span className="w-1.5 h-1.5 rounded-full bg-[#E0A339]"></span>
-                    <span>3 consecutive night shoots, Aug 20–22</span>
-                </div>
-                <div className="flex items-center gap-2 whitespace-nowrap">
-                    <span className="w-1.5 h-1.5 rounded-full bg-[#C1443A]"></span>
-                    <span>Meera scheduled past 5h morning cap on Scene 42</span>
-                </div>
-            </footer>
+            {allStrips.length > 0 && (
+                <footer className="px-6 py-2.5 border-t border-[rgba(242,238,226,0.10)] bg-[#1E1B15] flex items-center gap-6 overflow-x-auto custom-scrollbar text-xs text-[#A9A190] shrink-0">
+                    <div className="flex items-center gap-2 whitespace-nowrap">
+                        <span className="w-1.5 h-1.5 rounded-full bg-[#E0A339]"></span>
+                        <span>5 idle days for Vikram Rana between blocks</span>
+                    </div>
+                    <div className="flex items-center gap-2 whitespace-nowrap">
+                        <span className="w-1.5 h-1.5 rounded-full bg-[#C1443A]"></span>
+                        <span>Scene 13 breaches temple permit (6 PM cutoff)</span>
+                    </div>
+                    <div className="flex items-center gap-2 whitespace-nowrap">
+                        <span className="w-1.5 h-1.5 rounded-full bg-[#E0A339]"></span>
+                        <span>Drone booked twice — Aug 15</span>
+                    </div>
+                    <div className="flex items-center gap-2 whitespace-nowrap">
+                        <span className="w-1.5 h-1.5 rounded-full bg-[#E0A339]"></span>
+                        <span>3 consecutive night shoots, Aug 20–22</span>
+                    </div>
+                    <div className="flex items-center gap-2 whitespace-nowrap">
+                        <span className="w-1.5 h-1.5 rounded-full bg-[#C1443A]"></span>
+                        <span>Meera scheduled past 5h morning cap on Scene 42</span>
+                    </div>
+                </footer>
+            )}
                 </>
             )}
 
@@ -1625,10 +1698,10 @@ const ScheduleView: React.FC = () => {
                                                 <option value="ALL">All Locations</option>
                                                 <option value="INTERIOR">INT (Interior)</option>
                                                 <option value="EXTERIOR">EXT (Exterior)</option>
-                                                <option value="HOSPITAL">Hospital / ICU</option>
-                                                <option value="VILLAGE">Village / Well</option>
-                                                <option value="PALACE">Palace Hall</option>
                                                 <option value="NIGHT">Night Locations</option>
+                                                {allStrips.length > 0 && Array.from(new Set(allStrips.map(s => s.blockTitle).filter(Boolean))).map(loc => (
+                                                    <option key={loc} value={loc}>{loc}</option>
+                                                ))}
                                             </select>
                                         </div>
                                         <div>
@@ -1651,10 +1724,18 @@ const ScheduleView: React.FC = () => {
                                                 className="w-full bg-[#14120E] border border-[rgba(242,238,226,0.12)] rounded px-1.5 py-0.5 text-[#F2EEE2] text-[11px] focus:outline-none focus:border-[#4FB0A6]"
                                             >
                                                 <option value="ALL">All Cast</option>
-                                                <option value="Arjun">Vikram Rana (Arjun)</option>
-                                                <option value="Meera">Meera (Child)</option>
-                                                <option value="Rao">Inspector Rao</option>
-                                                <option value="Fernandes">Dr. Fernandes</option>
+                                                {allStrips.length > 0 ? (
+                                                    Array.from(new Set(allStrips.flatMap(s => s.tags).filter(t => !['DAY', 'NIGHT', 'INT', 'EXT'].includes(t.toUpperCase())))).map(cast => (
+                                                        <option key={cast} value={cast}>{cast}</option>
+                                                    ))
+                                                ) : (
+                                                    <>
+                                                        <option value="Arjun">Vikram Rana (Arjun)</option>
+                                                        <option value="Meera">Meera (Child)</option>
+                                                        <option value="Rao">Inspector Rao</option>
+                                                        <option value="Fernandes">Dr. Fernandes</option>
+                                                    </>
+                                                )}
                                             </select>
                                         </div>
                                         <div>
@@ -1921,6 +2002,136 @@ const ScheduleView: React.FC = () => {
                                     <span>Assign & Confirm Schedule</span>
                                 </button>
                             </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {editingStrip && (
+                <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 animate-in fade-in duration-150">
+                    <div 
+                        className={`w-full max-w-md rounded-lg shadow-2xl border flex flex-col ${
+                            isLight ? 'bg-white border-slate-200 text-slate-900' : 'bg-[#1a1a1a] border-[#333] text-white shadow-[0_20px_50px_rgba(0,0,0,0.8)]'
+                        }`}
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        {/* Header */}
+                        <div className={`flex items-center justify-between px-4 py-3 border-b ${isLight ? 'border-slate-100 bg-slate-50' : 'border-[#292929] bg-black/20'}`}>
+                            <h3 className="text-xs font-black uppercase tracking-wider flex items-center gap-1.5">
+                                <Edit2 size={13} className="text-[#E0A339]" />
+                                <span>Edit Scene Details</span>
+                            </h3>
+                            <button 
+                                onClick={() => setEditingStrip(null)}
+                                className={`p-1 rounded transition-colors ${isLight ? 'hover:bg-slate-200 text-slate-500' : 'hover:bg-[#2c2c2c] text-gray-400'}`}
+                            >
+                                <X size={15} />
+                            </button>
+                        </div>
+
+                        {/* Body */}
+                        <div className="p-4 space-y-3.5 text-xs">
+                            <div className="space-y-1">
+                                <label className={`text-[10px] font-bold uppercase tracking-wider block ${isLight ? 'text-slate-500' : 'text-gray-400'}`}>Scene Number</label>
+                                <input 
+                                    type="text"
+                                    value={editFormSceneNo}
+                                    onChange={(e) => setEditFormSceneNo(e.target.value)}
+                                    placeholder="e.g. 12 or 12A"
+                                    className={`w-full rounded px-2.5 py-1.5 outline-none transition-colors border ${
+                                        isLight 
+                                            ? 'bg-slate-55 border-slate-200 focus:border-[#E0A339] focus:bg-white text-slate-900' 
+                                            : 'bg-black/40 border-[#333] focus:border-[#E0A339] focus:bg-black/60 text-white'
+                                    }`}
+                                />
+                            </div>
+
+                            <div className="space-y-1">
+                                <label className={`text-[10px] font-bold uppercase tracking-wider block ${isLight ? 'text-slate-500' : 'text-gray-400'}`}>Scene Title</label>
+                                <input 
+                                    type="text"
+                                    value={editFormTitle}
+                                    onChange={(e) => setEditFormTitle(e.target.value)}
+                                    placeholder="e.g. INT. POLICE STATION - NIGHT"
+                                    className={`w-full rounded px-2.5 py-1.5 outline-none transition-colors border ${
+                                        isLight 
+                                            ? 'bg-slate-55 border-slate-200 focus:border-[#E0A339] focus:bg-white text-slate-900' 
+                                            : 'bg-black/40 border-[#333] focus:border-[#E0A339] focus:bg-black/60 text-white'
+                                    }`}
+                                />
+                            </div>
+
+                            <div className="grid grid-cols-3 gap-2">
+                                <div className="space-y-1">
+                                    <label className={`text-[10px] font-bold uppercase tracking-wider block ${isLight ? 'text-slate-500' : 'text-gray-400'}`}>Setting</label>
+                                    <select 
+                                        value={editFormPrefix}
+                                        onChange={(e) => setEditFormPrefix(e.target.value)}
+                                        className={`w-full rounded px-2 py-1.5 outline-none transition-colors border ${
+                                            isLight 
+                                                ? 'bg-slate-55 border-slate-200 focus:border-[#E0A339]' 
+                                                : 'bg-black/40 border-[#333] focus:border-[#E0A339] text-white'
+                                        }`}
+                                    >
+                                        <option value="INT">INT</option>
+                                        <option value="EXT">EXT</option>
+                                        <option value="INT/EXT">INT/EXT</option>
+                                    </select>
+                                </div>
+                                <div className="space-y-1 col-span-2">
+                                    <label className={`text-[10px] font-bold uppercase tracking-wider block ${isLight ? 'text-slate-500' : 'text-gray-400'}`}>Location Name</label>
+                                    <input 
+                                        type="text"
+                                        value={editFormLocation}
+                                        onChange={(e) => setEditFormLocation(e.target.value)}
+                                        placeholder="e.g. POLICE STATION"
+                                        className={`w-full rounded px-2.5 py-1.5 outline-none transition-colors border ${
+                                            isLight 
+                                                ? 'bg-slate-55 border-slate-200 focus:border-[#E0A339] focus:bg-white text-slate-900' 
+                                                : 'bg-black/40 border-[#333] focus:border-[#E0A339] focus:bg-black/60 text-white'
+                                        }`}
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="space-y-1">
+                                <label className={`text-[10px] font-bold uppercase tracking-wider block ${isLight ? 'text-slate-500' : 'text-gray-400'}`}>Time of Day</label>
+                                <select 
+                                    value={editFormTime}
+                                    onChange={(e) => setEditFormTime(e.target.value)}
+                                    className={`w-full rounded px-2 py-1.5 outline-none transition-colors border ${
+                                        isLight 
+                                            ? 'bg-slate-55 border-slate-200 focus:border-[#E0A339]' 
+                                            : 'bg-black/40 border-[#333] focus:border-[#E0A339] text-white'
+                                    }`}
+                                >
+                                    <option value="DAY">DAY</option>
+                                    <option value="NIGHT">NIGHT</option>
+                                    <option value="DAWN">DAWN</option>
+                                    <option value="DUSK">DUSK</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        {/* Footer */}
+                        <div className={`p-3 px-4 flex items-center justify-end gap-2 border-t ${isLight ? 'border-slate-100 bg-slate-50/50' : 'border-[#292929] bg-black/10'}`}>
+                            <button 
+                                onClick={() => setEditingStrip(null)}
+                                className={`px-3 py-1.5 rounded font-mono text-[11px] transition-colors border ${
+                                    isLight 
+                                        ? 'border-slate-200 text-slate-500 hover:text-slate-800 hover:bg-slate-100' 
+                                        : 'border-[#333] text-gray-400 hover:text-white hover:bg-[#2c2c2c]'
+                                }`}
+                            >
+                                Cancel
+                            </button>
+                            <button 
+                                onClick={handleSaveEdit}
+                                className="px-3.5 py-1.5 rounded bg-[#E0A339] text-[#3A2708] text-[11px] font-bold font-mono uppercase tracking-wider flex items-center gap-1.5 hover:bg-[#d09329] transition-colors cursor-pointer shadow-md"
+                            >
+                                <Check size={14} />
+                                <span>Save Changes</span>
+                            </button>
                         </div>
                     </div>
                 </div>

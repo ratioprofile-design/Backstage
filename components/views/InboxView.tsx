@@ -24,7 +24,7 @@ const TARGET_VIEW_LABELS: Record<string, string> = {
   breakdown: 'Breakdown Page',
   casting: 'Casting & Extras',
   shotlist: 'Shot Division',
-  schedule: 'Scheduling',
+  schedule: 'Production Plan',
   storyboard: 'Storyboard',
   board: 'Story Board',
   goals: 'Production Goals',
@@ -85,7 +85,7 @@ export const InboxView: React.FC<InboxViewProps> = ({
     { id: 'breakdown', label: 'Breakdown' },
     { id: 'casting', label: 'Casting' },
     { id: 'shotlist', label: 'Shot Division' },
-    { id: 'schedule', label: 'Scheduling' },
+    { id: 'schedule', label: 'Production Plan' },
     { id: 'storyboard', label: 'Storyboard' },
     { id: 'board', label: 'Board' },
   ];
@@ -1447,7 +1447,7 @@ export const InboxView: React.FC<InboxViewProps> = ({
                     <option value="breakdown">Breakdown</option>
                     <option value="casting">Casting</option>
                     <option value="shotlist">Shot Division</option>
-                    <option value="schedule">Scheduling</option>
+                    <option value="schedule">Production Plan</option>
                     <option value="storyboard">Storyboard</option>
                   </select>
                 </div>

@@ -167,14 +167,15 @@ const runPaginationPass = (container: HTMLElement, paperLayer: HTMLElement, cont
 };
 
 const SummaryCardsPanel = ({ 
-    beats, groups, connections, activeBeatId, onBeatClick, updateBeat, setBeats, captureSnapshot, reorderBeats, isLight
+    beats, groups, connections, activeBeatId, onBeatClick, updateBeat, setBeats, captureSnapshot, reorderBeats, isLight, onSummaryDoubleClick
 }: { 
     beats: Beat[], groups: Group[], connections: Connection[], activeBeatId: number | null, 
     onBeatClick: (id: number) => void, updateBeat: (id: number, data: Partial<Beat>) => void, 
     setBeats: (val: Beat[] | ((prev: Beat[]) => Beat[])) => void, 
     captureSnapshot: () => void,
     reorderBeats: (draggedId: number, targetId: number, side: 'top' | 'bottom') => void,
-    isLight?: boolean
+    isLight?: boolean,
+    onSummaryDoubleClick?: (beatId: number) => void
 }) => {
     const [searchTerm, setSearchTerm] = useState('');
     const [editingId, setEditingId] = useState<number | null>(null);
@@ -377,6 +378,12 @@ const SummaryCardsPanel = ({
                                 `}
                                 onClick={(e) => { e.stopPropagation(); onBeatClick(beat.id); }}
                                 onContextMenu={(e) => handleContextMenu(e, beat.id)}
+                                onBlur={(e) => {
+                                    if (e.currentTarget.contains(e.relatedTarget as Node)) {
+                                        return;
+                                    }
+                                    setEditingId(null);
+                                }}
                             >
                                 {/* ── Scene Number Banner ── */}
                                 <div className="relative overflow-hidden">
@@ -403,18 +410,29 @@ const SummaryCardsPanel = ({
                                             <div className="min-w-0 flex-1">
                                                 {isEditing ? (
                                                     <input 
+                                                        id={`card-title-input-${beat.id}`}
                                                         className={`font-bold text-[12px] bg-transparent border-b outline-none w-full ${isLight ? 'text-slate-900 border-amber-400' : 'text-white border-amber-500'}`}
                                                         value={beat.title}
                                                         onChange={(e) => updateBeat(beat.id, { title: e.target.value })}
                                                         autoFocus
                                                         onClick={(e) => e.stopPropagation()}
-                                                        onBlur={() => setEditingId(null)}
-                                                        onKeyDown={(e) => e.key === 'Enter' && setEditingId(null)}
+                                                        onKeyDown={(e) => {
+                                                            if (e.key === 'Enter') {
+                                                                e.preventDefault();
+                                                                document.getElementById(`card-summary-textarea-${beat.id}`)?.focus();
+                                                            }
+                                                        }}
                                                     />
                                                 ) : (
                                                     <div 
                                                         className={`font-bold text-[12px] truncate ${isLight ? 'text-slate-900' : 'text-white'}`}
-                                                        onDoubleClick={(e) => { e.stopPropagation(); setEditingId(beat.id); }}
+                                                        onDoubleClick={(e) => { 
+                                                            e.stopPropagation(); 
+                                                            setEditingId(beat.id); 
+                                                            setTimeout(() => {
+                                                                document.getElementById(`card-title-input-${beat.id}`)?.focus();
+                                                            }, 80);
+                                                        }}
                                                     >
                                                         {beat.title || 'Untitled Scene'}
                                                     </div>
@@ -466,17 +484,23 @@ const SummaryCardsPanel = ({
                                 <div className="px-4 py-3">
                                     {isEditing ? (
                                         <textarea 
+                                            id={`card-summary-textarea-${beat.id}`}
                                             className={`w-full text-[12px] leading-relaxed bg-transparent border rounded-lg outline-none resize-none min-h-[80px] p-2 custom-scrollbar ${isLight ? 'text-slate-700 border-amber-300 placeholder-slate-400' : 'text-slate-300 border-amber-700/50 placeholder-slate-600'}`}
                                             value={summaryText}
                                             onChange={(e) => updateBeat(beat.id, { summary: e.target.value })}
                                             placeholder="Write a complete scene summary — story beats, emotional arc, key plot points..."
                                             onClick={(e) => e.stopPropagation()}
-                                            onBlur={() => setEditingId(null)}
                                         />
                                     ) : (
                                         <div 
                                             className={`text-[12px] leading-[1.7] whitespace-pre-wrap ${summaryText ? (isLight ? 'text-slate-700' : 'text-slate-300') : (isLight ? 'text-slate-400 italic' : 'text-slate-600 italic')}`}
-                                            onDoubleClick={(e) => { e.stopPropagation(); setEditingId(beat.id); }}
+                                            onDoubleClick={(e) => { 
+                                                e.stopPropagation(); 
+                                                setEditingId(beat.id); 
+                                                setTimeout(() => {
+                                                    document.getElementById(`card-title-input-${beat.id}`)?.focus();
+                                                }, 80);
+                                            }}
                                         >
                                             {summaryText || 'Double-click to add a summary…'}
                                         </div>
@@ -809,13 +833,13 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'cast
                   bg: '#16161a', 
                   text: '#e2e8f0', 
                   slug: '#38bdf8', 
-                  slugText: '#f1f5f9', 
+                  slugText: '#a1a1aa', 
                   accent: '#222228', 
                   pageNum: '#94a3b8', 
                   shadow: '0 0 0 1px #2a2a32, 0 10px 30px rgba(0,0,0,0.5)', 
-                  slugBg: 'rgba(148, 163, 184, 0.2)',
-                  activeSlugBg: 'rgba(148, 163, 184, 0.28)',
-                  activeSlugText: '#f5a623',
+                  slugBg: '#27272a',
+                  activeSlugBg: '#3f3f46',
+                  activeSlugText: '#f1f5f9',
                   activeBorder: '#f5a623',
                   dropdownBg: '#1c1c22',
                   dropdownText: '#f1f5f9',
@@ -826,13 +850,13 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'cast
                   bg: '#fbf7ee', 
                   text: '#433422', 
                   slug: '#b58900', 
-                  slugText: '#433422', 
+                  slugText: '#71717a', 
                   accent: '#f4ede0', 
                   pageNum: '#8c7b69', 
                   shadow: '0 4px 20px rgba(80, 60, 40, 0.08)', 
-                  slugBg: 'rgba(107, 114, 128, 0.15)',
-                  activeSlugBg: 'rgba(107, 114, 128, 0.22)',
-                  activeSlugText: '#856400',
+                  slugBg: '#e4e4e7',
+                  activeSlugBg: '#d4d4d8',
+                  activeSlugText: '#433422',
                   activeBorder: '#b58900',
                   dropdownBg: '#f8f2e3',
                   dropdownText: '#433422',
@@ -843,13 +867,13 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'cast
                   bg: '#0d0202', 
                   text: '#ff8888', 
                   slug: '#ff4d4d', 
-                  slugText: '#ffaaaa', 
+                  slugText: '#a1a1aa', 
                   accent: '#1e0505', 
                   pageNum: '#993333', 
                   shadow: '0 0 0 1px #440000, 0 10px 30px rgba(0,0,0,0.7)', 
-                  slugBg: 'rgba(148, 163, 184, 0.2)',
-                  activeSlugBg: 'rgba(148, 163, 184, 0.28)',
-                  activeSlugText: '#ffffff',
+                  slugBg: '#27272a',
+                  activeSlugBg: '#3f3f46',
+                  activeSlugText: '#ff8888',
                   activeBorder: '#ff3333',
                   dropdownBg: '#1a0505',
                   dropdownText: '#ffaaaa',
@@ -860,12 +884,12 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'cast
                   bg: '#ffffff', 
                   text: '#0f172a', 
                   slug: '#0f172a', 
-                  slugText: '#0f172a', 
+                  slugText: '#71717a', 
                   accent: '#f8fafc', 
                   pageNum: '#64748b', 
                   shadow: '0 4px 20px rgba(0,0,0,0.06)', 
-                  slugBg: 'rgba(107, 114, 128, 0.15)',
-                  activeSlugBg: 'rgba(107, 114, 128, 0.22)',
+                  slugBg: '#e4e4e7',
+                  activeSlugBg: '#d4d4d8',
                   activeSlugText: '#0f172a',
                   activeBorder: '#d97706',
                   dropdownBg: '#ffffff',
@@ -920,7 +944,7 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'cast
   const activeBeat = useMemo(() => beats.find(b => b.id === activeBeatId), [beats, activeBeatId]);
   const locationCount = useMemo(() => new Set(beats.map(b => (b.slug?.location || '').trim().toUpperCase()).filter(Boolean)).size, [beats]);
   const uniqueLocations = useMemo(() => { const locs = new Set<string>(); ['HOUSE', 'KITCHEN', 'BEDROOM', 'OFFICE', 'PARK', 'STREET', 'CAR', 'APARTMENT', 'SCHOOL', 'HOSPITAL'].forEach(l => locs.add(l)); beats.forEach(b => { if (b.slug.location && b.slug.location.trim()) { locs.add(b.slug.location.trim()); } }); return Array.from(locs).sort(); }, [beats]);
-  const uniqueCharacters = useMemo(() => { const chars = new Set<string>(); Object.values(characterData).forEach((c: any) => { if (c.name) chars.add(c.name.toUpperCase()); }); beats.forEach(b => { const div = document.createElement('div'); div.innerHTML = b.content; div.querySelectorAll('.sc-character').forEach(el => { const name = el.textContent?.trim().replace(/\s*\(.*\)$/, '').toUpperCase(); if (name && name.length > 1) chars.add(name); }); }); return Array.from(chars).sort(); }, [beats, characterData]);
+  const uniqueCharacters = useMemo(() => { const chars = new Set<string>(); beats.forEach(b => { const div = document.createElement('div'); div.innerHTML = b.content; div.querySelectorAll('.sc-character').forEach(el => { const name = el.textContent?.trim().replace(/\s*\(.*\)$/, '').toUpperCase(); if (name && name.length > 1) chars.add(name); }); }); return Array.from(chars).sort(); }, [beats]);
 
   useLayoutEffect(() => { const container = scrollerRef.current; const paper = paperLayerRef.current; const content = contentRef.current; if (!container || !paper || !content) return; const run = () => runPaginationPass(container, paper, content, theme, scriptViewMode); run(); const observer = new ResizeObserver(() => window.requestAnimationFrame(run)); const beatEls = content.querySelectorAll('.beat-block'); beatEls.forEach(el => observer.observe(el)); observer.observe(content); return () => observer.disconnect(); }, [sortedBeats, theme, zoom, scriptViewMode]); 
   
@@ -1476,6 +1500,9 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'cast
                         }
                     />
 
+                    <ContextMenuItem icon={StickyNote} label="Send to Note Block" onClick={handleSendSelectionToNote} isLight={isLight} />
+                    <div className={`h-px mx-2 my-1 ${isLight ? 'bg-slate-200' : 'bg-[#222]'}`}></div>
+
                     {/* 3. Breakdown Submenu */}
                     <ContextMenuItem 
                         icon={Tag} 
@@ -1493,9 +1520,6 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'cast
                             </>
                         }
                     />
-
-                    <ContextMenuItem icon={StickyNote} label="Send to Note Block" onClick={handleSendSelectionToNote} isLight={isLight} />
-                    <div className={`h-px mx-2 my-1 ${isLight ? 'bg-slate-200' : 'bg-[#222]'}`}></div>
                 </>
             )}
 

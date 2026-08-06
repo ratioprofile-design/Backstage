@@ -12,276 +12,13 @@ import {
 } from 'lucide-react';
 
 // Default Initial Locations with Scenes Assigned & Scene Requirements
-const DEFAULT_LOCATIONS: LocationMapping[] = [
-    {
-        id: 'loc-ooty',
-        scriptLocation: 'OOTY - PINE FORESTS & HILL RESERVE',
-        sceneNumbers: ['SCENE 2', 'SCENE 5', 'SCENE 9'],
-        realLocationName: 'Pine Forest Reserve, Ooty, Nilgiris, Tamil Nadu',
-        address: 'Pine Forest Road, Fingerpost, Ooty, Tamil Nadu 643006',
-        googleMapsUrl: 'https://www.google.com/maps/search/?api=1&query=Pine+Forest+Reserve+Ooty+Tamil+Nadu',
-        coordinates: { lat: 11.4102, lng: 76.6950 },
-        status: 'confirmed',
-        contactPerson: 'K. Ramanathan (Forest Officer Ooty)',
-        contactPhone: '+91 94430 12890',
-        permitStatus: 'Approved',
-        dailyRate: '₹85,000 / day',
-        notes: 'Eco-sensitive zone. Plastic prohibited. Generator vans parked 200m away.',
-        assignedScenes: [
-            {
-                sceneNumber: 'SCENE 2',
-                slugline: 'EXT. OOTY PINE FOREST - DAY',
-                timeOfDay: 'DAY',
-                pageCount: '2 4/8 pgs',
-                synopsis: 'Vikram tracks the mysterious wooden chest deep inside the misty pine trees while Meera keeps watch near the log cabin.',
-                actors: [
-                    { character: 'VIKRAM (Lead)', actorName: 'Actor Vikram', role: 'Main Lead', notes: 'Arrives 06:00 AM, Stunt double ready' },
-                    { character: 'MEERA (Heroine)', actorName: 'Actress Meera', role: 'Lead Female', notes: 'Arrives 07:00 AM, Misty hair FX' }
-                ],
-                bigSetsAndProps: [
-                    'Rustic Wooden Log Cabin Set',
-                    'Carved Antique Wooden Chest',
-                    'High-power Military Binoculars',
-                    'Old Topographic Map of Nilgiris'
-                ],
-                vehicles: [
-                    '1978 Vintage Willys Jeep (Forest Green)',
-                    'Forest Ranger Patrol Vehicle'
-                ],
-                makeupAndCostumes: [
-                    'Heavy Woolen Tweed Overcoat & Leather Gloves',
-                    'Muddy Boots & Dirt Touch-up FX',
-                    'Rain/Mist Moist Skin Makeup'
-                ],
-                stuntsAndSfx: [
-                    'Artificial Low-Lying Fog Machine',
-                    'Mist Water Rigging',
-                    'Tree-top Chase Stunt Wire Setup'
-                ],
-                specialEquipment: [
-                    'Steadicam Rig with Wireless Focus',
-                    '50ft Heavy Camera Track'
-                ]
-            },
-            {
-                sceneNumber: 'SCENE 5',
-                slugline: 'EXT. OOTY HILLS OVERLOOK - SUNSET',
-                timeOfDay: 'SUNSET',
-                pageCount: '1 2/8 pgs',
-                synopsis: 'Vikram confronts Raghava on the cliff edge as the sun sets over the valley.',
-                actors: [
-                    { character: 'VIKRAM (Lead)', actorName: 'Actor Vikram', role: 'Main Lead' },
-                    { character: 'RAGHAVA (Antagonist)', actorName: 'Actor Raghava', role: 'Main Villain', notes: 'Gun prop handling certified' }
-                ],
-                bigSetsAndProps: [
-                    'Cliffside Wooden Guardrail',
-                    'Leather Gun Holster & Rifle Box',
-                    'Antique Gold Pocket Watch'
-                ],
-                vehicles: [
-                    '1972 Land Rover Defender 110'
-                ],
-                makeupAndCostumes: [
-                    'Sweat & Blood FX Touch-up on cheek',
-                    'Torn Dark Brown Leather Jacket'
-                ],
-                stuntsAndSfx: [
-                    'Blank Firing Prop Pistol (Clearance Obtained)',
-                    'Safety Harness for Cliff Edge'
-                ],
-                specialEquipment: [
-                    'Drone Camera Unit (4K Sunset Tracking)',
-                    '200kW Silent Generator Truck'
-                ]
-            }
-        ],
-        nearbyHotels: [
-            { id: 'h-o1', name: 'Savoy - IHCL SeleQtions Ooty (Cast Stay)', distance: '3.5 km', address: '77, Sylks Road, Ooty', phone: '+91 423 222 3000', rating: 4.8, roomsAvailable: 15 },
-            { id: 'h-o2', name: 'Hotel Gem Park Ooty (Crew Stay)', distance: '2.1 km', address: 'Sheddon Road, Ooty', phone: '+91 423 244 1001', rating: 4.2, roomsAvailable: 40 }
-        ],
-        nearbyHospitals: [
-            { id: 'hp-o1', name: 'Government Head Quarters Hospital Ooty', distance: '2.8 km', address: 'Hospital Road, Ooty', phone: '+91 423 244 2212', emergencyType: 'Trauma' },
-            { id: 'hp-o2', name: 'Nankem Hospital & ICU Center', distance: '1.9 km', address: 'Coonoor Road, Ooty', phone: '+91 423 244 4000', emergencyType: 'ICU Specialist' }
-        ],
-        nearbyToilets: [
-            { id: 't-o1', name: 'Luxury Vanity Restroom Trailer #1', distance: '50m', type: 'Vanity Trailer Restroom', cleanlinessScore: '9.8/10', description: 'Dual AC washrooms with running hot water' },
-            { id: 't-o2', name: 'Forest Park Restroom Complex', distance: '180m', type: 'Permanent Facility', cleanlinessScore: '8.5/10', description: 'Clean public facility' }
-        ],
-        nearbyChangingDress: [
-            { id: 'c-o1', name: 'Vanity Bus Parking Lot A', distance: '60m', type: 'AC Vanity Bus Park', capacity: '4 Full Length Vanity Buses', mirrorsAndSteamers: true },
-            { id: 'c-o2', name: 'Wardrobe & Props Tent Complex', distance: '40m', type: 'Wardrobe Tent', capacity: '25 Cast & Crew', mirrorsAndSteamers: true }
-        ],
-        nearbyPowerSupply: [
-            { id: 'p-o1', name: '250kW Super Silent Diesel GenVan', distance: '150m', type: '200kW Silent Diesel Generator', capacity: '250 kW Heavy Load', contactPhone: '+91 98420 11223' }
-        ],
-        closestEmergency: [
-            { id: 'e-o1', name: 'Ooty Fire & Rescue Station', type: 'Fire Station', distance: '2.2 km', phone: '101 / +91 423 244 2099', address: 'ATC Bus Stand Rd' },
-            { id: 'e-o2', name: 'Fingerpost Police Station', type: 'Police Patrol Post', distance: '1.1 km', phone: '+91 423 244 2233', address: 'Main Road, Fingerpost' }
-        ]
-    },
-    {
-        id: 'loc-chowmahalla',
-        scriptLocation: 'CHOWMAHALLA PALACE - HYDERABAD',
-        sceneNumbers: ['SCENE 1', 'SCENE 4', 'SCENE 12'],
-        realLocationName: 'Chowmahalla Palace (Durbar Hall), Old City, Hyderabad',
-        address: '20-4-236, Motigalli, Khilwat, Hyderabad, Telangana 500002',
-        googleMapsUrl: 'https://www.google.com/maps/search/?api=1&query=Chowmahalla+Palace+Hyderabad',
-        coordinates: { lat: 17.3578, lng: 78.4717 },
-        status: 'confirmed',
-        contactPerson: 'Sultan Ahmed (Palace Administrator)',
-        contactPhone: '+91 98490 12345',
-        permitStatus: 'Approved',
-        dailyRate: '₹1,50,000 / day',
-        notes: 'Grand Khilwat Durbar hall approved. Shooting 8 AM to 7 PM only.',
-        assignedScenes: [
-            {
-                sceneNumber: 'SCENE 1',
-                slugline: 'INT. VIKRAM PALACE HALL - DAY',
-                timeOfDay: 'DAY',
-                pageCount: '3 1/8 pgs',
-                synopsis: 'The grand royal court assembly where the King announces the succession decree before the council.',
-                actors: [
-                    { character: 'KING VIKRAMADITYA', actorName: 'Veteran Actor Prakash', role: 'Royal Lead' },
-                    { character: 'PRINCE VIKRAM', actorName: 'Actor Vikram', role: 'Lead Prince' },
-                    { character: '30 ROYAL GUARDS & COURTIERS', actorName: 'Background Extras', role: 'Extras' }
-                ],
-                bigSetsAndProps: [
-                    'Royal Gold Marble Throne',
-                    'Antique Persian Floor Carpets (100ft)',
-                    'Custom Brass Sword Display Rack',
-                    'Crystal Chandeliers with Warm Lighting'
-                ],
-                vehicles: [
-                    '1948 Vintage Rolls Royce Silver Wraith'
-                ],
-                makeupAndCostumes: [
-                    'Heavy Embroidered Gold Sherwani with Royal Sash',
-                    'Diamond Turban Pin & Ceremonial Sword',
-                    'Authentic Period Court Costumes'
-                ],
-                stuntsAndSfx: [
-                    'Ceremonial Sword Sparring Stunt Double',
-                    'Subtle Atmospheric Haze Machine'
-                ],
-                specialEquipment: [
-                    'Heavy Duty Jib Arm Crane (24ft)',
-                    'ARRI Alexa Mini LF Cinema Package'
-                ]
-            },
-            {
-                sceneNumber: 'SCENE 4',
-                slugline: 'INT. PALACE BANQUET HALL - NIGHT',
-                timeOfDay: 'NIGHT',
-                pageCount: '2 0/8 pgs',
-                synopsis: 'The tense evening dinner where secret negotiations break down amidst celebration.',
-                actors: [
-                    { character: 'PRINCE VIKRAM', actorName: 'Actor Vikram', role: 'Lead' },
-                    { character: 'MEERA', actorName: 'Actress Meera', role: 'Lead Female' }
-                ],
-                bigSetsAndProps: [
-                    '40ft Carved Mahogany Dining Table',
-                    'Silver Goblets & Royal Dinnerware Set'
-                ],
-                vehicles: [
-                    'Black Executive Armored Sedan'
-                ],
-                makeupAndCostumes: [
-                    'Royal Silk Saree with Heavy Zardosi Work',
-                    'Black Velvet Bandhgala Suit'
-                ],
-                stuntsAndSfx: [
-                    'Candle Flicker Atmosphere'
-                ]
-            }
-        ],
-        nearbyHotels: [
-            { id: 'h-c1', name: 'Taj Falaknuma Palace (Executive Cast)', distance: '3.2 km', address: 'Engine Bowli, Falaknuma', phone: '+91 40 6629 8585', rating: 4.9, roomsAvailable: 10 },
-            { id: 'h-c2', name: 'Hotel Royal Residency (Crew Lodge)', distance: '0.8 km', address: 'Charminar Main Rd', phone: '+91 40 2452 9900', rating: 4.2, roomsAvailable: 35 }
-        ],
-        nearbyHospitals: [
-            { id: 'hp-c1', name: 'Osmania General Hospital (Trauma Center)', distance: '1.4 km', address: 'Afzal Gunj, Hyderabad', phone: '+91 40 2460 0121', emergencyType: 'Trauma' }
-        ],
-        nearbyToilets: [
-            { id: 't-c1', name: 'Palace Courtyard AC Washroom Block', distance: '30m', type: 'Permanent Facility', cleanlinessScore: '9.5/10', description: 'Sanitized marble restrooms' }
-        ],
-        nearbyChangingDress: [
-            { id: 'c-c1', name: 'Courtyard VIP Vanity Bus Park', distance: '50m', type: 'AC Vanity Bus Park', capacity: '3 Full Size Buses', mirrorsAndSteamers: true }
-        ],
-        nearbyPowerSupply: [
-            { id: 'p-c1', name: 'Palace 3-Phase Grid Connection', distance: '40m', type: '3-Phase Grid Connection', capacity: '150 kW Constant', contactPhone: '+91 94400 11223' }
-        ],
-        closestEmergency: [
-            { id: 'e-c1', name: 'Moghalpura Fire Station', type: 'Fire Station', distance: '1.1 km', phone: '101', address: 'Moghalpura, Hyderabad' }
-        ]
-    },
-    {
-        id: 'loc-rfc',
-        scriptLocation: 'RAMOJI FILM CITY - RAMU VILLAGE',
-        sceneNumbers: ['SCENE 3', 'SCENE 8'],
-        realLocationName: 'Ramoji Film City (Ramu Village Exterior Set)',
-        address: 'Anaspur Village, Hayathnagar Mandal, Hyderabad 501512',
-        googleMapsUrl: 'https://www.google.com/maps/search/?api=1&query=Ramoji+Film+City+Hyderabad',
-        coordinates: { lat: 17.2543, lng: 78.6808 },
-        status: 'confirmed',
-        contactPerson: 'Venkatesh Rao (RFC Location Manager)',
-        contactPhone: '+91 98480 99887',
-        permitStatus: 'Approved',
-        dailyRate: '₹95,000 / day',
-        notes: 'Night shooting approved. Rain machine & fog FX cleared.',
-        assignedScenes: [
-            {
-                sceneNumber: 'SCENE 3',
-                slugline: 'EXT. VILLAGE WELL - NIGHT',
-                timeOfDay: 'NIGHT',
-                pageCount: '2 2/8 pgs',
-                synopsis: 'Late night confrontation near the ancient village well amidst sudden heavy rain.',
-                actors: [
-                    { character: 'VIKRAM', actorName: 'Actor Vikram', role: 'Lead' },
-                    { character: 'VILLAGE ELDER', actorName: 'Actor Raghunath', role: 'Supporting' }
-                ],
-                bigSetsAndProps: [
-                    'Ancient Stone Water Well with Pulley',
-                    'Wooden Buckets & Clay Pots'
-                ],
-                vehicles: [
-                    'Bullock Cart',
-                    'Vintage 1965 Massey Ferguson Tractor'
-                ],
-                makeupAndCostumes: [
-                    'Soaked Rural Cotton Dhoti & Kurta',
-                    'Dirt & Rain Wet Makeup'
-                ],
-                stuntsAndSfx: [
-                    'High Pressure Rain Machine Rigging',
-                    'Controlled Flame Fire Torches'
-                ]
-            }
-        ],
-        nearbyHotels: [
-            { id: 'h-r1', name: 'Hotel Sitara (RFC Campus)', distance: '1.5 km', address: 'Film City Campus', phone: '+91 8415 246555', rating: 4.8, roomsAvailable: 20 }
-        ],
-        nearbyHospitals: [
-            { id: 'hp-r1', name: 'RFC Emergency Medical Unit', distance: '0.4 km', address: 'Inside Film City Gate 1', phone: '+91 8415 246108', emergencyType: 'Medical' }
-        ],
-        nearbyToilets: [
-            { id: 't-r1', name: 'Ramu Village Set Permanent Washrooms', distance: '80m', type: 'Permanent Facility', cleanlinessScore: '8.8/10', description: 'Clean tiled toilets' }
-        ],
-        nearbyChangingDress: [
-            { id: 'c-r1', name: 'Village Set Wardrobe Complex', distance: '100m', type: 'Wardrobe Tent', capacity: '30 Extras', mirrorsAndSteamers: true }
-        ],
-        nearbyPowerSupply: [
-            { id: 'p-r1', name: 'RFC Heavy Duty Generator Van #4', distance: '50m', type: '200kW Silent Diesel Generator', capacity: '250 kW', contactPhone: '+91 98480 11122' }
-        ],
-        closestEmergency: [
-            { id: 'e-r1', name: 'RFC Fire Tender Station', type: 'Fire Station', distance: '0.6 km', phone: '+91 8415 246101', address: 'Gate 2 Security' }
-        ]
-    }
-];
+const DEFAULT_LOCATIONS: LocationMapping[] = [];
+
 
 export const LocationScoutView: React.FC = () => {
     const { beats } = useProject();
     const [locations, setLocations] = useState<LocationMapping[]>(DEFAULT_LOCATIONS);
-    const [selectedLocId, setSelectedLocId] = useState<string>(DEFAULT_LOCATIONS[0].id);
+    const [selectedLocId, setSelectedLocId] = useState<string>(DEFAULT_LOCATIONS[0]?.id || '');
     const [selectedSceneIdx, setSelectedSceneIdx] = useState<number>(0);
     const [searchQuery, setSearchQuery] = useState('');
     
@@ -295,12 +32,73 @@ export const LocationScoutView: React.FC = () => {
     const [newAddress, setNewAddress] = useState('');
     const [newContact, setNewContact] = useState('');
 
+    // Edit location state & handlers
+    const [editingLoc, setEditingLoc] = useState<LocationMapping | null>(null);
+    const [editScriptLoc, setEditScriptLoc] = useState('');
+    const [editRealName, setEditRealName] = useState('');
+    const [editAddress, setEditAddress] = useState('');
+    const [editContactPerson, setEditContactPerson] = useState('');
+    const [editContactPhone, setEditContactPhone] = useState('');
+    const [editPermitStatus, setEditPermitStatus] = useState('Pending');
+    const [editDailyRate, setEditDailyRate] = useState('');
+    const [editNotes, setEditNotes] = useState('');
+
+    const handleOpenEditModal = (loc: LocationMapping, e: React.MouseEvent) => {
+        e.stopPropagation();
+        setEditingLoc(loc);
+        setEditScriptLoc(loc.scriptLocation);
+        setEditRealName(loc.realLocationName);
+        setEditAddress(loc.address);
+        setEditContactPerson(loc.contactPerson || '');
+        setEditContactPhone(loc.contactPhone || '');
+        setEditPermitStatus(loc.permitStatus || 'Pending');
+        setEditDailyRate(loc.dailyRate || '');
+        setEditNotes(loc.notes || '');
+    };
+
+    const handleSaveEditLocation = (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!editingLoc) return;
+        setLocations(prev => prev.map(l => {
+            if (l.id === editingLoc.id) {
+                return {
+                    ...l,
+                    scriptLocation: editScriptLoc.toUpperCase(),
+                    realLocationName: editRealName,
+                    address: editAddress,
+                    contactPerson: editContactPerson,
+                    contactPhone: editContactPhone,
+                    permitStatus: editPermitStatus,
+                    dailyRate: editDailyRate,
+                    notes: editNotes,
+                    googleMapsUrl: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(editRealName + ' ' + editAddress)}`
+                };
+            }
+            return l;
+        }));
+        setEditingLoc(null);
+    };
+
+    const handleDeleteLocation = (locId: string, e: React.MouseEvent) => {
+        e.stopPropagation();
+        if (confirm('Are you sure you want to delete this mapped location?')) {
+            setLocations(prev => {
+                const updated = prev.filter(l => l.id !== locId);
+                if (selectedLocId === locId && updated.length > 0) {
+                    setSelectedLocId(updated[0].id);
+                    setSelectedSceneIdx(0);
+                }
+                return updated;
+            });
+        }
+    };
+
     const selectedLoc = useMemo(() => {
-        return locations.find(l => l.id === selectedLocId) || locations[0];
+        return locations.find(l => l.id === selectedLocId) || locations[0] || null;
     }, [locations, selectedLocId]);
 
     const currentScene = useMemo(() => {
-        if (!selectedLoc.assignedScenes || selectedLoc.assignedScenes.length === 0) {
+        if (!selectedLoc || !selectedLoc.assignedScenes || selectedLoc.assignedScenes.length === 0) {
             return null;
         }
         return selectedLoc.assignedScenes[selectedSceneIdx] || selectedLoc.assignedScenes[0];
@@ -430,7 +228,20 @@ export const LocationScoutView: React.FC = () => {
             </div>
 
             {/* --- MAIN 3-PANEL FULL SCREEN REAL ESTATE WORKSPACE --- */}
-            <div className="flex-1 flex overflow-hidden min-h-0">
+            {locations.length === 0 ? (
+                <div className="flex-1 flex flex-col items-center justify-center text-[#726A5C] font-mono space-y-3 p-12 border border-dashed border-[rgba(242,238,226,0.15)] m-4 rounded">
+                    <MapIcon size={48} className="mx-auto text-[#E0A339]/50" />
+                    <div className="text-sm font-semibold text-[#F2EEE2]">No Mapped Locations Yet</div>
+                    <p className="text-xs max-w-sm text-center">Map your story's script locations to real-world shooting locations, track permit statuses, crew hotels, emergency hospitals, and power grids.</p>
+                    <button 
+                        onClick={() => setIsAddModalOpen(true)}
+                        className="px-4 py-2 bg-[#E0A339] text-[#281B05] font-bold uppercase text-xs hover:bg-[#d09329] transition-colors cursor-pointer border-none shadow-md mt-2"
+                    >
+                        + Map Your First Location
+                    </button>
+                </div>
+            ) : (
+                <div className="flex-1 flex overflow-hidden min-h-0">
                 
                 {/* PANEL 1: MAPPED LOCATIONS CARDS LIST (LEFT PANEL) */}
                 <div className="w-80 bg-[#100E0B] border-r border-[rgba(242,238,226,0.15)] flex flex-col shrink-0 overflow-hidden">
@@ -472,11 +283,27 @@ export const LocationScoutView: React.FC = () => {
                                         <span className="text-[10px] font-bold px-1.5 py-0.2 bg-[#E0A339]/20 text-[#E0A339] border border-[#E0A339]/30">
                                             {loc.assignedScenes.length} SCENES
                                         </span>
-                                        <span className={`text-[9.5px] font-bold uppercase px-1 py-0.2 ${
-                                            loc.permitStatus === 'Approved' ? 'bg-[#5E9E6E]/20 text-[#5E9E6E]' : 'bg-[#C1443A]/20 text-[#C1443A]'
-                                        }`}>
-                                            {loc.permitStatus}
-                                        </span>
+                                        <div className="flex items-center gap-1.5">
+                                            <button 
+                                                onClick={(e) => handleOpenEditModal(loc, e)}
+                                                className="p-0.5 rounded text-[#A9A190] hover:text-[#E0A339] hover:bg-[#322C22] transition-colors cursor-pointer border-none bg-transparent"
+                                                title="Edit Mapped Location"
+                                            >
+                                                <Edit3 size={11} />
+                                            </button>
+                                            <button 
+                                                onClick={(e) => handleDeleteLocation(loc.id, e)}
+                                                className="p-0.5 rounded text-[#A9A190] hover:text-[#C1443A] hover:bg-[#322C22] transition-colors cursor-pointer border-none bg-transparent"
+                                                title="Delete Mapped Location"
+                                            >
+                                                <Trash2 size={11} />
+                                            </button>
+                                            <span className={`text-[9.5px] font-bold uppercase px-1 py-0.2 ${
+                                                loc.permitStatus === 'Approved' ? 'bg-[#5E9E6E]/20 text-[#5E9E6E]' : 'bg-[#C1443A]/20 text-[#C1443A]'
+                                            }`}>
+                                                {loc.permitStatus}
+                                            </span>
+                                        </div>
                                     </div>
 
                                     {/* Script Location Name */}
@@ -883,6 +710,7 @@ export const LocationScoutView: React.FC = () => {
 
                 </div>
             </div>
+            )}
 
             {/* MAP REAL LOCATION MODAL */}
             {isAddModalOpen && (
@@ -962,6 +790,133 @@ export const LocationScoutView: React.FC = () => {
                 </div>
             )}
 
+            {/* EDIT MAPPED LOCATION MODAL */}
+            {editingLoc && (
+                <div className="fixed inset-0 bg-black/80 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+                    <div className="bg-[#14120E] border border-[#E0A339] w-full max-w-md p-4 space-y-4 shadow-2xl">
+                        <div className="flex items-center justify-between border-b border-[rgba(242,238,226,0.15)] pb-2">
+                            <h3 className="font-bold text-sm text-[#F2EEE2] uppercase flex items-center gap-1.5 font-mono">
+                                <Edit3 size={15} className="text-[#E0A339]" />
+                                <span>Edit Shooting Location</span>
+                            </h3>
+                            <button onClick={() => setEditingLoc(null)} className="text-[#A9A190] hover:text-[#F2EEE2] border-none bg-transparent cursor-pointer">
+                                <X size={16} />
+                            </button>
+                        </div>
+
+                        <form onSubmit={handleSaveEditLocation} className="space-y-3 font-mono">
+                            <div>
+                                <label className="text-[10px] text-[#726A5C] uppercase block mb-1">Script Location Name</label>
+                                <input 
+                                    type="text" 
+                                    required
+                                    value={editScriptLoc} 
+                                    onChange={e => setEditScriptLoc(e.target.value)}
+                                    placeholder="e.g. EXT. OOTY TEA GARDEN"
+                                    className="w-full p-2 bg-[#0A0908] border border-[rgba(242,238,226,0.2)] text-xs text-[#F2EEE2] focus:border-[#E0A339] outline-none"
+                                />
+                            </div>
+
+                            <div>
+                                <label className="text-[10px] text-[#726A5C] uppercase block mb-1">Real Location Name</label>
+                                <input 
+                                    type="text" 
+                                    required
+                                    value={editRealName} 
+                                    onChange={e => setEditRealName(e.target.value)}
+                                    placeholder="e.g. Doddabetta Tea Estate, Ooty"
+                                    className="w-full p-2 bg-[#0A0908] border border-[rgba(242,238,226,0.2)] text-xs text-[#F2EEE2] focus:border-[#E0A339] outline-none"
+                                />
+                            </div>
+
+                            <div>
+                                <label className="text-[10px] text-[#726A5C] uppercase block mb-1">Full Postal Address</label>
+                                <input 
+                                    type="text" 
+                                    value={editAddress} 
+                                    onChange={e => setEditAddress(e.target.value)}
+                                    placeholder="Address for Google Maps"
+                                    className="w-full p-2 bg-[#0A0908] border border-[rgba(242,238,226,0.2)] text-xs text-[#F2EEE2] focus:border-[#E0A339] outline-none"
+                                />
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-2">
+                                <div>
+                                    <label className="text-[10px] text-[#726A5C] uppercase block mb-1">Contact Person</label>
+                                    <input 
+                                        type="text" 
+                                        value={editContactPerson} 
+                                        onChange={e => setEditContactPerson(e.target.value)}
+                                        placeholder="Name"
+                                        className="w-full p-2 bg-[#0A0908] border border-[rgba(242,238,226,0.2)] text-xs text-[#F2EEE2] focus:border-[#E0A339] outline-none"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="text-[10px] text-[#726A5C] uppercase block mb-1">Contact Phone</label>
+                                    <input 
+                                        type="text" 
+                                        value={editContactPhone} 
+                                        onChange={e => setEditContactPhone(e.target.value)}
+                                        placeholder="Phone number"
+                                        className="w-full p-2 bg-[#0A0908] border border-[rgba(242,238,226,0.2)] text-xs text-[#F2EEE2] focus:border-[#E0A339] outline-none"
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-2">
+                                <div>
+                                    <label className="text-[10px] text-[#726A5C] uppercase block mb-1">Permit Status</label>
+                                    <select 
+                                        value={editPermitStatus} 
+                                        onChange={e => setEditPermitStatus(e.target.value)}
+                                        className="w-full p-2 bg-[#0A0908] border border-[rgba(242,238,226,0.2)] text-xs text-[#F2EEE2] focus:border-[#E0A339] outline-none"
+                                    >
+                                        <option value="Approved">Approved</option>
+                                        <option value="Pending">Pending</option>
+                                        <option value="Denied">Denied</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="text-[10px] text-[#726A5C] uppercase block mb-1">Daily Rate</label>
+                                    <input 
+                                        type="text" 
+                                        value={editDailyRate} 
+                                        onChange={e => setEditDailyRate(e.target.value)}
+                                        placeholder="e.g. ₹50,000 / day"
+                                        className="w-full p-2 bg-[#0A0908] border border-[rgba(242,238,226,0.2)] text-xs text-[#F2EEE2] focus:border-[#E0A339] outline-none"
+                                    />
+                                </div>
+                            </div>
+
+                            <div>
+                                <label className="text-[10px] text-[#726A5C] uppercase block mb-1">Notes</label>
+                                <textarea 
+                                    value={editNotes} 
+                                    onChange={e => setEditNotes(e.target.value)}
+                                    placeholder="Special instructions or notes"
+                                    className="w-full p-2 bg-[#0A0908] border border-[rgba(242,238,226,0.2)] text-xs text-[#F2EEE2] focus:border-[#E0A339] outline-none h-16 resize-none"
+                                />
+                            </div>
+
+                            <div className="flex justify-end gap-2 pt-2 border-t border-[rgba(242,238,226,0.1)]">
+                                <button
+                                    type="button"
+                                    onClick={() => setEditingLoc(null)}
+                                    className="px-3 py-1.5 border border-[rgba(242,238,226,0.2)] text-[#A9A190] uppercase text-xs cursor-pointer bg-transparent"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    type="submit"
+                                    className="px-4 py-1.5 bg-[#E0A339] text-[#281B05] font-bold uppercase text-xs hover:bg-[#d09329] cursor-pointer border-none"
+                                >
+                                    Save Changes
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
