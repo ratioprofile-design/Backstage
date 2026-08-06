@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { useProject } from '../../context/ProjectContext';
 import { CharacterData, ArtistOption } from '../../types';
 import { generateImage, identifyActorFromImage } from '../../services/gemini';
+import { deduplicateCharacterNames } from '../../utils/characterUtils';
 import { 
   UserCheck, Users, Search, Sliders, FileText, Plus, CheckCircle2, 
   Trash2, Upload, ExternalLink, Star, ArrowUp, ArrowDown, Check, X,
@@ -244,7 +245,7 @@ export const CastingView: React.FC<{ onNavigateToView?: (view: 'characterdesign'
 
   // ALL SCRIPT & BREAKDOWN DETECTED CHARACTERS (Auto-Sync from beats & characterData)
   const roleNames = useMemo(() => {
-    const keysSet = new Set<string>(Object.keys(characterData));
+    const rawNames: string[] = Object.keys(characterData);
 
     beats.forEach(beat => {
       if (!beat.content) return;
@@ -255,15 +256,20 @@ export const CastingView: React.FC<{ onNavigateToView?: (view: 'characterdesign'
       charElements.forEach(charEl => {
         const rawName = (charEl.textContent || '')
           .replace(/\(V\.O\.\)|\(O\.S\.\)|\(CONT'D\)|\(OFF-SCREEN\)|\(VOICE\)/gi, '')
-          .trim()
-          .toUpperCase();
+          .trim();
         if (rawName && rawName.length > 1) {
-          keysSet.add(rawName);
+          rawNames.push(rawName);
         }
       });
+      if (beat.breakdown?.cast) {
+        beat.breakdown.cast.forEach(c => {
+          const name = typeof c === 'string' ? c : c.name;
+          if (name) rawNames.push(name);
+        });
+      }
     });
 
-    return Array.from(keysSet).sort();
+    return deduplicateCharacterNames(rawNames).sort();
   }, [beats, characterData]);
 
   const activeRoleName = selectedRole !== 'all' && roleNames.includes(selectedRole) ? selectedRole : (roleNames[0] || '');

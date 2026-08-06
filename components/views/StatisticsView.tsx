@@ -12,6 +12,7 @@ import {
     BrainCircuit, Check, Share2, Workflow, Info, AlertTriangle
 } from 'lucide-react';
 import { BreakdownData, CharacterData, Shot } from '../../types';
+import { isSameCharacterName, getPreferredCharacterDisplayName, findMatchingCharacterInSet } from '../../utils/characterUtils';
 
 // --- COLOR PALETTES FOR CHARTS ---
 const CHARACTERS_PALETTE = ['#f5a623', '#3b82f6', '#ec4899', '#10b981', '#a855f7', '#f97316', '#06b6d4', '#eab308'];
@@ -296,15 +297,26 @@ const StatisticsView: React.FC = () => {
             if (beat.breakdown?.cast) {
                 beat.breakdown.cast.forEach(c => {
                     const name = typeof c === 'string' ? c : c.name;
-                    if (name) charNamesInScene.add(name.trim().toUpperCase());
+                    if (name) charNamesInScene.add(name.trim());
                 });
             }
 
             charNamesInScene.forEach(charName => {
-                if (!characterStatsMap.has(charName)) {
+                const existingKey = findMatchingCharacterInSet(charName, characterStatsMap.keys());
+                let targetKey = charName;
+                if (existingKey) {
+                    const preferred = getPreferredCharacterDisplayName(existingKey, charName);
+                    if (preferred !== existingKey) {
+                        const existingData = characterStatsMap.get(existingKey)!;
+                        characterStatsMap.delete(existingKey);
+                        existingData.name = preferred;
+                        characterStatsMap.set(preferred, existingData);
+                    }
+                    targetKey = preferred;
+                } else {
                     const colorIndex = characterStatsMap.size % CHARACTERS_PALETTE.length;
-                    characterStatsMap.set(charName, {
-                        name: charName,
+                    characterStatsMap.set(targetKey, {
+                        name: targetKey,
                         dialogueWords: 0,
                         scenesAppeared: new Set<number>(),
                         firstScene: sceneNumInt,
@@ -312,14 +324,15 @@ const StatisticsView: React.FC = () => {
                         color: CHARACTERS_PALETTE[colorIndex]
                     });
                 }
-                const cObj = characterStatsMap.get(charName)!;
+                const cObj = characterStatsMap.get(targetKey)!;
                 cObj.scenesAppeared.add(sceneNumInt);
                 cObj.lastScene = sceneNumInt;
             });
 
             parsed.charactersSpoken.forEach(charName => {
-                if (characterStatsMap.has(charName)) {
-                    characterStatsMap.get(charName)!.dialogueWords += parsed.dialogueWords;
+                const targetKey = findMatchingCharacterInSet(charName, characterStatsMap.keys()) || charName;
+                if (characterStatsMap.has(targetKey)) {
+                    characterStatsMap.get(targetKey)!.dialogueWords += parsed.dialogueWords;
                 }
             });
 

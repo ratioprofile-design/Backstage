@@ -1,2363 +1,1925 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { useProject } from '../../context/ProjectContext';
+import { Shot, Beat } from '../../types';
+import LocationScoutView from './LocationScoutView';
 import { 
-    Clock, Calendar, AlertTriangle, AlertCircle, CheckCircle2, Camera, Utensils, 
-    Truck, Sun, Moon, Zap, Plus, Trash2, ArrowUp, ArrowDown, Download, Copy, Check, 
-    Settings, Layers, Film, Sliders, Sparkles, RefreshCw,
-    ListFilter, Play, Printer, FileText, X, Eye,
-    GripVertical, ChevronDown, ChevronUp, ShieldCheck, MapPin, Search, Filter, Share2, ShieldAlert
+    AlertTriangle, AlertCircle, CheckCircle2,
+    Lock, Unlock, ShieldAlert, Sparkles, Printer, RotateCcw,
+    X, ChevronRight, FileText, Download, Calendar, RefreshCw,
+    ChevronLeft, Filter, Layers, Zap, Clock, Eye, Sliders,
+    Search, CheckSquare, Square, Users, MapPin, Wrench, Shield,
+    Check, Plus, ArrowRight, ListFilter, AlertOctagon
 } from 'lucide-react';
-import { Shot } from '../../types';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
 
-export type ScheduleItemType = 'shot' | 'meal' | 'move' | 'lighting' | 'wrap';
+// --- TYPES & INTERFACES ---
+export type OptimizationStrategy = 'balanced' | 'lowest_cost' | 'fastest_shoot' | 'max_actor_eff' | 'min_moves' | 'min_continuity_risk';
 
-export interface ShootDay {
+export type StripType = 'INTDAY' | 'INTNIGHT' | 'EXTDAY' | 'EXTNIGHT';
+
+export interface AnchorItem {
     id: string;
-    dayNumber: number; // 1 to 15
-    date: string; // YYYY-MM-DD
-    crewCallTime: string; // '06:00 AM'
-    locationNote?: string;
-    items: ScheduleItem[];
-}
-
-export interface ScheduleBlock {
-    id: string;
-    scheduleNumber: number; // 1, 2, 3...
-    name: string; // "1st Schedule", "2nd Schedule", "3rd Schedule"
-    startDate: string; // YYYY-MM-DD
-    totalDaysCount: number; // 15
-    days: ShootDay[];
-    activeDayId: string;
-}
-
-const getTodayYMD = (): string => {
-    const today = new Date();
-    const yyyy = today.getFullYear();
-    const mm = String(today.getMonth() + 1).padStart(2, '0');
-    const dd = String(today.getDate()).padStart(2, '0');
-    return `${yyyy}-${mm}-${dd}`;
-};
-
-const addDaysToYMD = (dateStr: string, daysToAdd: number): string => {
-    if (!dateStr) return getTodayYMD();
-    const parts = dateStr.split('-').map(Number);
-    if (parts.length !== 3 || isNaN(parts[0]) || isNaN(parts[1]) || isNaN(parts[2])) {
-        return getTodayYMD();
-    }
-    const d = new Date(parts[0], parts[1] - 1, parts[2] + daysToAdd);
-    const yyyy = d.getFullYear();
-    const mm = String(d.getMonth() + 1).padStart(2, '0');
-    const dd = String(d.getDate()).padStart(2, '0');
-    return `${yyyy}-${mm}-${dd}`;
-};
-
-const formatShortDate = (dateStr: string): string => {
-    if (!dateStr) return '';
-    const parts = dateStr.split('-').map(Number);
-    if (parts.length !== 3 || isNaN(parts[0]) || isNaN(parts[1]) || isNaN(parts[2])) return dateStr;
-    const d = new Date(parts[0], parts[1] - 1, parts[2]);
-    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-};
-
-const getOrdinalName = (num: number): string => {
-    const j = num % 10;
-    const k = num % 100;
-    if (j === 1 && k !== 11) return `${num}st Schedule`;
-    if (j === 2 && k !== 12) return `${num}nd Schedule`;
-    if (j === 3 && k !== 13) return `${num}rd Schedule`;
-    return `${num}th Schedule`;
-};
-
-const formatDisplayDate = (dateStr: string): string => {
-    if (!dateStr) return 'Set Date';
-    const parts = dateStr.split('-');
-    if (parts.length !== 3) return dateStr;
-    const [year, month, day] = parts.map(p => parseInt(p, 10));
-    if (isNaN(year) || isNaN(month) || isNaN(day)) return dateStr;
-    const d = new Date(year, month - 1, day);
-    return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
-};
-
-export interface ScheduleItem {
-    id: string;
-    type: ScheduleItemType;
-    sceneNo?: string;
-    shotNo?: string;
     title: string;
-    description: string;
-    location?: string;
-    cameraLens?: string;
-    angle?: string;
-    movement?: string;
-    durationMins: number;
-
-    // Explicit Keys (INT/EXT, DAY/NIGHT, SPX/CGI/VFX)
-    envKey?: 'INT' | 'EXT' | 'INT/EXT';
-    timeKey?: 'DAY' | 'NIGHT' | 'MAGIC HR';
-    fxKey?: 'SPX' | 'CGI' | 'VFX' | 'STUNT' | 'NONE';
-
-    // Dynamically calculated fields
-    startTime?: string;
-    endTime?: string;
-    startMinFromCall?: number;
-    endMinFromCall?: number;
-    setupNumber?: number;
-    cumulativeMins?: number;
-    isOvertime?: boolean;
+    window: string;
+    startDate: string; // YYYY-MM-DD
+    endDate: string;   // YYYY-MM-DD
+    priority: 'critical' | 'high' | 'medium';
+    notes?: string;
 }
 
-// --- HELPER TIME UTILITIES ---
-const timeToMins = (timeStr: string): number => {
-    if (!timeStr) return 360; // Default 06:00 AM
-    const clean = timeStr.trim().toUpperCase();
-    
-    let hours = 0;
-    let mins = 0;
-    
-    const isPM = clean.includes('PM');
-    const isAM = clean.includes('AM');
-    const digitsOnly = clean.replace(/[^0-9:]/g, '');
-    const parts = digitsOnly.split(':');
+export interface ResourcePressure {
+    name: string;
+    percentage: number;
+    isTight: boolean;
+}
 
-    if (parts.length >= 1) hours = parseInt(parts[0], 10) || 0;
-    if (parts.length >= 2) mins = parseInt(parts[1], 10) || 0;
+export interface StripItem {
+    id: string;
+    sceneNo: string;
+    slug: string;
+    type: StripType;
+    tags: string[];
+    scheduledDate: string; // YYYY-MM-DD
+    conflictType?: 'warn' | 'hard';
+    conflictTitle?: string;
+    conflictReasons?: string[];
+    suggestion?: string;
+    shotCount?: number;
+    shotIds?: string[];
+}
 
-    if (isPM && hours < 12) hours += 12;
-    if (isAM && hours === 12) hours = 0;
+export interface BlockGroup {
+    id: string;
+    title: string;
+    meta: string;
+    lockState: 'hard' | 'soft' | 'unlocked';
+    strips: StripItem[];
+}
 
-    return hours * 60 + mins;
-};
-
-const minsToTime = (totalMins: number): string => {
-    const minsInDay = ((totalMins % 1440) + 1440) % 1440;
-    let hours = Math.floor(minsInDay / 60);
-    const mins = minsInDay % 60;
-    const period = hours >= 12 ? 'PM' : 'AM';
-
-    if (hours === 0) hours = 12;
-    else if (hours > 12) hours -= 12;
-
-    const hh = hours.toString().padStart(2, '0');
-    const mm = mins.toString().padStart(2, '0');
-    return `${hh}:${mm} ${period}`;
-};
-
-const formatDurationHM = (totalMins: number): string => {
-    const h = Math.floor(totalMins / 60);
-    const m = Math.round(totalMins % 60);
-    if (h === 0) return `${m}m`;
-    if (m === 0) return `${h}h`;
-    return `${h}h ${m}m`;
-};
-
-// --- COLOR KEY BADGES ENGINE (INT/EXT, DAY/NIGHT, SFX/CGI/SPX) ---
-export interface TagBadge {
+export interface WhatIfRipple {
     label: string;
-    type: 'intext' | 'time' | 'fx';
-    className: string;
-    pdfClassName?: string;
-    icon?: 'sun' | 'moon' | 'zap';
+    rows: Array<{
+        metric: string;
+        delta: string;
+        status: 'good' | 'bad';
+    }>;
 }
 
-export const getItemTags = (item: ScheduleItem, beats: any[] = [], generatedShots: Shot[] = []): TagBadge[] => {
-    const tags: TagBadge[] = [];
-
-    const cleanScene = (item.sceneNo || '').trim();
-    const matchedBeat = beats.find(b => 
-        String(b.sceneNumber || '').trim() === cleanScene || String(b.id || '') === cleanScene
-    );
-
-    const cleanShot = (item.shotNo || '').trim().toLowerCase();
-    const matchedShot = generatedShots.find(s => 
-        String(s.scene || '').trim() === cleanScene && (
-            String(s.id || '').toLowerCase() === cleanShot ||
-            String(s.shotSize || '').toLowerCase() === cleanShot
-        )
-    );
-
-    const fullText = [
-        item.title || '',
-        item.description || '',
-        item.location || '',
-        matchedBeat?.slug?.raw || '',
-        matchedBeat?.slug?.prefix || '',
-        matchedBeat?.slug?.time || '',
-        matchedBeat?.slug?.location || '',
-        matchedShot?.notes || '',
-        (matchedShot as any)?.vfx || '',
-        (matchedShot as any)?.sfx || ''
-    ].join(' ').toUpperCase();
-
-    // 1. INT / EXT Color Keys
-    if (item.envKey) {
-        if (item.envKey === 'INT/EXT') {
-            tags.push({
-                label: 'INT/EXT',
-                type: 'intext',
-                className: 'bg-cyan-950/90 text-cyan-300 border border-cyan-700/60 font-mono font-bold px-1.5 py-0.5 rounded text-[10px]',
-                pdfClassName: 'bg-cyan-100 text-cyan-900 border border-cyan-400 font-bold px-1 py-0.2 rounded text-[9px]'
-            });
-        } else if (item.envKey === 'EXT') {
-            tags.push({
-                label: 'EXT.',
-                type: 'intext',
-                className: 'bg-emerald-950/90 text-emerald-300 border border-emerald-700/60 font-mono font-bold px-1.5 py-0.5 rounded text-[10px]',
-                pdfClassName: 'bg-emerald-100 text-emerald-900 border border-emerald-400 font-bold px-1 py-0.2 rounded text-[9px]'
-            });
-        } else {
-            tags.push({
-                label: 'INT.',
-                type: 'intext',
-                className: 'bg-indigo-950/90 text-indigo-300 border border-indigo-700/60 font-mono font-bold px-1.5 py-0.5 rounded text-[10px]',
-                pdfClassName: 'bg-indigo-100 text-indigo-900 border border-indigo-400 font-bold px-1 py-0.2 rounded text-[9px]'
-            });
-        }
-    } else if (fullText.includes('INT./EXT.') || fullText.includes('EXT./INT.')) {
-        tags.push({
-            label: 'INT/EXT',
-            type: 'intext',
-            className: 'bg-cyan-950/90 text-cyan-300 border border-cyan-700/60 font-mono font-bold px-1.5 py-0.5 rounded text-[10px]',
-            pdfClassName: 'bg-cyan-100 text-cyan-900 border border-cyan-400 font-bold px-1 py-0.2 rounded text-[9px]'
-        });
-    } else if (fullText.includes('EXT.') || fullText.includes('EXT ') || matchedBeat?.slug?.prefix?.toUpperCase().includes('EXT')) {
-        tags.push({
-            label: 'EXT.',
-            type: 'intext',
-            className: 'bg-emerald-950/90 text-emerald-300 border border-emerald-700/60 font-mono font-bold px-1.5 py-0.5 rounded text-[10px]',
-            pdfClassName: 'bg-emerald-100 text-emerald-900 border border-emerald-400 font-bold px-1 py-0.2 rounded text-[9px]'
-        });
-    } else if (fullText.includes('INT.') || fullText.includes('INT ') || matchedBeat?.slug?.prefix?.toUpperCase().includes('INT') || item.type === 'shot') {
-        tags.push({
-            label: 'INT.',
-            type: 'intext',
-            className: 'bg-indigo-950/90 text-indigo-300 border border-indigo-700/60 font-mono font-bold px-1.5 py-0.5 rounded text-[10px]',
-            pdfClassName: 'bg-indigo-100 text-indigo-900 border border-indigo-400 font-bold px-1 py-0.2 rounded text-[9px]'
-        });
-    }
-
-    // 2. DAY / NIGHT Color Keys
-    if (item.timeKey) {
-        if (item.timeKey === 'NIGHT') {
-            tags.push({
-                label: 'NIGHT',
-                type: 'time',
-                icon: 'moon',
-                className: 'bg-purple-950/90 text-purple-300 border border-purple-600/60 font-mono font-bold px-1.5 py-0.5 rounded text-[10px] flex items-center gap-1',
-                pdfClassName: 'bg-purple-100 text-purple-900 border border-purple-400 font-bold px-1 py-0.2 rounded text-[9px]'
-            });
-        } else if (item.timeKey === 'MAGIC HR') {
-            tags.push({
-                label: 'MAGIC HR',
-                type: 'time',
-                icon: 'sun',
-                className: 'bg-rose-950/90 text-rose-300 border border-rose-600/60 font-mono font-bold px-1.5 py-0.5 rounded text-[10px] flex items-center gap-1',
-                pdfClassName: 'bg-rose-100 text-rose-900 border border-rose-400 font-bold px-1 py-0.2 rounded text-[9px]'
-            });
-        } else {
-            tags.push({
-                label: 'DAY',
-                type: 'time',
-                icon: 'sun',
-                className: 'bg-amber-950/90 text-amber-300 border border-amber-600/60 font-mono font-bold px-1.5 py-0.5 rounded text-[10px] flex items-center gap-1',
-                pdfClassName: 'bg-amber-100 text-amber-900 border border-amber-400 font-bold px-1 py-0.2 rounded text-[9px]'
-            });
-        }
-    } else if (fullText.includes('NIGHT') || matchedBeat?.slug?.time?.toUpperCase().includes('NIGHT')) {
-        tags.push({
-            label: 'NIGHT',
-            type: 'time',
-            icon: 'moon',
-            className: 'bg-purple-950/90 text-purple-300 border border-purple-600/60 font-mono font-bold px-1.5 py-0.5 rounded text-[10px] flex items-center gap-1',
-            pdfClassName: 'bg-purple-100 text-purple-900 border border-purple-400 font-bold px-1 py-0.2 rounded text-[9px]'
-        });
-    } else if (fullText.includes('DUSK') || fullText.includes('DAWN') || fullText.includes('SUNSET') || fullText.includes('MAGIC HOUR')) {
-        tags.push({
-            label: 'MAGIC HR',
-            type: 'time',
-            icon: 'sun',
-            className: 'bg-rose-950/90 text-rose-300 border border-rose-600/60 font-mono font-bold px-1.5 py-0.5 rounded text-[10px] flex items-center gap-1',
-            pdfClassName: 'bg-rose-100 text-rose-900 border border-rose-400 font-bold px-1 py-0.2 rounded text-[9px]'
-        });
-    } else if (fullText.includes('DAY') || matchedBeat?.slug?.time?.toUpperCase().includes('DAY') || item.type === 'shot') {
-        tags.push({
-            label: 'DAY',
-            type: 'time',
-            icon: 'sun',
-            className: 'bg-amber-950/90 text-amber-300 border border-amber-600/60 font-mono font-bold px-1.5 py-0.5 rounded text-[10px] flex items-center gap-1',
-            pdfClassName: 'bg-amber-100 text-amber-900 border border-amber-400 font-bold px-1 py-0.2 rounded text-[9px]'
-        });
-    }
-
-    // 3. SFX / VFX / CGI / SPX Color Keys
-    if (item.fxKey && item.fxKey !== 'NONE') {
-        let fxClass = 'bg-fuchsia-950/90 text-fuchsia-300 border border-fuchsia-600/60';
-        if (item.fxKey === 'CGI') fxClass = 'bg-pink-950/90 text-pink-300 border border-pink-600/60';
-        if (item.fxKey === 'VFX') fxClass = 'bg-violet-950/90 text-violet-300 border border-violet-600/60';
-        if (item.fxKey === 'STUNT') fxClass = 'bg-red-950/90 text-red-300 border border-red-600/60';
-
-        tags.push({
-            label: item.fxKey,
-            type: 'fx',
-            icon: 'zap',
-            className: `${fxClass} font-mono font-black px-1.5 py-0.5 rounded text-[10px] flex items-center gap-1 shadow-sm`,
-            pdfClassName: 'bg-fuchsia-100 text-fuchsia-900 border border-fuchsia-400 font-bold px-1 py-0.2 rounded text-[9px]'
-        });
-    } else if (!item.fxKey) {
-        const isFx = fullText.includes('SFX') || 
-                     fullText.includes('VFX') || 
-                     fullText.includes('CGI') || 
-                     fullText.includes('SPX') || 
-                     fullText.includes('STUNT') || 
-                     fullText.includes('GREENSCREEN') || 
-                     fullText.includes('EXPLOSION') || 
-                     fullText.includes('PRACTICAL') || 
-                     Boolean((matchedShot as any)?.vfx) || 
-                     Boolean((matchedShot as any)?.sfx);
-
-        if (isFx) {
-            let fxLabel = 'SFX';
-            if (fullText.includes('CGI')) fxLabel = 'CGI';
-            else if (fullText.includes('SPX')) fxLabel = 'SPX';
-            else if (fullText.includes('VFX')) fxLabel = 'VFX';
-            else if (fullText.includes('STUNT')) fxLabel = 'STUNT';
-
-            tags.push({
-                label: fxLabel,
-                type: 'fx',
-                icon: 'zap',
-                className: 'bg-fuchsia-950/90 text-fuchsia-300 border border-fuchsia-600/60 font-mono font-black px-1.5 py-0.5 rounded text-[10px] flex items-center gap-1 shadow-sm',
-                pdfClassName: 'bg-fuchsia-100 text-fuchsia-900 border border-fuchsia-400 font-bold px-1 py-0.2 rounded text-[9px]'
-            });
-        }
-    }
-
-    return tags;
+// Helper formatting function for YYYY-MM-DD
+const formatDateStr = (date: Date): string => {
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
 };
 
-// --- POPULATE SCENE & SHOT DETAILS FROM SHOT DIVISION / SCRIPT BEATS ---
-const populateFromShotDivision = (
-    newSceneNo: string,
-    newShotNo: string,
-    generatedShots: Shot[],
-    beats: any[],
-    defaultShotMins: number
-): Partial<ScheduleItem> => {
-    const updates: Partial<ScheduleItem> = {
-        sceneNo: newSceneNo,
-        shotNo: newShotNo,
-    };
-
-    const cleanScene = (newSceneNo || '').trim();
-    const cleanShot = (newShotNo || '').trim().toLowerCase();
-
-    // 1. Look for matching Shot in Shot Division
-    let matchedShot: Shot | undefined;
-    if (cleanShot) {
-        matchedShot = generatedShots.find(s => 
-            String(s.scene || '').trim() === cleanScene && (
-                String(s.id || '').toLowerCase() === cleanShot ||
-                String(s.shotSize || '').toLowerCase() === cleanShot ||
-                `${s.shotSize || ''}-${s.id || ''}`.toLowerCase().includes(cleanShot)
-            )
-        ) || generatedShots.find(s => 
-            String(s.id || '').toLowerCase() === cleanShot ||
-            String(s.shotSize || '').toLowerCase() === cleanShot
-        );
-    }
-
-    if (!matchedShot && cleanScene) {
-        matchedShot = generatedShots.find(s => String(s.scene || '').trim() === cleanScene);
-    }
-
-    // 2. Look for matching Scene Beat
-    let matchedBeat = beats.find(b => 
-        String(b.sceneNumber || '').trim() === cleanScene || String(b.id || '') === cleanScene
-    );
-
-    if (matchedShot) {
-        if (!matchedBeat && matchedShot.scene) {
-            matchedBeat = beats.find(b => 
-                String(b.sceneNumber || '').trim() === String(matchedShot?.scene).trim() || 
-                String(b.id || '') === String(matchedShot?.scene)
-            );
-        }
-
-        const loc = matchedBeat?.slug?.location || (matchedShot as any).location || '';
-        if (loc) updates.location = loc;
-
-        const size = matchedShot.shotSize || 'WIDE';
-        const subj = matchedShot.subject || matchedShot.angle || `SCENE ${cleanScene || '1'} ACTION`;
-        updates.title = `${size} SHOT - ${subj}`;
-        
-        // Populate scene description & summary!
-        const sceneSummary = matchedBeat?.summary || (matchedBeat?.text ? matchedBeat.text.substring(0, 160) : '');
-        const shotDesc = matchedShot.description || matchedShot.notes || '';
-
-        if (sceneSummary && shotDesc) {
-            updates.description = `${sceneSummary} • ${shotDesc}`;
-        } else if (sceneSummary) {
-            updates.description = sceneSummary;
-        } else {
-            updates.description = shotDesc || `Coverage setup for Scene ${cleanScene || '1'}`;
-        }
-
-        if (matchedShot.lens) updates.cameraLens = matchedShot.lens;
-        if (matchedShot.angle) updates.angle = matchedShot.angle;
-        if (matchedShot.movement) updates.movement = matchedShot.movement;
-        if (matchedShot.durationSec) {
-            updates.durationMins = Math.max(5, Math.ceil(matchedShot.durationSec * 2.5));
-        } else {
-            updates.durationMins = defaultShotMins;
-        }
-    } else if (matchedBeat) {
-        const loc = matchedBeat.slug?.location || 'MAIN SET';
-        updates.location = loc;
-        const prefix = matchedBeat.slug?.prefix || 'INT.';
-        const timeOfDay = matchedBeat.slug?.time || 'DAY';
-        updates.title = `SCENE ${cleanScene} - ${prefix} ${loc} (${timeOfDay})`;
-
-        const sceneSummary = matchedBeat.summary || (matchedBeat.text ? matchedBeat.text.substring(0, 160) : 'Master scene action and dialogue coverage');
-        updates.description = `Scene ${cleanScene} (${matchedBeat.slug?.raw || `${prefix} ${loc} - ${timeOfDay}`}): ${sceneSummary}`;
-
-        updates.cameraLens = '35mm Prime';
-        updates.angle = 'Eye Level';
-        updates.movement = 'Static';
-        updates.durationMins = defaultShotMins;
-    }
-
-    return updates;
+const parseDateStr = (str: string): Date => {
+    const [y, m, d] = str.split('-').map(Number);
+    return new Date(y, m - 1, d);
 };
 
-// --- BUILD INITIAL SCHEDULE FROM SHOTS/BEATS ---
-const buildInitialSchedule = (generatedShots: Shot[] = [], beats: any[] = [], defaultShotMins: number = 15): ScheduleItem[] => {
-    const newItems: ScheduleItem[] = [];
+// Format short date string e.g. "Aug 12"
+const formatShortDate = (str: string): string => {
+    if (!str) return '';
+    const date = parseDateStr(str);
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+};
 
-    // Add Crew Arrival / Pre-light block
-    newItems.push({
-        id: `init-prelight-${Date.now()}`,
-        type: 'lighting',
-        title: 'Crew Arrival & Camera Pre-Light',
-        description: 'Unload gear, set up video village, lighting check & actor block',
-        durationMins: 30,
-        location: beats[0]?.slug?.location || 'LOCATION 1'
+// Helper function to build blocks from beats
+const buildBlocksFromBeats = (beatsList: Beat[], shotsList: Shot[]): BlockGroup[] => {
+    if (!beatsList || beatsList.length === 0) return [];
+
+    const groupsMap: Record<string, StripItem[]> = {};
+    beatsList.forEach((b, idx) => {
+        const scNo = b.sceneNumber || String(idx + 1);
+        const prefix = b.slug?.prefix || 'EXT';
+        const loc = (b.slug?.location || 'LOCATION').trim();
+        const time = (b.slug?.time || 'DAY').trim();
+        const isNight = time.toUpperCase().includes('NIGHT') || time.toUpperCase().includes('இரவு') || time.toUpperCase().includes('நள்ளிரவு');
+        const isExt = prefix.toUpperCase().includes('EXT');
+
+        let stType: StripType = 'EXTDAY';
+        if (isExt && isNight) stType = 'EXTNIGHT';
+        else if (!isExt && isNight) stType = 'INTNIGHT';
+        else if (!isExt && !isNight) stType = 'INTDAY';
+
+        const groupKey = `${loc.toUpperCase()} — ${isExt ? 'EXT' : 'INT'}`;
+        if (!groupsMap[groupKey]) groupsMap[groupKey] = [];
+
+        // Schedule dates sequentially starting 2026-08-10
+        const d = new Date(2026, 7, 10 + Math.floor(idx / 2));
+        const scheduledDate = formatDateStr(d);
+
+        const castTags = b.breakdown?.cast?.map(c => typeof c === 'string' ? c : (c as any).name).filter(Boolean) || [];
+
+        groupsMap[groupKey].push({
+            id: `strip-${b.id}`,
+            sceneNo: scNo,
+            slug: b.title || `${loc} (${prefix} ${time})`,
+            type: stType,
+            tags: castTags.length > 0 ? castTags : [time, prefix],
+            scheduledDate,
+            shotCount: shotsList.filter(s => String(s.scene) === scNo).length
+        });
     });
 
-    let currentLoc = beats[0]?.slug?.location || '';
-    let minsAccumulator = 30;
-    let mealAdded = false;
-
-    if (generatedShots && generatedShots.length > 0) {
-        generatedShots.forEach((shot, index) => {
-            const shotScene = shot.scene || '1';
-            const relatedBeat = beats.find(b => b?.sceneNumber === shotScene || (b?.id !== undefined && String(b.id) === shotScene));
-            const shotLoc = relatedBeat?.slug?.location || currentLoc || 'LOCATION 1';
-
-            // Insert Company Move if location changed
-            if (currentLoc && shotLoc !== currentLoc && index > 0) {
-                newItems.push({
-                    id: `move-${index}-${Date.now()}`,
-                    type: 'move',
-                    title: `Company Move to ${shotLoc.toUpperCase()}`,
-                    description: `Pack unit gear, transport cast/crew from ${currentLoc} to ${shotLoc}`,
-                    durationMins: 30,
-                    location: shotLoc
-                });
-                minsAccumulator += 30;
-                currentLoc = shotLoc;
-            } else if (!currentLoc) {
-                currentLoc = shotLoc;
-            }
-
-            // Check for Mandatory Meal Break around ~5.5 hours (330 mins) from Call
-            if (!mealAdded && minsAccumulator >= 300) {
-                newItems.push({
-                    id: `meal-${Date.now()}`,
-                    type: 'meal',
-                    title: 'Mandatory Crew Meal Break (Lunch)',
-                    description: '60-minute hot meal break for all departments. Catering setup.',
-                    durationMins: 60,
-                    location: currentLoc
-                });
-                minsAccumulator += 60;
-                mealAdded = true;
-            }
-
-            // Add Shot Item
-            newItems.push({
-                id: shot.id || `shot-item-${index}-${Date.now()}`,
-                type: 'shot',
-                sceneNo: String(shot.scene || '1'),
-                shotNo: shot.shotSize ? `${shot.shotSize.substring(0, 2)}-${index + 1}` : `S-${index + 1}`,
-                title: `${shot.shotSize || 'WIDE'} SHOT - ${shot.subject || shot.angle || 'SCENE ACTION'}`,
-                description: shot.description || 'Standard coverage setup and performance take.',
-                location: shotLoc,
-                cameraLens: (shot as any).cameraLens || shot.lens || '35mm Prime',
-                angle: shot.angle || 'Eye Level',
-                movement: shot.movement || 'Static',
-                durationMins: shot.durationSec ? Math.max(10, Math.ceil(shot.durationSec * 2.5)) : defaultShotMins
-            });
-
-            minsAccumulator += defaultShotMins;
-        });
-    } else if (beats && beats.length > 0) {
-        // Fallback: build schedule from Script Scene Beats
-        beats.forEach((beat, bIdx) => {
-            const loc = beat.slug?.location || 'MAIN SET';
-            if (currentLoc && loc !== currentLoc) {
-                newItems.push({
-                    id: `move-beat-${bIdx}`,
-                    type: 'move',
-                    title: `Company Move to ${loc.toUpperCase()}`,
-                    description: `Relocate equipment & cast to ${loc}`,
-                    durationMins: 25,
-                    location: loc
-                });
-                minsAccumulator += 25;
-                currentLoc = loc;
-            } else {
-                currentLoc = loc;
-            }
-
-            if (!mealAdded && minsAccumulator >= 300) {
-                newItems.push({
-                    id: `meal-${Date.now()}`,
-                    type: 'meal',
-                    title: 'Mandatory Crew Meal Break (Lunch)',
-                    description: '60-minute hot meal break for cast and crew.',
-                    durationMins: 60,
-                    location: currentLoc
-                });
-                minsAccumulator += 60;
-                mealAdded = true;
-            }
-
-            // Add coverage shots per scene
-            const sceneNum = beat.sceneNumber || (bIdx + 1).toString();
-            newItems.push({
-                id: `shot-master-${bIdx}`,
-                type: 'shot',
-                sceneNo: sceneNum,
-                shotNo: `1A`,
-                title: `Master Establishing Shot`,
-                description: `${beat.slug?.prefix || 'INT.'} ${loc} - ${beat.slug?.time || 'DAY'}`,
-                location: loc,
-                cameraLens: '24mm Wide',
-                angle: 'Eye Level',
-                movement: 'Static',
-                durationMins: 20
-            });
-
-            newItems.push({
-                id: `shot-close-${bIdx}`,
-                type: 'shot',
-                sceneNo: sceneNum,
-                shotNo: `1B`,
-                title: `Medium Close-Up Coverage`,
-                description: `Primary character dialog performance & coverage`,
-                location: loc,
-                cameraLens: '50mm Prime',
-                angle: 'Eye Level',
-                movement: 'Pan/Tilt',
-                durationMins: 15
-            });
-
-            minsAccumulator += 35;
-        });
-    } else {
-        // Default sample template
-        newItems.push({
-            id: 'sample-1',
-            type: 'shot',
-            sceneNo: '1',
-            shotNo: '1A',
-            title: 'EXT. STREET - WIDE ESTABLISHING',
-            description: 'Hero vehicle arrives on street scene',
-            location: 'CITY STREET',
-            cameraLens: '24mm Wide',
-            angle: 'Low Angle',
-            movement: 'Tracking Dolly',
-            durationMins: 20
-        });
-        newItems.push({
-            id: 'sample-2',
-            type: 'shot',
-            sceneNo: '1',
-            shotNo: '1B',
-            title: 'INT. CAR - MEDIUM CLOSE UP',
-            description: 'Protagonist reacts to incoming radio call',
-            location: 'CITY STREET',
-            cameraLens: '50mm Prime',
-            angle: 'Eye Level',
-            movement: 'Handheld',
-            durationMins: 15
-        });
-        newItems.push({
-            id: 'sample-meal',
-            type: 'meal',
-            title: 'Mandatory Crew Meal Break',
-            description: '60-minute catered lunch break',
-            durationMins: 60,
-            location: 'CATERING TENT'
-        });
-        newItems.push({
-            id: 'sample-3',
-            type: 'shot',
-            sceneNo: '2',
-            shotNo: '2A',
-            title: 'INT. DINER - MASTER COVERAGE',
-            description: 'Full conversation at corner booth table',
-            location: 'DINER',
-            cameraLens: '35mm Prime',
-            angle: 'High Angle',
-            movement: 'Steadicam',
-            durationMins: 25
-        });
-    }
-
-    // Add Tail-Lights Wrap block
-    newItems.push({
-        id: `wrap-${Date.now()}`,
-        type: 'wrap',
-        title: 'Tail-Lights Wrap & Gear De-Rig',
-        description: 'Pack camera packages, sound logs backup, wrap cast & tail-lights departure',
-        durationMins: 20,
-        location: currentLoc || 'MAIN SET'
-    });
-
-    return newItems;
+    return Object.entries(groupsMap).map(([title, strips], gIdx) => ({
+        id: `blk-dyn-${gIdx}`,
+        title,
+        meta: `${strips.length} ${strips.length === 1 ? 'scene' : 'scenes'} · scheduled`,
+        lockState: gIdx === 0 ? 'hard' : 'soft',
+        strips
+    }));
 };
 
-// Helper to build 15 Shoot Days for a Schedule Block (e.g. 1st Schedule)
-const build15ShootDaysForBlock = (
-    startDate: string,
-    totalDaysCount: number = 15,
-    generatedShots: Shot[] = [],
-    beats: any[] = [],
-    defaultShotMins: number = 15
-): ShootDay[] => {
-    const days: ShootDay[] = [];
-    const hasShots = generatedShots && generatedShots.length > 0;
-    const shotsPerDay = hasShots ? Math.max(1, Math.ceil(generatedShots.length / totalDaysCount)) : 0;
+const DEFAULT_ANCHORS: AnchorItem[] = [];
+const DEFAULT_RESOURCES: ResourcePressure[] = [];
 
-    for (let i = 0; i < totalDaysCount; i++) {
-        const dayNum = i + 1;
-        const dayDate = addDaysToYMD(startDate, i);
-        const dayId = `day-${dayNum}-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
-
-        let dayShots: Shot[] = [];
-        if (hasShots) {
-            const startIdx = i * shotsPerDay;
-            dayShots = generatedShots.slice(startIdx, startIdx + shotsPerDay);
-        }
-
-        const items = buildInitialSchedule(dayShots, beats, defaultShotMins);
-
-        days.push({
-            id: dayId,
-            dayNumber: dayNum,
-            date: dayDate,
-            crewCallTime: '06:00 AM',
-            locationNote: (dayShots[0] as any)?.location || beats[0]?.slug?.location || 'MAIN LOCATION',
-            items: items
-        });
-    }
-
-    return days;
+const STRATEGY_NOTES: Record<OptimizationStrategy, string> = {
+    balanced: 'Balancing cost, moves and continuity risk evenly. No single metric dominates.',
+    lowest_cost: 'Reordering to shrink company moves first.',
+    fastest_shoot: 'Compressing to fewest calendar days.',
+    max_actor_eff: "Clustering everything around main cast availability.",
+    min_moves: 'Minimizing unit relocations across locations.',
+    min_continuity_risk: "Prioritizing costume, makeup and injury continuity."
 };
+
+const DEFAULT_BLOCKS: BlockGroup[] = [];
+
+const WHAT_IF_RIPPLES: Record<string, WhatIfRipple> = {};
 
 const ScheduleView: React.FC = () => {
     const project = useProject() || {};
-    const generatedShots = project.generatedShots || [];
-    const beats = project.beats || [];
-    const scriptConfig = project.scriptConfig || { noteFont: 'Courier New' };
+    const generatedShots: Shot[] = project.generatedShots || [];
+    const beats: Beat[] = project.beats || [];
     const projectList = project.projectList || [];
     const currentProjectId = project.currentProjectId;
-    const currentProjectName = projectList.find((p: any) => p.id === currentProjectId)?.name || 'Untitled Feature Film';
-    const appTheme = project.appTheme || 'dark';
+    const currentProjectName = projectList.find((p: any) => p.id === currentProjectId)?.name || 'PROJECT';
 
-    const isLight = appTheme === 'light' || (appTheme === 'system' && typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: light)').matches);
+    // Strategy & UI States
+    const [scheduleTab, setScheduleTab] = useState<'stripboard' | 'locations'>('locations');
+    const [strategy, setStrategy] = useState<OptimizationStrategy>('balanced');
+    const [selectedStripId, setSelectedStripId] = useState<string>('1');
+    const [activeWhatIfKey, setActiveWhatIfKey] = useState<string | null>(null);
 
-    // Master Anchor & Setup Config
-    const [defaultShotMins, setDefaultShotMins] = useState<number>(15);
-    const [filterCategory, setFilterCategory] = useState<'all' | 'shots' | 'logistics'>('all');
-    const [searchQuery, setSearchQuery] = useState<string>('');
-    const [showPdfModal, setShowPdfModal] = useState<boolean>(false);
-    const [isExportingPdf, setIsExportingPdf] = useState<boolean>(false);
-    const [copySuccess, setCopySuccess] = useState<boolean>(false);
-    const pdfPrintRef = useRef<HTMLDivElement>(null);
+    // Multi-Month Calendar States
+    const [isCalendarOpen, setIsCalendarOpen] = useState<boolean>(true);
+    const [monthCount, setMonthCount] = useState<number>(2); // 1, 2, 3, 4
+    const [startYear, setStartYear] = useState<number>(2026);
+    const [startMonthIndex, setStartMonthIndex] = useState<number>(7); // 0-indexed (7 = August)
+    
+    // Scrubbed Range State [startDateStr, endDateStr] e.g. ["2026-08-10", "2026-08-18"]
+    const [scrubRange, setScrubRange] = useState<[string | null, string | null]>(['2026-08-10', '2026-08-18']);
+    const [isDraggingScrub, setIsDraggingScrub] = useState<boolean>(false);
+    const [dragStartDay, setDragStartDay] = useState<string | null>(null);
 
-    // Schedule Blocks State (e.g. 1st Schedule, 2nd Schedule) each containing 1-15 Shoot Days
-    const [scheduleBlocks, setScheduleBlocks] = useState<ScheduleBlock[]>(() => {
-        const todayStr = getTodayYMD();
-        const initialDays = build15ShootDaysForBlock(todayStr, 15, generatedShots, beats, 15);
-        return [
-            {
-                id: 'block-1',
-                scheduleNumber: 1,
-                name: '1st Schedule',
-                startDate: todayStr,
-                totalDaysCount: 15,
-                days: initialDays,
-                activeDayId: initialDays[0].id
-            }
-        ];
-    });
+    // Filter Mode toggle for scrubbed range: 'all_highlighted' vs 'scrubbed_only'
+    const [filterByScrubbedOnly, setFilterByScrubbedOnly] = useState<boolean>(false);
 
-    const [activeBlockId, setActiveBlockId] = useState<string>('block-1');
+    // Popup Modal State for Scene Selection on Scrubbed Days
+    const [isScrubModalOpen, setIsScrubModalOpen] = useState<boolean>(false);
+    const [popupSearch, setPopupSearch] = useState<string>('');
+    const [popupLocation, setPopupLocation] = useState<string>('ALL');
+    const [popupType, setPopupType] = useState<string>('ALL');
+    const [popupCast, setPopupCast] = useState<string>('ALL');
+    const [popupEquipment, setPopupEquipment] = useState<string>('ALL');
+    const [popupStatus, setPopupStatus] = useState<string>('ALL');
+    const [selectedSceneIdsForScrub, setSelectedSceneIdsForScrub] = useState<string[]>([]);
 
-    // Active Schedule Block computed reference
-    const activeBlock = useMemo(() => {
-        return scheduleBlocks.find(b => b.id === activeBlockId) || scheduleBlocks[0];
-    }, [scheduleBlocks, activeBlockId]);
+    // Shot Division Sync Status
+    const [lastSyncTime, setLastSyncTime] = useState<string | null>(new Date().toLocaleTimeString());
+    const [syncedShotCount, setSyncedShotCount] = useState<number>(generatedShots.length);
 
-    // Active Shoot Day computed reference
-    const activeDay = useMemo(() => {
-        return activeBlock.days.find(d => d.id === activeBlock.activeDayId) || activeBlock.days[0] || {
-            id: 'day-1',
-            dayNumber: 1,
-            date: getTodayYMD(),
-            crewCallTime: '06:00 AM',
-            items: []
-        };
-    }, [activeBlock]);
+    // Master Blocks State - populated from project beats
+    const computedBlocks = useMemo(() => buildBlocksFromBeats(beats, generatedShots), [beats, generatedShots]);
+    const [blocks, setBlocks] = useState<BlockGroup[]>(computedBlocks);
 
-    const items = activeDay.items || [];
-    const crewCallTime = activeDay.crewCallTime || '06:00 AM';
-
-    const setCrewCallTime = (timeStr: string) => {
-        setScheduleBlocks(prev => prev.map(block => {
-            if (block.id === activeBlock.id) {
-                const updatedDays = block.days.map(d => d.id === activeDay.id ? { ...d, crewCallTime: timeStr } : d);
-                return { ...block, days: updatedDays };
-            }
-            return block;
-        }));
-    };
-
-    const setItems = (actionOrItems: ScheduleItem[] | ((prev: ScheduleItem[]) => ScheduleItem[])) => {
-        setScheduleBlocks(prev => prev.map(block => {
-            if (block.id === activeBlock.id) {
-                const updatedDays = block.days.map(d => {
-                    if (d.id === activeDay.id) {
-                        const nextItems = typeof actionOrItems === 'function' ? actionOrItems(d.items) : actionOrItems;
-                        return { ...d, items: nextItems };
-                    }
-                    return d;
-                });
-                return { ...block, days: updatedDays };
-            }
-            return block;
-        }));
-    };
-
-    // --- SCHEDULE & DAY MANAGEMENT HANDLERS ---
-    const handleSelectShootDay = (dayId: string) => {
-        setScheduleBlocks(prev => prev.map(block => block.id === activeBlock.id ? { ...block, activeDayId: dayId } : block));
-    };
-
-    const handleAddShootDay = () => {
-        const nextDayNum = activeBlock.days.length + 1;
-        const lastDay = activeBlock.days[activeBlock.days.length - 1];
-        const nextDateStr = lastDay ? addDaysToYMD(lastDay.date, 1) : getTodayYMD();
-        const newDayId = `day-${nextDayNum}-${Date.now()}`;
-
-        const newDay: ShootDay = {
-            id: newDayId,
-            dayNumber: nextDayNum,
-            date: nextDateStr,
-            crewCallTime: '06:00 AM',
-            locationNote: 'LOCATION',
-            items: buildInitialSchedule([], beats, defaultShotMins)
-        };
-
-        setScheduleBlocks(prev => prev.map(block => {
-            if (block.id === activeBlock.id) {
-                return {
-                    ...block,
-                    totalDaysCount: block.totalDaysCount + 1,
-                    days: [...block.days, newDay],
-                    activeDayId: newDayId
-                };
-            }
-            return block;
-        }));
-    };
-
-    const handlePopulate15DaySchedule = () => {
-        const freshDays = build15ShootDaysForBlock(activeBlock.startDate, 15, generatedShots, beats, defaultShotMins);
-        setScheduleBlocks(prev => prev.map(block => {
-            if (block.id === activeBlock.id) {
-                return {
-                    ...block,
-                    totalDaysCount: 15,
-                    days: freshDays,
-                    activeDayId: freshDays[0].id
-                };
-            }
-            return block;
-        }));
-    };
-
-    const handleAddScheduleBlock = () => {
-        const nextBlockNum = scheduleBlocks.length + 1;
-        const nextName = getOrdinalName(nextBlockNum);
-        const lastBlock = scheduleBlocks[scheduleBlocks.length - 1];
-        const lastDay = lastBlock?.days[lastBlock.days.length - 1];
-        const newStartDate = lastDay ? addDaysToYMD(lastDay.date, 1) : getTodayYMD();
-
-        const newDays = build15ShootDaysForBlock(newStartDate, 15, generatedShots, beats, defaultShotMins);
-        const newBlockId = `block-${Date.now()}`;
-
-        const newBlock: ScheduleBlock = {
-            id: newBlockId,
-            scheduleNumber: nextBlockNum,
-            name: nextName,
-            startDate: newStartDate,
-            totalDaysCount: 15,
-            days: newDays,
-            activeDayId: newDays[0].id
-        };
-
-        setScheduleBlocks(prev => [...prev, newBlock]);
-        setActiveBlockId(newBlockId);
-    };
-
-    const handleUpdateActiveBlockName = (name: string) => {
-        setScheduleBlocks(prev => prev.map(b => b.id === activeBlock.id ? { ...b, name } : b));
-    };
-
-    const handleUpdateActiveBlockStartDate = (startDate: string) => {
-        setScheduleBlocks(prev => prev.map(b => {
-            if (b.id === activeBlock.id) {
-                const shiftDays = b.days.map((d, idx) => ({
-                    ...d,
-                    date: addDaysToYMD(startDate, idx)
-                }));
-                return { ...b, startDate, days: shiftDays };
-            }
-            return b;
-        }));
-    };
-
-    const handleUpdateActiveDayDate = (newDate: string) => {
-        setScheduleBlocks(prev => prev.map(b => {
-            if (b.id === activeBlock.id) {
-                const updatedDays = b.days.map(d => d.id === activeDay.id ? { ...d, date: newDate } : d);
-                return { ...b, days: updatedDays };
-            }
-            return b;
-        }));
-    };
-
-    const handleDeleteShootDay = (dayId: string) => {
-        if (activeBlock.days.length <= 1) return;
-        const remaining = activeBlock.days.filter(d => d.id !== dayId);
-        const renumbered = remaining.map((d, idx) => ({ ...d, dayNumber: idx + 1 }));
-        setScheduleBlocks(prev => prev.map(b => {
-            if (b.id === activeBlock.id) {
-                return {
-                    ...b,
-                    totalDaysCount: renumbered.length,
-                    days: renumbered,
-                    activeDayId: activeBlock.activeDayId === dayId ? renumbered[0].id : activeBlock.activeDayId
-                };
-            }
-            return b;
-        }));
-    };
-
-    const handleDeleteScheduleBlock = (blockId: string) => {
-        if (scheduleBlocks.length <= 1) return;
-        const remaining = scheduleBlocks.filter(b => b.id !== blockId);
-        setScheduleBlocks(remaining);
-        if (activeBlockId === blockId) {
-            setActiveBlockId(remaining[0].id);
-        }
-    };
-
-    // Re-sync initial schedule for active schedule
-    const generateInitialSchedule = () => {
-        setItems(buildInitialSchedule(generatedShots, beats, defaultShotMins));
-    };
-
+    const prevComputedRef = useRef(computedBlocks);
     useEffect(() => {
-        if (items.length === 0) {
-            generateInitialSchedule();
+        if (JSON.stringify(prevComputedRef.current) !== JSON.stringify(computedBlocks)) {
+            prevComputedRef.current = computedBlocks;
+            setBlocks(computedBlocks);
         }
-    }, [items.length]);
+    }, [computedBlocks]);
 
-    // --- CASCADING TIME & CAMERA SETUP ENGINE ---
-    const cascadedData = useMemo(() => {
-        const crewCallMins = timeToMins(crewCallTime);
-        let currentMins = crewCallMins;
-        let setupCount = 0;
-        let lastShotSpec: { location?: string; cameraLens?: string; angle?: string; movement?: string } | null = null;
-        let firstShotCallTime = '';
-        let hasMealBreak = false;
-        let firstMealStartMins = -1;
-
-        const calculatedItems: ScheduleItem[] = items.map((item) => {
-            const startMins = currentMins;
-            const endMins = currentMins + item.durationMins;
-            const startMinFromCall = startMins - crewCallMins;
-            const endMinFromCall = endMins - crewCallMins;
-
-            currentMins = endMins;
-
-            let setupNum: number | undefined = undefined;
-
-            if (item.type === 'shot') {
-                if (!firstShotCallTime) {
-                    firstShotCallTime = minsToTime(startMins);
-                }
-
-                const isSpecChanged = !lastShotSpec || 
-                    lastShotSpec.location !== item.location ||
-                    lastShotSpec.cameraLens !== item.cameraLens ||
-                    lastShotSpec.angle !== item.angle ||
-                    lastShotSpec.movement !== item.movement;
-
-                if (isSpecChanged) {
-                    setupCount++;
-                }
-
-                setupNum = setupCount;
-                lastShotSpec = {
-                    location: item.location,
-                    cameraLens: item.cameraLens,
-                    angle: item.angle,
-                    movement: item.movement
-                };
-            }
-
-            if (item.type === 'meal') {
-                hasMealBreak = true;
-                if (firstMealStartMins === -1) {
-                    firstMealStartMins = startMinFromCall;
-                }
-            }
-
-            return {
-                ...item,
-                startTime: minsToTime(startMins),
-                endTime: minsToTime(endMins),
-                startMinFromCall,
-                endMinFromCall,
-                setupNumber: setupNum,
-                cumulativeMins: endMinFromCall,
-                isOvertime: endMinFromCall > 720 // > 12.0 Hours
-            };
-        });
-
-        const totalElapsedMins = currentMins - crewCallMins;
-        const totalElapsedHours = Number((totalElapsedMins / 60).toFixed(2));
-        const estimatedWrapTime = minsToTime(currentMins);
-
-        // Overtime Status Logic
-        let overtimeStatus: 'standard' | 'warning' | 'critical' = 'standard';
-        let overtimeLabel = 'STANDARD DAY (≤12.0h)';
-        let overtimeColorClass = 'bg-emerald-950/80 text-emerald-400 border-emerald-700/60';
-
-        if (totalElapsedHours > 14.0) {
-            overtimeStatus = 'critical';
-            overtimeLabel = 'CRITICAL OVERTIME (>14.0h)';
-            overtimeColorClass = 'bg-red-950/80 text-red-400 border-red-700/60';
-        } else if (totalElapsedHours > 12.0) {
-            overtimeStatus = 'warning';
-            overtimeLabel = 'OVERTIME WARNING (12.0h - 14.0h)';
-            overtimeColorClass = 'bg-amber-950/80 text-amber-400 border-amber-700/60';
-        }
-
-        // Meal Break 6-Hour Violation Check
-        const mealViolation = !hasMealBreak || (firstMealStartMins > 360);
-
-        const shotCount = calculatedItems.filter(i => i.type === 'shot').length;
-
-        return {
-            calculatedItems,
-            crewCallTime,
-            firstShotCallTime: firstShotCallTime || minsToTime(crewCallMins),
-            estimatedWrapTime,
-            totalElapsedMins,
-            totalElapsedHours,
-            overtimeStatus,
-            overtimeLabel,
-            overtimeColorClass,
-            totalSetups: setupCount,
-            shotCount,
-            mealViolation,
-            firstMealStartMins
-        };
-    }, [items, crewCallTime]);
-
-    // --- ITEM ACTIONS ---
-    const handleAddLogisticsItem = (type: ScheduleItemType, afterIndex?: number) => {
-        const titles: Record<ScheduleItemType, string> = {
-            shot: 'New Camera Shot Coverage',
-            meal: 'Department Meal Break (Lunch)',
-            move: 'Company Unit Location Move',
-            lighting: 'Camera Turnaround & Relight',
-            wrap: 'Tail-Lights Wrap'
-        };
-
-        const defaultDurations: Record<ScheduleItemType, number> = {
-            shot: defaultShotMins,
-            meal: 60,
-            move: 30,
-            lighting: 20,
-            wrap: 15
-        };
-
-        const newItem: ScheduleItem = {
-            id: `item-${Date.now()}`,
-            type,
-            title: titles[type],
-            description: type === 'shot' ? 'Camera coverage setup' : 'Logistics event block',
-            durationMins: defaultDurations[type],
-            location: 'CURRENT SET'
-        };
-
-        const updated = [...items];
-        if (afterIndex !== undefined && afterIndex >= 0) {
-            updated.splice(afterIndex + 1, 0, newItem);
-        } else {
-            updated.push(newItem);
-        }
-        setItems(updated);
-    };
-
-    const handleUpdateItem = (id: string, updates: Partial<ScheduleItem>) => {
-        setItems(prev => prev.map(item => item.id === id ? { ...item, ...updates } : item));
-    };
-
-    const handleRemoveItem = (id: string) => {
-        setItems(prev => prev.filter(item => item.id !== id));
-    };
-
-    // UI Layout & Drag-and-Drop State
-    const [showFullStats, setShowFullStats] = useState<boolean>(true);
-    const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
-    const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
-
-    const handleDragStart = (e: React.DragEvent, index: number) => {
-        setDraggedIndex(index);
-        e.dataTransfer.effectAllowed = 'move';
-        e.dataTransfer.setData('text/plain', index.toString());
-    };
-
-    const handleDragOver = (e: React.DragEvent, index: number) => {
-        e.preventDefault();
-        e.dataTransfer.dropEffect = 'move';
-        if (dragOverIndex !== index) {
-            setDragOverIndex(index);
-        }
-    };
-
-    const handleDrop = (e: React.DragEvent, targetIndex: number) => {
-        e.preventDefault();
-        if (draggedIndex === null || draggedIndex === targetIndex) {
-            setDraggedIndex(null);
-            setDragOverIndex(null);
+    // --- SYNC SHOT DIVISION DATA INTO STRIPBOARD ---
+    const handleSyncShotDivision = () => {
+        if (!generatedShots || generatedShots.length === 0) {
+            setBlocks(buildBlocksFromBeats(beats, []));
+            setSyncedShotCount(0);
+            setLastSyncTime(new Date().toLocaleTimeString());
             return;
         }
-        const updated = [...items];
-        const [moved] = updated.splice(draggedIndex, 1);
-        updated.splice(targetIndex, 0, moved);
-        setItems(updated);
-        setDraggedIndex(null);
-        setDragOverIndex(null);
-    };
 
-    const handleDragEnd = () => {
-        setDraggedIndex(null);
-        setDragOverIndex(null);
-    };
-
-    const handleSelectShotDirectly = (itemId: string, selectedShotId: string) => {
-        if (!selectedShotId) return;
-        const matchedShot = generatedShots.find(s => String(s.id) === String(selectedShotId));
-        if (!matchedShot) return;
-
-        const cleanScene = String(matchedShot.scene || '1').trim();
-        const matchedBeat = beats.find(b => 
-            String(b.sceneNumber || '').trim() === cleanScene || 
-            String(b.id || '') === cleanScene
-        );
-
-        const loc = matchedBeat?.slug?.location || (matchedShot as any).location || 'MAIN SET';
-        const size = matchedShot.shotSize || 'WIDE';
-        const subj = matchedShot.subject || matchedShot.angle || `SCENE ${cleanScene} ACTION`;
-
-        handleUpdateItem(itemId, {
-            sceneNo: cleanScene,
-            shotNo: matchedShot.shotSize ? `${matchedShot.shotSize.substring(0, 3)}-${matchedShot.id}` : String(matchedShot.id),
-            title: `${size} SHOT - ${subj}`,
-            description: matchedShot.description || matchedShot.notes || 'Coverage setup from Shot Division',
-            location: loc,
-            cameraLens: (matchedShot as any).cameraLens || matchedShot.lens || '35mm Prime',
-            angle: matchedShot.angle || 'Eye Level',
-            movement: matchedShot.movement || 'Static',
-            durationMins: matchedShot.durationSec ? Math.max(5, Math.ceil(matchedShot.durationSec * 2.5)) : defaultShotMins
+        // Group generatedShots by scene number or location
+        const sceneMap: Record<string, Shot[]> = {};
+        generatedShots.forEach((s) => {
+            const scKey = String(s.scene || '1');
+            if (!sceneMap[scKey]) sceneMap[scKey] = [];
+            sceneMap[scKey].push(s);
         });
-    };
 
-    const handleSceneChange = (id: string, sceneNo: string) => {
-        const item = items.find(i => i.id === id);
-        if (!item) return;
-        const currentShotNo = item.shotNo || '';
-        const autoPopulated = populateFromShotDivision(sceneNo, currentShotNo, generatedShots, beats, defaultShotMins);
-        handleUpdateItem(id, autoPopulated);
-    };
+        const newBlocks: BlockGroup[] = [];
+        let dateCounter = new Date(2026, 7, 10); // Start Aug 10, 2026
 
-    const handleShotChange = (id: string, shotNo: string) => {
-        const item = items.find(i => i.id === id);
-        if (!item) return;
-        const currentSceneNo = item.sceneNo || '';
-        const autoPopulated = populateFromShotDivision(currentSceneNo, shotNo, generatedShots, beats, defaultShotMins);
-        handleUpdateItem(id, autoPopulated);
-    };
+        const sceneKeys = Object.keys(sceneMap).sort((a, b) => Number(a) - Number(b));
+        
+        // Group into Hospital, Exterior, Action, General blocks
+        const hospitalStrips: StripItem[] = [];
+        const exteriorStrips: StripItem[] = [];
+        const actionStrips: StripItem[] = [];
+        const generalStrips: StripItem[] = [];
 
-    // --- PDF / PRINT HANDLERS ---
-    const handlePrintPdf = () => {
-        window.print();
-    };
+        sceneKeys.forEach((scNum, idx) => {
+            const shots = sceneMap[scNum];
+            const firstShot = shots[0];
+            const descUpper = (firstShot.description || firstShot.subject || '').toUpperCase();
+            
+            const isNight = descUpper.includes('NIGHT');
+            const isExt = descUpper.includes('EXT') || descUpper.includes('OUTDOOR');
+            let stType: StripType = 'INTDAY';
+            if (isExt && isNight) stType = 'EXTNIGHT';
+            else if (isExt) stType = 'EXTDAY';
+            else if (isNight) stType = 'INTNIGHT';
 
-    const handleExportPdfFile = async () => {
-        if (!pdfPrintRef.current) return;
-        try {
-            setIsExportingPdf(true);
-            const canvas = await html2canvas(pdfPrintRef.current, {
-                scale: 2,
-                useCORS: true,
-                backgroundColor: '#ffffff'
-            });
-            const imgData = canvas.toDataURL('image/jpeg', 0.95);
-            const pdf = new jsPDF({
-                orientation: 'landscape',
-                unit: 'mm',
-                format: 'a4'
-            });
-            const imgWidth = 297; // A4 landscape width mm
-            const pageHeight = 210; // A4 landscape height mm
-            const imgHeight = (canvas.height * imgWidth) / canvas.width;
-            let heightLeft = imgHeight;
-            let position = 0;
+            const scheduledDate = formatDateStr(dateCounter);
+            dateCounter.setDate(dateCounter.getDate() + 1);
 
-            pdf.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight);
-            heightLeft -= pageHeight;
+            const tags = Array.from(new Set([
+                firstShot.shotSize || 'MEDIUM',
+                firstShot.lens || '35mm',
+                firstShot.movement || 'Static',
+                ...shots.map(st => st.subject).filter(Boolean)
+            ])).slice(0, 3);
 
-            while (heightLeft > 0) {
-                position = heightLeft - imgHeight;
-                pdf.addPage();
-                pdf.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight);
-                heightLeft -= pageHeight;
+            const stripItem: StripItem = {
+                id: `sync-sc-${scNum}`,
+                sceneNo: scNum,
+                slug: firstShot.subject || firstShot.description?.substring(0, 35) || `Scene ${scNum} Coverage`,
+                type: stType,
+                scheduledDate,
+                tags,
+                shotCount: shots.length,
+                shotIds: shots.map(s => s.id)
+            };
+
+            if (idx === 1) {
+                stripItem.conflictType = 'warn';
+                stripItem.conflictTitle = `Scene ${scNum} — child artist hours`;
+                stripItem.conflictReasons = ['5h morning camera cap applies to child artist in this setup.'];
+                stripItem.suggestion = 'Prioritize closeups in first 3 hours.';
             }
 
-            const cleanProjectName = currentProjectName.replace(/[^a-zA-Z0-9_-]/g, '_');
-            pdf.save(`${cleanProjectName}_Shooting_Schedule_CallSheet.pdf`);
+            if (descUpper.includes('HOSPITAL') || descUpper.includes('ICU')) {
+                hospitalStrips.push(stripItem);
+            } else if (descUpper.includes('NIGHT') || descUpper.includes('FIGHT') || descUpper.includes('CHASE')) {
+                actionStrips.push(stripItem);
+            } else if (isExt) {
+                exteriorStrips.push(stripItem);
+            } else {
+                generalStrips.push(stripItem);
+            }
+        });
+
+        // Assemble blocks
+        if (hospitalStrips.length > 0) {
+            newBlocks.push({
+                id: 'blk-hosp-sync',
+                title: 'HOSPITAL / INT SETS',
+                meta: `${hospitalStrips.length} scenes · hard locked`,
+                lockState: 'hard',
+                strips: hospitalStrips
+            });
+        }
+
+        if (exteriorStrips.length > 0) {
+            newBlocks.push({
+                id: 'blk-[#E0A339]',
+                title: 'EXTERIOR LOCATIONS',
+                meta: `${exteriorStrips.length} scenes · soft locked`,
+                lockState: 'soft',
+                strips: exteriorStrips
+            });
+        }
+
+        if (actionStrips.length > 0) {
+            newBlocks.push({
+                id: 'blk-action-sync',
+                title: 'NIGHT / ACTION STUNTS',
+                meta: `${actionStrips.length} scenes · unlocked`,
+                lockState: 'unlocked',
+                strips: actionStrips
+            });
+        }
+
+        if (generalStrips.length > 0) {
+            newBlocks.push({
+                id: 'blk-general-sync',
+                title: 'PRINCIPAL PHOTOGRAPHY',
+                meta: `${generalStrips.length} scenes`,
+                lockState: 'soft',
+                strips: generalStrips
+            });
+        }
+
+        // Fallback if empty groupings
+        if (newBlocks.length === 0) {
+            newBlocks.push({
+                id: 'blk-shotdivision',
+                title: 'SHOT DIVISION SCENES',
+                meta: `${generatedShots.length} total shots synchronized`,
+                lockState: 'soft',
+                strips: sceneKeys.map((scNum, i) => {
+                    const shots = sceneMap[scNum];
+                    return {
+                        id: `sc-${scNum}`,
+                        sceneNo: scNum,
+                        slug: shots[0]?.subject || shots[0]?.description || `Scene ${scNum}`,
+                        type: 'INTDAY',
+                        scheduledDate: formatDateStr(new Date(2026, 7, 10 + i)),
+                        tags: [shots[0]?.shotSize || 'MEDIUM', `${shots.length} shots`]
+                    };
+                })
+            });
+        }
+
+        setBlocks(newBlocks);
+        setSyncedShotCount(generatedShots.length);
+        setLastSyncTime(new Date().toLocaleTimeString());
+    };
+
+    // Sync on initial mount or when generatedShots changes
+    useEffect(() => {
+        if (generatedShots && generatedShots.length > 0) {
+            handleSyncShotDivision();
+        }
+    }, [generatedShots.length]);
+
+    // Check if date falls in scrubbed range
+    const isDateInScrubbedRange = (dateStr: string): boolean => {
+        if (!scrubRange[0] || !scrubRange[1] || !dateStr) return false;
+        const start = scrubRange[0] < scrubRange[1] ? scrubRange[0] : scrubRange[1];
+        const end = scrubRange[0] < scrubRange[1] ? scrubRange[1] : scrubRange[0];
+        return dateStr >= start && dateStr <= end;
+    };
+
+    // Filtered Blocks based on scrubbed dates if filterByScrubbedOnly is true
+    const displayBlocks = useMemo(() => {
+        if (!filterByScrubbedOnly || !scrubRange[0] || !scrubRange[1]) return blocks;
+
+        return blocks.map(b => ({
+            ...b,
+            strips: b.strips.filter(s => isDateInScrubbedRange(s.scheduledDate))
+        })).filter(b => b.strips.length > 0);
+    }, [blocks, filterByScrubbedOnly, scrubRange]);
+
+    // Selected Strip & Conflict lookup
+    const selectedStrip = useMemo(() => {
+        for (const b of blocks) {
+            const found = b.strips.find(s => s.id === selectedStripId);
+            if (found) return found;
+        }
+        return blocks[0]?.strips[0];
+    }, [blocks, selectedStripId]);
+
+    // Count scenes in scrubbed range
+    const scrubbedSceneCount = useMemo(() => {
+        let count = 0;
+        blocks.forEach(b => {
+            b.strips.forEach(s => {
+                if (isDateInScrubbedRange(s.scheduledDate)) count++;
+            });
+        });
+        return count;
+    }, [blocks, scrubRange]);
+
+    // Health Score calculation dynamically adjusts if scrubbing active window
+    const healthScore = useMemo(() => {
+        let score = 78;
+        if (strategy === 'lowest_cost') score = 84;
+        if (strategy === 'fastest_shoot') score = 69;
+        if (strategy === 'max_actor_eff') score = 88;
+        if (strategy === 'min_moves') score = 91;
+        if (strategy === 'min_continuity_risk') score = 86;
+
+        // If scrubbed window contains hard conflict (Aug 11 Scene 13)
+        if (isDateInScrubbedRange('2026-08-11')) {
+            score -= 6;
+        }
+        return Math.max(50, Math.min(99, score));
+    }, [strategy, scrubRange]);
+
+    // PDF Call Sheet modal
+    const [showPdfModal, setShowPdfModal] = useState<boolean>(false);
+    const [isExportingPdf, setIsExportingPdf] = useState<boolean>(false);
+    const pdfPrintRef = useRef<HTMLDivElement>(null);
+
+    const handleExportPdf = async () => {
+        if (!pdfPrintRef.current) return;
+        setIsExportingPdf(true);
+        try {
+            const canvas = await html2canvas(pdfPrintRef.current, { scale: 2, useCORS: true });
+            const imgData = canvas.toDataURL('image/png');
+            const pdf = new jsPDF('p', 'mm', 'a4');
+            const pdfWidth = pdf.internal.pageSize.getWidth();
+            const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+            pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
+            pdf.save(`${currentProjectName.replace(/\s+/g, '_')}_1stAD_Schedule.pdf`);
+            setShowPdfModal(false);
         } catch (err) {
-            console.error('Failed to export PDF file:', err);
+            console.error('PDF Export Error:', err);
         } finally {
             setIsExportingPdf(false);
         }
     };
 
-    const filteredItems = useMemo(() => {
-        return cascadedData.calculatedItems.filter(item => {
-            if (filterCategory === 'shots' && item.type !== 'shot') return false;
-            if (filterCategory === 'logistics' && item.type === 'shot') return false;
+    // Calendar Generation
+    const monthList = useMemo(() => {
+        const months = [];
+        for (let i = 0; i < monthCount; i++) {
+            const date = new Date(startYear, startMonthIndex + i, 1);
+            const year = date.getFullYear();
+            const month = date.getMonth();
+            const monthName = date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+            
+            const firstDayOfWeek = new Date(year, month, 1).getDay();
+            const daysInMonth = new Date(year, month + 1, 0).getDate();
 
-            if (searchQuery.trim()) {
-                const q = searchQuery.toLowerCase();
-                const matchTitle = item.title.toLowerCase().includes(q);
-                const matchDesc = item.description.toLowerCase().includes(q);
-                const matchLoc = item.location?.toLowerCase().includes(q);
-                const matchScene = item.sceneNo?.toLowerCase().includes(q);
-                return matchTitle || matchDesc || matchLoc || matchScene;
+            const daysArray = [];
+            // Padding empty slots
+            for (let p = 0; p < firstDayOfWeek; p++) {
+                daysArray.push(null);
             }
-            return true;
-        });
-    }, [cascadedData.calculatedItems, filterCategory, searchQuery]);
+            // Days
+            for (let d = 1; d <= daysInMonth; d++) {
+                const dateStr = formatDateStr(new Date(year, month, d));
+                
+                // Find strips on this date
+                const stripsOnDay: StripItem[] = [];
+                blocks.forEach(b => {
+                    b.strips.forEach(s => {
+                        if (s.scheduledDate === dateStr) stripsOnDay.push(s);
+                    });
+                });
 
-    // Category styling badges
-    const getCategoryBadge = (type: ScheduleItemType) => {
-        switch (type) {
-            case 'shot':
-                return <span className="bg-sky-950/80 text-sky-400 border border-sky-800/60 px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider flex items-center gap-1"><Camera size={11} /> Shot</span>;
-            case 'meal':
-                return <span className="bg-emerald-950/80 text-emerald-400 border border-emerald-800/60 px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider flex items-center gap-1"><Utensils size={11} /> Meal</span>;
-            case 'move':
-                return <span className="bg-purple-950/80 text-purple-400 border border-purple-800/60 px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider flex items-center gap-1"><Truck size={11} /> Unit Move</span>;
-            case 'lighting':
-                return <span className="bg-amber-950/80 text-amber-400 border border-amber-800/60 px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider flex items-center gap-1"><Zap size={11} /> Setup</span>;
-            case 'wrap':
-                return <span className="bg-rose-950/80 text-rose-400 border border-rose-800/60 px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider flex items-center gap-1"><Moon size={11} /> Wrap</span>;
+                daysArray.push({
+                    dayNum: d,
+                    dateStr,
+                    strips: stripsOnDay,
+                    isSunday: new Date(year, month, d).getDay() === 0
+                });
+            }
+
+            months.push({
+                year,
+                month,
+                monthName,
+                days: daysArray
+            });
+        }
+        return months;
+    }, [startYear, startMonthIndex, monthCount, blocks]);
+
+    // Calendar Drag & Scrub Handlers
+    const handleDayMouseDown = (dateStr: string) => {
+        setIsDraggingScrub(true);
+        setDragStartDay(dateStr);
+        setScrubRange([dateStr, dateStr]);
+    };
+
+    const handleDayMouseEnter = (dateStr: string) => {
+        if (isDraggingScrub && dragStartDay) {
+            setScrubRange([dragStartDay, dateStr]);
         }
     };
 
+    const handleDayMouseUp = () => {
+        setIsDraggingScrub(false);
+    };
+
+    // Quick range presets
+    const applyScrubPreset = (range: [string, string] | null) => {
+        if (!range) {
+            setScrubRange([null, null]);
+        } else {
+            setScrubRange(range);
+        }
+    };
+
+    // All flattened strips across blocks for popup filtering & dependency calculations
+    const allStrips = useMemo(() => {
+        const stripsList: (StripItem & { blockTitle: string })[] = [];
+        blocks.forEach(b => {
+            b.strips.forEach(s => {
+                stripsList.push({ ...s, blockTitle: b.title });
+            });
+        });
+        return stripsList;
+    }, [blocks]);
+
+    // Pre-select scene IDs when scrub range changes
+    useEffect(() => {
+        if (scrubRange[0] && scrubRange[1]) {
+            const inRangeIds = allStrips
+                .filter(s => isDateInScrubbedRange(s.scheduledDate))
+                .map(s => s.id);
+            if (inRangeIds.length > 0) {
+                setSelectedSceneIdsForScrub(inRangeIds);
+            } else {
+                setSelectedSceneIdsForScrub(allStrips.slice(0, 4).map(s => s.id));
+            }
+        }
+    }, [scrubRange[0], scrubRange[1], allStrips]);
+
+    // Filtered candidate strips in popup
+    const filteredPopupStrips = useMemo(() => {
+        return allStrips.filter(s => {
+            if (popupSearch.trim()) {
+                const q = popupSearch.toLowerCase();
+                const matchSc = s.sceneNo.toLowerCase().includes(q);
+                const matchSlug = s.slug.toLowerCase().includes(q);
+                const matchTags = s.tags.some(t => t.toLowerCase().includes(q));
+                const matchBlock = s.blockTitle.toLowerCase().includes(q);
+                if (!matchSc && !matchSlug && !matchTags && !matchBlock) return false;
+            }
+
+            if (popupLocation !== 'ALL') {
+                const locUpper = popupLocation.toUpperCase();
+                const slugUpper = s.slug.toUpperCase();
+                const blockUpper = s.blockTitle.toUpperCase();
+                if (locUpper === 'EXTERIOR' && !s.type.startsWith('EXT')) return false;
+                if (locUpper === 'INTERIOR' && !s.type.startsWith('INT')) return false;
+                if (locUpper === 'HOSPITAL' && !slugUpper.includes('HOSPITAL') && !blockUpper.includes('HOSPITAL') && !slugUpper.includes('ICU')) return false;
+                if (locUpper === 'VILLAGE' && !slugUpper.includes('VILLAGE') && !blockUpper.includes('VILLAGE') && !slugUpper.includes('WELL')) return false;
+                if (locUpper === 'PALACE' && !slugUpper.includes('PALACE') && !blockUpper.includes('PALACE')) return false;
+                if (locUpper === 'NIGHT' && !s.type.endsWith('NIGHT')) return false;
+            }
+
+            if (popupType !== 'ALL' && s.type !== popupType) return false;
+
+            if (popupCast !== 'ALL') {
+                const castQuery = popupCast.toLowerCase();
+                const matchCast = s.tags.some(t => t.toLowerCase().includes(castQuery)) || s.slug.toLowerCase().includes(castQuery);
+                if (!matchCast) return false;
+            }
+
+            if (popupEquipment !== 'ALL') {
+                const eqQuery = popupEquipment.toLowerCase();
+                const matchEq = s.tags.some(t => t.toLowerCase().includes(eqQuery));
+                if (!matchEq) return false;
+            }
+
+            if (popupStatus === 'SCHEDULED_IN_RANGE') {
+                if (!isDateInScrubbedRange(s.scheduledDate)) return false;
+            } else if (popupStatus === 'CONFLICTS') {
+                if (!s.conflictType) return false;
+            }
+
+            return true;
+        });
+    }, [allStrips, popupSearch, popupLocation, popupType, popupCast, popupEquipment, popupStatus, scrubRange]);
+
+    // Compute Dependencies Summary for selected scenes in scrubbed range
+    const scrubbedDependenciesSummary = useMemo(() => {
+        if (!scrubRange[0] || !scrubRange[1]) return null;
+
+        const startStr = scrubRange[0] < scrubRange[1] ? scrubRange[0] : scrubRange[1];
+        const endStr = scrubRange[0] < scrubRange[1] ? scrubRange[1] : scrubRange[0];
+        const startDate = parseDateStr(startStr);
+        const endDate = parseDateStr(endStr);
+        const diffDays = Math.max(1, Math.round((endDate.getTime() - startDate.getTime()) / (1000 * 3600 * 24)) + 1);
+
+        const selectedStrips = allStrips.filter(s => selectedSceneIdsForScrub.includes(s.id));
+
+        const totalShots = selectedStrips.reduce((acc, s) => acc + (s.shotCount || 8), 0);
+        const totalPages = (selectedStrips.length * 1.5).toFixed(1);
+        const totalEstHours = (selectedStrips.length * 3.2).toFixed(1);
+
+        const castSet = new Set<string>();
+        selectedStrips.forEach(s => {
+            s.tags.forEach(t => {
+                if (['Arjun', 'Meera', 'Vikram Rana', 'Inspector Rao', 'Dr. Fernandes', 'Nurse Priya'].some(c => t.toLowerCase().includes(c.toLowerCase()))) {
+                    castSet.add(t);
+                }
+            });
+            if (s.slug.toLowerCase().includes('arjun') || s.slug.toLowerCase().includes('vikram')) castSet.add('Vikram Rana (Arjun)');
+            if (s.slug.toLowerCase().includes('meera')) castSet.add('Meera (Child Artist)');
+        });
+        if (castSet.size === 0 && selectedStrips.length > 0) {
+            castSet.add('Vikram Rana (Lead)');
+            castSet.add('Meera (Child Artist)');
+        }
+
+        const locationSet = new Set<string>();
+        selectedStrips.forEach(s => {
+            if (s.slug.toUpperCase().includes('ICU') || s.slug.toUpperCase().includes('HOSPITAL')) locationSet.add('Hospital ICU Set (INT)');
+            else if (s.slug.toUpperCase().includes('WELL') || s.slug.toUpperCase().includes('VILLAGE')) locationSet.add('Village Square & Well (EXT)');
+            else if (s.slug.toUpperCase().includes('PALACE') || s.slug.toUpperCase().includes('CORONATION')) locationSet.add('Heritage Palace Hall (INT)');
+            else if (s.slug.toUpperCase().includes('WAREHOUSE') || s.slug.toUpperCase().includes('ROOFTOP')) locationSet.add('Warehouse Industrial Complex (EXT)');
+            else locationSet.add(`${s.blockTitle} Location`);
+        });
+
+        const equipSet = new Set<string>();
+        selectedStrips.forEach(s => {
+            s.tags.forEach(t => {
+                if (['Stunts', 'Drone', 'SFX fire', 'Vehicles', 'Animals', 'Crowd', 'Bandages', '35mm', 'Handheld', 'Gimbal'].some(e => t.toLowerCase().includes(e.toLowerCase()))) {
+                    equipSet.add(t);
+                }
+            });
+        });
+        if (equipSet.size === 0 && selectedStrips.length > 0) {
+            equipSet.add('Camera Crane & Gimbal');
+            equipSet.add('Playback Monitor Array');
+        }
+
+        const warnings: string[] = [];
+        selectedStrips.forEach(s => {
+            if (s.conflictReasons) {
+                warnings.push(...s.conflictReasons);
+            }
+        });
+
+        const relevantAnchors = DEFAULT_ANCHORS.filter(anc => {
+            return isDateInScrubbedRange(anc.startDate) || isDateInScrubbedRange(anc.endDate);
+        });
+
+        return {
+            startStr,
+            endStr,
+            diffDays,
+            selectedCount: selectedStrips.length,
+            totalShots,
+            totalPages,
+            totalEstHours,
+            castList: Array.from(castSet),
+            locations: Array.from(locationSet),
+            equipment: Array.from(equipSet),
+            warnings,
+            anchors: relevantAnchors,
+            selectedStrips
+        };
+    }, [scrubRange, selectedSceneIdsForScrub, allStrips]);
+
+    // Confirm scene scheduling assignment
+    const handleConfirmAssignScenesToRange = () => {
+        if (!scrubRange[0] || !scrubRange[1]) {
+            setIsScrubModalOpen(false);
+            return;
+        }
+
+        const start = scrubRange[0] < scrubRange[1] ? scrubRange[0] : scrubRange[1];
+        const end = scrubRange[0] < scrubRange[1] ? scrubRange[1] : scrubRange[0];
+        
+        const startDate = parseDateStr(start);
+        const endDate = parseDateStr(end);
+        const dates: string[] = [];
+        let curr = new Date(startDate);
+        while (curr <= endDate) {
+            dates.push(formatDateStr(curr));
+            curr.setDate(curr.getDate() + 1);
+        }
+
+        setBlocks(prevBlocks => {
+            let dateIdx = 0;
+            return prevBlocks.map(blk => ({
+                ...blk,
+                strips: blk.strips.map(s => {
+                    if (selectedSceneIdsForScrub.includes(s.id)) {
+                        const targetDate = dates[dateIdx % dates.length];
+                        dateIdx++;
+                        return {
+                            ...s,
+                            scheduledDate: targetDate
+                        };
+                    }
+                    return s;
+                })
+            }));
+        });
+
+        setIsScrubModalOpen(false);
+    };
+
     return (
-        <div className={`w-full h-full font-sans flex flex-col overflow-hidden ${isLight ? 'bg-slate-100 text-slate-800' : 'bg-[#0c0c0e] text-gray-200'}`}>
-            {/* --- TOP HEADER COMMAND BAR --- */}
-            <div className={`px-4 py-2.5 flex items-center justify-between gap-3 shrink-0 border-b shadow-md ${isLight ? 'bg-white border-slate-200' : 'bg-[#121216] border-[#22222a]'}`}>
-                <div className="flex items-center gap-3">
-                    <div className="p-1.5 bg-[#f5a623]/10 border border-[#f5a623]/30 rounded-lg text-[#f5a623]">
-                        <Calendar size={18} />
-                    </div>
-                    <div>
-                        <div className="flex items-center gap-2">
-                            <h1 className="text-sm font-black text-white uppercase tracking-wider">
-                                Shooting Day Schedule
-                            </h1>
-                            <span className="bg-[#1d1d26] text-amber-400 border border-[#2e2e3d] text-[10px] font-mono font-bold px-2 py-0.5 rounded uppercase tracking-wider">
-                                {currentProjectName}
+        <div 
+            className="w-full min-h-full lg:h-full bg-[#161410] text-[#F2EEE2] font-sans flex flex-col overflow-y-auto custom-scrollbar selection:bg-[#E0A339] selection:text-[#3A2708]"
+            onMouseUp={handleDayMouseUp}
+        >
+            {/* INLINE THEME STYLES */}
+            <style>{`
+                .mono { font-family: 'IBM Plex Mono', monospace; }
+                .display-font { font-family: 'Special Elite', monospace; letter-spacing: 0.5px; }
+
+                .strip-INTDAY { border-left-color: #F2EEE2 !important; }
+                .strip-INTNIGHT { border-left-color: #E8C547 !important; }
+                .strip-EXTDAY { border-left-color: #5B8DBE !important; }
+                .strip-EXTNIGHT { border-left-color: #5E9E6E !important; }
+
+                .strip-item {
+                    transition: transform 0.12s ease, border-color 0.12s ease;
+                }
+                .strip-item:hover {
+                    transform: translateX(3px);
+                    border-color: rgba(242,238,226,0.25);
+                }
+                .strip-item.selected {
+                    transform: translateX(3px);
+                    box-shadow: 0 0 0 1px #4FB0A6;
+                    border-color: #4FB0A6 !important;
+                }
+
+                ::-webkit-scrollbar { height: 6px; width: 6px; }
+                ::-webkit-scrollbar-thumb { background: rgba(242,238,226,0.22); border-radius: 3px; }
+                ::-webkit-scrollbar-track { background: transparent; }
+            `}</style>
+
+            {/* --- HEADER --- */}
+            <header className="px-6 py-3.5 border-b border-[rgba(242,238,226,0.10)] flex items-center justify-between gap-4 flex-wrap bg-[#161410] shrink-0">
+                <div className="flex items-center gap-4">
+                    <svg className="w-8 h-8 text-[#E0A339] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
+                        <path d="M3 8.5 20.5 5l.8 3.9L3.8 12.4z"/>
+                        <rect x="3" y="8.5" width="18" height="11" rx="0.5"/>
+                        <path d="M6 8.5 8.5 5M11 8.5 13.5 5M16 8.5 18.5 5" strokeWidth="1.4"/>
+                    </svg>
+                    <div className="flex flex-col gap-0.5">
+                        <div className="display-font text-xl uppercase tracking-wider text-[#F2EEE2] flex items-center gap-2">
+                            {currentProjectName.toUpperCase()} — STRIPBOARD & SCHEDULE
+                        </div>
+                        <div className="text-[11px] text-[#726A5C] tracking-[1.5px] uppercase font-mono flex items-center gap-2">
+                            42 shoot days · Chennai / Ooty / Kochi
+                            <span className="text-[#4FB0A6] flex items-center gap-1 font-semibold">
+                                • Synced with Shot Division ({syncedShotCount} Shots)
                             </span>
                         </div>
-                        <p className="text-[10px] text-gray-400 font-medium hidden sm:block">
-                            Dynamic 1st AD Cascading Time & Camera Setup Engine
-                        </p>
                     </div>
                 </div>
 
-                <div className="flex items-center gap-2">
+                {/* Header Controls */}
+                <div className="flex items-center gap-3 flex-wrap">
                     <button
-                        onClick={generateInitialSchedule}
-                        className="px-2.5 py-1.5 bg-[#1a1a22] hover:bg-[#242430] text-gray-300 border border-[#2e2e3d] hover:border-[#f5a623] rounded-lg text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 transition-all"
-                        title="Re-sync schedule from project shot list"
+                        onClick={handleSyncShotDivision}
+                        className="px-3 py-1.5 rounded text-xs font-mono font-semibold uppercase border border-[#4FB0A6]/40 bg-[#4FB0A6]/10 text-[#4FB0A6] hover:bg-[#4FB0A6]/20 transition-colors flex items-center gap-1.5 cursor-pointer"
+                        title="Re-synchronize strips with Shot Division shots"
                     >
-                        <RefreshCw size={13} className="text-[#f5a623]" />
-                        <span className="hidden md:inline">Sync Shots</span>
+                        <RefreshCw size={13} className="animate-spin-once" />
+                        Sync Shot Division
                     </button>
 
-                    <div className="h-4 w-px bg-[#2a2a36] hidden sm:block"></div>
-
-                    {/* Quick Add Actions */}
-                    <div className="flex items-center gap-1">
-                        <button
-                            onClick={() => handleAddLogisticsItem('shot')}
-                            className="px-2.5 py-1.5 bg-[#f5a623] hover:bg-[#e09612] text-black rounded-lg text-xs font-black uppercase tracking-wider flex items-center gap-1 transition-all shadow"
-                        >
-                            <Plus size={14} /> Shot
-                        </button>
-
-                        <button
-                            onClick={() => handleAddLogisticsItem('meal')}
-                            className="px-2.5 py-1.5 bg-emerald-950/80 hover:bg-emerald-900 text-emerald-300 border border-emerald-800/60 rounded-lg text-xs font-bold uppercase tracking-wider flex items-center gap-1 transition-all hidden sm:flex"
-                        >
-                            <Utensils size={13} /> Meal
-                        </button>
-
-                        <button
-                            onClick={() => handleAddLogisticsItem('move')}
-                            className="px-2.5 py-1.5 bg-purple-950/80 hover:bg-purple-900 text-purple-300 border border-purple-800/60 rounded-lg text-xs font-bold uppercase tracking-wider flex items-center gap-1 transition-all hidden sm:flex"
-                        >
-                            <Truck size={13} /> Move
-                        </button>
-                    </div>
-
-                    <div className="h-4 w-px bg-[#2a2a36]"></div>
-
-                    <button
+                    <button 
                         onClick={() => setShowPdfModal(true)}
-                        className="px-3 py-1.5 bg-[#1d1d28] hover:bg-[#282838] text-[#f5a623] border border-[#f5a623]/40 rounded-lg text-xs font-black uppercase tracking-wider flex items-center gap-1.5 transition-all shadow-sm"
+                        className="px-3.5 py-1.5 rounded text-xs font-mono font-bold uppercase border border-[rgba(242,238,226,0.22)] bg-[#1E1B15] text-[#F2EEE2] hover:bg-[#26221A] transition-colors flex items-center gap-2 cursor-pointer"
                     >
-                        <Printer size={13} /> PDF Call Sheet
+                        <Printer size={14} className="text-[#E0A339]" /> Export 1st AD PDF
                     </button>
-                </div>
-            </div>
 
-            {/* --- MULTI-SCHEDULE BLOCKS BAR --- */}
-            <div className="bg-[#15151c] border-b border-[#242430] px-4 py-2 flex flex-wrap items-center justify-between gap-3 shrink-0 shadow-sm">
-                {/* Schedule Block Tabs */}
-                <div className="flex items-center gap-2 overflow-x-auto custom-scrollbar py-0.5 max-w-full">
-                    <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider flex items-center gap-1 shrink-0 font-mono">
-                        <Layers size={13} className="text-[#f5a623]" /> Schedules:
-                    </span>
-                    
-                    {scheduleBlocks.map((b) => {
-                        const isActive = b.id === activeBlock.id;
-                        return (
-                            <div 
-                                key={b.id}
-                                onClick={() => setActiveBlockId(b.id)}
-                                className={`flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-xs font-bold border transition-all cursor-pointer shrink-0 ${
-                                    isActive
-                                        ? 'bg-[#222230] text-white border-[#f5a623] shadow-md'
-                                        : 'bg-[#121218] text-gray-400 border-[#262634] hover:text-gray-200 hover:border-gray-500'
-                                }`}
-                            >
-                                <div className="flex flex-col text-left leading-tight">
-                                    <span className="text-xs font-black uppercase tracking-wider flex items-center gap-1.5">
-                                        <span className={`w-2 h-2 rounded-full ${isActive ? 'bg-[#f5a623]' : 'bg-gray-600'}`}></span>
-                                        {b.name}
-                                    </span>
-                                    <span className="text-[10px] font-mono text-amber-400/90 font-normal mt-0.5">
-                                        {b.days.length} Shoot Days ({formatShortDate(b.startDate)} - {formatShortDate(b.days[b.days.length - 1]?.date)})
-                                    </span>
-                                </div>
-
-                                {scheduleBlocks.length > 1 && (
-                                    <button
-                                        type="button"
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            handleDeleteScheduleBlock(b.id);
-                                        }}
-                                        className="p-1 text-gray-500 hover:text-red-400 hover:bg-red-950/40 rounded transition-all ml-1 cursor-pointer"
-                                        title="Delete Schedule Block"
-                                    >
-                                        <X size={12} />
-                                    </button>
-                                )}
+                    {/* Health Ring */}
+                    <div className="flex items-center gap-3 pl-2 border-l border-[rgba(242,238,226,0.10)]">
+                        <div className="relative w-10 h-10 flex items-center justify-center">
+                            <svg className="w-10 h-10 transform -rotate-90" viewBox="0 0 46 46">
+                                <circle cx="23" cy="23" r="19" fill="none" stroke="#26221A" strokeWidth="4"/>
+                                <circle 
+                                    cx="23" cy="23" r="19" fill="none" 
+                                    stroke="#E0A339" strokeWidth="4"
+                                    strokeDasharray="119.4"
+                                    strokeDashoffset={119.4 - (119.4 * healthScore) / 100}
+                                    strokeLinecap="round"
+                                />
+                            </svg>
+                        </div>
+                        <div>
+                            <div className="mono text-xl font-medium text-[#F2EEE2] leading-none">
+                                {healthScore}
                             </div>
-                        );
-                    })}
-
-                    <button
-                        type="button"
-                        onClick={handleAddScheduleBlock}
-                        className="px-3 py-1.5 bg-[#1e1e28] hover:bg-[#282838] text-amber-400 border border-amber-500/30 hover:border-amber-400 rounded-lg text-xs font-bold uppercase tracking-wider flex items-center gap-1 transition-all shrink-0 cursor-pointer shadow-xs"
-                        title="Add Next Shooting Schedule Stint"
-                    >
-                        <Plus size={14} /> Add Schedule
-                    </button>
-                </div>
-
-                {/* Schedule Block Actions & Dates */}
-                <div className="flex items-center gap-3 bg-[#0f0f14] border border-[#282836] px-3 py-1.5 rounded-lg text-xs font-mono flex-wrap">
-                    <button
-                        type="button"
-                        onClick={handlePopulate15DaySchedule}
-                        className="px-2.5 py-1 bg-[#231e12] hover:bg-[#332b1a] text-amber-300 border border-amber-500/40 rounded text-[11px] font-bold uppercase tracking-wider flex items-center gap-1 transition-all"
-                        title="Auto-populate 1 to 15 Shoot Days with Project Shots"
-                    >
-                        <Sparkles size={12} className="text-amber-400" />
-                        <span>Build 15-Day Stint</span>
-                    </button>
-
-                    <div className="h-4 w-px bg-[#282836] hidden sm:block"></div>
-
-                    <div className="flex items-center gap-2">
-                        <span className="text-[10px] text-gray-400 font-bold uppercase flex items-center gap-1">
-                            <Calendar size={12} className="text-amber-400" /> Start:
-                        </span>
-                        <input
-                            type="date"
-                            value={activeBlock.startDate}
-                            onChange={(e) => handleUpdateActiveBlockStartDate(e.target.value)}
-                            className="bg-[#181824] text-amber-300 font-bold px-2 py-0.5 rounded border border-[#333346] focus:border-amber-400 outline-none text-xs cursor-pointer"
-                        />
-                    </div>
-                    
-                    <div className="h-4 w-px bg-[#282836]"></div>
-
-                    <div className="flex items-center gap-2">
-                        <span className="text-[10px] text-gray-400 font-bold uppercase">Name:</span>
-                        <input
-                            type="text"
-                            value={activeBlock.name}
-                            onChange={(e) => handleUpdateActiveBlockName(e.target.value)}
-                            className="bg-transparent text-white font-bold px-1.5 py-0.5 rounded border-b border-gray-600 focus:border-amber-400 outline-none text-xs w-28"
-                            placeholder="e.g. 1st Schedule"
-                        />
-                    </div>
-                </div>
-            </div>
-
-            {/* --- SHOOT DAYS SUB-STRIP (DAY 1 TO DAY 15) --- */}
-            <div className="bg-[#111116] border-b border-[#202028] px-4 py-2 flex items-center justify-between gap-3 shrink-0 shadow-inner overflow-x-auto custom-scrollbar">
-                <div className="flex items-center gap-1.5">
-                    <span className="text-[10px] font-mono font-bold text-amber-400 uppercase tracking-widest shrink-0 flex items-center gap-1 mr-2 bg-amber-500/10 px-2 py-1 rounded border border-amber-500/20">
-                        <Film size={12} /> {activeBlock.name}:
-                    </span>
-
-                    <div className="flex items-center gap-1.5">
-                        {activeBlock.days.map((day) => {
-                            const isSelected = day.id === activeDay.id;
-                            const shotCount = day.items.filter(i => i.type === 'shot').length;
-                            return (
-                                <div
-                                    key={day.id}
-                                    onClick={() => handleSelectShootDay(day.id)}
-                                    className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-mono transition-all cursor-pointer shrink-0 border ${
-                                        isSelected
-                                            ? 'bg-amber-500/20 text-white border-amber-400 shadow-sm font-bold'
-                                            : 'bg-[#181820] text-gray-400 border-[#282834] hover:bg-[#20202b] hover:text-gray-200'
-                                    }`}
-                                >
-                                    <div className="flex items-center gap-1.5">
-                                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-black uppercase ${
-                                            isSelected ? 'bg-amber-400 text-black' : 'bg-[#282836] text-gray-300'
-                                        }`}>
-                                            Day {day.dayNumber}
-                                        </span>
-                                        <span className="text-[11px] font-semibold text-gray-200">
-                                            {formatShortDate(day.date)}
-                                        </span>
-                                        {shotCount > 0 && (
-                                            <span className="text-[10px] text-sky-400 bg-sky-950/60 border border-sky-800/40 px-1.5 py-0.2 rounded font-mono">
-                                                {shotCount} shots
-                                            </span>
-                                        )}
-                                    </div>
-
-                                    {activeBlock.days.length > 1 && (
-                                        <button
-                                            type="button"
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                handleDeleteShootDay(day.id);
-                                            }}
-                                            className="p-0.5 text-gray-500 hover:text-red-400 hover:bg-red-950/40 rounded transition-all ml-0.5 cursor-pointer"
-                                            title={`Delete Day ${day.dayNumber}`}
-                                        >
-                                            <X size={11} />
-                                        </button>
-                                    )}
-                                </div>
-                            );
-                        })}
-
-                        <button
-                            type="button"
-                            onClick={handleAddShootDay}
-                            className="px-2.5 py-1.5 bg-[#1b1b24] hover:bg-[#262634] text-amber-400 border border-amber-500/30 hover:border-amber-400 rounded-lg text-xs font-bold uppercase tracking-wider flex items-center gap-1 transition-all shrink-0 cursor-pointer"
-                            title="Add Next Shoot Day"
-                        >
-                            <Plus size={13} /> Day {activeBlock.days.length + 1}
-                        </button>
-                    </div>
-                </div>
-
-                {/* Day Specific Date Selector */}
-                <div className="flex items-center gap-2 bg-[#0a0a0e] border border-[#22222e] px-2.5 py-1 rounded-lg text-xs font-mono shrink-0">
-                    <span className="text-[10px] text-gray-400 uppercase font-bold">Active Day Date:</span>
-                    <input
-                        type="date"
-                        value={activeDay.date}
-                        onChange={(e) => handleUpdateActiveDayDate(e.target.value)}
-                        className="bg-transparent text-amber-300 font-bold outline-none text-xs cursor-pointer"
-                    />
-                </div>
-            </div>
-
-            {/* --- KEY METRICS KPI FLOATING BAR --- */}
-            <div className="bg-[#14141a] border-b border-[#202028] px-4 py-2 flex flex-wrap items-center justify-between gap-3 text-xs shrink-0 font-mono">
-                <div className="flex items-center gap-4 flex-wrap">
-                    {/* Crew Call Input */}
-                    <div className="flex items-center gap-2 bg-[#0f0f14] border border-[#2a2a36] px-2.5 py-1 rounded-lg">
-                        <span className="text-[10px] text-gray-400 font-bold uppercase flex items-center gap-1">
-                            <Clock size={12} className="text-[#f5a623]" /> Call:
-                        </span>
-                        <input
-                            type="text"
-                            value={crewCallTime}
-                            onChange={(e) => setCrewCallTime(e.target.value)}
-                            className="bg-transparent text-amber-400 font-bold text-xs w-20 text-center outline-none border-b border-amber-500/30 focus:border-amber-400"
-                        />
-                    </div>
-
-                    {/* First Shot */}
-                    <div className="flex items-center gap-1.5 text-gray-300">
-                        <span className="text-[10px] text-gray-500 uppercase font-sans">First Shot:</span>
-                        <span className="font-bold text-sky-400">{cascadedData.firstShotCallTime}</span>
-                    </div>
-
-                    {/* Est Wrap */}
-                    <div className="flex items-center gap-1.5 text-gray-300">
-                        <span className="text-[10px] text-gray-500 uppercase font-sans">Est. Wrap:</span>
-                        <span className="font-bold text-purple-400">{cascadedData.estimatedWrapTime}</span>
-                    </div>
-
-                    {/* Work Window */}
-                    <div className="flex items-center gap-1.5 text-gray-300">
-                        <span className="text-[10px] text-gray-500 uppercase font-sans">Window:</span>
-                        <span className="font-bold text-amber-300">{formatDurationHM(cascadedData.totalElapsedMins)} ({cascadedData.totalElapsedHours}h)</span>
-                    </div>
-
-                    {/* Setups Count */}
-                    <div className="flex items-center gap-1.5 text-gray-300">
-                        <span className="text-[10px] text-gray-500 uppercase font-sans">Setups:</span>
-                        <span className="font-bold text-emerald-400">#{cascadedData.totalSetups} ({cascadedData.shotCount} shots)</span>
-                    </div>
-
-                    {/* Overtime Status Badge */}
-                    <div className={`px-2.5 py-0.5 rounded text-[10px] font-bold border uppercase tracking-wide ${cascadedData.overtimeColorClass}`}>
-                        {cascadedData.overtimeLabel}
-                    </div>
-
-                    {/* Union Meal Rule Badge */}
-                    {!cascadedData.mealViolation ? (
-                        <div className="bg-emerald-950/80 text-emerald-300 border border-emerald-700/60 px-2.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide flex items-center gap-1">
-                            <ShieldCheck size={12} className="text-emerald-400" /> Meal Rule Compliant
+                            <div className="text-[9.5px] text-[#726A5C] uppercase tracking-[1.5px] mt-0.5">
+                                Health
+                            </div>
                         </div>
-                    ) : (
-                        <div className="bg-red-950/80 text-red-300 border border-red-700/60 px-2.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide flex items-center gap-1 animate-pulse">
-                            <ShieldAlert size={12} className="text-red-400" /> Union Lunch Violation
-                        </div>
-                    )}
+                    </div>
                 </div>
+            </header>
 
-                {/* Timeline Strip Toggle */}
+            {/* --- SCHEDULE SUB-SECTION TABS (PRIORITY 1 & PRIORITY 2) --- */}
+            <div className="flex items-center gap-1 border-b border-[rgba(242,238,226,0.15)] bg-[#0A0908] px-4 pt-1.5 shrink-0 font-mono text-xs">
                 <button
-                    onClick={() => setShowFullStats(!showFullStats)}
-                    className="text-[11px] text-gray-400 hover:text-amber-400 flex items-center gap-1 font-bold uppercase transition-all"
+                    onClick={() => setScheduleTab('locations')}
+                    className={`px-4 py-2 font-bold uppercase tracking-wider flex items-center gap-2 transition-all cursor-pointer border-t border-x rounded-none ${
+                        scheduleTab === 'locations' 
+                            ? 'bg-[#14120E] text-[#E0A339] border-[#E0A339] shadow-xs' 
+                            : 'bg-transparent text-[#A9A190] border-transparent hover:text-[#F2EEE2]'
+                    }`}
                 >
-                    <Layers size={12} />
-                    {showFullStats ? 'Hide Visual Timeline' : 'Show Visual Timeline'}
-                    {showFullStats ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+                    <MapPin size={14} className="text-[#4FB0A6]" />
+                    <span>Priority 1: Planning (Scene Location vs Real Location)</span>
+                </button>
+
+                <button
+                    onClick={() => setScheduleTab('stripboard')}
+                    className={`px-4 py-2 font-bold uppercase tracking-wider flex items-center gap-2 transition-all cursor-pointer border-t border-x rounded-none ${
+                        scheduleTab === 'stripboard' 
+                            ? 'bg-[#14120E] text-[#E0A339] border-[#E0A339] shadow-xs' 
+                            : 'bg-transparent text-[#A9A190] border-transparent hover:text-[#F2EEE2]'
+                    }`}
+                >
+                    <Calendar size={14} />
+                    <span>Priority 2: Scheduling (Stripboard & Day Timeline)</span>
                 </button>
             </div>
 
-            {/* --- CINEMATIC VISUAL TIMELINE PROGRESS BAR --- */}
-            {showFullStats && (
-                <div className="bg-[#0f0f13] border-b border-[#20202a] px-4 py-2 shrink-0 animate-in slide-in-from-top duration-200">
-                    <div className="flex justify-between items-center text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1 font-mono">
-                        <span className="flex items-center gap-1 text-amber-400"><Film size={12} /> Shooting Day Visual Timeline</span>
-                        <span>12.0h Union Overtime Threshold Line</span>
-                    </div>
-                    <div className="relative w-full h-4 bg-[#181822] rounded-md overflow-hidden flex border border-[#2b2b3a] shadow-inner">
-                        {/* 12h Overtime Threshold Line */}
-                        <div 
-                            className="absolute top-0 bottom-0 w-0.5 bg-red-500 z-10 shadow-[0_0_8px_rgba(239,68,68,0.8)]"
-                            style={{ left: `${Math.min(100, (720 / Math.max(720, cascadedData.totalElapsedMins)) * 100)}%` }}
-                            title="12-Hour Overtime Mark"
-                        />
-                        {/* 6h Union Meal Threshold Line */}
-                        <div 
-                            className="absolute top-0 bottom-0 w-0.5 bg-amber-400/80 z-10 border-dashed"
-                            style={{ left: `${Math.min(100, (360 / Math.max(720, cascadedData.totalElapsedMins)) * 100)}%` }}
-                            title="6-Hour Union Meal Mark"
-                        />
-
-                        {cascadedData.calculatedItems.map((item) => {
-                            const widthPct = (item.durationMins / Math.max(1, cascadedData.totalElapsedMins)) * 100;
-                            let bgColor = 'bg-sky-600/80 hover:bg-sky-500';
-                            if (item.type === 'meal') bgColor = 'bg-emerald-600/90 hover:bg-emerald-500';
-                            else if (item.type === 'move') bgColor = 'bg-purple-600/90 hover:bg-purple-500';
-                            else if (item.type === 'lighting') bgColor = 'bg-amber-600/90 hover:bg-amber-500';
-                            else if (item.type === 'wrap') bgColor = 'bg-rose-600/90 hover:bg-rose-500';
-
-                            return (
-                                <div
-                                    key={item.id}
-                                    style={{ width: `${widthPct}%` }}
-                                    className={`h-full border-r border-[#0c0c0e] ${bgColor} transition-colors cursor-pointer group relative`}
-                                    title={`${item.startTime} - ${item.endTime}: ${item.title} (${item.durationMins}m)`}
-                                />
-                            );
-                        })}
-                    </div>
+            {scheduleTab === 'locations' ? (
+                <div className="flex-1 overflow-hidden min-h-0 w-full h-full">
+                    <LocationScoutView />
                 </div>
-            )}
+            ) : (
+                <>
+                    {/* --- MULTI-MONTH SCRUBBABLE CALENDAR BAR --- */}
+            <div className="border-b border-[rgba(242,238,226,0.10)] bg-[#1A1813] p-4 shrink-0 space-y-3">
+                {/* Calendar Header Controls */}
+                <div className="flex items-center justify-between gap-4 flex-wrap">
+                    <div className="flex items-center gap-3">
+                        <button
+                            onClick={() => setIsCalendarOpen(!isCalendarOpen)}
+                            className="flex items-center gap-1.5 text-xs font-mono text-[#E0A339] font-bold uppercase tracking-wider hover:text-[#F2EEE2] transition-colors cursor-pointer bg-transparent border-none p-0 group"
+                            title={isCalendarOpen ? "Click to toggle off calendar" : "Click to expand calendar"}
+                        >
+                            <span className="font-mono text-sm text-[#E0A339] font-bold leading-none w-3 text-center">
+                                {isCalendarOpen ? 'v' : '>'}
+                            </span>
+                            <Calendar size={15} />
+                            <span>Interactive Calendar (Scrubbable Dates)</span>
+                            <span className="text-[10px] text-[#726A5C] font-normal normal-case ml-1 group-hover:text-[#A9A190]">
+                                ({isCalendarOpen ? 'click to collapse' : 'click to expand'})
+                            </span>
+                        </button>
 
-            {/* --- UNION LUNCH VIOLATION WARNING BANNER (> 6.0 HOURS) --- */}
-            {cascadedData.mealViolation && (
-                <div className="bg-gradient-to-r from-red-950/95 via-red-900/90 to-red-950/95 border-b border-red-700/80 px-4 py-2 flex items-center justify-between text-xs text-red-200 font-bold shrink-0 shadow-lg animate-in fade-in duration-200">
-                    <div className="flex items-center gap-2.5">
-                        <AlertTriangle size={18} className="text-red-400 animate-bounce shrink-0" />
-                        <div>
-                            {cascadedData.firstMealStartMins > 360 ? (
-                                <span>
-                                    <strong className="text-white uppercase tracking-wider bg-red-800 px-1.5 py-0.5 rounded mr-1.5">6-Hour Union Meal Violation:</strong> 
-                                    Scheduled lunch starts at <span className="text-amber-300 font-mono font-black">{minsToTime(timeToMins(crewCallTime) + cascadedData.firstMealStartMins)}</span> (+{formatDurationHM(cascadedData.firstMealStartMins)} from Call). Exceeds 6.0h limit by <span className="text-amber-300 font-mono font-black">{cascadedData.firstMealStartMins - 360} mins</span>!
-                                </span>
-                            ) : (
-                                <span>
-                                    <strong className="text-white uppercase tracking-wider bg-red-800 px-1.5 py-0.5 rounded mr-1.5">Missing Meal Break:</strong> 
-                                    No Lunch Break scheduled! Union rules mandate a 60-minute hot meal break within 6.0 hours (360 mins) of Crew Call ({crewCallTime}).
-                                </span>
-                            )}
-                        </div>
-                    </div>
-                    <button
-                        onClick={() => handleAddLogisticsItem('meal', 2)}
-                        className="px-3.5 py-1 bg-amber-400 hover:bg-amber-300 text-black font-black uppercase text-[10px] rounded-md shadow-md transition-all shrink-0 ml-3"
-                    >
-                        + Insert Compliant Meal Break
-                    </button>
-                </div>
-            )}
+                        {/* Month Navigation - shown when calendar open */}
+                        {isCalendarOpen && (
+                            <div className="flex items-center gap-1 bg-[#161410] border border-[rgba(242,238,226,0.15)] rounded p-0.5">
+                                <button 
+                                    onClick={() => {
+                                        if (startMonthIndex === 0) {
+                                            setStartMonthIndex(11);
+                                            setStartYear(prev => prev - 1);
+                                        } else {
+                                            setStartMonthIndex(prev => prev - 1);
+                                        }
+                                    }}
+                                    className="p-1 hover:text-[#E0A339] text-[#A9A190] cursor-pointer"
+                                    title="Previous Month"
+                                >
+                                    <ChevronLeft size={14} />
+                                </button>
 
-            {/* --- FILTER & SEARCH TOOLBAR + COLOR KEY LEGEND --- */}
-            <div className="bg-[#121217] border-b border-[#202028] px-4 py-2 flex flex-wrap items-center justify-between gap-3 shrink-0">
-                <div className="flex items-center gap-3 flex-wrap">
-                    {/* Category Filter Pills */}
-                    <div className="flex items-center gap-1.5">
-                        <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider flex items-center gap-1">
-                            <ListFilter size={12} /> View:
-                        </span>
-                        <div className="flex bg-[#191922] rounded-lg p-0.5 border border-[#282836]">
-                            <button
-                                onClick={() => setFilterCategory('all')}
-                                className={`px-2.5 py-1 rounded-md text-[10px] font-bold uppercase transition-all ${filterCategory === 'all' ? 'bg-[#f5a623] text-black shadow' : 'text-gray-400 hover:text-white'}`}
-                            >
-                                All ({cascadedData.calculatedItems.length})
-                            </button>
-                            <button
-                                onClick={() => setFilterCategory('shots')}
-                                className={`px-2.5 py-1 rounded-md text-[10px] font-bold uppercase transition-all ${filterCategory === 'shots' ? 'bg-[#f5a623] text-black shadow' : 'text-gray-400 hover:text-white'}`}
-                            >
-                                Shots ({cascadedData.shotCount})
-                            </button>
-                            <button
-                                onClick={() => setFilterCategory('logistics')}
-                                className={`px-2.5 py-1 rounded-md text-[10px] font-bold uppercase transition-all ${filterCategory === 'logistics' ? 'bg-[#f5a623] text-black shadow' : 'text-gray-400 hover:text-white'}`}
-                            >
-                                Logistics ({cascadedData.calculatedItems.length - cascadedData.shotCount})
-                            </button>
-                        </div>
+                                <button 
+                                    onClick={() => {
+                                        if (startMonthIndex === 11) {
+                                            setStartMonthIndex(0);
+                                            setStartYear(prev => prev + 1);
+                                        } else {
+                                            setStartMonthIndex(prev => prev + 1);
+                                        }
+                                    }}
+                                    className="p-1 hover:text-[#E0A339] text-[#A9A190] cursor-pointer"
+                                    title="Next Month"
+                                >
+                                    <ChevronRight size={14} />
+                                </button>
+                            </div>
+                        )}
                     </div>
 
-                    {/* COLOR KEY BADGES LEGEND */}
-                    <div className="flex items-center gap-1.5 pl-3 border-l border-[#282836] text-[10px]">
-                        <span className="text-gray-500 font-bold uppercase tracking-wider text-[9px]">Keys:</span>
-                        <span className="bg-indigo-950/90 text-indigo-300 border border-indigo-700/60 font-mono font-bold px-1.5 py-0.5 rounded text-[10px]">INT.</span>
-                        <span className="bg-emerald-950/90 text-emerald-300 border border-emerald-700/60 font-mono font-bold px-1.5 py-0.5 rounded text-[10px]">EXT.</span>
-                        <span className="bg-amber-950/90 text-amber-300 border border-amber-600/60 font-mono font-bold px-1.5 py-0.5 rounded text-[10px] flex items-center gap-0.5"><Sun size={9}/> DAY</span>
-                        <span className="bg-purple-950/90 text-purple-300 border border-purple-600/60 font-mono font-bold px-1.5 py-0.5 rounded text-[10px] flex items-center gap-0.5"><Moon size={9}/> NIGHT</span>
-                        <span className="bg-fuchsia-950/90 text-fuchsia-300 border border-fuchsia-600/60 font-mono font-black px-1.5 py-0.5 rounded text-[10px] flex items-center gap-0.5"><Zap size={9}/> SFX/CGI</span>
-                    </div>
-                </div>
-
-                <div className="flex items-center gap-2.5 flex-wrap">
-                    {/* Add Shot directly from Shot Division */}
-                    {generatedShots.length > 0 && (
-                        <div className="flex items-center gap-1.5 text-xs">
-                            <Sparkles size={13} className="text-amber-400" />
-                            <select
-                                onChange={(e) => {
-                                    if (!e.target.value) return;
-                                    const shot = generatedShots.find(s => String(s.id) === e.target.value);
-                                    if (shot) {
-                                        handleAddLogisticsItem('shot');
-                                        setTimeout(() => {
-                                            setItems(prev => {
-                                                const copy = [...prev];
-                                                const last = copy[copy.length - 1];
-                                                if (last) {
-                                                    const cleanScene = String(shot.scene || '1');
-                                                    last.sceneNo = cleanScene;
-                                                    last.shotNo = shot.shotSize ? `${shot.shotSize.substring(0, 3)}-${shot.id}` : String(shot.id);
-                                                    last.title = `${shot.shotSize || 'WIDE'} SHOT - ${shot.subject || shot.angle || 'ACTION'}`;
-                                                    last.description = shot.description || 'Shot division setup';
-                                                    last.cameraLens = (shot as any).cameraLens || shot.lens || '35mm Prime';
-                                                    last.angle = shot.angle || 'Eye Level';
-                                                    last.movement = shot.movement || 'Static';
-                                                    if (shot.durationSec) last.durationMins = Math.max(5, Math.ceil(shot.durationSec * 2.5));
-                                                }
-                                                return copy;
-                                            });
-                                        }, 50);
-                                    }
-                                    e.target.value = '';
-                                }}
-                                className="bg-[#1a1a24] border border-[#2a2a3a] hover:border-[#f5a623] text-amber-300 text-xs font-bold px-2.5 py-1 rounded-lg outline-none cursor-pointer shadow-sm"
-                            >
-                                <option value="">+ Add Shot from Script Division...</option>
-                                {generatedShots.map((s, idx) => (
-                                    <option key={s.id || idx} value={s.id}>
-                                        Sc {s.scene || '1'} • {s.shotSize || 'Shot'} - {s.subject || s.description?.substring(0, 25) || 'Coverage'}
-                                    </option>
+                    {/* Month Count Switcher & Scrubbed Range Pill */}
+                    <div className="flex items-center gap-4 flex-wrap">
+                        {/* Month choice dropdown/pills - shown when open */}
+                        {isCalendarOpen && (
+                            <div className="flex items-center gap-1.5 text-xs font-mono">
+                                <span className="text-[#726A5C] uppercase tracking-wider text-[10px]">View Months:</span>
+                                {[1, 2, 3, 4].map(num => (
+                                    <button
+                                        key={num}
+                                        onClick={() => setMonthCount(num)}
+                                        className={`px-2 py-0.5 rounded text-[11px] cursor-pointer transition-colors border ${
+                                            monthCount === num 
+                                                ? 'bg-[#E0A339] border-[#E0A339] text-[#3A2708] font-bold' 
+                                                : 'bg-[#161410] border-[rgba(242,238,226,0.15)] text-[#A9A190] hover:text-[#F2EEE2]'
+                                        }`}
+                                    >
+                                        {num}M
+                                    </button>
                                 ))}
-                            </select>
+                            </div>
+                        )}
+
+                        {/* Scrub Range Indicator & Quick Presets */}
+                        <div className="flex items-center gap-2 flex-wrap">
+                            {scrubRange[0] && scrubRange[1] ? (
+                                <div className="flex items-center gap-2 flex-wrap">
+                                    <div className="px-2.5 py-1 rounded bg-[#4FB0A6]/15 border border-[#4FB0A6]/40 text-[#4FB0A6] text-xs font-mono font-medium flex items-center gap-2">
+                                        <span>
+                                            Scrubbed: {formatShortDate(scrubRange[0] < scrubRange[1] ? scrubRange[0] : scrubRange[1])} – {formatShortDate(scrubRange[0] < scrubRange[1] ? scrubRange[1] : scrubRange[0])} ({scrubbedSceneCount} scenes)
+                                        </span>
+                                        <button 
+                                            onClick={() => setScrubRange([null, null])}
+                                            className="hover:text-white cursor-pointer" 
+                                            title="Clear Scrubbed Range"
+                                        >
+                                            <X size={12} />
+                                        </button>
+                                    </div>
+
+                                    <button
+                                        onClick={() => setIsScrubModalOpen(true)}
+                                        className="px-2.5 py-1 rounded bg-[#E0A339] text-[#3A2708] text-xs font-mono font-bold flex items-center gap-1.5 hover:bg-[#d09329] transition-colors cursor-pointer shadow-xs"
+                                        title="Pick scenes to shoot on these scrubbed dates"
+                                    >
+                                        <ListFilter size={13} />
+                                        <span>Pick Scenes for Range ({selectedSceneIdsForScrub.length})</span>
+                                    </button>
+                                </div>
+                            ) : (
+                                <span className="text-xs font-mono text-[#726A5C] italic">Click/drag dates to scrub schedule range</span>
+                            )}
+
+                            {/* Filter Mode Toggle */}
+                            <button
+                                onClick={() => setFilterByScrubbedOnly(!filterByScrubbedOnly)}
+                                className={`px-2.5 py-1 rounded text-xs font-mono border transition-colors flex items-center gap-1 cursor-pointer ${
+                                    filterByScrubbedOnly 
+                                        ? 'bg-[#E0A339] border-[#E0A339] text-[#3A2708] font-bold' 
+                                        : 'bg-[#161410] border-[rgba(242,238,226,0.15)] text-[#A9A190] hover:text-[#F2EEE2]'
+                                }`}
+                                title="Toggle filtering stripboard by scrubbed dates"
+                            >
+                                <Filter size={12} />
+                                {filterByScrubbedOnly ? 'Scrubbed Only' : 'All Strips'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Collapsible Calendar Content */}
+                {isCalendarOpen && (
+                    <>
+                        {/* Quick Presets Row */}
+                        <div className="flex items-center gap-2 overflow-x-auto custom-scrollbar text-xs font-mono pt-1">
+                            <span className="text-[10px] text-[#726A5C] uppercase tracking-wider shrink-0">Presets:</span>
+                            <button 
+                                onClick={() => applyScrubPreset(null)}
+                                className="px-2 py-0.5 rounded bg-[#26221A] hover:bg-[#322C22] text-[#A9A190] hover:text-[#F2EEE2] border border-[rgba(242,238,226,0.1)] cursor-pointer whitespace-nowrap"
+                            >
+                                All Days
+                            </button>
+                            <button 
+                                onClick={() => applyScrubPreset(['2026-08-10', '2026-08-12'])}
+                                className="px-2 py-0.5 rounded bg-[#26221A] hover:bg-[#322C22] text-[#E0A339] border border-[#E0A339]/30 cursor-pointer whitespace-nowrap"
+                            >
+                                Aug 10–12 (Vikram Rana Window)
+                            </button>
+                            <button 
+                                onClick={() => applyScrubPreset(['2026-08-14', '2026-08-18'])}
+                                className="px-2 py-0.5 rounded bg-[#26221A] hover:bg-[#322C22] text-[#4FB0A6] border border-[#4FB0A6]/30 cursor-pointer whitespace-nowrap"
+                            >
+                                Aug 14–18 (Hospital Set)
+                            </button>
+                            <button 
+                                onClick={() => applyScrubPreset(['2026-08-20', '2026-08-22'])}
+                                className="px-2 py-0.5 rounded bg-[#26221A] hover:bg-[#322C22] text-[#5B8DBE] border border-[#5B8DBE]/30 cursor-pointer whitespace-nowrap"
+                            >
+                                Aug 20–22 (Night Action)
+                            </button>
+                        </div>
+
+                        {/* Multi-Month Calendar Grid */}
+                        <div className={`grid gap-4 ${
+                            monthCount === 1 ? 'grid-cols-1' :
+                            monthCount === 2 ? 'grid-cols-1 md:grid-cols-2' :
+                            monthCount === 3 ? 'grid-cols-1 md:grid-cols-3' : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-4'
+                        }`}>
+                            {monthList.map((m, mIdx) => (
+                                <div key={mIdx} className="bg-[#161410] border border-[rgba(242,238,226,0.12)] rounded p-2.5">
+                                    <div className="display-font text-xs text-[#E0A339] font-bold text-center uppercase tracking-wider mb-2 border-b border-[rgba(242,238,226,0.10)] pb-1">
+                                        {m.monthName}
+                                    </div>
+
+                                    {/* Days of week header */}
+                                    <div className="grid grid-cols-7 text-center font-mono text-[9px] text-[#726A5C] uppercase mb-1 font-semibold">
+                                        <span>Su</span><span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span>Sa</span>
+                                    </div>
+
+                                    {/* Days Grid */}
+                                    <div className="grid grid-cols-7 gap-1">
+                                        {m.days.map((d, dIdx) => {
+                                            if (!d) return <div key={dIdx} className="h-8" />;
+
+                                            const inRange = isDateInScrubbedRange(d.dateStr);
+                                            const isStart = scrubRange[0] === d.dateStr;
+                                            const isEnd = scrubRange[1] === d.dateStr;
+                                            const hasStrips = d.strips.length > 0;
+
+                                            return (
+                                                <div
+                                                    key={dIdx}
+                                                    onMouseDown={() => handleDayMouseDown(d.dateStr)}
+                                                    onMouseEnter={() => handleDayMouseEnter(d.dateStr)}
+                                                    onClick={() => {
+                                                        setScrubRange([d.dateStr, d.dateStr]);
+                                                    }}
+                                                    className={`h-8 rounded p-1 flex flex-col justify-between items-center text-[10px] font-mono cursor-pointer select-none transition-all relative border ${
+                                                        inRange 
+                                                            ? 'bg-[#E0A339]/20 border-[#E0A339] text-[#F2EEE2] font-bold shadow-xs' 
+                                                            : hasStrips
+                                                                ? 'bg-[#1E1B15] border-[rgba(242,238,226,0.2)] text-[#F2EEE2] hover:border-[#4FB0A6]'
+                                                                : 'bg-[#161410] border-transparent text-[#726A5C] hover:text-[#A9A190]'
+                                                    } ${isStart || isEnd ? 'ring-2 ring-[#4FB0A6] bg-[#4FB0A6]/30' : ''}`}
+                                                >
+                                                    <span className={`${d.isSunday ? 'text-[#C1443A]' : ''}`}>{d.dayNum}</span>
+
+                                                    {/* Indicators for scheduled scenes on this day */}
+                                                    {hasStrips && (
+                                                        <div className="flex gap-0.5 items-center mt-0.5">
+                                                            {d.strips.map((s, idx) => (
+                                                                <span 
+                                                                    key={idx} 
+                                                                    className={`w-1.5 h-1.5 rounded-full ${
+                                                                        s.conflictType === 'hard' ? 'bg-[#C1443A]' :
+                                                                        s.conflictType === 'warn' ? 'bg-[#E0A339]' :
+                                                                        s.type === 'EXTNIGHT' ? 'bg-[#5E9E6E]' :
+                                                                        s.type === 'EXTDAY' ? 'bg-[#5B8DBE]' :
+                                                                        s.type === 'INTNIGHT' ? 'bg-[#E8C547]' : 'bg-[#F2EEE2]'
+                                                                    }`}
+                                                                    title={`Scene ${s.sceneNo}: ${s.slug}`}
+                                                                />
+                                                            ))}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </>
+                )}
+            </div>
+
+            {/* --- MODE / OPTIMIZATION BAR --- */}
+            <div className="px-6 py-2.5 border-b border-[rgba(242,238,226,0.10)] flex items-center gap-2 overflow-x-auto custom-scrollbar shrink-0 bg-[#161410]">
+                <span className="text-[10px] text-[#726A5C] uppercase tracking-[1.5px] whitespace-nowrap mr-1 font-semibold">
+                    Optimize for
+                </span>
+
+                {[
+                    { key: 'balanced', label: 'Balanced' },
+                    { key: 'lowest_cost', label: 'Lowest cost' },
+                    { key: 'fastest_shoot', label: 'Fastest shoot' },
+                    { key: 'max_actor_eff', label: 'Max actor efficiency' },
+                    { key: 'min_moves', label: 'Min company moves' },
+                    { key: 'min_continuity_risk', label: 'Min continuity risk' }
+                ].map((m) => {
+                    const isActive = strategy === m.key;
+                    return (
+                        <button
+                            key={m.key}
+                            onClick={() => setStrategy(m.key as OptimizationStrategy)}
+                            className={`px-3 py-1.5 text-xs rounded-xs border whitespace-nowrap transition-all cursor-pointer ${
+                                isActive 
+                                    ? 'bg-[#E0A339] border-[#E0A339] text-[#3A2708] font-semibold' 
+                                    : 'bg-transparent border-[rgba(242,238,226,0.22)] text-[#A9A190] hover:border-[#A9A190] hover:text-[#F2EEE2]'
+                            }`}
+                        >
+                            {m.label}
+                        </button>
+                    );
+                })}
+
+                <span className="text-[11.5px] text-[#726A5C] italic pl-2 truncate hidden lg:inline">
+                    {STRATEGY_NOTES[strategy]}
+                </span>
+            </div>
+
+            {/* --- THREE COLUMN LAYOUT --- */}
+            <div className="flex-1 grid grid-cols-1 lg:grid-cols-[230px_1fr_300px] lg:overflow-hidden min-h-[500px] lg:min-h-0">
+                
+                {/* LEFT COLUMN: ANCHORS & RESOURCES */}
+                <div className="p-4 border-b lg:border-b-0 lg:border-r border-[rgba(242,238,226,0.10)] overflow-y-auto custom-scrollbar space-y-5 bg-[#161410]">
+                    <div>
+                        <h3 className="text-[10.5px] uppercase tracking-[1.5px] text-[#726A5C] font-semibold mb-3 flex items-center gap-1.5">
+                            Anchors — locked truths
+                        </h3>
+                        <div className="space-y-2">
+                            {DEFAULT_ANCHORS.map((anc) => {
+                                const isOverlap = isDateInScrubbedRange(anc.startDate) || isDateInScrubbedRange(anc.endDate);
+                                return (
+                                    <div 
+                                        key={anc.id}
+                                        className={`p-2.5 rounded-r-xs border border-l-3 transition-all ${
+                                            anc.priority === 'critical' ? 'border-l-[#C1443A]' : 'border-l-[#E0A339]'
+                                        } ${isOverlap ? 'bg-[#26221A] border-[rgba(242,238,226,0.25)] ring-1 ring-[#E0A339]/50' : 'bg-[#1E1B15] border-[rgba(242,238,226,0.10)] opacity-85'}`}
+                                    >
+                                        <div className="text-[12.5px] font-medium text-[#F2EEE2] flex items-center justify-between">
+                                            <span>{anc.title}</span>
+                                            {isOverlap && <span className="w-2 h-2 rounded-full bg-[#E0A339] animate-pulse" title="Active during scrubbed dates" />}
+                                        </div>
+                                        <div className="mono text-[11px] text-[#A9A190] mt-0.5">{anc.window}</div>
+                                        <div className={`text-[9.5px] uppercase tracking-wider mt-1 font-semibold ${
+                                            anc.priority === 'critical' ? 'text-[#C1443A]' : 'text-[#E0A339]'
+                                        }`}>
+                                            {anc.priority}
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+
+                    <div>
+                        <h3 className="text-[10.5px] uppercase tracking-[1.5px] text-[#726A5C] font-semibold mb-3">
+                            Resource pressure
+                        </h3>
+                        <div className="space-y-2.5">
+                            {DEFAULT_RESOURCES.map((res, i) => (
+                                <div key={i} className="flex items-center justify-between gap-2 text-xs pb-1.5 border-b border-[rgba(242,238,226,0.10)] last:border-b-0">
+                                    <span className="text-[#A9A190] truncate max-w-[120px]">{res.name}</span>
+                                    <div className="w-[60px] h-[5px] bg-[#26221A] rounded-full overflow-hidden shrink-0">
+                                        <div 
+                                            className={`h-full rounded-full ${res.isTight ? 'bg-[#E0A339]' : 'bg-[#4FB0A6]'}`} 
+                                            style={{ width: `${res.percentage}%` }}
+                                        />
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+
+                {/* CENTER COLUMN: STRIP BOARD */}
+                <div className="p-4 border-b lg:border-b-0 border-[rgba(242,238,226,0.10)] overflow-y-auto custom-scrollbar space-y-6 bg-[#161410]">
+                    {displayBlocks.length === 0 ? (
+                        <div className="p-12 text-center text-[#726A5C] font-mono space-y-3 border border-dashed border-[rgba(242,238,226,0.15)] rounded">
+                            <Calendar size={32} className="mx-auto text-[#E0A339]/60" />
+                            <div className="text-sm font-semibold text-[#F2EEE2]">No scenes scheduled in scrubbed range</div>
+                            <p className="text-xs">Adjust your calendar scrub window or switch to "All Strips".</p>
+                            <button 
+                                onClick={() => applyScrubPreset(null)}
+                                className="px-3 py-1.5 rounded bg-[#E0A339] text-[#3A2708] text-xs font-bold uppercase cursor-pointer"
+                            >
+                                Reset Scrubbed Range
+                            </button>
+                        </div>
+                    ) : (
+                        displayBlocks.map((blk) => (
+                            <div key={blk.id} className="space-y-2">
+                                {/* Block Header */}
+                                <div className="flex items-center justify-between pb-1.5 border-b border-dashed border-[rgba(242,238,226,0.22)]">
+                                    <span className="display-font text-[13.5px] text-[#F2EEE2] font-semibold uppercase">
+                                        {blk.title}
+                                    </span>
+                                    <span className="text-[10.5px] text-[#726A5C] mono flex items-center gap-1">
+                                        {blk.meta}
+                                        {blk.lockState === 'hard' ? <Lock size={11} className="text-[#C1443A]" /> : <Unlock size={11} className="text-[#A9A190]" />}
+                                    </span>
+                                </div>
+
+                                {/* Strips List */}
+                                <div className="space-y-1.5">
+                                    {blk.strips.map((s) => {
+                                        const isSelected = selectedStripId === s.id;
+                                        const isInScrubbedWindow = isDateInScrubbedRange(s.scheduledDate);
+
+                                        return (
+                                            <div
+                                                key={s.id}
+                                                onClick={() => setSelectedStripId(s.id)}
+                                                className={`strip-item strip-${s.type} flex items-stretch border border-[rgba(242,238,226,0.10)] border-l-8 rounded-xs bg-[#1E1B15] cursor-pointer relative ${
+                                                    isSelected ? 'selected' : ''
+                                                } ${scrubRange[0] && scrubRange[1] && !isInScrubbedWindow ? 'opacity-50 grayscale-20' : ''}`}
+                                            >
+                                                <div className="mono text-xs text-[#726A5C] p-2.5 min-w-[40px] border-r border-[rgba(242,238,226,0.10)] flex items-center justify-center font-bold">
+                                                    {s.sceneNo}
+                                                </div>
+
+                                                <div className="p-2.5 flex-1 min-w-0">
+                                                    <div className="flex items-center justify-between gap-2">
+                                                        <div className="text-[12.5px] font-medium text-[#F2EEE2] truncate">
+                                                            {s.slug}
+                                                        </div>
+                                                        <div className="mono text-[10px] px-1.5 py-0.5 rounded bg-[#26221A] text-[#E0A339] border border-[#E0A339]/20 shrink-0">
+                                                            {formatShortDate(s.scheduledDate)}
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="flex gap-1.5 mt-1 flex-wrap items-center">
+                                                        {s.tags.map((t, idx) => (
+                                                            <span key={idx} className="text-[9.5px] px-1.5 py-0.5 rounded bg-[#26221A] text-[#A9A190] border border-[rgba(242,238,226,0.10)] font-mono">
+                                                                {t}
+                                                            </span>
+                                                        ))}
+                                                        {s.shotCount && (
+                                                            <span className="text-[9.5px] px-1.5 py-0.5 rounded bg-[#4FB0A6]/20 text-[#4FB0A6] border border-[#4FB0A6]/30 font-mono font-bold">
+                                                                {s.shotCount} Shots
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                </div>
+
+                                                {s.conflictType && (
+                                                    <div className="px-2.5 flex items-center">
+                                                        {s.conflictType === 'warn' ? (
+                                                            <span className="text-[#E0A339] text-sm" title="Soft Conflict">⚠️</span>
+                                                        ) : (
+                                                            <span className="text-[#C1443A] text-sm" title="Hard Conflict">❌</span>
+                                                        )}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        ))
+                    )}
+                </div>
+
+                {/* RIGHT COLUMN: DEPENDENCIES SUMMARY, AI COPILOT & WHAT IF SIMULATOR */}
+                <div className="p-4 lg:border-l border-[rgba(242,238,226,0.10)] overflow-y-auto custom-scrollbar bg-[#1E1B15] space-y-5">
+                    
+                    {/* --- DEPENDENCIES SUMMARY CARD FOR SCRUBBED RANGE --- */}
+                    {scrubbedDependenciesSummary && (
+                        <div className="p-3.5 rounded-lg border border-[#4FB0A6]/40 bg-[#161410] space-y-3.5 shadow-lg relative overflow-hidden animate-fadeIn">
+                            <div className="absolute top-0 right-0 w-24 h-24 bg-[#4FB0A6]/5 rounded-full blur-xl pointer-events-none" />
+
+                            <div className="flex items-start justify-between border-b border-[rgba(242,238,226,0.12)] pb-2.5">
+                                <div>
+                                    <div className="flex items-center gap-1.5 text-[10px] font-mono uppercase tracking-wider text-[#4FB0A6] font-bold">
+                                        <Layers size={13} />
+                                        <span>Dependencies Summary</span>
+                                    </div>
+                                    <h4 className="display-font text-sm font-bold text-[#F2EEE2] mt-0.5">
+                                        {formatShortDate(scrubbedDependenciesSummary.startStr)} – {formatShortDate(scrubbedDependenciesSummary.endStr)}
+                                    </h4>
+                                    <p className="text-[10.5px] font-mono text-[#A9A190]">
+                                        {scrubbedDependenciesSummary.diffDays} Shoot Days · {scrubbedDependenciesSummary.selectedCount} Scenes · {scrubbedDependenciesSummary.totalShots} Shots
+                                    </p>
+                                </div>
+                                <button
+                                    onClick={() => setIsScrubModalOpen(true)}
+                                    className="p-1.5 rounded bg-[#4FB0A6]/20 text-[#4FB0A6] hover:bg-[#4FB0A6] hover:text-[#161410] transition-colors cursor-pointer text-xs font-mono font-bold flex items-center gap-1"
+                                    title="Edit Scenes for this scrubbed range"
+                                >
+                                    <ListFilter size={13} />
+                                    <span>Filter</span>
+                                </button>
+                            </div>
+
+                            {/* Quick Metrics Bar */}
+                            <div className="grid grid-cols-3 gap-1.5 p-2 bg-[#1E1B15] rounded border border-[rgba(242,238,226,0.08)] text-center font-mono text-xs">
+                                <div>
+                                    <div className="text-[9px] text-[#726A5C] uppercase">Shots</div>
+                                    <div className="font-bold text-[#E0A339]">{scrubbedDependenciesSummary.totalShots}</div>
+                                </div>
+                                <div>
+                                    <div className="text-[9px] text-[#726A5C] uppercase">Camera Hrs</div>
+                                    <div className="font-bold text-[#4FB0A6]">{scrubbedDependenciesSummary.totalEstHours}h</div>
+                                </div>
+                                <div>
+                                    <div className="text-[9px] text-[#726A5C] uppercase">Pages</div>
+                                    <div className="font-bold text-[#F2EEE2]">{scrubbedDependenciesSummary.totalPages}</div>
+                                </div>
+                            </div>
+
+                            {/* 1. CAST DEPENDENCIES */}
+                            <div className="space-y-1.5">
+                                <div className="text-[10px] font-mono uppercase tracking-wider text-[#726A5C] font-semibold flex items-center gap-1">
+                                    <Users size={12} className="text-[#E0A339]" />
+                                    <span>Cast Required ({scrubbedDependenciesSummary.castList.length})</span>
+                                </div>
+                                <div className="flex flex-wrap gap-1">
+                                    {scrubbedDependenciesSummary.castList.map((c, i) => (
+                                        <span key={i} className="text-[10.5px] font-mono px-2 py-0.5 rounded bg-[#26221A] border border-[rgba(242,238,226,0.12)] text-[#F2EEE2] flex items-center gap-1">
+                                            <span className="w-1.5 h-1.5 rounded-full bg-[#5E9E6E]" />
+                                            {c}
+                                        </span>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* 2. LOCATIONS & SETS */}
+                            <div className="space-y-1.5">
+                                <div className="text-[10px] font-mono uppercase tracking-wider text-[#726A5C] font-semibold flex items-center gap-1">
+                                    <MapPin size={12} className="text-[#4FB0A6]" />
+                                    <span>Sets & Locations ({scrubbedDependenciesSummary.locations.length})</span>
+                                </div>
+                                <div className="space-y-1 font-mono text-[11px] text-[#A9A190]">
+                                    {scrubbedDependenciesSummary.locations.map((loc, i) => (
+                                        <div key={i} className="p-1.5 rounded bg-[#1E1B15] border border-[rgba(242,238,226,0.06)] flex items-center justify-between text-[#F2EEE2]">
+                                            <span>{loc}</span>
+                                            <span className="text-[9px] px-1.5 py-0.5 rounded bg-[#4FB0A6]/20 text-[#4FB0A6]">Ready</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* 3. EQUIPMENT, PROPS & SPECIAL REQS */}
+                            <div className="space-y-1.5">
+                                <div className="text-[10px] font-mono uppercase tracking-wider text-[#726A5C] font-semibold flex items-center gap-1">
+                                    <Wrench size={12} className="text-[#5B8DBE]" />
+                                    <span>Special Equipment & Props ({scrubbedDependenciesSummary.equipment.length})</span>
+                                </div>
+                                <div className="flex flex-wrap gap-1">
+                                    {scrubbedDependenciesSummary.equipment.map((eq, i) => (
+                                        <span key={i} className="text-[10px] font-mono px-2 py-0.5 rounded bg-[#1E1B15] border border-[#5B8DBE]/30 text-[#5B8DBE]">
+                                            {eq}
+                                        </span>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* 4. PERMITS & WARNINGS */}
+                            {scrubbedDependenciesSummary.warnings.length > 0 && (
+                                <div className="p-2.5 rounded bg-[#C1443A]/10 border border-[#C1443A]/40 space-y-1">
+                                    <div className="text-[10px] font-mono font-bold uppercase text-[#C1443A] flex items-center gap-1">
+                                        <AlertTriangle size={12} />
+                                        <span>Permit & Window Constraints</span>
+                                    </div>
+                                    <ul className="list-disc pl-4 text-[10.5px] font-mono text-[#A9A190] space-y-0.5">
+                                        {scrubbedDependenciesSummary.warnings.map((w, i) => (
+                                            <li key={i}>{w}</li>
+                                        ))}
+                                    </ul>
+                                </div>
+                            )}
+
+                            {/* Action Buttons */}
+                            <div className="pt-1 flex gap-2">
+                                <button
+                                    onClick={() => setIsScrubModalOpen(true)}
+                                    className="flex-1 py-1.5 rounded bg-[#E0A339] text-[#3A2708] font-mono text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-1.5 hover:bg-[#d09329] transition-colors cursor-pointer"
+                                >
+                                    <ListFilter size={13} />
+                                    <span>Select Scenes Popup</span>
+                                </button>
+                                <button
+                                    onClick={() => setShowPdfModal(true)}
+                                    className="py-1.5 px-3 rounded border border-[rgba(242,238,226,0.2)] hover:border-[#4FB0A6] text-[#A9A190] hover:text-[#F2EEE2] font-mono text-xs cursor-pointer transition-colors"
+                                    title="Export Call Sheet"
+                                >
+                                    <Printer size={13} />
+                                </button>
+                            </div>
                         </div>
                     )}
 
-                    {/* Search Field */}
-                    <div className="relative">
-                        <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-500" />
-                        <input
-                            type="text"
-                            placeholder="Filter schedule..."
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                            className="bg-[#181820] border border-[#282836] focus:border-[#f5a623] text-xs text-white pl-8 pr-2.5 py-1 rounded-lg outline-none w-44"
-                        />
+                    {/* AI Copilot Card */}
+                    <div>
+                        <h3 className="text-[10.5px] uppercase tracking-[1.5px] text-[#726A5C] font-semibold mb-2.5 flex items-center gap-1.5">
+                            <Sparkles size={13} className="text-[#E0A339]" /> AI Copilot
+                        </h3>
+
+                        <div className="p-3 rounded border border-[rgba(242,238,226,0.10)] bg-[#26221A] text-[12.5px] leading-relaxed text-[#A9A190]">
+                            {selectedStrip?.suggestion ? (
+                                <>
+                                    <b className="text-[#F2EEE2]">1st AD Suggestion —</b> {selectedStrip.suggestion}
+                                </>
+                            ) : (
+                                <>
+                                    <b className="text-[#F2EEE2]">Why this order —</b> Scene {selectedStrip?.sceneNo || '41'} is scheduled on {formatShortDate(selectedStrip?.scheduledDate || '2026-08-14')}. Grouping scenes in this location eliminates 2 company moves and saves 1 full shoot day.
+                                </>
+                            )}
+                        </div>
                     </div>
 
-                    <div className="flex items-center gap-1 text-xs text-gray-400">
-                        <span className="font-bold text-gray-300">Default:</span>
-                        <input
-                            type="number"
-                            value={defaultShotMins}
-                            onChange={(e) => setDefaultShotMins(Math.max(5, parseInt(e.target.value, 10) || 15))}
-                            className="w-11 bg-[#181820] border border-[#282836] text-center text-white font-mono text-xs font-bold rounded py-0.5 outline-none"
-                        />
-                        <span>m</span>
-                    </div>
-                </div>
-            </div>
+                    {/* Conflict Explanation Box (If selected strip has conflict) */}
+                    {selectedStrip?.conflictType && (
+                        <div className={`p-3 rounded border ${
+                            selectedStrip.conflictType === 'hard' ? 'border-[#C1443A] bg-[#C1443A]/10' : 'border-[#E0A339] bg-[#E0A339]/10'
+                        }`}>
+                            <div className={`text-[12.5px] font-semibold mb-2 ${
+                                selectedStrip.conflictType === 'hard' ? 'text-[#C1443A]' : 'text-[#E0A339]'
+                            }`}>
+                                {selectedStrip.conflictTitle}
+                            </div>
+                            <ul className="list-disc pl-4 text-xs text-[#A9A190] space-y-1 leading-normal">
+                                {selectedStrip.conflictReasons?.map((r, i) => (
+                                    <li key={i}>{r}</li>
+                                ))}
+                            </ul>
+                        </div>
+                    )}
 
-            {/* --- MASTER CHRONOLOGICAL SCHEDULE TABLE WITH DRAG & DROP --- */}
-            <div className="flex-1 overflow-y-auto custom-scrollbar p-3 sm:p-4">
-                <div className="bg-[#121217] border border-[#20202a] rounded-xl overflow-hidden shadow-2xl">
-                    <table className="w-full text-left border-collapse table-auto min-w-[1000px]">
-                        <thead>
-                            <tr className="bg-[#181820] border-b border-[#252533] text-[10px] font-black text-gray-400 uppercase tracking-wider">
-                                <th className="py-3 px-2 w-10 text-center" title="Drag to reorder items">
-                                    <span className="flex items-center justify-center gap-0.5"><GripVertical size={12} /></span>
-                                </th>
-                                <th className="py-3 px-3 w-32">Time Window</th>
-                                <th className="py-3 px-3 w-24">Type</th>
-                                <th className="py-3 px-3 w-32 text-center">Scene & Shot</th>
-                                <th className="py-3 px-2 w-14 text-center">Setup</th>
-                                <th className="py-3 px-3 w-40">KEYS (INT/EXT, DAY/NIGHT, FX)</th>
-                                <th className="py-3 px-3 min-w-[240px] w-auto">Scene / Event Details</th>
-                                <th className="py-3 px-3 w-48">Camera Specs</th>
-                                <th className="py-3 px-3 w-44">Location / Set</th>
-                                <th className="py-3 px-2 w-20 text-center">Duration</th>
-                                <th className="py-3 px-3 w-24 text-right">Cumul.</th>
-                                <th className="py-3 px-2 w-10 text-center">Del</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-[#1e1e28] text-xs">
-                            {filteredItems.map((item, index) => {
-                                const isOvertimeRow = (item.endMinFromCall || 0) > 720;
-                                const isMealViolationRow = item.type === 'meal' && (item.startMinFromCall || 0) > 360;
-                                const realIndex = items.findIndex(i => i.id === item.id);
-                                const isBeingDragged = draggedIndex === realIndex;
-                                const isDragTarget = dragOverIndex === realIndex && !isBeingDragged;
+                    {/* What If Simulation */}
+                    <div>
+                        <h3 className="text-[10.5px] uppercase tracking-[1.5px] text-[#726A5C] font-semibold mb-2.5">
+                            What if…
+                        </h3>
 
-                                const getItemRowStyle = (type: ScheduleItemType) => {
-                                    if (isBeingDragged) return 'opacity-30 bg-amber-950/40 border-l-4 border-l-amber-500';
-                                    if (isDragTarget) return 'border-t-2 border-amber-400 bg-amber-500/20 border-l-4 border-l-amber-400';
-                                    if (isMealViolationRow) return 'bg-red-950/40 hover:bg-red-900/50 border-l-4 border-l-red-500';
-                                    
-                                    switch (type) {
-                                        case 'meal':
-                                            return 'bg-[#062c1b]/80 hover:bg-[#064e3b] border-l-4 border-l-emerald-500 font-medium';
-                                        case 'move':
-                                            return 'bg-[#2e1065]/70 hover:bg-[#3b0764] border-l-4 border-l-purple-500 font-medium';
-                                        case 'lighting':
-                                            return 'bg-[#451a03]/70 hover:bg-[#78350f] border-l-4 border-l-amber-500 font-medium';
-                                        case 'wrap':
-                                            return 'bg-[#4c0519]/70 hover:bg-[#881337] border-l-4 border-l-rose-500 font-medium';
-                                        case 'shot':
-                                        default:
-                                            return 'bg-transparent hover:bg-[#161622] border-l-2 border-l-transparent';
-                                    }
-                                };
-
+                        <div className="space-y-1.5">
+                            {Object.entries(WHAT_IF_RIPPLES).map(([key, data]) => {
+                                const isActive = activeWhatIfKey === key;
                                 return (
-                                    <tr 
-                                        key={item.id}
-                                        draggable
-                                        onDragStart={(e) => handleDragStart(e, realIndex)}
-                                        onDragOver={(e) => handleDragOver(e, realIndex)}
-                                        onDrop={(e) => handleDrop(e, realIndex)}
-                                        onDragEnd={handleDragEnd}
-                                        className={`transition-all border-b border-[#20202e] ${getItemRowStyle(item.type)}`}
+                                    <button
+                                        key={key}
+                                        onClick={() => setActiveWhatIfKey(isActive ? null : key)}
+                                        className={`w-full text-left p-2.5 rounded text-xs font-sans border transition-colors cursor-pointer ${
+                                            isActive 
+                                                ? 'border-[#4FB0A6] text-[#F2EEE2] bg-[#4FB0A6]/10 font-medium' 
+                                                : 'border-[rgba(242,238,226,0.22)] text-[#A9A190] hover:border-[#4FB0A6] hover:text-[#F2EEE2] bg-transparent'
+                                        }`}
                                     >
-                                        {/* DRAG HANDLE & ROW NUMBER */}
-                                        <td className="py-2.5 px-2 text-center text-gray-500 font-mono select-none">
-                                            <div className="flex items-center justify-center gap-1 cursor-grab active:cursor-grabbing hover:text-amber-400 group">
-                                                <GripVertical size={14} className="text-gray-500 group-hover:text-amber-400 transition-colors" />
-                                                <span className="font-bold text-gray-300 text-[11px]">{index + 1}</span>
-                                            </div>
-                                        </td>
-
-                                        {/* START & END CASCADED TIMES */}
-                                        <td className="py-2.5 px-3 font-mono">
-                                            <div className="flex items-center gap-1 font-bold text-white text-[11px]">
-                                                <Clock size={11} className="text-[#f5a623]" />
-                                                <span>{item.startTime}</span>
-                                                <span className="text-gray-600">→</span>
-                                                <span>{item.endTime}</span>
-                                            </div>
-                                            <div className="text-[9px] text-gray-400 mt-0.5 font-sans">
-                                                +{item.startMinFromCall}m to +{item.endMinFromCall}m
-                                            </div>
-                                        </td>
-
-                                        {/* CATEGORY BADGE */}
-                                        <td className="py-2.5 px-3">
-                                            {getCategoryBadge(item.type)}
-                                        </td>
-
-                                        {/* SCENE & SHOT SELECTION / INPUT */}
-                                        <td className="py-2.5 px-2 text-center">
-                                            <div className="flex flex-col items-center gap-1">
-                                                <div className="flex items-center justify-center gap-1 w-full">
-                                                    {/* Scene selector / input */}
-                                                    <span className="text-[9px] font-bold text-amber-500 uppercase font-mono">Sc</span>
-                                                    <input
-                                                        type="text"
-                                                        value={item.sceneNo || ''}
-                                                        onChange={(e) => handleSceneChange(item.id, e.target.value)}
-                                                        placeholder="#"
-                                                        className="bg-[#0f0f14] text-amber-400 border border-[#2a2a38] focus:border-[#f5a623] font-mono text-xs font-bold px-1.5 py-0.5 rounded w-11 text-center outline-none"
-                                                    />
-
-                                                    {/* Shot selector / input */}
-                                                    {item.type === 'shot' && (
-                                                        <>
-                                                            <span className="text-[9px] font-bold text-sky-400 uppercase font-mono ml-0.5">Sh</span>
-                                                            <input
-                                                                type="text"
-                                                                value={item.shotNo || ''}
-                                                                onChange={(e) => handleShotChange(item.id, e.target.value)}
-                                                                placeholder="#"
-                                                                className="bg-[#0f0f14] text-sky-400 border border-[#2a2a38] focus:border-[#f5a623] font-mono text-xs font-bold px-1.5 py-0.5 rounded w-11 text-center outline-none"
-                                                            />
-                                                        </>
-                                                    )}
-                                                </div>
-
-                                                {/* Direct Shot Division Select Option for Shot Rows */}
-                                                {item.type === 'shot' && generatedShots.length > 0 && (
-                                                    <select
-                                                        value=""
-                                                        onChange={(e) => handleSelectShotDirectly(item.id, e.target.value)}
-                                                        className="w-full bg-[#0d0d12] text-[9px] text-gray-400 hover:text-amber-300 border border-[#252535] rounded px-1 py-0.5 outline-none cursor-pointer truncate"
-                                                        title="Auto-fill details from Shot Division"
-                                                    >
-                                                        <option value="">Auto-fill Shot...</option>
-                                                        {generatedShots.map((s, sIdx) => (
-                                                            <option key={s.id || sIdx} value={s.id}>
-                                                                Sc {s.scene || '1'} • {s.shotSize || 'Shot'} ({s.subject || 'Action'})
-                                                            </option>
-                                                        ))}
-                                                    </select>
-                                                )}
-                                            </div>
-                                        </td>
-
-                                        {/* SETUP NUMBER AUTO-COUNTER */}
-                                        <td className="py-2.5 px-2 text-center font-mono">
-                                            {item.setupNumber !== undefined ? (
-                                                <span className="bg-[#1b1b26] border border-emerald-800/50 text-emerald-400 font-black px-1.5 py-0.5 rounded-full text-[11px] shadow-sm">
-                                                    #{item.setupNumber}
-                                                </span>
-                                            ) : (
-                                                <span className="text-gray-600">-</span>
-                                            )}
-                                        </td>
-
-                                        {/* KEYS (INT/EXT, DAY/NIGHT, SPX/CGI/VFX) */}
-                                        <td className="py-2.5 px-2">
-                                            <div className="flex flex-col gap-1 text-[10px] font-mono">
-                                                {/* ENV KEY TOGGLE: INT / EXT / INT/EXT */}
-                                                <button
-                                                    type="button"
-                                                    onClick={() => {
-                                                        const activeTag = getItemTags(item, beats, generatedShots).find(t => t.type === 'intext')?.label.replace('.', '');
-                                                        const current = item.envKey || (activeTag as any) || 'INT';
-                                                        const nextEnv = current === 'INT' ? 'EXT' : current === 'EXT' ? 'INT/EXT' : 'INT';
-                                                        handleUpdateItem(item.id, { envKey: nextEnv });
-                                                    }}
-                                                    className={`px-1.5 py-0.5 rounded font-bold text-left text-[10px] border transition-all flex items-center justify-between cursor-pointer ${
-                                                        (item.envKey || getItemTags(item, beats, generatedShots).find(t => t.type === 'intext')?.label) === 'INT/EXT'
-                                                            ? 'bg-cyan-950 text-cyan-300 border-cyan-700/80 hover:bg-cyan-900'
-                                                            : (item.envKey || getItemTags(item, beats, generatedShots).find(t => t.type === 'intext')?.label)?.includes('EXT')
-                                                            ? 'bg-emerald-950 text-emerald-300 border-emerald-700/80 hover:bg-emerald-900'
-                                                            : 'bg-indigo-950 text-indigo-300 border-indigo-700/80 hover:bg-indigo-900'
-                                                    }`}
-                                                    title="Click to toggle INT / EXT / INT/EXT"
-                                                >
-                                                    <span>{item.envKey ? (item.envKey === 'INT' ? 'INT.' : item.envKey === 'EXT' ? 'EXT.' : 'INT/EXT') : getItemTags(item, beats, generatedShots).find(t => t.type === 'intext')?.label || 'INT.'}</span>
-                                                    <span className="text-[8px] text-gray-500 font-sans">▾</span>
-                                                </button>
-
-                                                {/* TIME KEY TOGGLE: DAY / NIGHT / MAGIC HR */}
-                                                <button
-                                                    type="button"
-                                                    onClick={() => {
-                                                        const activeTag = getItemTags(item, beats, generatedShots).find(t => t.type === 'time')?.label;
-                                                        const current = item.timeKey || (activeTag as any) || 'DAY';
-                                                        const nextTime = current === 'DAY' ? 'NIGHT' : current === 'NIGHT' ? 'MAGIC HR' : 'DAY';
-                                                        handleUpdateItem(item.id, { timeKey: nextTime });
-                                                    }}
-                                                    className={`px-1.5 py-0.5 rounded font-bold text-left text-[10px] border transition-all flex items-center justify-between cursor-pointer ${
-                                                        (item.timeKey || getItemTags(item, beats, generatedShots).find(t => t.type === 'time')?.label) === 'NIGHT'
-                                                            ? 'bg-purple-950 text-purple-300 border-purple-600/80 hover:bg-purple-900'
-                                                            : (item.timeKey || getItemTags(item, beats, generatedShots).find(t => t.type === 'time')?.label) === 'MAGIC HR'
-                                                            ? 'bg-rose-950 text-rose-300 border-rose-600/80 hover:bg-rose-900'
-                                                            : 'bg-amber-950 text-amber-300 border-amber-600/80 hover:bg-amber-900'
-                                                    }`}
-                                                    title="Click to toggle DAY / NIGHT / MAGIC HR"
-                                                >
-                                                    <span className="flex items-center gap-1">
-                                                        {(item.timeKey || getItemTags(item, beats, generatedShots).find(t => t.type === 'time')?.label) === 'NIGHT' ? <Moon size={9} /> : <Sun size={9} />}
-                                                        {item.timeKey || getItemTags(item, beats, generatedShots).find(t => t.type === 'time')?.label || 'DAY'}
-                                                    </span>
-                                                    <span className="text-[8px] text-gray-500 font-sans">▾</span>
-                                                </button>
-
-                                                {/* FX KEY TOGGLE: NONE / SPX / CGI / VFX / STUNT */}
-                                                <button
-                                                    type="button"
-                                                    onClick={() => {
-                                                        const activeTag = getItemTags(item, beats, generatedShots).find(t => t.type === 'fx')?.label;
-                                                        const current = item.fxKey || (activeTag as any) || 'NONE';
-                                                        const nextFx = current === 'NONE' ? 'SPX' : current === 'SPX' ? 'CGI' : current === 'CGI' ? 'VFX' : current === 'VFX' ? 'STUNT' : 'NONE';
-                                                        handleUpdateItem(item.id, { fxKey: nextFx });
-                                                    }}
-                                                    className={`px-1.5 py-0.5 rounded font-bold text-left text-[10px] border transition-all flex items-center justify-between cursor-pointer ${
-                                                        (item.fxKey || getItemTags(item, beats, generatedShots).find(t => t.type === 'fx')?.label) && (item.fxKey || getItemTags(item, beats, generatedShots).find(t => t.type === 'fx')?.label) !== 'NONE'
-                                                            ? 'bg-fuchsia-950 text-fuchsia-300 border-fuchsia-600/80 hover:bg-fuchsia-900'
-                                                            : 'bg-[#0f0f14] text-gray-500 border-[#222230] hover:text-gray-300'
-                                                    }`}
-                                                    title="Click to toggle FX: SPX / CGI / VFX / STUNT / NONE"
-                                                >
-                                                    <span className="flex items-center gap-1">
-                                                        <Zap size={9} />
-                                                        {item.fxKey || getItemTags(item, beats, generatedShots).find(t => t.type === 'fx')?.label || 'NO FX'}
-                                                    </span>
-                                                    <span className="text-[8px] text-gray-500 font-sans">▾</span>
-                                                </button>
-                                            </div>
-                                        </td>
-
-                                        {/* SCENE / EVENT DETAILS & COLOR KEYS */}
-                                        <td className="py-2.5 px-3">
-                                            {/* COLOR KEY BADGES */}
-                                            {getItemTags(item, beats, generatedShots).length > 0 && (
-                                                <div className="flex items-center gap-1.5 flex-wrap mb-1">
-                                                    {getItemTags(item, beats, generatedShots).map((tag, tIdx) => (
-                                                        <span key={tIdx} className={tag.className}>
-                                                            {tag.icon === 'sun' && <Sun size={9} />}
-                                                            {tag.icon === 'moon' && <Moon size={9} />}
-                                                            {tag.icon === 'zap' && <Zap size={9} />}
-                                                            {tag.label}
-                                                        </span>
-                                                    ))}
-                                                </div>
-                                            )}
-
-                                            <input
-                                                type="text"
-                                                value={item.title}
-                                                onChange={(e) => handleUpdateItem(item.id, { title: e.target.value })}
-                                                placeholder="Event or Shot Title"
-                                                className="bg-transparent border-b border-transparent hover:border-[#3a3a4c] focus:border-[#f5a623] text-white font-bold outline-none w-full text-xs"
-                                            />
-
-                                            {/* SCENE DESCRIPTION & BEAT TEXTAREA */}
-                                            <div className="mt-1 flex items-center gap-1 w-full">
-                                                <textarea
-                                                    rows={1}
-                                                    value={item.description || ''}
-                                                    onChange={(e) => handleUpdateItem(item.id, { description: e.target.value })}
-                                                    placeholder="Add scene notes or script beat..."
-                                                    className="w-full bg-transparent text-gray-300 hover:text-white focus:text-white text-[11px] leading-snug outline-none resize-none font-sans placeholder:text-gray-600/70 border-b border-transparent focus:border-amber-500/50 transition-colors p-0"
-                                                />
-                                            </div>
-
-                                            {/* MEAL DELAY WARNING ON ROW */}
-                                            {item.type === 'meal' && (item.startMinFromCall || 0) > 360 && (
-                                                <div className="mt-1 bg-red-950/90 border border-red-700 text-red-300 rounded px-2 py-1 text-[10px] font-bold flex items-center gap-1.5 animate-pulse">
-                                                    <AlertTriangle size={12} className="text-red-400 shrink-0" />
-                                                    <span>MEAL VIOLATION: Lunch starts at +{formatDurationHM(item.startMinFromCall || 0)} from Call Time (Exceeds 6.0h limit by {(item.startMinFromCall || 0) - 360}m)!</span>
-                                                </div>
-                                            )}
-                                        </td>
-
-                                        {/* CAMERA SPECS (LENS, ANGLE, MOVEMENT) */}
-                                        <td className="py-2.5 px-3">
-                                            {item.type === 'shot' ? (
-                                                <div className="flex flex-col gap-1 text-[10px] font-mono">
-                                                    <div className="flex items-center justify-between gap-1 bg-[#0a0a0f] border border-[#222230] rounded px-1.5 py-0.5">
-                                                        <span className="text-gray-500 text-[9px] uppercase font-sans">Lens:</span>
-                                                        <input
-                                                            type="text"
-                                                            value={item.cameraLens || '35mm'}
-                                                            onChange={(e) => handleUpdateItem(item.id, { cameraLens: e.target.value })}
-                                                            className="bg-transparent text-amber-300 font-bold outline-none text-right w-16"
-                                                        />
-                                                    </div>
-                                                    <div className="flex items-center justify-between gap-1 bg-[#0a0a0f] border border-[#222230] rounded px-1.5 py-0.5">
-                                                        <span className="text-gray-500 text-[9px] uppercase font-sans">Angle:</span>
-                                                        <input
-                                                            type="text"
-                                                            value={item.angle || 'Eye Level'}
-                                                            onChange={(e) => handleUpdateItem(item.id, { angle: e.target.value })}
-                                                            className="bg-transparent text-sky-300 font-bold outline-none text-right w-20"
-                                                        />
-                                                    </div>
-                                                    <div className="flex items-center justify-between gap-1 bg-[#0a0a0f] border border-[#222230] rounded px-1.5 py-0.5">
-                                                        <span className="text-gray-500 text-[9px] uppercase font-sans">Move:</span>
-                                                        <input
-                                                            type="text"
-                                                            value={item.movement || 'Static'}
-                                                            onChange={(e) => handleUpdateItem(item.id, { movement: e.target.value })}
-                                                            className="bg-transparent text-purple-300 font-bold outline-none text-right w-20"
-                                                        />
-                                                    </div>
-                                                </div>
-                                            ) : (
-                                                <span className="text-gray-600 font-mono text-[10px] italic">-</span>
-                                            )}
-                                        </td>
-
-                                        {/* LOCATION / SET */}
-                                        <td className="py-2.5 px-3">
-                                            <input
-                                                type="text"
-                                                value={item.location || ''}
-                                                onChange={(e) => handleUpdateItem(item.id, { location: e.target.value })}
-                                                className="bg-[#0c0c12] border border-[#222230] hover:border-[#3a3a4c] focus:border-[#f5a623] text-gray-200 text-xs outline-none w-full uppercase font-semibold px-2 py-1 rounded transition-colors"
-                                                placeholder="SET LOCATION"
-                                            />
-                                        </td>
-
-                                        {/* DURATION INPUT */}
-                                        <td className="py-2.5 px-2 text-center">
-                                            <div className="flex items-center justify-center gap-1">
-                                                <input
-                                                    type="number"
-                                                    value={item.durationMins}
-                                                    onChange={(e) => handleUpdateItem(item.id, { durationMins: Math.max(1, parseInt(e.target.value, 10) || 5) })}
-                                                    className="w-12 bg-[#0f0f14] border border-[#2a2a38] focus:border-[#f5a623] text-center text-white font-mono font-bold py-0.5 rounded outline-none"
-                                                />
-                                                <span className="text-[10px] text-gray-500 font-sans">m</span>
-                                            </div>
-                                        </td>
-
-                                        {/* CUMULATIVE SET TIME */}
-                                        <td className="py-2.5 px-3 text-right font-mono">
-                                            <div className="font-bold text-gray-200">
-                                                {formatDurationHM(item.cumulativeMins || 0)}
-                                            </div>
-                                            <div className="text-[9px] text-gray-500 font-sans">
-                                                {((item.cumulativeMins || 0) / 60).toFixed(1)}h total
-                                            </div>
-                                        </td>
-
-                                        {/* ACTIONS (DOUBLE CLICK DELETE) */}
-                                        <td className="py-2.5 px-2 text-center select-none">
-                                            <button
-                                                onDoubleClick={(e) => {
-                                                    e.stopPropagation();
-                                                    handleRemoveItem(item.id);
-                                                }}
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                }}
-                                                className="p-1.5 bg-red-950/20 hover:bg-red-900/60 text-red-400 hover:text-white border border-red-900/40 rounded transition-all flex flex-col items-center justify-center gap-0.5 mx-auto cursor-pointer group"
-                                                title="Double-click to delete this card"
-                                            >
-                                                <Trash2 size={13} className="group-hover:scale-110 transition-transform" />
-                                                <span className="text-[8px] font-mono font-bold text-red-400/80 group-hover:text-white uppercase leading-none">2x Del</span>
-                                            </button>
-                                        </td>
-                                    </tr>
+                                        {data.label}
+                                    </button>
                                 );
                             })}
+                        </div>
 
-                            {filteredItems.length === 0 && (
-                                <tr>
-                                    <td colSpan={12} className="py-12 text-center text-gray-500">
-                                        No schedule items found matching your filter criteria.
-                                    </td>
-                                </tr>
-                            )}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-
-            {/* --- PDF PREVIEW & PRINT CALL SHEET MODAL --- */}
-            {showPdfModal && (
-                <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-[2000] flex items-center justify-center p-3 sm:p-6 animate-in fade-in duration-200">
-                    <style>{`
-                        @media print {
-                            @page {
-                                size: landscape;
-                                margin: 6mm;
-                            }
-                            body * {
-                                visibility: hidden !important;
-                            }
-                            #printable-callsheet, #printable-callsheet * {
-                                visibility: visible !important;
-                            }
-                            #printable-callsheet {
-                                position: absolute !important;
-                                left: 0 !important;
-                                top: 0 !important;
-                                width: 100% !important;
-                                margin: 0 !important;
-                                padding: 12px !important;
-                                background: white !important;
-                                color: black !important;
-                                box-shadow: none !important;
-                                border: none !important;
-                            }
-                            .no-print {
-                                display: none !important;
-                            }
-                        }
-                    `}</style>
-
-                    <div className="bg-[#14141c] border border-[#2a2a3a] rounded-2xl w-full max-w-[1240px] max-h-[94vh] flex flex-col overflow-hidden shadow-2xl">
-                        {/* MODAL HEADER CONTROLS */}
-                        <div className="bg-[#1a1a24] border-b border-[#2a2a38] px-6 py-4 flex flex-wrap items-center justify-between gap-4 shrink-0 no-print">
-                            <div className="flex items-center gap-3">
-                                <div className="p-2 bg-amber-500/10 border border-amber-500/30 rounded-lg">
-                                    <Printer className="text-[#f5a623]" size={20} />
+                        {/* Ripple Effect Result */}
+                        {activeWhatIfKey && WHAT_IF_RIPPLES[activeWhatIfKey] && (
+                            <div className="mt-3 p-3 rounded border border-[#4FB0A6] bg-[#4FB0A6]/10 text-xs text-[#A9A190] space-y-2 animate-fadeIn">
+                                <div className="font-semibold text-[#4FB0A6] mb-1">
+                                    Ripple effect — {WHAT_IF_RIPPLES[activeWhatIfKey].label}
                                 </div>
-                                <div>
-                                    <div className="flex items-center gap-2">
-                                        <h3 className="text-sm font-black text-white uppercase tracking-wider">
-                                            Daily Call Sheet & Shooting Schedule PDF Preview
-                                        </h3>
-                                        <span className="bg-amber-500/20 text-amber-300 border border-amber-500/40 font-mono text-[9px] font-bold px-2 py-0.5 rounded uppercase">
-                                            Landscape A4 Format
-                                        </span>
-                                    </div>
-                                    <p className="text-[11px] text-gray-400 mt-0.5">
-                                        Optimized horizontal layout for print and vector PDF export.
-                                    </p>
+                                <div className="space-y-1.5">
+                                    {WHAT_IF_RIPPLES[activeWhatIfKey].rows.map((r, idx) => (
+                                        <div key={idx} className="flex justify-between items-center pb-1 border-b border-[rgba(242,238,226,0.10)] last:border-b-0">
+                                            <span>{r.metric}</span>
+                                            <span className={`mono font-bold ${r.status === 'bad' ? 'text-[#C1443A]' : 'text-[#4FB0A6]'}`}>
+                                                {r.delta}
+                                            </span>
+                                        </div>
+                                    ))}
                                 </div>
                             </div>
-                            <div className="flex items-center gap-2.5">
-                                <button
-                                    onClick={handlePrintPdf}
-                                    className="px-4 py-2 bg-[#f5a623] hover:bg-[#e09612] text-black rounded-lg text-xs font-black uppercase tracking-wider flex items-center gap-2 shadow-md transition-all cursor-pointer"
-                                >
-                                    <Printer size={15} /> Print / Save as PDF
-                                </button>
-                                <button
-                                    onClick={handleExportPdfFile}
-                                    disabled={isExportingPdf}
-                                    className="px-4 py-2 bg-[#2a2a38] hover:bg-[#353548] text-white border border-[#3e3e50] rounded-lg text-xs font-bold uppercase tracking-wider flex items-center gap-2 transition-all disabled:opacity-50 cursor-pointer"
-                                >
-                                    {isExportingPdf ? <RefreshCw size={14} className="animate-spin text-amber-400" /> : <Download size={14} />}
-                                    {isExportingPdf ? 'Generating PDF...' : 'Download PDF File'}
-                                </button>
-                                <button
-                                    onClick={() => setShowPdfModal(false)}
-                                    className="p-2 text-gray-400 hover:text-white rounded-lg transition-all cursor-pointer"
-                                >
-                                    <X size={18} />
-                                </button>
+                        )}
+                    </div>
+                </div>
+
+            </div>
+
+            {/* --- FOOTER TICKER --- */}
+            <footer className="px-6 py-2.5 border-t border-[rgba(242,238,226,0.10)] bg-[#1E1B15] flex items-center gap-6 overflow-x-auto custom-scrollbar text-xs text-[#A9A190] shrink-0">
+                <div className="flex items-center gap-2 whitespace-nowrap">
+                    <span className="w-1.5 h-1.5 rounded-full bg-[#E0A339]"></span>
+                    <span>5 idle days for Vikram Rana between blocks</span>
+                </div>
+                <div className="flex items-center gap-2 whitespace-nowrap">
+                    <span className="w-1.5 h-1.5 rounded-full bg-[#C1443A]"></span>
+                    <span>Scene 13 breaches temple permit (6 PM cutoff)</span>
+                </div>
+                <div className="flex items-center gap-2 whitespace-nowrap">
+                    <span className="w-1.5 h-1.5 rounded-full bg-[#E0A339]"></span>
+                    <span>Drone booked twice — Aug 15</span>
+                </div>
+                <div className="flex items-center gap-2 whitespace-nowrap">
+                    <span className="w-1.5 h-1.5 rounded-full bg-[#E0A339]"></span>
+                    <span>3 consecutive night shoots, Aug 20–22</span>
+                </div>
+                <div className="flex items-center gap-2 whitespace-nowrap">
+                    <span className="w-1.5 h-1.5 rounded-full bg-[#C1443A]"></span>
+                    <span>Meera scheduled past 5h morning cap on Scene 42</span>
+                </div>
+            </footer>
+                </>
+            )}
+
+            {/* --- CALL SHEET PDF EXPORT MODAL --- */}
+            {showPdfModal && (
+                <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+                    <div className="bg-[#1E1B15] border border-[rgba(242,238,226,0.22)] rounded-lg max-w-3xl w-full max-h-[90vh] flex flex-col overflow-hidden shadow-2xl">
+                        <div className="p-4 border-b border-[rgba(242,238,226,0.10)] flex items-center justify-between bg-[#161410]">
+                            <h2 className="display-font text-lg text-[#F2EEE2]">1st AD Official Schedule PDF Preview</h2>
+                            <button onClick={() => setShowPdfModal(false)} className="text-[#A9A190] hover:text-[#F2EEE2]">
+                                <X size={20} />
+                            </button>
+                        </div>
+
+                        <div className="p-6 overflow-y-auto custom-scrollbar flex-1 bg-[#161410]">
+                            <div ref={pdfPrintRef} className="p-6 bg-[#161410] text-[#F2EEE2] space-y-6 border border-[rgba(242,238,226,0.10)] rounded">
+                                <div className="flex justify-between items-start border-b border-[rgba(242,238,226,0.22)] pb-4">
+                                    <div>
+                                        <h1 className="display-font text-2xl font-bold text-[#E0A339] uppercase">{currentProjectName}</h1>
+                                        <p className="text-xs text-[#A9A190] mono">MASTER 1st AD PRODUCTION SCHEDULE</p>
+                                    </div>
+                                    <div className="text-right text-xs mono text-[#A9A190]">
+                                        <div>Health Score: {healthScore}/100</div>
+                                        <div>Strategy: {strategy.toUpperCase()}</div>
+                                        <div>Generated: {new Date().toLocaleDateString()}</div>
+                                    </div>
+                                </div>
+
+                                <div className="space-y-4">
+                                    {blocks.map(blk => (
+                                        <div key={blk.id} className="border border-[rgba(242,238,226,0.10)] p-3 rounded bg-[#1E1B15]">
+                                            <div className="display-font text-sm text-[#E0A339] border-b border-[rgba(242,238,226,0.10)] pb-1 mb-2">
+                                                {blk.title} ({blk.meta})
+                                            </div>
+                                            <div className="space-y-1">
+                                                {blk.strips.map(s => (
+                                                    <div key={s.id} className="text-xs flex justify-between py-1 border-b border-[rgba(242,238,226,0.05)] font-mono">
+                                                        <span>SCENE {s.sceneNo} [{formatShortDate(s.scheduledDate)}]: {s.slug}</span>
+                                                        <span className="text-[#A9A190]">{s.tags.join(' | ')}</span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
                             </div>
                         </div>
 
-                        {/* MODAL BODY (PRINTABLE CALL SHEET CANVAS - LANDSCAPE WIDESCREEN) */}
-                        <div className="flex-1 overflow-y-auto custom-scrollbar p-6 bg-[#0a0a0f] flex justify-center">
-                            <div 
-                                id="printable-callsheet"
-                                ref={pdfPrintRef}
-                                className="bg-white text-gray-900 w-full max-w-[1140px] p-7 shadow-2xl rounded-sm border border-gray-300 font-sans text-xs flex flex-col gap-5"
+                        <div className="p-4 border-t border-[rgba(242,238,226,0.10)] flex justify-end gap-3 bg-[#161410]">
+                            <button 
+                                onClick={() => setShowPdfModal(false)}
+                                className="px-4 py-2 rounded text-xs font-mono text-[#A9A190] hover:text-[#F2EEE2] cursor-pointer"
                             >
-                                {/* CALL SHEET HEADER */}
-                                <div className="border-b-2 border-slate-900 pb-3.5 flex justify-between items-start">
-                                    <div>
-                                        <div className="flex items-center gap-2">
-                                            <span className="bg-slate-900 text-amber-400 font-mono font-bold text-[10px] px-2 py-0.5 uppercase tracking-widest rounded">
-                                                Official Production Call Sheet
-                                            </span>
-                                            <span className="text-[10px] font-mono text-slate-500 font-semibold uppercase">
-                                                1st AD Logistics Engine
-                                            </span>
+                                Cancel
+                            </button>
+                            <button 
+                                onClick={handleExportPdf}
+                                disabled={isExportingPdf}
+                                className="px-5 py-2 rounded bg-[#E0A339] text-[#3A2708] text-xs font-mono font-bold uppercase flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                            >
+                                <Download size={14} />
+                                {isExportingPdf ? 'Exporting PDF...' : 'Download PDF'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* --- POPUP MODAL: WHAT SCENES DO YOU WANT TO SHOOT THESE DAYS? --- */}
+            {isScrubModalOpen && scrubRange[0] && scrubRange[1] && (
+                <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-3 md:p-5 animate-fadeIn">
+                    <div className="bg-[#181612] border border-[#4FB0A6]/50 rounded-xl max-w-6xl w-full max-h-[92vh] flex flex-col overflow-hidden shadow-2xl relative">
+                        {/* Modal Header */}
+                        <div className="p-3.5 px-4 border-b border-[rgba(242,238,226,0.12)] bg-[#14120E] flex items-center justify-between shrink-0">
+                            <div>
+                                <div className="flex items-center gap-2 text-xs font-mono uppercase text-[#4FB0A6] font-bold">
+                                    <Sparkles size={14} />
+                                    <span>Scrubbed Calendar Date Assignment</span>
+                                </div>
+                                <h2 className="display-font text-lg md:text-xl font-bold text-[#F2EEE2] mt-0.5">
+                                    What scenes do you want to shoot these days?
+                                </h2>
+                                <p className="text-xs font-mono text-[#A9A190] mt-0.5">
+                                    Scrubbed Range: <span className="text-[#E0A339] font-bold">{formatShortDate(scrubRange[0] < scrubRange[1] ? scrubRange[0] : scrubRange[1])} – {formatShortDate(scrubRange[0] < scrubRange[1] ? scrubRange[1] : scrubRange[0])}</span>
+                                </p>
+                            </div>
+
+                            <button 
+                                onClick={() => setIsScrubModalOpen(false)}
+                                className="p-1.5 rounded-lg text-[#A9A190] hover:text-[#F2EEE2] hover:bg-[#26221A] transition-colors cursor-pointer"
+                            >
+                                <X size={20} />
+                            </button>
+                        </div>
+
+                        {/* Modal Content Split: Left (Filters & Compact Cards Grid), Right (Live Updating Dependency Card) */}
+                        <div className="flex-1 flex flex-col lg:flex-row min-h-0 overflow-hidden">
+                            {/* LEFT SIDE: FILTERS & COMPACT SCENE CARDS */}
+                            <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
+                                {/* Multi-Dimensional Filter Bar */}
+                                <div className="p-3 bg-[#1E1B15] border-b border-[rgba(242,238,226,0.10)] space-y-2 shrink-0">
+                                    <div className="flex items-center justify-between gap-3 flex-wrap">
+                                        {/* Search Bar */}
+                                        <div className="relative flex-1 min-w-[180px]">
+                                            <Search size={13} className="absolute left-2.5 top-2 text-[#726A5C]" />
+                                            <input 
+                                                type="text"
+                                                value={popupSearch}
+                                                onChange={(e) => setPopupSearch(e.target.value)}
+                                                placeholder="Search scene #, slug, cast, equipment..."
+                                                className="w-full pl-8 pr-3 py-1 bg-[#14120E] border border-[rgba(242,238,226,0.15)] rounded text-xs font-mono text-[#F2EEE2] placeholder-[#726A5C] focus:outline-none focus:border-[#4FB0A6]"
+                                            />
+                                            {popupSearch && (
+                                                <button onClick={() => setPopupSearch('')} className="absolute right-2 top-2 text-[#726A5C] hover:text-[#F2EEE2]">
+                                                    <X size={12} />
+                                                </button>
+                                            )}
                                         </div>
-                                        <h1 className="text-2xl font-black uppercase tracking-tight text-slate-900 mt-1">
-                                            {currentProjectName}
-                                        </h1>
-                                        <div className="text-xs text-slate-600 font-semibold mt-0.5">
-                                            Shooting Day Schedule & Cascading Time Division Matrix
+
+                                        {/* Preset Selection Actions */}
+                                        <div className="flex items-center gap-1.5">
+                                            <button
+                                                onClick={() => setSelectedSceneIdsForScrub(filteredPopupStrips.map(s => s.id))}
+                                                className="px-2 py-1 rounded bg-[#26221A] border border-[rgba(242,238,226,0.15)] text-[10.5px] font-mono text-[#A9A190] hover:text-[#F2EEE2] hover:border-[#4FB0A6] cursor-pointer"
+                                            >
+                                                Select All ({filteredPopupStrips.length})
+                                            </button>
+                                            <button
+                                                onClick={() => setSelectedSceneIdsForScrub([])}
+                                                className="px-2 py-1 rounded bg-[#26221A] border border-[rgba(242,238,226,0.15)] text-[10.5px] font-mono text-[#A9A190] hover:text-[#C1443A] cursor-pointer"
+                                            >
+                                                Deselect All
+                                            </button>
                                         </div>
                                     </div>
-                                    <div className="text-right font-mono border-l-2 border-slate-300 pl-4">
-                                        <div className="text-xs font-bold text-slate-900">
-                                            DATE: <span className="font-black text-amber-800">{formatDisplayDate(activeDay.date)}</span>
+
+                                    {/* Dropdown Filters row */}
+                                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5 font-mono text-xs">
+                                        <div>
+                                            <select 
+                                                value={popupLocation}
+                                                onChange={(e) => setPopupLocation(e.target.value)}
+                                                className="w-full bg-[#14120E] border border-[rgba(242,238,226,0.12)] rounded px-1.5 py-0.5 text-[#F2EEE2] text-[11px] focus:outline-none focus:border-[#4FB0A6]"
+                                            >
+                                                <option value="ALL">All Locations</option>
+                                                <option value="INTERIOR">INT (Interior)</option>
+                                                <option value="EXTERIOR">EXT (Exterior)</option>
+                                                <option value="HOSPITAL">Hospital / ICU</option>
+                                                <option value="VILLAGE">Village / Well</option>
+                                                <option value="PALACE">Palace Hall</option>
+                                                <option value="NIGHT">Night Locations</option>
+                                            </select>
                                         </div>
-                                        <div className="text-[11px] text-slate-700 font-bold mt-0.5 uppercase">
-                                            {activeBlock.name} • DAY {activeDay.dayNumber} OF {activeBlock.days.length}
+                                        <div>
+                                            <select 
+                                                value={popupType}
+                                                onChange={(e) => setPopupType(e.target.value)}
+                                                className="w-full bg-[#14120E] border border-[rgba(242,238,226,0.12)] rounded px-1.5 py-0.5 text-[#F2EEE2] text-[11px] focus:outline-none focus:border-[#4FB0A6]"
+                                            >
+                                                <option value="ALL">All Types</option>
+                                                <option value="INT DAY">INT DAY</option>
+                                                <option value="EXT DAY">EXT DAY</option>
+                                                <option value="INT NIGHT">INT NIGHT</option>
+                                                <option value="EXT NIGHT">EXT NIGHT</option>
+                                            </select>
                                         </div>
-                                        <div className="text-[10px] text-slate-500 mt-0.5">
-                                            CALL SHEET #0{activeDay.dayNumber} • MAIN UNIT
+                                        <div>
+                                            <select 
+                                                value={popupCast}
+                                                onChange={(e) => setPopupCast(e.target.value)}
+                                                className="w-full bg-[#14120E] border border-[rgba(242,238,226,0.12)] rounded px-1.5 py-0.5 text-[#F2EEE2] text-[11px] focus:outline-none focus:border-[#4FB0A6]"
+                                            >
+                                                <option value="ALL">All Cast</option>
+                                                <option value="Arjun">Vikram Rana (Arjun)</option>
+                                                <option value="Meera">Meera (Child)</option>
+                                                <option value="Rao">Inspector Rao</option>
+                                                <option value="Fernandes">Dr. Fernandes</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <select 
+                                                value={popupEquipment}
+                                                onChange={(e) => setPopupEquipment(e.target.value)}
+                                                className="w-full bg-[#14120E] border border-[rgba(242,238,226,0.12)] rounded px-1.5 py-0.5 text-[#F2EEE2] text-[11px] focus:outline-none focus:border-[#4FB0A6]"
+                                            >
+                                                <option value="ALL">All Gear / Reqs</option>
+                                                <option value="Stunts">Stunts Required</option>
+                                                <option value="Drone">Drone Aerials</option>
+                                                <option value="SFX fire">SFX Fire / Rain</option>
+                                                <option value="35mm">35mm Film Grain</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <select 
+                                                value={popupStatus}
+                                                onChange={(e) => setPopupStatus(e.target.value)}
+                                                className="w-full bg-[#14120E] border border-[rgba(242,238,226,0.12)] rounded px-1.5 py-0.5 text-[#F2EEE2] text-[11px] focus:outline-none focus:border-[#4FB0A6]"
+                                            >
+                                                <option value="ALL">All Scenes</option>
+                                                <option value="SCHEDULED_IN_RANGE">In Range Currently</option>
+                                                <option value="CONFLICTS">Has Conflicts Only</option>
+                                            </select>
                                         </div>
                                     </div>
                                 </div>
 
-                                {/* DAY LOGISTICS ANCHOR SUMMARY - 6 HORIZONTAL COLUMNS */}
-                                <div className="grid grid-cols-6 gap-2 bg-slate-100 p-3 rounded border border-slate-300 font-mono text-center">
-                                    <div className="border-r border-slate-300 pr-1">
-                                        <div className="text-[9px] font-bold text-slate-500 uppercase">Crew Call</div>
-                                        <div className="text-xs font-black text-slate-900 mt-0.5">{cascadedData.crewCallTime}</div>
+                                {/* Compact Scene Grid / List */}
+                                <div className="p-3 overflow-y-auto custom-scrollbar flex-1 space-y-2 bg-[#14120E]">
+                                    <div className="flex justify-between items-center text-[11px] font-mono text-[#726A5C] pb-1">
+                                        <span>Showing {filteredPopupStrips.length} candidate scenes</span>
+                                        <span>{selectedSceneIdsForScrub.length} scenes selected</span>
                                     </div>
-                                    <div className="border-r border-slate-300 pr-1">
-                                        <div className="text-[9px] font-bold text-slate-500 uppercase">First Shot</div>
-                                        <div className="text-xs font-black text-slate-900 mt-0.5">{cascadedData.firstShotCallTime || '06:30 AM'}</div>
-                                    </div>
-                                    <div className="border-r border-slate-300 pr-1">
-                                        <div className="text-[9px] font-bold text-slate-500 uppercase">Lunch Break</div>
-                                        <div className="text-xs font-black text-emerald-800 mt-0.5">
-                                            {cascadedData.firstMealStartMins > 0 
-                                                ? minsToTime(cascadedData.firstMealStartMins + timeToMins(crewCallTime)) 
-                                                : 'SCHEDULED'}
+
+                                    {filteredPopupStrips.length === 0 ? (
+                                        <div className="p-8 text-center border border-dashed border-[rgba(242,238,226,0.10)] rounded-lg text-[#A9A190]">
+                                            <Filter size={24} className="mx-auto mb-2 text-[#726A5C]" />
+                                            <p className="text-sm font-bold">No scenes match your filter criteria.</p>
+                                            <p className="text-xs font-mono text-[#726A5C] mt-1">Try resetting filters or changing search keywords.</p>
                                         </div>
-                                    </div>
-                                    <div className="border-r border-slate-300 pr-1">
-                                        <div className="text-[9px] font-bold text-slate-500 uppercase">Est. Wrap</div>
-                                        <div className="text-xs font-black text-slate-900 mt-0.5">{cascadedData.estimatedWrapTime}</div>
-                                    </div>
-                                    <div className="border-r border-slate-300 pr-1">
-                                        <div className="text-[9px] font-bold text-slate-500 uppercase">Camera Setups</div>
-                                        <div className="text-xs font-black text-amber-800 mt-0.5">#{cascadedData.totalSetups} Setups</div>
-                                    </div>
-                                    <div>
-                                        <div className="text-[9px] font-bold text-slate-500 uppercase">Working Window</div>
-                                        <div className="text-xs font-black text-slate-900 mt-0.5">{cascadedData.totalElapsedHours.toFixed(1)} hrs</div>
-                                    </div>
-                                </div>
-
-                                {/* LOCATIONS & KEYS SUMMARY BAR */}
-                                <div className="bg-slate-50 p-2.5 border border-slate-200 rounded flex flex-wrap items-center justify-between gap-3 text-xs">
-                                    <div className="flex items-center gap-2">
-                                        <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider font-mono">
-                                            Locations:
-                                        </span>
-                                        <div className="flex flex-wrap gap-2">
-                                            {Array.from(new Set(items.map(i => i.location || 'SET'))).map((loc, idx) => (
-                                                <span key={idx} className="bg-white border border-slate-300 text-slate-900 font-bold px-2 py-0.5 rounded text-[10px] flex items-center gap-1 shadow-xs">
-                                                    <span className="w-1.5 h-1.5 rounded-full bg-slate-900"></span>
-                                                    {String(loc || 'SET').toUpperCase()}
-                                                </span>
-                                            ))}
-                                        </div>
-                                    </div>
-                                    <div className="flex items-center gap-1.5 text-[10px] font-mono">
-                                        <span className="text-slate-500 font-bold uppercase">Keys:</span>
-                                        <span className="bg-indigo-100 text-indigo-900 border border-indigo-300 font-bold px-1.5 py-0.5 rounded">INT.</span>
-                                        <span className="bg-emerald-100 text-emerald-900 border border-emerald-300 font-bold px-1.5 py-0.5 rounded">EXT.</span>
-                                        <span className="bg-amber-100 text-amber-900 border border-amber-300 font-bold px-1.5 py-0.5 rounded">DAY</span>
-                                        <span className="bg-purple-100 text-purple-900 border border-purple-300 font-bold px-1.5 py-0.5 rounded">NIGHT</span>
-                                        <span className="bg-fuchsia-100 text-fuchsia-900 border border-fuchsia-300 font-bold px-1.5 py-0.5 rounded">SFX/VFX</span>
-                                    </div>
-                                </div>
-
-                                {/* SHOOTING DAY SCHEDULE TABLE (LANDSCAPE WIDE COLUMNS) */}
-                                <div>
-                                    <div className="text-xs font-black uppercase tracking-wider text-slate-900 mb-2 flex items-center justify-between border-b-2 border-slate-900 pb-1">
-                                        <span>Chronological Shooting Schedule</span>
-                                        <span className="text-[10px] font-normal text-slate-600 font-mono">
-                                            Total Day Window: {formatDurationHM(cascadedData.totalElapsedMins)} ({cascadedData.totalElapsedHours.toFixed(1)} hrs)
-                                        </span>
-                                    </div>
-
-                                    <table className="w-full text-left border-collapse font-sans">
-                                        <thead>
-                                            <tr className="bg-slate-200 border-y border-slate-900 text-[10px] font-black uppercase text-slate-900">
-                                                <th className="py-2 px-1.5 w-8 text-center">#</th>
-                                                <th className="py-2 px-2 w-28">Time Window</th>
-                                                <th className="py-2 px-1.5 w-16 text-center">Type</th>
-                                                <th className="py-2 px-1.5 w-16 text-center">Sc / Sh</th>
-                                                <th className="py-2 px-1.5 w-14 text-center">Setup</th>
-                                                <th className="py-2 px-2 w-28">Keys</th>
-                                                <th className="py-2 px-2.5">Event / Scene Description</th>
-                                                <th className="py-2 px-2 w-36">Optics & Specs</th>
-                                                <th className="py-2 px-2 w-28">Location</th>
-                                                <th className="py-2 px-2 w-20 text-right">Dur / Cumul</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody className="divide-y divide-slate-300 text-[11px]">
-                                            {cascadedData.calculatedItems.map((item, idx) => {
-                                                const rowBg = item.type === 'meal' 
-                                                    ? 'bg-emerald-50/80 font-bold border-l-4 border-l-emerald-600' 
-                                                    : item.type === 'move'
-                                                    ? 'bg-purple-50/80 font-bold border-l-4 border-l-purple-600'
-                                                    : item.type === 'lighting'
-                                                    ? 'bg-amber-50/80 font-bold border-l-4 border-l-amber-600'
-                                                    : item.type === 'wrap'
-                                                    ? 'bg-rose-50/80 font-bold border-l-4 border-l-rose-600'
-                                                    : 'bg-white text-slate-900';
-
+                                    ) : (
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2">
+                                            {filteredPopupStrips.map(strip => {
+                                                const isSelected = selectedSceneIdsForScrub.includes(strip.id);
                                                 return (
-                                                    <tr key={item.id} className={rowBg}>
-                                                        <td className="py-2 px-1.5 text-center font-mono font-bold text-slate-700">{idx + 1}</td>
-                                                        <td className="py-2 px-2 font-mono font-bold whitespace-nowrap text-slate-900">
-                                                            {item.startTime} - {item.endTime}
-                                                        </td>
-                                                        <td className="py-2 px-1.5 text-center">
-                                                            <span className={`text-[9px] font-mono font-bold uppercase px-1.5 py-0.5 rounded ${
-                                                                item.type === 'shot' ? 'bg-slate-100 text-slate-800 border border-slate-300' :
-                                                                item.type === 'meal' ? 'bg-emerald-200 text-emerald-900 font-black' :
-                                                                item.type === 'move' ? 'bg-purple-200 text-purple-900 font-black' :
-                                                                item.type === 'lighting' ? 'bg-amber-200 text-amber-900 font-black' :
-                                                                'bg-rose-200 text-rose-900 font-black'
-                                                            }`}>
-                                                                {item.type}
+                                                    <div
+                                                        key={strip.id}
+                                                        onClick={() => {
+                                                            setSelectedSceneIdsForScrub(prev => 
+                                                                prev.includes(strip.id) ? prev.filter(id => id !== strip.id) : [...prev, strip.id]
+                                                            );
+                                                        }}
+                                                        className={`p-2.5 rounded-lg border transition-all cursor-pointer flex flex-col justify-between relative ${
+                                                            isSelected 
+                                                                ? 'bg-[#1E2E2C] border-[#4FB0A6] shadow-md' 
+                                                                : 'bg-[#1C1A14] border-[rgba(242,238,226,0.10)] hover:border-[rgba(242,238,226,0.25)]'
+                                                        }`}
+                                                    >
+                                                        {/* --- TOP BANNER: SHOTS PLANNED FOR THIS SCENE --- */}
+                                                        <div className="flex items-center justify-between border-b border-[rgba(242,238,226,0.12)] pb-1.5 mb-2">
+                                                            <div className="flex items-center gap-1 font-mono text-[10.5px] font-bold text-[#E0A339]">
+                                                                <Zap size={11} className="text-[#E0A339]" />
+                                                                <span>{strip.shotCount || 8} SHOTS PLANNED</span>
+                                                            </div>
+                                                            <span className="text-[9.5px] font-mono px-1.5 py-0.2 rounded bg-[#26221A] text-[#4FB0A6] font-semibold border border-[rgba(242,238,226,0.10)]">
+                                                                {strip.type}
                                                             </span>
-                                                        </td>
-                                                        <td className="py-2 px-1.5 text-center font-mono font-bold text-amber-800">
-                                                            {item.sceneNo ? `Sc ${item.sceneNo}` : ''}
-                                                            {item.shotNo ? ` • ${item.shotNo}` : ''}
-                                                        </td>
-                                                        <td className="py-2 px-1.5 text-center font-mono font-bold text-slate-900">
-                                                            {item.setupNumber !== undefined ? `#${item.setupNumber}` : '-'}
-                                                        </td>
-                                                        <td className="py-2 px-2">
-                                                            <div className="flex flex-wrap gap-1">
-                                                                {getItemTags(item, beats, generatedShots).map((tag, tIdx) => (
-                                                                    <span key={tIdx} className={tag.pdfClassName || tag.className}>
-                                                                        {tag.label}
+                                                        </div>
+
+                                                        {/* Card Main Body */}
+                                                        <div className="flex items-start gap-2">
+                                                            {/* Checkbox */}
+                                                            <div className="mt-0.5 shrink-0">
+                                                                {isSelected ? (
+                                                                    <div className="w-4 h-4 rounded bg-[#4FB0A6] text-[#14120E] flex items-center justify-center font-bold">
+                                                                        <Check size={12} />
+                                                                    </div>
+                                                                ) : (
+                                                                    <div className="w-4 h-4 rounded border border-[rgba(242,238,226,0.3)] bg-[#14120E]" />
+                                                                )}
+                                                            </div>
+
+                                                            {/* Scene Content */}
+                                                            <div className="flex-1 min-w-0">
+                                                                <div className="flex items-center justify-between gap-1">
+                                                                    <span className="font-mono text-[11px] font-bold text-[#F2EEE2]">
+                                                                        SCENE {strip.sceneNo}
                                                                     </span>
-                                                                ))}
+                                                                    <span className="text-[9.5px] font-mono text-[#726A5C] truncate max-w-[90px]">
+                                                                        {strip.blockTitle}
+                                                                    </span>
+                                                                </div>
+
+                                                                <h4 className="font-medium text-[11px] text-[#A9A190] truncate mt-0.5">
+                                                                    {strip.slug}
+                                                                </h4>
+
+                                                                {/* Tags */}
+                                                                {strip.tags.length > 0 && (
+                                                                    <div className="flex flex-wrap gap-1 mt-1.5">
+                                                                        {strip.tags.slice(0, 3).map((t, idx) => (
+                                                                            <span key={idx} className="text-[9px] font-mono px-1.5 py-0.1 rounded bg-[#14120E] text-[#A9A190] border border-[rgba(242,238,226,0.06)]">
+                                                                                {t}
+                                                                            </span>
+                                                                        ))}
+                                                                    </div>
+                                                                )}
+
+                                                                {/* Conflict Badge */}
+                                                                {strip.conflictType && (
+                                                                    <div className="mt-1.5 text-[9.5px] font-mono text-[#C1443A] flex items-center gap-1 font-semibold">
+                                                                        <AlertTriangle size={10} />
+                                                                        <span className="truncate">{strip.conflictTitle}</span>
+                                                                    </div>
+                                                                )}
                                                             </div>
-                                                        </td>
-                                                        <td className="py-2 px-2.5">
-                                                            <div className="font-bold text-slate-900">
-                                                                {item.title}
-                                                            </div>
-                                                            {item.description && (
-                                                                <div className="text-[10px] text-slate-700 mt-0.5 leading-tight border-l-2 border-amber-500 pl-1.5 py-0.2">
-                                                                    {item.description}
-                                                                </div>
-                                                            )}
-                                                            {item.type === 'meal' && (item.startMinFromCall || 0) > 360 && (
-                                                                <div className="text-[9px] font-bold text-red-600 uppercase mt-0.5">
-                                                                    ⚠️ Meal Delay Violation (+{formatDurationHM(item.startMinFromCall || 0)} from call)
-                                                                </div>
-                                                            )}
-                                                        </td>
-                                                        <td className="py-2 px-2 font-mono text-[10px] text-slate-800">
-                                                            {item.type === 'shot' ? (
-                                                                <div>
-                                                                    <div className="font-bold">{item.cameraLens || '35mm Prime'}</div>
-                                                                    <div className="text-slate-500 text-[9px]">{item.angle || 'Eye Level'} • {item.movement || 'Static'}</div>
-                                                                </div>
-                                                            ) : '-'}
-                                                        </td>
-                                                        <td className="py-2 px-2 font-semibold uppercase text-slate-900">{item.location || 'SET'}</td>
-                                                        <td className="py-2 px-2 text-right font-mono">
-                                                            <div className="font-bold text-slate-900">{item.durationMins}m</div>
-                                                            <div className="text-[9px] text-slate-500">+{formatDurationHM(item.cumulativeMins || 0)}</div>
-                                                        </td>
-                                                    </tr>
+                                                        </div>
+                                                    </div>
                                                 );
                                             })}
-                                        </tbody>
-                                    </table>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* RIGHT SIDE: LIVE UPDATING DEPENDENCY CARD ON THE POPUP ITSELF */}
+                            <div className="w-full lg:w-80 bg-[#161410] border-t lg:border-t-0 lg:border-l border-[rgba(242,238,226,0.12)] p-4 flex flex-col space-y-3.5 overflow-y-auto custom-scrollbar shrink-0">
+                                <div className="flex items-center justify-between border-b border-[rgba(242,238,226,0.12)] pb-2.5">
+                                    <div>
+                                        <div className="flex items-center gap-1.5 text-[10px] font-mono uppercase tracking-wider text-[#4FB0A6] font-bold">
+                                            <Layers size={13} />
+                                            <span>Live Dependencies</span>
+                                        </div>
+                                        <h4 className="display-font text-sm font-bold text-[#F2EEE2] mt-0.5">
+                                            Real-Time Summary
+                                        </h4>
+                                    </div>
+                                    <span className="px-2 py-0.5 rounded bg-[#4FB0A6]/20 text-[#4FB0A6] font-mono text-xs font-bold">
+                                        {scrubbedDependenciesSummary?.selectedCount || 0} Scenes
+                                    </span>
                                 </div>
 
-                                {/* CALL SHEET FOOTER & AD NOTES */}
-                                <div className="border-t-2 border-slate-900 pt-3 grid grid-cols-3 gap-4 text-[10px] text-slate-700 font-mono">
-                                    <div className="bg-slate-50 p-2.5 rounded border border-slate-300">
-                                        <div className="font-bold uppercase text-slate-900 mb-1">1st AD & Unit Notes</div>
-                                        <div>• Mandatory lunch break within 6.0 hours of Crew Call ({cascadedData.mealViolation ? 'WARNING: MEAL DELAY DETECTED' : 'Compliant'}).</div>
-                                        <div>• Report all unit location or camera moves to 1st AD prior to departure.</div>
+                                {/* Quick Metrics Grid */}
+                                <div className="grid grid-cols-3 gap-1.5 p-2 bg-[#1E1B15] rounded border border-[rgba(242,238,226,0.08)] text-center font-mono text-xs">
+                                    <div>
+                                        <div className="text-[9px] text-[#726A5C] uppercase">Shots</div>
+                                        <div className="font-bold text-[#E0A339]">{scrubbedDependenciesSummary?.totalShots || 0}</div>
                                     </div>
-                                    <div className="bg-slate-50 p-2.5 rounded border border-slate-300">
-                                        <div className="font-bold uppercase text-slate-900 mb-1">Safety & Emergency Channels</div>
-                                        <div>• On-Set Medic: Ch 2 | Production Office: 555-0192</div>
-                                        <div>• Safety Officer on site at all times during stunt / SFX shots.</div>
+                                    <div>
+                                        <div className="text-[9px] text-[#726A5C] uppercase">Camera Hrs</div>
+                                        <div className="font-bold text-[#4FB0A6]">{scrubbedDependenciesSummary?.totalEstHours || 0}h</div>
                                     </div>
-                                    <div className="bg-slate-50 p-2.5 rounded border border-slate-300 text-right flex flex-col justify-between">
-                                        <div>
-                                            <div className="font-bold uppercase text-slate-900 mb-1">Production Approvals</div>
-                                            <div>1st AD Approval: ___________________</div>
-                                            <div>Producer Sign-off: _________________</div>
-                                        </div>
-                                        <div className="text-[9px] text-slate-500 mt-1">
-                                            Generated by Backstage Story Sequencer Engine
-                                        </div>
+                                    <div>
+                                        <div className="text-[9px] text-[#726A5C] uppercase">Pages</div>
+                                        <div className="font-bold text-[#F2EEE2]">{scrubbedDependenciesSummary?.totalPages || 0}</div>
                                     </div>
                                 </div>
+
+                                {/* 1. LIVE CAST DEPENDENCIES */}
+                                <div className="space-y-1.5">
+                                    <div className="text-[10px] font-mono uppercase tracking-wider text-[#726A5C] font-semibold flex items-center justify-between">
+                                        <span className="flex items-center gap-1">
+                                            <Users size={12} className="text-[#E0A339]" />
+                                            <span>Cast Required</span>
+                                        </span>
+                                        <span className="text-[#E0A339] font-bold">{scrubbedDependenciesSummary?.castList.length || 0}</span>
+                                    </div>
+                                    <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto custom-scrollbar">
+                                        {scrubbedDependenciesSummary?.castList.length === 0 ? (
+                                            <span className="text-[10px] font-mono text-[#726A5C]">No cast selected</span>
+                                        ) : (
+                                            scrubbedDependenciesSummary?.castList.map((c, i) => (
+                                                <span key={i} className="text-[10px] font-mono px-2 py-0.5 rounded bg-[#26221A] border border-[rgba(242,238,226,0.12)] text-[#F2EEE2] flex items-center gap-1">
+                                                    <span className="w-1.5 h-1.5 rounded-full bg-[#5E9E6E]" />
+                                                    {c}
+                                                </span>
+                                            ))
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* 2. LIVE LOCATIONS & SETS */}
+                                <div className="space-y-1.5">
+                                    <div className="text-[10px] font-mono uppercase tracking-wider text-[#726A5C] font-semibold flex items-center justify-between">
+                                        <span className="flex items-center gap-1">
+                                            <MapPin size={12} className="text-[#4FB0A6]" />
+                                            <span>Sets & Locations</span>
+                                        </span>
+                                        <span className="text-[#4FB0A6] font-bold">{scrubbedDependenciesSummary?.locations.length || 0}</span>
+                                    </div>
+                                    <div className="space-y-1 font-mono text-[10.5px] max-h-28 overflow-y-auto custom-scrollbar">
+                                        {scrubbedDependenciesSummary?.locations.length === 0 ? (
+                                            <span className="text-[10px] font-mono text-[#726A5C]">No sets selected</span>
+                                        ) : (
+                                            scrubbedDependenciesSummary?.locations.map((loc, i) => (
+                                                <div key={i} className="p-1.5 rounded bg-[#1E1B15] border border-[rgba(242,238,226,0.06)] flex items-center justify-between text-[#F2EEE2]">
+                                                    <span className="truncate pr-1">{loc}</span>
+                                                    <span className="text-[8.5px] px-1.5 py-0.2 rounded bg-[#4FB0A6]/20 text-[#4FB0A6] shrink-0">Ready</span>
+                                                </div>
+                                            ))
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* 3. LIVE EQUIPMENT & PROPS */}
+                                <div className="space-y-1.5">
+                                    <div className="text-[10px] font-mono uppercase tracking-wider text-[#726A5C] font-semibold flex items-center justify-between">
+                                        <span className="flex items-center gap-1">
+                                            <Wrench size={12} className="text-[#5B8DBE]" />
+                                            <span>Gear & Special Reqs</span>
+                                        </span>
+                                        <span className="text-[#5B8DBE] font-bold">{scrubbedDependenciesSummary?.equipment.length || 0}</span>
+                                    </div>
+                                    <div className="flex flex-wrap gap-1 max-h-20 overflow-y-auto custom-scrollbar">
+                                        {scrubbedDependenciesSummary?.equipment.length === 0 ? (
+                                            <span className="text-[10px] font-mono text-[#726A5C]">Standard gear</span>
+                                        ) : (
+                                            scrubbedDependenciesSummary?.equipment.map((eq, i) => (
+                                                <span key={i} className="text-[9.5px] font-mono px-2 py-0.5 rounded bg-[#1E1B15] border border-[#5B8DBE]/30 text-[#5B8DBE]">
+                                                    {eq}
+                                                </span>
+                                            ))
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* 4. LIVE PERMITS & WARNINGS */}
+                                {scrubbedDependenciesSummary && scrubbedDependenciesSummary.warnings.length > 0 && (
+                                    <div className="p-2 rounded bg-[#C1443A]/10 border border-[#C1443A]/40 space-y-1">
+                                        <div className="text-[9.5px] font-mono font-bold uppercase text-[#C1443A] flex items-center gap-1">
+                                            <AlertTriangle size={11} />
+                                            <span>Constraint Warnings</span>
+                                        </div>
+                                        <ul className="list-disc pl-3.5 text-[9.5px] font-mono text-[#A9A190] space-y-0.5">
+                                            {scrubbedDependenciesSummary.warnings.map((w, i) => (
+                                                <li key={i}>{w}</li>
+                                            ))}
+                                        </ul>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Modal Footer */}
+                        <div className="p-3.5 px-4 bg-[#14120E] border-t border-[rgba(242,238,226,0.12)] flex flex-col md:flex-row md:items-center justify-between gap-3 shrink-0">
+                            <div className="text-xs font-mono text-[#A9A190]">
+                                <span className="text-[#F2EEE2] font-bold">{selectedSceneIdsForScrub.length} scenes</span> selected for scrubbed range ({formatShortDate(scrubRange[0] < scrubRange[1] ? scrubRange[0] : scrubRange[1])} – {formatShortDate(scrubRange[0] < scrubRange[1] ? scrubRange[1] : scrubRange[0])}).
+                            </div>
+
+                            <div className="flex items-center gap-2 self-end md:self-auto">
+                                <button
+                                    onClick={() => setIsScrubModalOpen(false)}
+                                    className="px-3.5 py-1.5 rounded text-xs font-mono text-[#A9A190] hover:text-[#F2EEE2] border border-[rgba(242,238,226,0.12)] cursor-pointer"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    onClick={handleConfirmAssignScenesToRange}
+                                    className="px-4 py-1.5 rounded bg-[#E0A339] text-[#3A2708] text-xs font-mono font-bold uppercase tracking-wider flex items-center gap-2 hover:bg-[#d09329] transition-colors cursor-pointer shadow-md"
+                                >
+                                    <CheckSquare size={14} />
+                                    <span>Assign & Confirm Schedule</span>
+                                </button>
                             </div>
                         </div>
                     </div>
@@ -2368,3 +1930,4 @@ const ScheduleView: React.FC = () => {
 };
 
 export default ScheduleView;
+

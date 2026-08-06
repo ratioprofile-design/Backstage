@@ -2,6 +2,7 @@ import React, { useMemo, useRef, useState, useEffect } from 'react';
 import { useProject } from '../../context/ProjectContext';
 import { CharacterData } from '../../types';
 import { generateImage } from '../../services/gemini';
+import { deduplicateCharacterNames, isSameCharacterName } from '../../utils/characterUtils';
 import DualViewToggle from '../DualViewToggle';
 import {
   Users, Film, PenLine, Brain, Image as ImageIcon,
@@ -44,7 +45,7 @@ const CharacterDesignView: React.FC<{ onNavigateToView?: (view: 'characterdesign
   const [generatingPortrait, setGeneratingPortrait] = useState(false);
 
   const roleNames = useMemo(() => {
-    const keysSet = new Set<string>(Object.keys(characterData));
+    const rawNames: string[] = Object.keys(characterData);
     beats.forEach(beat => {
       if (!beat.content) return;
       const temp = document.createElement('div');
@@ -53,12 +54,17 @@ const CharacterDesignView: React.FC<{ onNavigateToView?: (view: 'characterdesign
       charElements.forEach(charEl => {
         const rawName = (charEl.textContent || '')
           .replace(/\(V\.O\.\)|\(O\.S\.\)|\(CONT'D\)|\(OFF-SCREEN\)|\(VOICE\)/gi, '')
-          .trim()
-          .toUpperCase();
-        if (rawName && rawName.length > 1) keysSet.add(rawName);
+          .trim();
+        if (rawName && rawName.length > 1) rawNames.push(rawName);
       });
+      if (beat.breakdown?.cast) {
+        beat.breakdown.cast.forEach(c => {
+          const name = typeof c === 'string' ? c : c.name;
+          if (name) rawNames.push(name);
+        });
+      }
     });
-    return Array.from(keysSet).sort();
+    return deduplicateCharacterNames(rawNames).sort();
   }, [beats, characterData]);
 
   const characterMetrics = useMemo(() => {

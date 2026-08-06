@@ -97,7 +97,7 @@ export interface ProjectMetadata {
   created: number;
 }
 
-export type ViewMode = 'board' | 'script' | 'characters' | 'casting' | 'characterdesign' | 'breakdown' | 'crew' | 'shotlist' | 'storyboard' | 'schedule' | 'statistics' | 'backstage' | 'goals' | 'inbox' | 'continuity';
+export type ViewMode = 'board' | 'script' | 'characters' | 'casting' | 'characterdesign' | 'breakdown' | 'crew' | 'shotlist' | 'storyboard' | 'schedule' | 'statistics' | 'backstage' | 'goals' | 'inbox' | 'continuity' | 'locations';
 
 export interface ContinuityItem {
   id: string;
@@ -668,3 +668,102 @@ export interface Group {
   color: string;
   boardId?: number;
 }
+
+export interface AmenityHotel {
+  id: string;
+  name: string;
+  distance: string;
+  address: string;
+  phone?: string;
+  rating?: number;
+  roomsAvailable?: number;
+  coordinates?: { lat: number; lng: number };
+}
+
+export interface AmenityHospital {
+  id: string;
+  name: string;
+  distance: string;
+  address: string;
+  phone: string;
+  emergencyType: 'Medical' | 'Trauma' | 'ICU Specialist' | 'General';
+  coordinates?: { lat: number; lng: number };
+}
+
+export interface AmenityToilet {
+  id: string;
+  name: string;
+  distance: string;
+  type: 'Vanity Trailer Restroom' | 'Permanent Facility' | 'Mobile Bio-Toilet';
+  cleanlinessScore?: string;
+  description: string;
+}
+
+export interface AmenityChangingDress {
+  id: string;
+  name: string;
+  distance: string;
+  type: 'AC Vanity Bus Park' | 'Green Room Suite' | 'Wardrobe Tent';
+  capacity: string;
+  mirrorsAndSteamers: boolean;
+}
+
+export interface AmenityPowerSupply {
+  id: string;
+  name: string;
+  distance: string;
+  type: '200kW Silent Diesel Generator' | '3-Phase Grid Connection' | 'Heavy Duty Transformer';
+  capacity: string;
+  contactPhone?: string;
+}
+
+export interface AmenityEmergency {
+  id: string;
+  name: string;
+  type: 'Fire Station' | 'Medical Response & Ambulance' | 'Police Patrol Post' | 'Disaster Control';
+  distance: string;
+  phone: string;
+  address: string;
+}
+
+export interface SceneRequirement {
+  sceneNumber: string;
+  slugline: string;
+  timeOfDay: string;
+  pageCount?: string;
+  synopsis: string;
+  actors: { character: string; actorName: string; role: string; notes?: string }[];
+  bigSetsAndProps: string[];
+  vehicles: string[];
+  makeupAndCostumes: string[];
+  stuntsAndSfx: string[];
+  specialEquipment?: string[];
+}
+
+export interface LocationMapping {
+  id: string;
+  scriptLocation: string; // e.g. "OOTY - PINE FORESTS & LAKES"
+  sceneNumbers: string[]; // e.g. ["SCENE 1", "SCENE 4"]
+  realLocationName: string; // e.g. "Pine Forest Reserve, Ooty, Tamil Nadu"
+  address: string;
+  googleMapsUrl?: string;
+  coordinates: { lat: number; lng: number };
+  status: 'scouted' | 'confirmed' | 'pending_permit' | 'recce_needed';
+  contactPerson: string;
+  contactPhone: string;
+  permitStatus: 'Approved' | 'Pending' | 'Not Required' | 'In Process';
+  dailyRate?: string;
+  notes?: string;
+  
+  // Assigned Scenes & Requirements
+  assignedScenes: SceneRequirement[];
+  
+  // Nearby Required Amenities (Logistics Infrastructure)
+  nearbyHotels: AmenityHotel[];
+  nearbyHospitals: AmenityHospital[];
+  nearbyToilets: AmenityToilet[];
+  nearbyChangingDress: AmenityChangingDress[];
+  nearbyPowerSupply: AmenityPowerSupply[];
+  closestEmergency: AmenityEmergency[];
+}
+

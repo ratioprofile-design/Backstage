@@ -328,7 +328,7 @@ export function createAuto5ScenesDataset(targetBoardId: number = 0) {
 }
 
 // ============================================================================
-// 20-SCENE FEATURETTE: "THE BERLIN PROTOCOL: COLD WAR THRILLER"
+// 20-SCENE FEATURETTE: "பேரழிவு: சுந்தரத்தின் மகள்" (TAMIL DISASTER SCREENPLAY)
 // ============================================================================
 export function createAuto20ScenesDataset(targetBoardId: number = 0) {
   const timestamp = Date.now();
@@ -336,143 +336,142 @@ export function createAuto20ScenesDataset(targetBoardId: number = 0) {
   const tints = ['#1e293b', '#2e1065', '#4d072b', '#451a03', '#022c22'];
 
   const actTitles = [
-    'ACT I — DISAVOWED IN WEST BERLIN',
-    'ACT IIA — CROSSING THE WALL',
-    'ACT IIB — THE DOUBLE CROSS & MIDPOINT',
-    'ACT III — THE BROADCAST & TOWER SIEGE',
-    'EPILOGUE — DAWN OF THE FALL'
+    'காண்டம் 1 — சென்னை கடற்கரை சீற்றம் (CHENNAI STORM SURGE)',
+    'காண்டம் 2A — காவேரி படுகை வெள்ளம் (CAUVERY DELTA FLOODS)',
+    'காண்டம் 2B — தஞ்சை & திருச்சி பயணம் (THANJAVUR & TRICHY RESCUE)',
+    'காண்டம் 3 — மதுரை & தாமிரபரணி பாய்வு (MADURAI & TIRUNELVELI CROSSING)',
+    'முடிவுரை — கன்னியாகுமரி அணை மீட்பு (KANYAKUMARI DAM RESCUE)'
   ];
 
   const sceneDetails = [
-    // Act I
+    // Act I - Chennai
     {
-      title: '1. Checkpoint Dead Drop', loc: 'CHECKPOINT CHARLIE', time: 'NIGHT', type: 'EXT',
-      sum: 'MI6 Agent Marcus Vane retrieves a concealed microfilm canister from a dead drop behind a rain-slicked guard tower.',
-      speaker: 'MARCUS VANE', dialogue: 'The microfilm is cold. Stasi border guards are switching posts in four minutes.',
-      action: 'Freezing rain glints on wet cobblestones. Marcus kneels silently, extracting the metallic cylinder from a hollowed brick.'
+      title: '1. மெரினா கடற்கரை புயல் எச்சரிக்கை', loc: 'சென்னை - மெரினா கடற்கரை', time: 'பகல்', type: 'EXT',
+      sum: 'வங்கக்கடலில் உருவான அதிதீவிர மகா சூறாவளி சென்னையின் மெரினா கடற்கரையைத் தாக்குகிறது. 8 வயது சிறுமி அபிராமி தன் தாய் மலருடன் அவசர எச்சரிக்கை சங்கு முழக்கத்தைக் கேட்கிறாள்.',
+      speaker: 'மலர்', dialogue: 'அபிராமி, பிடியைக் விடாதே! சூறாவளி எச்சரிக்கை சைரன் ஒலிக்குது! உடனே போகணும்!',
+      action: 'கருமேகங்கள் வானத்தை மூட, ராட்சத அலைகள் கரையை நோக்கிச் சீறிப் பாய்கின்றன. அபிராமி தன் தந்தையின் பழைய பாக்கெட் கடிகாரத்தை இறுக்கமாகப் பற்றிக் கொள்கிறாள்.'
     },
     {
-      title: '2. Kurfürstendamm Safehouse', loc: 'KURFÜRSTENDAMM APARTMENT', time: 'LATE NIGHT', type: 'INT',
-      sum: 'Marcus projects the microfilm onto a cracked wall, revealing high-level nuclear deployment targets.',
-      speaker: 'MARCUS VANE', dialogue: 'This isn\'t a military exercise. It\'s a false-flag launch protocol scheduled for Friday.',
-      action: 'Dust dances in the projection beam. A silver reel whirs quietly on a wooden dining table.'
+      title: '2. அடையாறு மேம்பால வெள்ளப்பெருக்கு', loc: 'சென்னை - அடையாறு மேம்பாலம்', time: 'இரவு', type: 'EXT',
+      sum: 'மழைநீரும் கடல்நீரும் இணைந்து அடையாறு பாலத்தை மூழ்கடிக்கின்றன. மக்கள் கூட்டத்தில் அபிராமி தன் தாயைப் பிரிகிறாள், தந்தையைத் தேடித் தெற்கு நோக்கிச் செல்லத் தீர்மானிக்கிறாள்.',
+      speaker: 'அபிராமி', dialogue: '(கண்ணீருடன்) அம்மா! அப்பா கன்னியாகுமரி அணையில இருக்காரு... நான் அவர தேடிப் போவேன்!',
+      action: 'வெள்ளநீரின் உக்கிரத்தில் வாகனங்கள் மிதக்கின்றன. அபிராமி துணிச்சலுடன் தெற்கு நோக்கிச் செல்லும் நிவாரண ரயிலைப் நோக்கி ஓடுகிறாள்.'
     },
     {
-      title: '3. Café Kranzler Tail', loc: 'CAFÉ KRANZLER', time: 'DAY', type: 'INT',
-      sum: 'Marcus spots two Stasi operatives in leather coats observing him through foggy coffee house windows.',
-      speaker: 'HANS', dialogue: 'Don\'t turn around, Marcus. The man in the grey coat has a silent pistol under his newspaper.',
-      action: 'Espresso steam rises. Marcus uses the reflective diner mirror to track the shadow movements.'
+      title: '3. செங்கல்பட்டு ரயில் நிலைய நிவாரணப் பெட்டி', loc: 'செங்கல்பட்டு - ரயில் நிலையம்', time: 'நள்ளிரவு', type: 'INT',
+      sum: 'மின்சாரம் துண்டிக்கப்பட்ட நிலையில் நிவாரண ரயிலில் பயணிக்கும் அபிராமி, சக பயணிகளிடம் தன் தந்தை சுந்தரம் கன்னியாகுமரி தடுப்பணையில் பணியாற்றும் தலைமை பொறியாளர் என்று கூறுகிறாள்.',
+      speaker: 'அபிராமி', dialogue: 'என் அப்பா சுந்தரம் கன்னியாகுமரி கடலணை இன்ஜினியர்! இந்த புயல் வராம தடுக்க அவரு தான் அணை கதவை மூடணும்!',
+      action: 'ரயிலின் கூரையில் கனமழை தட்டுகிறது. இருண்ட பெட்டியில் அகல் விளக்கின் ஒளியில் அபிராமி தந்தையின் புகைப்படத்தைப் பார்க்கிறாள்.'
     },
     {
-      title: '4. Tiergarten Alley Pursuit', loc: 'TIERGARTEN PARK', time: 'NIGHT', type: 'EXT',
-      sum: 'A silent knife struggle ensues in the snow-drenched park before Marcus escapes on a vintage BMW motorcycle.',
-      speaker: 'MARCUS VANE', dialogue: 'Tell Colonel Kraus his timeline just got moved up.',
-      action: 'Engine revs echo across snowy trees as Marcus speeds into the darkness toward Sector East.'
-    },
-
-    // Act IIA
-    {
-      title: '5. U-Bahn Ghost Station', loc: 'BERLINER U-BAHN TUNNEL', time: 'NIGHT', type: 'INT',
-      sum: 'Marcus crawls through rusted subway vents under the Berlin Wall to reach East Sector Friedrichshain.',
-      speaker: 'MARCUS VANE', dialogue: 'Damp air, 600 volts on the third rail. Exactly where we want to be.',
-      action: 'Water drips rhythmically onto corroded iron tracks. A distant train rumble vibrates the tunnel ceiling.'
-    },
-    {
-      title: '6. Whistleblower Meeting', loc: 'ALEXANDERPLATZ SAFE ROOM', time: 'LATE NIGHT', type: 'INT',
-      sum: 'Elena Petrova hand-delivers the missing cryptographic key needed to decipher the launch codes.',
-      speaker: 'ELENA PETROVA', dialogue: 'They executed my brother yesterday, Marcus. If this key fails, let the world know.',
-      action: 'Elena places a heavily stamped manila binder into Marcus\'s hands with trembling fingers.'
-    },
-    {
-      title: '7. Stasi Wiretap Basement', loc: 'FRIEDRICHSHAIN BASEMENT', time: 'NIGHT', type: 'INT',
-      sum: 'Marcus and Elena intercept Stasi radio transmissions confirming an imminent raid on their location.',
-      speaker: 'ELENA PETROVA', dialogue: 'The signal is coming from inside this block! They\'ve tapped our line!',
-      action: 'Sparks fly from a copper terminal array as Marcus cuts the power grid to the entire building.'
-    },
-    {
-      title: '8. Spree River Crossing', loc: 'SPREE RIVER DOCKS', time: 'PRE-DAWN', type: 'EXT',
-      sum: 'Marcus and Elena swim across the freezing Spree River while searchlights sweep the murky water.',
-      speaker: 'MARCUS VANE', dialogue: 'Keep your head low! Searchlight beam sweeps every eight seconds!',
-      action: 'Icy foam splash. Bright white searchlight arcs across the dark water surface, barely missing them.'
+      title: '4. மேல்மருவத்தூர் நெடுஞ்சாலைப் பிளவு', loc: 'மேல்மருவத்தூர் - தேசிய நெடுஞ்சாலை', time: 'அதிகாலை', type: 'EXT',
+      sum: 'ரயில் பாதை வெள்ளத்தில் அடித்துச் செல்லப்பட்டதால், அபிராமி நெடுஞ்சாலையில் நடக்கும் நிவாரணப் பணியாளர்கள் மற்றும் ஓட்டுநர் கதிரவனுடன் இணைகிறாள்.',
+      speaker: 'கதிரவன்', dialogue: 'பாப்பா! தனுஷ்கோடி வரைக்கும் புயல் வீசுது. இந்த சின்ன வயசுல தனியாவா போற? என் பஸ்ஸுல ஏறு, திருச்சி வரைக்கும் போவோம்!',
+      action: 'தேசிய நெடுஞ்சாலையில் ராட்சத மரங்கள் சாய்ந்து கிடக்கின்றன. அரசுப் பேருந்து ஓட்டுநர் கதிரவன் அபிராமியை பேருந்தில் ஏற்றி அணைக்கிறார்.'
     },
 
-    // Act IIB
+    // Act IIA - Cauvery Delta
     {
-      title: '9. Grain Silo Interrogation', loc: 'ABANDONED GRAIN SILO', time: 'DAY', type: 'INT',
-      sum: 'Marcus interrogates a captured Stasi informant to reveal Colonel Kraus\'s command bunker location.',
-      speaker: 'MARCUS VANE', dialogue: 'Give me the frequency access code, or we leave you for your superiors.',
-      action: 'Dust motes hang in dramatic shafts of morning sunlight piercing through rusted steel shutters.'
+      title: '5. தென்பெண்ணை ஆற்றுப் பாலச் சீற்றம்', loc: 'விழுப்புரம் - தென்பெண்ணை ஆறு', time: 'பகல்', type: 'EXT',
+      sum: 'தென்பெண்ணை ஆற்றில் ஆபத்தான அளவில் வெள்ளம் பெருக்கெடுத்து ஓடுகிறது. கதிரவனின் பேருந்து பாலத்தைக் கடக்கும்போது நீர்மட்டம் பாலத்தைத் தொடுகிறது.',
+      speaker: 'கதிரவன்', dialogue: 'எல்லாரும் சீட் பெல்ட்ட பிடிங்க! ஆற்று வெள்ளம் பாலத்தைக் கடக்குது! தைரியமா இருங்க!',
+      action: 'சீறிப் பாயும் சிவப்பு வெள்ள நீர் பேருந்தின் சக்கரங்களைத் தீண்டுகிறது. அபிராமி நம்பிக்கையுடன் தன் தந்தையின் பாக்கெட் கடிகாரத்தை அழுத்துகிறாள்.'
+    },
+    {
+      title: '6. கடலூர் துறைமுக இடிபாடுகள்', loc: 'கடலூர் - கடலோரப் பகுதி', time: 'மாலை', type: 'EXT',
+      sum: 'கடலூரில் சுனாமி போன்ற பேரலைகள் மோதி வீடுகளைச் சிதைக்கின்றன. அபிராமி வெள்ளத்தில் சிக்கிய ஒரு சிறு நாய்க்குட்டியைக் காப்பாற்றிப் பேருந்தில் சேர்க்கிறாள்.',
+      speaker: 'அபிராமி', dialogue: 'பயப்படாதே குட்டி! உன்னையும் காப்பாத்தி என் அப்பாகிட்ட கூட்டிட்டுப் போறேன்!',
+      action: 'பாழடைந்த படகுகளும் இடிபாடுகளும் கரைக்கு அடித்து வரப்படுகின்றன. காற்று மணிக்கு 120 கி.மீ வேகத்தில் சுழன்றடிக்கிறது.'
+    },
+    {
+      title: '7. சிதம்பரம் கோவில் வெளிப்பிரகாரம்', loc: 'சிதம்பரம் - நடராஜர் கோவில்', time: 'இரவு', type: 'INT',
+      sum: 'பழமையான கோவில் கல்மண்டபத்தில் நூற்றுக்கணக்கான மக்கள் தஞ்சம் அடைந்துள்ளனர். வானொலிச் செய்தியில் கன்னியாகுமரி அணை ஆபத்தில் உள்ளதாக அறிவிக்கப்படுகிறது.',
+      speaker: 'வானொலி அறிவிப்பாளர்', dialogue: 'முக்கியச் செய்தி: கன்னியாகுமரி சூறாவளித் தடுப்பணையின் 4-வது கதவு பழுதாகியுள்ளது. பொறியாளர் சுந்தரம் அபாயகட்டத்தில் போராடுகிறார்!',
+      action: 'அபிராமி வானொலியின் அருகில் ஓடிவந்து செய்தியைக் கேட்டு அதிர்ச்சியடைகிறாள். அவள் கண்கள் உறுதியுடன் பிரகாசிக்கின்றன.'
+    },
+    {
+      title: '8. மயிலாடுதுறை காவேரி கரை பாய்ச்சல்', loc: 'மயிலாடுதுறை - காவேரி ஆறு', time: 'நள்ளிரவு', type: 'EXT',
+      sum: 'காவேரி ஆற்றின் கரை உடைந்து வெள்ளநீர் ஊருக்குள் புகுகிறது. கதிரவன் மற்றும் அபிராமி கரையோர மக்களை எச்சரித்து மேடான பகுதிக்கு வழிகாட்டுகிறார்கள்.',
+      speaker: 'அபிராமி', dialogue: 'எல்லாரும் கோவில் மேட்டுக்கு ஓடுங்க! வெள்ளம் வருது! அங்கிள், சீக்கிரம் வாங்க!',
+      action: 'மின்னல் ஒளியில் சீறிப்பாயும் காவிரி நீர் வெட்டவெளியை மூழ்கடிக்கிறது. அபிராமி கதிரவனின் கரத்தைப் பிடித்து வழிகாட்டுகிறாள்.'
     },
 
+    // Act IIB - Thanjavur & Trichy
     {
-      title: '10. Tempelhof Hangar Ambush', loc: 'TEMPELHOF HANGAR 3', time: 'NIGHT', type: 'INT',
-      sum: 'Colonel Kraus traps Marcus inside an aircraft hangar, opening fire with automatic weapons.',
-      speaker: 'COLONEL KRAUS', dialogue: 'You\'re twenty years too late, Vane. The new order begins tonight.',
-      action: 'Muzzle flashes illuminate the shadowy silhouettes of vintage cargo transport planes.'
+      title: '9. கும்பகோணம் நிவாரண முகாம் சந்திப்பு', loc: 'கும்பகோணம் - பள்ளி நிவாரண முகாம்', time: 'அதிகாலை', type: 'INT',
+      sum: 'மருத்துவ முகாமில் காயமடைந்தவர்களுக்குச் சிகிச்சை அளிக்கப்படுகிறது. அங்குள்ள ராணுவத் தொடர்பாளர் அபிராமியின் தந்தை சுந்தரம் உயிருடன் இருப்பதை உறுதிப்படுத்துகிறார்.',
+      speaker: 'ராணுவ அதிகாரி', dialogue: 'தம்பி சுந்தரம் தான் கன்னியாகுமரி அணையை உடைஞ்சிடாம பிடிச்சிருக்காரு! அவர் பொண்ணு நீதானா? உன்னை மதுரை ஹெலிகாப்டர் கேம்ப்புக்கு அனுப்புறேன்!',
+      action: 'அபிராமியின் முகத்தில் நம்பிக்கைக் கண்ணீர் வழிகிறது. அவள் சூடான கஞ்சியை அருந்திவிட்டு தெற்கு நோக்கிப் பயணத்தைத் தொடர்கிறாள்.'
     },
     {
-      title: '11. Embassy Vault Penetration', loc: 'NEUTRAL EMBASSY VAULT', time: 'NIGHT', type: 'INT',
-      sum: 'Elena bypasses an optical lock system to retrieve the physical broadcast override cassette.',
-      speaker: 'ELENA PETROVA', dialogue: 'Laser bypass engaged. We have three minutes before the backup generator boots.',
-      action: 'Green laser beams crisscross the marble vault floor as Elena meticulously steps through.'
+      title: '10. தஞ்சாவூர் பெரிய கோவில் சூறாவளி', loc: 'தஞ்சாவூர் - பெரிய கோவில் வளாகம்', time: 'பகல்', type: 'EXT',
+      sum: 'தஞ்சைப் பெரிய கோவிலின் விமானத்தைச் சுற்றிப் புயல் காற்று சுழன்றடிக்கிறது. நிவாரண ஹெலிகாப்டர் தரை இறங்க முடியாமல் காற்றில் ஆடுகிறது.',
+      speaker: 'கதிரவன்', dialogue: 'காற்றோட வேகம் அதிகமாகுது! நாம தரை வழியாகவே திருச்சிக்குக் கிளம்புவோம் பாப்பா!',
+      action: 'கோவில் கோபுரத்தின் உச்சியில் மின்னல் வெட்டுகிறது. அபிராமி கதிரவனுடன் ராணுவ ஆம்புலன்ஸ் வாகனத்தில் ஏறுகிறாள்.'
     },
     {
-      title: '12. Uncovering the Mole', loc: 'SAFE APARTMENT', time: 'LATE NIGHT', type: 'INT',
-      sum: 'Marcus discovers an encoded radio dispatch proving his own MI6 superior is funding Kraus.',
-      speaker: 'MARCUS VANE', dialogue: 'It was never a Soviet plot... London engineered this from the beginning.',
-      action: 'Marcus drops the decrypted teletype paper onto the wooden desk in disbelief.'
-    },
-
-    // Act III
-    {
-      title: '13. Fernsehturm Spire Climb', loc: 'TV TOWER TRANSMITTER SPIRE', time: 'NIGHT', type: 'EXT',
-      sum: 'Gale force winds whip Marcus as he climbs the exterior ladder of the 368-meter Berlin TV Tower.',
-      speaker: 'MARCUS VANE', dialogue: 'Eighty knots of wind... hold on to the safety cable, Elena!',
-      action: 'Red aviation beacon lights pulse against low storm clouds over the illuminated city.'
+      title: '11. திருச்சி காவேரி இரும்புப் பாலம்', loc: 'திருச்சி - காவேரி பாலம்', time: 'மாலை', type: 'EXT',
+      sum: 'திருச்சி இரும்புப் பாலத்தை நீர்மட்டம் தொடுகிறது. மலைக்கோட்டையின் பின்னணியில் ராணுவ வாகனங்கள் தென் மாவட்டங்களை நோக்கிப் புயல் வேகத்தில் செல்கின்றன.',
+      speaker: 'ராணுவ ஓட்டுநர்', dialogue: 'மதுரை பைபாஸ் வரைக்கும் தான் ரோடு இருக்கு! அதுக்கு அப்புறம் படகுல தான் போவணும்!',
+      action: 'மழையின் உக்கிரத்தில் மலைக்கோட்டை கோவில் மங்கலாகத் தெரிகிறது. அபிராமி வானொலிச் சிக்னலைச் சீரமைக்க முயல்கிறாள்.'
     },
     {
-      title: '14. Control Deck Firefight', loc: 'TV TOWER CONTROL ROOM', time: 'NIGHT', type: 'INT',
-      sum: 'Marcus and Elena breach the glass control room, engaging Kraus\'s inner guard squad.',
-      speaker: 'ELENA PETROVA', dialogue: 'Covering fire! Patch the tape into the master transmitter now!',
-      action: 'Shattered glass cascades onto control panels as gunshots echo across the dome.'
-    },
-    {
-      title: '15. Global Live Broadcast', loc: 'TRANSMITTER DECK', time: 'LATE NIGHT', type: 'INT',
-      sum: 'Marcus slams the tape into the reel drive, broadcasting the secret treaty audio to millions worldwide.',
-      speaker: 'MARCUS VANE', dialogue: 'Attention all European frequencies... this is the voice of truth.',
-      action: 'Red broadcast lights illuminate GREEN across all automated radio consoles.'
-    },
-    {
-      title: '16. Colonel Kraus Standoff', loc: 'OBSERVATION DECK LEDGE', time: 'NIGHT', type: 'EXT',
-      sum: 'Colonel Kraus confronts Marcus on the high-altitude observation balcony in a brutal fistfight.',
-      speaker: 'COLONEL KRAUS', dialogue: 'You can\'t stop what has already been set in motion!',
-      action: 'Kraus slips over the wet railing as Marcus lunges, catching his coat cuff in mid-air.'
+      title: '12. புதுக்கோட்டை நெடுஞ்சாலைத் தடை', loc: 'புதுக்கோட்டை - சோதனைச் சாவடி', time: 'இரவு', type: 'EXT',
+      sum: 'பொதுமக்கள் போக்குவரத்துக்கு ராணுவம் தடை விதிக்கிறது. அபிராமி தான் சுந்தரத்தின் மகள் என்று கூறி பாதுகாப்பு அதிகாரியை சம்மதிக்க வைக்கிறாள்.',
+      speaker: 'அபிராமி', dialogue: 'சார்! எங்க அப்பா கன்னியாகுமரி அணையில் தனியா போராடுறாரு! நான் போய் அவரைப் பார்க்கணும், வழி விடுங்க சார்!',
+      action: 'பாதுகாப்பு அதிகாரி அபிராமியின் துணிச்சலைக் கண்டு வியந்து, ராணுவ மீட்புக் குழு வாகனத்தில் அவளுக்கு இடம் அளிக்கிறார்.'
     },
 
-    // Epilogue
+    // Act III - Madurai & Tirunelveli
     {
-      title: '17. Dawn at Brandenburg', loc: 'BRANDENBURG GATE PLAZA', time: 'DAWN', type: 'EXT',
-      sum: 'Sirens wail in the distance as crowds gather at the gate, hearing the broadcast leak on car radios.',
-      speaker: 'ELENA PETROVA', dialogue: 'Look at them, Marcus. The wall is going to come down.',
-      action: 'Golden morning light breaks over the QUADRIGA statue as crowds cheer in the streets below.'
+      title: '13. மதுரை மீனாட்சி அம்மன் கோவில் தெப்பக்குளம்', loc: 'மதுரை - தெப்பக்குளம்', time: 'நள்ளிரவு', type: 'EXT',
+      sum: 'மதுரை நகரே வெள்ளத்தில் மூழ்கியுள்ளது. தெப்பக்குளத்து நீர் வீதிகளில் பாய்கிறது. ஹேம் ரேடியோவில் சுந்தரத்தின் குரல் ஒலிபரப்பாகிறது.',
+      speaker: 'சுந்தரம் (வானொலியில்)', dialogue: 'கன்னியாகுமரி கடலணை இன்னும் 2 மணி நேரம் தாங்கும்! கதவுகளைப் பூட்ட உதவி தேவை... யாராவது கேட்கிறீர்களா?',
+      action: 'வானொலியில் தந்தையின் குரலைக் கேட்ட அபிராமி கதறி அழுகிறாள். அப்பா! நான் வந்துட்டிருக்கேன் அப்பா! என்று மைக்கில் கத்துகிறாள்.'
     },
     {
-      title: '18. Teufelsberg Decommission', loc: 'TEUFELSBERG RADOME', time: 'DAY', type: 'EXT',
-      sum: 'Marcus dismantles his tactical receiver unit atop the listening hill, casting away his spy gear.',
-      speaker: 'MARCUS VANE', dialogue: 'Mission complete. Disavowing all active codes permanently.',
-      action: 'The white radar dome stands quiet under a crisp autumn sky as Marcus walks away.'
+      title: '14. விருதுநகர் தொழிற்பேட்டைப் தீ விபத்து', loc: 'விருதுநகர் - தேசிய நெடுஞ்சாலை', time: 'அதிகாலை', type: 'EXT',
+      sum: 'வெள்ளநீரிலும் காற்றினாலும் பட்டாசு ஆலை வளாகத்தில் தீ விபத்து ஏற்படுகிறது. அபிராமி பாதுகாப்பான பாதையைக் காட்டி மீட்புக் குழுவை வழிநடத்துகிறாள்.',
+      speaker: 'கதிரவன்', dialogue: 'பாப்பாவுக்கு இந்த ஊர் வழி நல்லா தெரிஞ்சிருக்கு! அவ சொல்ற பாதையில வண்டிய விடுங்க!',
+      action: 'அபிராமி வரைபடத்தைப் பார்த்து உயரமான மேட்டுப் பாதையைச் சுட்டிக்காட்டுகிறாள். ராணுவ வாகனம் தீ மண்டலத்தைக் கடக்கிறது.'
     },
     {
-      title: '19. Geneva UN Hand-off', loc: 'GENEVA DELEGATE SUITE', time: 'NIGHT', type: 'INT',
-      sum: 'Elena hands original treaty documents to UN delegates, securing full diplomatic immunity.',
-      speaker: 'ELENA PETROVA', dialogue: 'The truth is archived. History belongs to peace now.',
-      action: 'Official wax seal pressed onto leather-bound UN dossier.'
+      title: '15. சாத்தூர் வைப்பார் ஆற்றுப் பாலம்', loc: 'சாத்தூர் - வைப்பார் ஆறு', time: 'பகல்', type: 'EXT',
+      sum: 'வைப்பார் ஆற்றின் பாலம் பகுதி இடிந்து விழுகிறது. அபிராமியும் கதிரவனும் ஆபத்தான கயிறுப் பாலத்தின் வழியே ஆற்றைக் கடக்கிறார்கள்.',
+      speaker: 'அபிராமி', dialogue: 'அங்கிள், பயப்படாதீங்க! கைப்பிடியை இறுக்கிப் பிடிங்க! நாம திருநெல்வேலி போயிருவோம்!',
+      action: 'சீறிப் பாயும் வெள்ளத்தின் மேல் தொங்கும் கயிற்றில் அபிராமி துணிச்சலுடன் அடியெடுத்து வைக்கிறாள்.'
     },
     {
-      title: '20. Lake Geneva Sunset', loc: 'LAKE GENEVA SHORE', time: 'SUNSET', type: 'EXT',
-      sum: 'Marcus and Elena stand on the quiet lakeshore, watching the sunset over serene blue water.',
-      speaker: 'MARCUS VANE', dialogue: 'No more shadows, Elena. We made it home.',
-      action: 'Warm orange sunset reflections ripple on lake waters as the film fades to black.'
+      title: '16. திருநெல்வேலி தாமிரபரணி வெள்ளம்', loc: 'திருநெல்வேலி - தாமிரபரணி ஆறு', time: 'மாலை', type: 'EXT',
+      sum: 'தாமிரபரணி ஆற்றில் வரலாறு காணாத வெள்ளப்பெருக்கு. ராணுவ விசைப்படகில் அபிராமி கன்னியாகுமரி எல்லையை நோக்கிய பயணத்தைத் தொடர்கிறாள்.',
+      speaker: 'படகோட்டி', dialogue: 'நெல்லை கடந்துட்டா கன்னியாகுமரி 40 கி.மீ தான்! அங்கே புயல் உச்சக்கட்டத்துல இருக்கு!',
+      action: 'அலையடிக்கும் தாமிரபரணியின் நடுவே விசைப்படகு புயலைக் கிழித்துக்கொண்டு முன்னோக்கிப் பாய்கிறது.'
+    },
+
+    // Epilogue - Kanyakumari Rescue
+    {
+      title: '17. நாங்குநேரி காற்றாலை மண்டலம்', loc: 'நாங்குநேரி - காற்றாலைப் பண்ணை', time: 'இரவு', type: 'EXT',
+      sum: 'மணிக்கு 150 கி.மீ வேகப் புயல் சுழல் காற்றாலைச் சிறகுகளை உடைத்தெறிகிறது. அபிராமி பயணிக்கும் வாகனம் காற்றின் வேகத்தில் ஆடுகிறது.',
+      speaker: 'கதிரவன்', dialogue: 'கன்னியாகுமரி எல்லை வந்துட்டோம் பாப்பா! இதோ கடலணை வெளிச்சம் தெரியுது!',
+      action: 'தூரத்தில் கன்னியாகுமரி சூறாவளித் தடுப்பணையின் பிரம்மாண்ட சிவப்புச் சிக்னல் விளக்குகள் புயல் இருளில் ஒளிர்கின்றன.'
+    },
+    {
+      title: '18. கன்னியாகுமரி திருவள்ளுவர் சிலை கடல் பாறை', loc: 'கன்னியாகுமரி - விவேகானந்தர் பாறை முகம்', time: 'நள்ளிரவு', type: 'EXT',
+      sum: '50 அடி உயர ராட்சத அலைகள் திருவள்ளுவர் சிலையையும் தடுப்பணையையும் மோதித் தகர்க்க முயல்கின்றன. சுந்தரம் தனியாக அணைக்கதவின் கியரை இயக்குகிறார்.',
+      speaker: 'சுந்தரம்', dialogue: '(மூச்சிரைக்க) இந்த கடைசி லீவரை இழுத்துட்டா தென் தமிழகமே தப்பிக்கும்... ஆனா கை வலிக்குதே!',
+      action: 'ராட்சத அலைகள் கட்டுப்பாட்டு அறையின் கண்ணாடியை மோதி உடைக்கின்றன. சுந்தரம் தன் முழு பலத்தையும் திரட்டி லீவரைப் பிடிக்கிறார்.'
+    },
+    {
+      title: '19. கன்னியாகுமரி கடலணை கட்டுப்பாட்டு அறை', loc: 'கன்னியாகுமரி - அணை கட்டுப்பாட்டு அறை', time: 'அதிகாலை', type: 'INT',
+      sum: 'புயலை ஊடுருவி அபிராமி கட்டுப்பாட்டு அறைக்குள் ஓடி வருகிறாள். அப்பா! என்ற அவளது குரல் அலை ஓசையையும் தாண்டி சுந்தரத்தின் காதில் விழுகிறது.',
+      speaker: 'அபிராமி', dialogue: '(கதறியபடி) அப்பா! நான் வந்துட்டேன் அப்பா! பாக்கெட் கடிகாரத்தைக் கொண்டு வந்திருக்கேன்!',
+      action: 'சுந்தரம் அதிர்ச்சியுடன் திரும்பிப் பார்க்கிறார். அபிராமி ஓடிவந்து தந்தையின் கரத்துடன் சேர்ந்து அணைக்கதவு லீவரைப் பலமாக இழுக்கிறாள்!'
+    },
+    {
+      title: '20. கன்னியாகுமரி முக்கடல் சங்கமத்தில் விடியல்', loc: 'கன்னியாகுமரி - முக்கடல் சங்கமம்', time: 'விடியல்', type: 'EXT',
+      sum: 'தடுப்பணையின் பிரம்மாண்ட இரும்புக் கதவு முழுமையாக மூடி, கடல் சுனாமியைத் தடுக்கிறது. புயல் ஓய்ந்து, முக்கடல் சங்கமத்தில் தங்க நிறச் சூரியன் உதிக்கிறது.',
+      speaker: 'சுந்தரம்', dialogue: '(கண்ணீருடன் அபிராமியைக் கட்டிப்பிடித்து) என் செல்லக் குட்டி... தமிழ்நாடு முழுதும் கடந்து வந்து என் உயிரையும் தென் தமிழகத்தையும் காப்பாத்திட்டாய்மா!',
+      action: 'அபிராமி தன் தந்தையின் மார்பில் சாய்ந்து கொள்ள, பாக்கெட் கடிகாரத்தின் டிக்-டிக் சப்தமும் கடல் அலைகளின் அமைதியான ஓசையும் ஒலிக்க படம் நிறைவடைகிறது.'
     }
   ];
 
@@ -510,19 +509,19 @@ export function createAuto20ScenesDataset(targetBoardId: number = 0) {
       tint: tints[actIdx % tints.length],
       status: 'ready',
       boardId: targetBoardId,
-      content: `<p class="sc-slugline" style="font-weight: bold; margin-top: 1rem; margin-bottom: 0.5rem; color: #f5a623;">${sc.type}. ${sc.loc} - ${sc.time}</p>
-<p class="sc-action" style="margin-bottom: 0.5rem;">${sc.action}</p>
+      content: `<p class="sc-action" style="margin-bottom: 0.5rem;">${sc.action}</p>
 <p class="sc-character" style="margin-top: 0.75rem; text-align: center; font-weight: bold;">${sc.speaker}</p>
 <p class="sc-dialogue" style="margin-bottom: 0.5rem; text-align: center;">${sc.dialogue}</p>`,
-      notes: [{ id: `note-${sceneId}-1`, content: `<b>Cinematic Beat ${sceneId}:</b> Key dramatic beats for ${sc.title}.`, color: colors[actIdx % colors.length], timestamp }],
+      notes: [{ id: `note-${sceneId}-1`, content: `<b>காட்சி ${sceneId}:</b> ${sc.title}`, color: colors[actIdx % colors.length], timestamp }],
+      // Manual breakdown details empty as requested
       breakdown: {
-        sound: ['Rain Patter', 'Footsteps on Cobblestone', 'Radio Chatter'],
-        props: ['Microfilm Canister', 'Walther PPK', 'Cryptographic Ledger'],
-        costume: ['Marcus Trench Coat', 'Elena Wool Scarf', 'Stasi Officer Uniform'],
-        vfx: ['Searchlight Volumetric Beam', 'Atmospheric Fog'],
-        practical: ['Wet Asphalt FX', 'Vintage BMW Motorcycle'],
-        cast: ['MARCUS VANE', 'ELENA PETROVA', 'COLONEL KRAUS', 'HANS'],
-        location: [sc.loc]
+        sound: [],
+        props: [],
+        costume: [],
+        vfx: [],
+        practical: [],
+        cast: [],
+        location: []
       },
       versions: []
     });
@@ -533,26 +532,26 @@ export function createAuto20ScenesDataset(targetBoardId: number = 0) {
   });
 
   const annotations: Annotation[] = [
-    { id: 201, type: 'text', x: 80, y: 30, w: 450, h: 50, text: 'THE BERLIN PROTOCOL (20-SCENE COLD WAR ESPIONAGE THRILLER)', fontSize: 14, boardId: targetBoardId, color: '#f5a623' }
+    { id: 201, type: 'text', x: 80, y: 30, w: 550, h: 50, text: 'பேரழிவு: சுந்தரத்தின் மகள் (20-SCENE TAMIL DISASTER FEATURE FILM)', fontSize: 14, boardId: targetBoardId, color: '#f5a623' }
   ];
 
   const characterData: Record<string, CharacterData> = {
-    'MARCUS VANE': {
-      id: 'c-marcus', name: 'MARCUS VANE', age: 42, gender: 'Male', ethnicity: 'British / Caucasian', hair: 'Slicked dark brown', eyes: 'Steely Grey', build: 'Athletic, tactical', occupation: 'MI6 Senior Operative', archetype: 'The Disavowed Spy', physiology: 'Scar along left jawline.', sociology: 'Covert diplomatic operative.', psychology: 'Calculated, unflinching under pressure.', backstory: 'Operated in Berlin since 1972.', images: [], relationships: [{ target: 'ELENA PETROVA', type: 'Ally', description: 'KGB Whistleblower.' }]
+    'அபிராமி (ABHIRAMI)': {
+      id: 'c-abhirami', name: 'அபிராமி (ABHIRAMI)', age: 8, gender: 'Female', ethnicity: 'Tamil', hair: 'Short braided dark hair', eyes: 'Expressive Brown', build: 'Slender', occupation: 'Student', archetype: 'The Courageous Child', physiology: 'Clutches silver pocket watch.', sociology: 'Daughter of Chief Engineer.', psychology: 'Determined, brave, deeply devoted to father.', backstory: 'Traveled across Tamil Nadu during mega storm to find her father.', images: [], relationships: [{ target: 'சுந்தரம் (SUNDARAM)', type: 'Father', description: 'Chief Dam Engineer at Kanyakumari.' }]
     },
-    'ELENA PETROVA': {
-      id: 'c-elena', name: 'ELENA PETROVA', age: 36, gender: 'Female', ethnicity: 'Eastern European', hair: 'Dark wavy hair in bun', eyes: 'Amber', build: 'Slender', occupation: 'KGB Cryptographer', archetype: 'The Brave Whistleblower', physiology: 'Calm hands under interrogation.', sociology: 'Former Soviet Signals Officer.', psychology: 'Driven by desire for peace.', backstory: 'Smuggled nuclear codes out of East Berlin.', images: [], relationships: []
+    'சுந்தரம் (SUNDARAM)': {
+      id: 'c-sundaram', name: 'சுந்தரம் (SUNDARAM)', age: 42, gender: 'Male', ethnicity: 'Tamil', hair: 'Grey stubble, short hair', eyes: 'Dark Brown', build: 'Strong, athletic', occupation: 'Chief Structural Engineer', archetype: 'The Heroic Father', physiology: 'Weathered hands from field work.', sociology: 'Public Works Department Engineer.', psychology: 'Selfless, relentless sense of duty.', backstory: 'Designed and built the Kanyakumari Disaster Sea Wall.', images: [], relationships: []
     },
-    'COLONEL KRAUS': {
-      id: 'c-kraus', name: 'COLONEL KRAUS', age: 55, gender: 'Male', ethnicity: 'German / Caucasian', hair: 'Silver cropped hair', eyes: 'Cold Blue', build: 'Imposing', occupation: 'Stasi Intelligence Chief', archetype: 'The Tyrannical Mastermind', physiology: 'Stiff, militaristic posture.', sociology: 'High East German Command.', psychology: 'Obsessed with total surveillance control.', backstory: 'Architect of the Berlin wiretap network.', images: [], relationships: []
+    'மலர் (MALAR)': {
+      id: 'c-malar', name: 'மலர் (MALAR)', age: 36, gender: 'Female', ethnicity: 'Tamil', hair: 'Long dark hair', eyes: 'Warm Brown', build: 'Average', occupation: 'Homemaker', archetype: 'The Loving Mother', physiology: 'Weary from storm evacuation.', sociology: 'Lives in Chennai with Abhirami.', psychology: 'Protective and resilient.', backstory: 'Separated during Adyar flyover flash flood.', images: [], relationships: []
     },
-    'HANS': {
-      id: 'c-hans', name: 'HANS', age: 48, gender: 'Male', ethnicity: 'German / Caucasian', hair: 'Grey stubble', eyes: 'Brown', build: 'Stocky', occupation: 'Underground Safehouse Keeper', archetype: 'The Faithful Informant', physiology: 'Walks with slight limp.', sociology: 'West Berlin fixer.', psychology: 'Resourceful, cautious.', backstory: 'Runs safehouses across Kreuzberg.', images: [], relationships: []
+    'கதிரவன் (KATHIRAVAN)': {
+      id: 'c-kathiravan', name: 'கதிரவன் (KATHIRAVAN)', age: 55, gender: 'Male', ethnicity: 'Tamil', hair: 'Salt and pepper hair', eyes: 'Kind Dark', build: 'Broad-shouldered', occupation: 'Government Bus Driver', archetype: 'The Wise Protector', physiology: 'Steady driving posture.', sociology: '30-year veteran bus driver.', psychology: 'Compassionate mentor.', backstory: 'Guarded Abhirami across highways and flooded districts.', images: [], relationships: []
     }
   };
 
   const generatedShots: Shot[] = [
-    { id: 'shot-1', scene: '1', shotSize: 'WIDE', angle: 'LOW ANGLE', lens: '28mm Anamorphic', movement: 'Tracking', subject: 'Checkpoint dead drop', description: 'Low tracking shot along wet cobblestones as Marcus retrieves the microfilm canister.', scriptReference: 'Freezing rain glints on wet cobblestones...', sourceType: 'manual', durationSec: 5 }
+    { id: 'shot-1', scene: '1', shotSize: 'EXTREME WIDE', angle: 'HIGH ANGLE', lens: '24mm Prime', movement: 'Crane Down', subject: 'Marina Beach Storm Surge', description: 'High aerial shot panning down from storm clouds to massive ocean waves battering Marina Beach.', scriptReference: 'கருமேகங்கள் வானத்தை மூட, ராட்சத அலைகள் கரையை நோக்கிச் சீறிப் பாய்கின்றன...', sourceType: 'manual', durationSec: 6 }
   ];
 
   return { groups, beats, annotations, connections, characterData, generatedShots };

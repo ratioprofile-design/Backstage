@@ -277,8 +277,64 @@ Return ONLY a raw JSON Object with:
   }
 }
 
-export async function generateBreakdown(scriptText: string, model: string = 'gemini-3-flash-preview', language: 'english' | 'tamil' = 'english'): Promise<BreakdownData | null> {
-  const prompt = `Breakdown analysis: ${scriptText}`;
+export async function generateBreakdown(
+  scriptText: string, 
+  model: string = 'gemini-3-flash-preview', 
+  language: 'english' | 'tamil' = 'english'
+): Promise<BreakdownData | null> {
+  const langInstruction = language === 'tamil' 
+    ? `CRITICAL LANGUAGE REQUIREMENT FOR TAMIL:
+For EVERY SINGLE breakdown item across all categories (cast, props, sound, costume, vfx, practical, location), you MUST provide the Tamil name followed ALWAYS by its English name/meaning in brackets right next to it.
+Format: "Tamil Name (English Name / Meaning)"
+Examples:
+- "அபிராமி (Abhirami)"
+- "மரக் குச்சி (Wooden Stick)"
+- "இடி முழக்கம் (Thunderclap)"
+- "கிழிந்த மஞ்சள் பாவாடை (Torn Yellow Dress)"
+- "கனமழை (Heavy Rain)"
+- "இராமேஸ்வரம் பாலம் (Rameswaram Bridge)"
+
+EVERY single item name MUST have the English name / translation in parentheses next to the Tamil name.` 
+    : 'Provide item names and descriptions in English.';
+
+  const prompt = `You are a professional assistant director and script breakdown supervisor. 
+Analyze the following scene text from a screenplay and extract all production breakdown items into categories.
+
+Language requirement:
+${langInstruction}
+
+Scene Text:
+"""${scriptText}"""
+
+Return ONLY a raw JSON Object with the following keys. Each key must contain an array of objects with "name" (string, the name of the item/character/element) and "source" (string, the exact line or phrase from the script where it appears):
+- "cast": Characters, actors, extras, voices appearing in this scene
+- "props": Physical objects handled or used by characters (weapons, tools, documents, food, phones, vehicles)
+- "sound": Sound effects (SFX), background ambient noise, music cues mentioned or implied
+- "costume": Wardrobe, outfits, makeup, prosthetic details, special clothing mentioned
+- "vfx": Visual effects, CGI elements, green screen requirements, digital enhancements
+- "practical": Practical special effects (SFX), fire, rain, smoke, explosions, squibs, dust clouds
+- "location": Specific physical set requirements, landmarks, environmental condition or real-world location elements
+
+Example JSON format:
+${language === 'tamil' ? `{
+  "cast": [{"name": "அபிராமி (Abhirami)", "source": "அபிராமி (7) சேற்றில் ஓடுகிறாள்"}],
+  "props": [{"name": "மரக் குச்சி (Wooden Stick)", "source": "கையில் மரக் குச்சி வைத்திருக்கிறாள்"}],
+  "sound": [{"name": "இடி முழக்கம் (Thunderclap)", "source": "பயங்கர இடி முழக்கம் கேட்கிறது"}],
+  "costume": [{"name": "கிழிந்த மஞ்சள் பாவாடை (Torn Yellow Dress)", "source": "மஞ்சள் பாவாடை கிழிந்துள்ளது"}],
+  "vfx": [{"name": "ராட்சச கடல் அலை (Giant Tidal Wave)", "source": "பெரிய அலை வருகிறது"}],
+  "practical": [{"name": "கனமழை (Heavy Rain)", "source": "கனமழை பெய்கிறது"}],
+  "location": [{"name": "இராமேஸ்வரம் பாலம் (Rameswaram Bridge)", "source": "EXT. RAMESWARAM BRIDGE - DAY"}]
+}` : `{
+  "cast": [{"name": "KAVYA", "source": "KAVYA (7) runs through the mud"}],
+  "props": [{"name": "Wooden Stick", "source": "clutching a worn wooden stick"}],
+  "sound": [{"name": "Thunderclap", "source": "A DEAFENING THUNDERCLAP echoes"}],
+  "costume": [{"name": "Torn Yellow Dress", "source": "her yellow dress torn at the knee"}],
+  "vfx": [{"name": "Giant Tidal Wave", "source": "massive ocean wall looming"}],
+  "practical": [{"name": "Heavy Torrential Rain", "source": "rain pours down relentlessly"}],
+  "location": [{"name": "Rameswaram Bridge", "source": "EXT. RAMESWARAM BRIDGE - DAY"}]
+}`}
+`;
+
   try {
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
       const response = await ai.models.generateContent({
@@ -288,10 +344,28 @@ export async function generateBreakdown(scriptText: string, model: string = 'gem
       });
       const text = response.text || '{}';
       const data = safeJSONParse(text);
+
       const normalize = (arr: any[]) => {
-          if (!Array.isArray(arr)) return [];
-          return arr.map(item => (typeof item === 'string' ? { name: item, source: item } : { name: item.name || 'Unknown', source: item.source || '' }));
+          if (!Array.isArray(arr)) {
+              if (arr && typeof arr === 'object') {
+                  const possibleArray = Object.values(arr).find(v => Array.isArray(v));
+                  if (possibleArray && Array.isArray(possibleArray)) arr = possibleArray;
+                  else return [];
+              } else {
+                  return [];
+              }
+          }
+          return arr.map(item => {
+              if (typeof item === 'string') return { name: item, source: item };
+              if (item && typeof item === 'object') {
+                  const name = item.name || item.item || item.title || item.element || 'Unknown';
+                  const source = item.source || item.line || item.reference || name;
+                  return { name: String(name), source: String(source) };
+              }
+              return { name: String(item), source: String(item) };
+          });
       };
+
       return {
           props: normalize(data.props),
           sound: normalize(data.sound),

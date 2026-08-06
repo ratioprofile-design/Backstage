@@ -28,6 +28,7 @@ export interface ContinuityLook {
   bloodLevel?: string;
   notes?: string;
   customColor?: string;
+  status?: 'Verified' | 'Pending Review' | 'Mismatched Warning' | 'Approved';
 }
 
 export const VIBRANT_LOOK_COLORS = [
@@ -240,7 +241,7 @@ const DEPT_ICONS: Record<string, React.ElementType> = {
 };
 
 // Initial Default Catalog of Looks for Fallback / Seed
-const INITIAL_LOOKS: ContinuityLook[] = [
+export const INITIAL_LOOKS: ContinuityLook[] = [
   // Costume Mara
   {
     id: 'costume-mara-1',
@@ -428,7 +429,62 @@ export const ContinuityView: React.FC = () => {
   const { beats, characterData, appTheme, setAppTheme } = useProject();
 
   // Core Looks Catalog State
-  const [looks, setLooks] = useState<ContinuityLook[]>(INITIAL_LOOKS);
+  const [looks, setLooks] = useState<ContinuityLook[]>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('backstage_continuity_looks');
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        } catch (e) {
+          console.error(e);
+        }
+      }
+    }
+    return INITIAL_LOOKS;
+  });
+
+  const looksRef = useRef(looks);
+  const isInternalContinuityUpdate = useRef(false);
+
+  useEffect(() => {
+    looksRef.current = looks;
+  }, [looks]);
+
+  // Sync looks with localStorage and emit window event
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const jsonStr = JSON.stringify(looks);
+      const existingStr = localStorage.getItem('backstage_continuity_looks');
+      if (existingStr !== jsonStr) {
+        localStorage.setItem('backstage_continuity_looks', jsonStr);
+        isInternalContinuityUpdate.current = true;
+        window.dispatchEvent(new Event('backstage_continuity_updated'));
+      }
+    }
+  }, [looks]);
+
+  // Listen for updates from CrewView or other views
+  useEffect(() => {
+    const handleSync = () => {
+      if (isInternalContinuityUpdate.current) {
+        isInternalContinuityUpdate.current = false;
+        return;
+      }
+      const saved = localStorage.getItem('backstage_continuity_looks');
+      if (saved) {
+        try {
+          if (saved === JSON.stringify(looksRef.current)) return;
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed)) {
+            setLooks(parsed);
+          }
+        } catch (e) {}
+      }
+    };
+    window.addEventListener('backstage_continuity_updated', handleSync);
+    return () => window.removeEventListener('backstage_continuity_updated', handleSync);
+  }, []);
   const [activeDept, setActiveDept] = useState<'costume' | 'makeup' | 'vehicle' | 'props'>('costume');
   const [selectedLookId, setSelectedLookId] = useState<string>('costume-mara-1');
   const [activeTab, setActiveTab] = useState<'ruler' | 'sequence' | 'dept-detail'>('ruler');

@@ -288,7 +288,7 @@ const AppContent: React.FC = () => {
         />
       </div>
       
-      <main className="w-full h-[calc(100vh-50px)] mt-[50px] relative print:hidden print:mt-0 print:h-auto">
+      <main className="w-full h-[calc(100vh-50px)] mt-[50px] relative print:hidden print:mt-0 print:h-auto overflow-y-auto overflow-x-hidden">
         {currentView === 'board' && <div className="w-full h-full"><BoardView key={`board-${refreshKey}`} onEditBeat={handleEditBeat} /></div>}
         {currentView === 'script' && <ScriptView key={`script-${refreshKey}`} onNavigateToView={(v) => setCurrentView(v)} />}
         {currentView === 'casting' && <div className="w-full h-full"><CastingView key={`casting-${refreshKey}`} onNavigateToView={(v) => setCurrentView(v)} /></div>}

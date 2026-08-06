@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useProject } from '../../context/ProjectContext';
 import { Beat, BreakdownData, ViewMode, AppTask, TaskModificationHistory } from '../../types';
 
@@ -88,6 +88,7 @@ import {
   FolderPlus, ChevronUp, AlertCircle, Play, MoreVertical
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { ContinuityLook, INITIAL_LOOKS } from './ContinuityView';
 
 // --- TYPES FOR CREW MODULE ---
 
@@ -151,10 +152,10 @@ export const DEPARTMENT_SPECIFIC_ROLES: Record<string, string[]> = {
     'Costume Designer', 'Assistant Costume Designer', 'Wardrobe Supervisor', 'Dressmen', 'Tailors', 'Laundry'
   ],
   makeup: [
-    'Chief Makeup Artist', 'Assistant Makeup Artist', 'Hair Stylist', 'Prosthetic Makeup Artist'
+    'Chief Makeup Artist', 'Assistant Makeup Artist', 'Prosthetic Makeup Artist', 'Special Effects Makeup Lead'
   ],
   hair: [
-    'Chief Hair Stylist', 'Assistant Hair Stylist', 'Wig Specialist'
+    'Chief Hair Stylist', 'Hair Stylist', 'Wig Specialist', 'Extension Specialist', 'Period Hair Stylist'
   ],
   sound: [
     'Production Sound Mixer', 'Boom Operator', 'Sound Assistant', 'Playback Operator'
@@ -196,6 +197,12 @@ export const DEPARTMENT_SPECIFIC_ROLES: Record<string, string[]> = {
   ],
   music: [
     'Music Director', 'Composer', 'Music Supervisor', 'Soundtrack Coordinator'
+  ],
+  continuity: [
+    'Script Supervisor', 'Continuity Supervisor', 'Assistant Script Supervisor'
+  ],
+  security: [
+    'Set Security Chief', 'Crowd Control Lead', 'Risk & Safety Officer', 'Fire Safety Lead'
   ],
   publicity: [
     'PRO / Publicist', 'Unit Still Photographer', 'BTS Videographer', 'Media Coordinator'
@@ -298,40 +305,57 @@ export interface DepartmentMeta {
   bgClass: string;
   borderClass: string;
   icon: any;
-  category: 'Key Creative' | 'Technical' | 'Physical Production' | 'Post Production' | 'Publicity & Logistics';
+  category: string;
 }
 
 export const ALL_DEPARTMENTS: DepartmentMeta[] = [
-  { id: 'direction', name: 'Direction', hod: 'Karthik Subbaraj', status: 'Active', progress: 85, color: '#f5a623', accentClass: 'text-amber-400', bgClass: 'bg-amber-500/10', borderClass: 'border-amber-500/30', icon: Film, category: 'Key Creative' },
-  { id: 'production', name: 'Production', hod: 'Santhosh Kumar', status: 'Active', progress: 90, color: '#3b82f6', accentClass: 'text-blue-400', bgClass: 'bg-blue-500/10', borderClass: 'border-blue-500/30', icon: Shield, category: 'Key Creative' },
-  { id: 'camera', name: 'Camera', hod: 'Tirru ISC', status: 'In Progress', progress: 78, color: '#10b981', accentClass: 'text-emerald-400', bgClass: 'bg-emerald-500/10', borderClass: 'border-emerald-500/30', icon: Camera, category: 'Technical' },
-  { id: 'art', name: 'Art', hod: 'Kumar Gangappan', status: 'In Progress', progress: 70, color: '#ec4899', accentClass: 'text-pink-400', bgClass: 'bg-pink-500/10', borderClass: 'border-pink-500/30', icon: Palette, category: 'Key Creative' },
-  { id: 'costume', name: 'Costume', hod: 'Anirudh Singh', status: 'In Progress', progress: 82, color: '#a855f7', accentClass: 'text-purple-400', bgClass: 'bg-purple-500/10', borderClass: 'border-purple-500/30', icon: Shirt, category: 'Key Creative' },
-  { id: 'makeup', name: 'Makeup', hod: 'Banu M', status: 'Pre-Production', progress: 65, color: '#f43f5e', accentClass: 'text-rose-400', bgClass: 'bg-rose-500/10', borderClass: 'border-rose-500/30', icon: Sparkles, category: 'Key Creative' },
-  { id: 'hair', name: 'Hair', hod: 'Stella Marie', status: 'Pre-Production', progress: 60, color: '#fb7185', accentClass: 'text-rose-300', bgClass: 'bg-rose-400/10', borderClass: 'border-rose-400/30', icon: Scissors, category: 'Key Creative' },
-  { id: 'sound', name: 'Sound', hod: 'Resul Pookutty', status: 'In Progress', progress: 75, color: '#06b6d4', accentClass: 'text-cyan-400', bgClass: 'bg-cyan-500/10', borderClass: 'border-cyan-500/30', icon: Volume2, category: 'Technical' },
-  { id: 'music', name: 'Music', hod: 'Santhosh Narayanan', status: 'Active', progress: 88, color: '#8b5cf6', accentClass: 'text-violet-400', bgClass: 'bg-violet-500/10', borderClass: 'border-violet-500/30', icon: Music, category: 'Key Creative' },
-  { id: 'lighting', name: 'Lighting', hod: 'Gaffer Murugan', status: 'In Progress', progress: 72, color: '#eab308', accentClass: 'text-yellow-400', bgClass: 'bg-yellow-500/10', borderClass: 'border-yellow-500/30', icon: Sun, category: 'Technical' },
-  { id: 'grip', name: 'Grip', hod: 'Key Grip Selvam', status: 'In Progress', progress: 76, color: '#64748b', accentClass: 'text-slate-300', bgClass: 'bg-slate-500/10', borderClass: 'border-slate-500/30', icon: Anchor, category: 'Technical' },
-  { id: 'electric', name: 'Electric', hod: 'Ramu Electrician', status: 'In Progress', progress: 80, color: '#f97316', accentClass: 'text-orange-400', bgClass: 'bg-orange-500/10', borderClass: 'border-orange-500/30', icon: Zap, category: 'Technical' },
-  { id: 'locations', name: 'Locations', hod: 'Kannan Recce', status: 'Ready', progress: 95, color: '#14b8a6', accentClass: 'text-teal-400', bgClass: 'bg-teal-500/10', borderClass: 'border-teal-500/30', icon: MapPin, category: 'Physical Production' },
-  { id: 'props', name: 'Props', hod: 'Prop Master Mani', status: 'In Progress', progress: 68, color: '#ef4444', accentClass: 'text-red-400', bgClass: 'bg-red-500/10', borderClass: 'border-red-500/30', icon: Package, category: 'Physical Production' },
-  { id: 'set_decoration', name: 'Set Decoration', hod: 'Set Decorator Priya', status: 'In Progress', progress: 74, color: '#d946ef', accentClass: 'text-fuchsia-400', bgClass: 'bg-fuchsia-500/10', borderClass: 'border-fuchsia-500/30', icon: Home, category: 'Physical Production' },
-  { id: 'construction', name: 'Construction', hod: 'Master Carpenter Velu', status: 'Active', progress: 62, color: '#b45309', accentClass: 'text-amber-600', bgClass: 'bg-amber-700/10', borderClass: 'border-amber-700/30', icon: Hammer, category: 'Physical Production' },
-  { id: 'transportation', name: 'Transportation', hod: 'Fleet Manager Rajan', status: 'Ready', progress: 92, color: '#0284c7', accentClass: 'text-sky-400', bgClass: 'bg-sky-500/10', borderClass: 'border-sky-500/30', icon: Truck, category: 'Physical Production' },
-  { id: 'catering', name: 'Catering', hod: 'Chef Annapoorna', status: 'Ready', progress: 98, color: '#84cc16', accentClass: 'text-lime-400', bgClass: 'bg-lime-500/10', borderClass: 'border-lime-500/30', icon: Utensils, category: 'Physical Production' },
-  { id: 'stunts', name: 'Stunts', hod: 'Stunt Master Supreme', status: 'In Progress', progress: 84, color: '#dc2626', accentClass: 'text-red-500', bgClass: 'bg-red-600/10', borderClass: 'border-red-600/30', icon: Flame, category: 'Technical' },
-  { id: 'action', name: 'Action', hod: 'Action Coordinator Peter', status: 'In Progress', progress: 80, color: '#ea580c', accentClass: 'text-orange-500', bgClass: 'bg-orange-600/10', borderClass: 'border-orange-600/30', icon: Activity, category: 'Technical' },
-  { id: 'choreography', name: 'Choreography', hod: 'Dinesh Master', status: 'Pre-Production', progress: 55, color: '#f43f5e', accentClass: 'text-rose-400', bgClass: 'bg-rose-500/10', borderClass: 'border-rose-500/30', icon: Heart, category: 'Key Creative' },
-  { id: 'animals', name: 'Animals', hod: 'Animal Handler Captain', status: 'Ready', progress: 90, color: '#15803d', accentClass: 'text-green-500', bgClass: 'bg-green-700/10', borderClass: 'border-green-700/30', icon: ShieldCheck, category: 'Physical Production' },
-  { id: 'children', name: 'Children', hod: 'Child Tutor & Guardian Mary', status: 'Ready', progress: 95, color: '#38bdf8', accentClass: 'text-sky-300', bgClass: 'bg-sky-400/10', borderClass: 'border-sky-400/30', icon: Baby, category: 'Physical Production' },
-  { id: 'vfx', name: 'VFX', hod: 'VFX Supervisor Srinivas', status: 'In Progress', progress: 68, color: '#6366f1', accentClass: 'text-indigo-400', bgClass: 'bg-indigo-500/10', borderClass: 'border-indigo-500/30', icon: Wand2, category: 'Post Production' },
-  { id: 'sfx', name: 'SFX', hod: 'SFX Specialist Explosives', status: 'In Progress', progress: 75, color: '#ef4444', accentClass: 'text-red-400', bgClass: 'bg-red-500/10', borderClass: 'border-red-500/30', icon: Flame, category: 'Technical' },
-  { id: 'dit', name: 'DIT', hod: 'DIT Engineer Nithin', status: 'Ready', progress: 90, color: '#0284c7', accentClass: 'text-sky-400', bgClass: 'bg-sky-500/10', borderClass: 'border-sky-500/30', icon: Cpu, category: 'Technical' },
-  { id: 'drone', name: 'Drone', hod: 'Drone Pilot SkyCam', status: 'Ready', progress: 88, color: '#06b6d4', accentClass: 'text-cyan-400', bgClass: 'bg-cyan-500/10', borderClass: 'border-cyan-500/30', icon: Radio, category: 'Technical' },
-  { id: 'editing', name: 'Editing', hod: 'Editor Vivek Harshan', status: 'Pre-Production', progress: 40, color: '#a855f7', accentClass: 'text-purple-400', bgClass: 'bg-purple-500/10', borderClass: 'border-purple-500/30', icon: FilmIcon, category: 'Post Production' },
-  { id: 'color', name: 'Color', hod: 'Colorist Redchillies', status: 'Pre-Production', progress: 35, color: '#ec4899', accentClass: 'text-pink-400', bgClass: 'bg-pink-500/10', borderClass: 'border-pink-500/30', icon: Tv, category: 'Post Production' },
-  { id: 'publicity', name: 'Publicity', hod: 'PRO Diamond Babu', status: 'Pre-Production', progress: 50, color: '#eab308', accentClass: 'text-yellow-400', bgClass: 'bg-yellow-500/10', borderClass: 'border-yellow-500/30', icon: Megaphone, category: 'Publicity & Logistics' },
+  // CINEMATOGRAPHY
+  { id: 'camera', name: 'Camera', hod: 'Tirru ISC', status: 'In Progress', progress: 78, color: '#10b981', accentClass: 'text-emerald-400', bgClass: 'bg-emerald-500/10', borderClass: 'border-emerald-500/30', icon: Camera, category: 'Cinematography' },
+  { id: 'drone', name: 'Drone & Aerial', hod: 'Drone Pilot SkyCam', status: 'Ready', progress: 88, color: '#06b6d4', accentClass: 'text-cyan-400', bgClass: 'bg-cyan-500/10', borderClass: 'border-cyan-500/30', icon: Radio, category: 'Cinematography' },
+  { id: 'lighting', name: 'Lighting / Gaffer', hod: 'Gaffer Murugan', status: 'In Progress', progress: 72, color: '#eab308', accentClass: 'text-yellow-400', bgClass: 'bg-yellow-500/10', borderClass: 'border-yellow-500/30', icon: Sun, category: 'Cinematography' },
+  { id: 'grip', name: 'Grip Unit', hod: 'Key Grip Selvam', status: 'In Progress', progress: 76, color: '#64748b', accentClass: 'text-slate-300', bgClass: 'bg-slate-500/10', borderClass: 'border-slate-500/30', icon: Anchor, category: 'Cinematography' },
+  { id: 'electric', name: 'Electric / Power', hod: 'Ramu Electrician', status: 'In Progress', progress: 80, color: '#f97316', accentClass: 'text-orange-400', bgClass: 'bg-orange-500/10', borderClass: 'border-orange-500/30', icon: Zap, category: 'Cinematography' },
+  { id: 'dit', name: 'DIT & Data', hod: 'DIT Engineer Nithin', status: 'Ready', progress: 90, color: '#0284c7', accentClass: 'text-sky-400', bgClass: 'bg-sky-500/10', borderClass: 'border-sky-500/30', icon: Cpu, category: 'Cinematography' },
+
+  // DIRECTION & PRODUCTION
+  { id: 'direction', name: 'Direction', hod: 'Karthik Subbaraj', status: 'Active', progress: 85, color: '#f5a623', accentClass: 'text-amber-400', bgClass: 'bg-amber-500/10', borderClass: 'border-amber-500/30', icon: Film, category: 'Direction & Production' },
+  { id: 'production', name: 'Production', hod: 'Santhosh Kumar', status: 'Active', progress: 90, color: '#3b82f6', accentClass: 'text-blue-400', bgClass: 'bg-blue-500/10', borderClass: 'border-blue-500/30', icon: Shield, category: 'Direction & Production' },
+  { id: 'locations', name: 'Locations', hod: 'Kannan Recce', status: 'Ready', progress: 95, color: '#14b8a6', accentClass: 'text-teal-400', bgClass: 'bg-teal-500/10', borderClass: 'border-teal-500/30', icon: MapPin, category: 'Direction & Production' },
+  { id: 'publicity', name: 'Publicity & PR', hod: 'PRO Diamond Babu', status: 'Pre-Production', progress: 50, color: '#eab308', accentClass: 'text-yellow-400', bgClass: 'bg-yellow-500/10', borderClass: 'border-yellow-500/30', icon: Megaphone, category: 'Direction & Production' },
+
+  // ART & PRODUCTION DESIGN
+  { id: 'art', name: 'Art Department', hod: 'Kumar Gangappan', status: 'In Progress', progress: 70, color: '#ec4899', accentClass: 'text-pink-400', bgClass: 'bg-pink-500/10', borderClass: 'border-pink-500/30', icon: Palette, category: 'Art & Production Design' },
+  { id: 'props', name: 'Props Unit', hod: 'Prop Master Mani', status: 'In Progress', progress: 68, color: '#ef4444', accentClass: 'text-red-400', bgClass: 'bg-red-500/10', borderClass: 'border-red-500/30', icon: Package, category: 'Art & Production Design' },
+  { id: 'set_decoration', name: 'Set Decoration', hod: 'Set Decorator Priya', status: 'In Progress', progress: 74, color: '#d946ef', accentClass: 'text-fuchsia-400', bgClass: 'bg-fuchsia-500/10', borderClass: 'border-fuchsia-500/30', icon: Home, category: 'Art & Production Design' },
+  { id: 'construction', name: 'Construction', hod: 'Master Carpenter Velu', status: 'Active', progress: 62, color: '#b45309', accentClass: 'text-amber-600', bgClass: 'bg-amber-700/10', borderClass: 'border-amber-700/30', icon: Hammer, category: 'Art & Production Design' },
+
+  // STYLING & CHARACTER APPEARANCE
+  { id: 'costume', name: 'Costume & Wardrobe', hod: 'Anirudh Singh', status: 'In Progress', progress: 82, color: '#a855f7', accentClass: 'text-purple-400', bgClass: 'bg-purple-500/10', borderClass: 'border-purple-500/30', icon: Shirt, category: 'Styling & Appearance' },
+  { id: 'makeup', name: 'Makeup & Prosthetics', hod: 'Banu M', status: 'Pre-Production', progress: 65, color: '#f43f5e', accentClass: 'text-rose-400', bgClass: 'bg-rose-500/10', borderClass: 'border-rose-500/30', icon: Sparkles, category: 'Styling & Appearance' },
+  { id: 'hair', name: 'Hair & Wigs', hod: 'Stella Marie', status: 'Pre-Production', progress: 68, color: '#f43f5e', accentClass: 'text-rose-300', bgClass: 'bg-rose-500/10', borderClass: 'border-rose-500/30', icon: Scissors, category: 'Styling & Appearance' },
+
+  // SOUND & MUSIC
+  { id: 'sound', name: 'Sound Department', hod: 'Resul Pookutty', status: 'In Progress', progress: 75, color: '#06b6d4', accentClass: 'text-cyan-400', bgClass: 'bg-cyan-500/10', borderClass: 'border-cyan-500/30', icon: Volume2, category: 'Sound & Music' },
+  { id: 'music', name: 'Music & Score', hod: 'Santhosh Narayanan', status: 'Active', progress: 88, color: '#8b5cf6', accentClass: 'text-violet-400', bgClass: 'bg-violet-500/10', borderClass: 'border-violet-500/30', icon: Music, category: 'Sound & Music' },
+
+  // ACTION, STUNTS & SPECIAL UNITS
+  { id: 'stunts', name: 'Stunts Unit', hod: 'Stunt Master Supreme', status: 'In Progress', progress: 84, color: '#dc2626', accentClass: 'text-red-500', bgClass: 'bg-red-600/10', borderClass: 'border-red-600/30', icon: Flame, category: 'Action & Stunt Units' },
+  { id: 'action', name: 'Action Coordination', hod: 'Action Coordinator Peter', status: 'In Progress', progress: 80, color: '#ea580c', accentClass: 'text-orange-500', bgClass: 'bg-orange-600/10', borderClass: 'border-orange-600/30', icon: Activity, category: 'Action & Stunt Units' },
+  { id: 'sfx', name: 'Special Effects (SFX)', hod: 'SFX Specialist Explosives', status: 'In Progress', progress: 75, color: '#ef4444', accentClass: 'text-red-400', bgClass: 'bg-red-500/10', borderClass: 'border-red-500/30', icon: Flame, category: 'Action & Stunt Units' },
+  { id: 'choreography', name: 'Choreography', hod: 'Dinesh Master', status: 'Pre-Production', progress: 55, color: '#f43f5e', accentClass: 'text-rose-400', bgClass: 'bg-rose-500/10', borderClass: 'border-rose-500/30', icon: Heart, category: 'Action & Stunt Units' },
+  { id: 'animals', name: 'Animals Unit', hod: 'Animal Handler Captain', status: 'Ready', progress: 90, color: '#15803d', accentClass: 'text-green-500', bgClass: 'bg-green-700/10', borderClass: 'border-green-700/30', icon: ShieldCheck, category: 'Action & Stunt Units' },
+  { id: 'children', name: 'Child Care & Tutors', hod: 'Child Tutor Mary', status: 'Ready', progress: 95, color: '#38bdf8', accentClass: 'text-sky-300', bgClass: 'bg-sky-400/10', borderClass: 'border-sky-400/30', icon: Baby, category: 'Action & Stunt Units' },
+
+  // POST PRODUCTION & VFX
+  { id: 'vfx', name: 'VFX Department', hod: 'VFX Supervisor Srinivas', status: 'In Progress', progress: 68, color: '#6366f1', accentClass: 'text-indigo-400', bgClass: 'bg-indigo-500/10', borderClass: 'border-indigo-500/30', icon: Wand2, category: 'Post Production & VFX' },
+  { id: 'editing', name: 'Editing & Post', hod: 'Editor Vivek Harshan', status: 'Pre-Production', progress: 40, color: '#a855f7', accentClass: 'text-purple-400', bgClass: 'bg-purple-500/10', borderClass: 'border-purple-500/30', icon: FilmIcon, category: 'Post Production & VFX' },
+  { id: 'color', name: 'Color Grading (DI)', hod: 'Colorist Redchillies', status: 'Pre-Production', progress: 35, color: '#ec4899', accentClass: 'text-pink-400', bgClass: 'bg-pink-500/10', borderClass: 'border-pink-500/30', icon: Tv, category: 'Post Production & VFX' },
+
+  // LOGISTICS & SET OPERATIONS
+  { id: 'transportation', name: 'Transportation', hod: 'Fleet Manager Rajan', status: 'Ready', progress: 92, color: '#0284c7', accentClass: 'text-sky-400', bgClass: 'bg-sky-500/10', borderClass: 'border-sky-500/30', icon: Truck, category: 'Logistics & Set Operations' },
+  { id: 'catering', name: 'Catering & Craft', hod: 'Chef Annapoorna', status: 'Ready', progress: 98, color: '#84cc16', accentClass: 'text-lime-400', bgClass: 'bg-lime-500/10', borderClass: 'border-lime-500/30', icon: Utensils, category: 'Logistics & Set Operations' },
+  { id: 'continuity', name: 'Script & Continuity', hod: 'Meena R', status: 'Active', progress: 88, color: '#f5a623', accentClass: 'text-amber-400', bgClass: 'bg-amber-500/10', borderClass: 'border-amber-500/30', icon: BookOpen, category: 'Logistics & Set Operations' },
+  { id: 'security', name: 'Security & Safety', hod: 'Safety Chief Victor', status: 'Ready', progress: 96, color: '#64748b', accentClass: 'text-slate-300', bgClass: 'bg-slate-500/10', borderClass: 'border-slate-500/30', icon: ShieldCheck, category: 'Logistics & Set Operations' },
 ];
 
 // INITIAL SEED DATA FOR DEMO ENRICHMENT
@@ -362,6 +386,7 @@ const INITIAL_CREW_MEMBERS: CrewMember[] = [
   // COSTUME & MAKEUP
   { id: 'cr-6', name: 'Anirudh Singh', role: 'Costume Designer', departmentId: 'costume', phone: '+91 98400 44556', email: 'anirudh@backstage.film', availability: 'Pre-Production', callTime: '07:00 AM', notes: 'Hero leather jacket duplicates (3x) ready for stunts.' },
   { id: 'cr-m1', name: 'Banu M', role: 'Chief Makeup Artist', departmentId: 'makeup', phone: '+91 98400 44557', email: 'banu@backstage.film', availability: 'On Set', callTime: '05:00 AM' },
+  { id: 'cr-h1', name: 'Stella Marie', role: 'Chief Hair Stylist', departmentId: 'makeup', phone: '+91 98400 44558', email: 'stella@backstage.film', availability: 'On Set', callTime: '05:15 AM' },
 
   // SOUND & MUSIC
   { id: 'cr-7', name: 'Resul Pookutty', role: 'Production Sound Mixer', departmentId: 'sound', phone: '+91 98400 55667', email: 'resul@backstage.film', availability: 'Available', callTime: '06:45 AM', notes: 'Wild tracks required for Rain Scene 14.' },
@@ -672,6 +697,17 @@ const INITIAL_PRODUCTION_TEMPLATES: ProductionTemplateItem[] = [
 
 // --- MAIN CREW VIEW COMPONENT ---
 
+// Helper to check if department uses continuity (Costume, Makeup, Vehicles)
+const isContinuityApplicableDept = (deptId: string, deptName?: string) => {
+  const d = (deptId || '').toLowerCase();
+  const n = (deptName || '').toLowerCase();
+  return (
+    d.includes('costume') || d.includes('wardrobe') || n.includes('costume') || n.includes('wardrobe') ||
+    d.includes('makeup') || d.includes('hair') || d.includes('sfx') || n.includes('makeup') || n.includes('hair') || n.includes('sfx') ||
+    d.includes('vehicle') || d.includes('transport') || n.includes('vehicle') || n.includes('transport')
+  );
+};
+
 export const CrewView: React.FC<CrewViewProps> = ({ 
   allTasks, 
   onUpdateTask, 
@@ -684,7 +720,99 @@ export const CrewView: React.FC<CrewViewProps> = ({
   // Sidebar & Global State
   const [activeSidebarItem, setActiveSidebarItem] = useState<'dashboard' | 'departments' | 'meetings' | 'reports' | 'contacts' | 'templates'>('departments');
   const [selectedDeptId, setSelectedDeptId] = useState<string>('direction');
-  const [deptTab, setDeptTab] = useState<'crew' | 'scenes' | 'assets' | 'tasks' | 'budget'>('crew');
+  const [deptTab, setDeptTab] = useState<'crew' | 'scenes' | 'assets' | 'tasks' | 'budget' | 'continuity'>('crew');
+
+  // Grouped departments by category
+  const groupedDepartments = useMemo<Record<string, DepartmentMeta[]>>(() => {
+    const groups: Record<string, DepartmentMeta[]> = {};
+    ALL_DEPARTMENTS.forEach(d => {
+      const cat = d.category || 'Other';
+      if (!groups[cat]) groups[cat] = [];
+      groups[cat].push(d);
+    });
+    return groups;
+  }, []);
+
+  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
+
+  const toggleGroup = (groupName: string) => {
+    setCollapsedGroups(prev => ({ ...prev, [groupName]: !prev[groupName] }));
+  };
+
+  // Continuity Looks State synced with localStorage & ContinuityView
+  const [continuityLooks, setContinuityLooks] = useState<ContinuityLook[]>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('backstage_continuity_looks');
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        } catch (e) {
+          console.error(e);
+        }
+      }
+    }
+    return INITIAL_LOOKS;
+  });
+
+  const continuityLooksRef = useRef(continuityLooks);
+  const isInternalContinuityUpdate = useRef(false);
+
+  useEffect(() => {
+    continuityLooksRef.current = continuityLooks;
+  }, [continuityLooks]);
+
+  // Sync continuityLooks with localStorage and emit window event
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const jsonStr = JSON.stringify(continuityLooks);
+      const existingStr = localStorage.getItem('backstage_continuity_looks');
+      if (existingStr !== jsonStr) {
+        localStorage.setItem('backstage_continuity_looks', jsonStr);
+        isInternalContinuityUpdate.current = true;
+        window.dispatchEvent(new Event('backstage_continuity_updated'));
+      }
+    }
+  }, [continuityLooks]);
+
+  // Listen for updates from ContinuityView
+  useEffect(() => {
+    const handleSync = () => {
+      if (isInternalContinuityUpdate.current) {
+        isInternalContinuityUpdate.current = false;
+        return;
+      }
+      const saved = localStorage.getItem('backstage_continuity_looks');
+      if (saved) {
+        try {
+          if (saved === JSON.stringify(continuityLooksRef.current)) return;
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed)) {
+            setContinuityLooks(parsed);
+          }
+        } catch (e) {}
+      }
+    };
+    window.addEventListener('backstage_continuity_updated', handleSync);
+    return () => window.removeEventListener('backstage_continuity_updated', handleSync);
+  }, []);
+
+  // Continuity Modal & Form States
+  const [showAddLookModal, setShowAddLookModal] = useState(false);
+  const [editingLookItem, setEditingLookItem] = useState<ContinuityLook | null>(null);
+  const [lookTargetName, setLookTargetName] = useState('');
+  const [lookTitle, setLookTitle] = useState('');
+  const [lookNumber, setLookNumber] = useState<number>(1);
+  const [lookFromScene, setLookFromScene] = useState<number>(1);
+  const [lookToScene, setLookToScene] = useState<number>(10);
+  const [lookDamageLevel, setLookDamageLevel] = useState<string>('None');
+  const [lookBloodLevel, setLookBloodLevel] = useState<string>('None');
+  const [lookImageUrl, setLookImageUrl] = useState<string>('');
+  const [lookDescription, setLookDescription] = useState<string>('');
+  const [lookStatus, setLookStatus] = useState<'Verified' | 'Pending Review' | 'Mismatched Warning' | 'Approved'>('Verified');
+  const [lookSearchQuery, setLookSearchQuery] = useState('');
+  const [lookFilterStatus, setLookFilterStatus] = useState<string>('all');
+  const [selectedImageModalUrl, setSelectedImageModalUrl] = useState<string | null>(null);
 
   // Search & Filter Global Bar
   const [globalSearch, setGlobalSearch] = useState('');
@@ -1010,45 +1138,63 @@ export const CrewView: React.FC<CrewViewProps> = ({
   };
 
   return (
-    <div className="w-full h-full bg-[#111111] text-[#e5e5e5] flex flex-col overflow-hidden font-sans select-none">
+    <div className={`w-full h-full flex flex-col overflow-hidden font-sans select-none ${
+      isLight ? 'bg-slate-100 text-slate-900' : 'bg-[#111111] text-[#e5e5e5]'
+    }`}>
       
       {/* GLOBAL CREW HEADER BAR */}
-      <div className="h-12 bg-[#161618] border-b border-[#262626] px-4 flex items-center justify-between gap-4 z-20">
+      <div className={`h-12 border-b px-4 flex items-center justify-between gap-4 z-20 ${
+        isLight ? 'bg-white border-slate-200 text-slate-800' : 'bg-[#161618] border-[#262626] text-white'
+      }`}>
         <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2 bg-[#222224] border border-[#333] px-3 py-1 rounded-md text-xs font-bold text-[#f5a623]">
+          <div className={`flex items-center gap-2 border px-3 py-1 rounded-md text-xs font-bold ${
+            isLight ? 'bg-amber-500/10 border-amber-500/30 text-amber-700' : 'bg-[#222224] border-[#333] text-[#f5a623]'
+          }`}>
             <Users size={16} />
             <span className="uppercase tracking-wider">CREW PRODUCTION HUB</span>
           </div>
-          <span className="text-xs text-gray-500 hidden sm:inline">| Screenplay-Driven Department Workspaces & AI Intelligence</span>
+          <span className={`text-xs hidden sm:inline ${isLight ? 'text-slate-500' : 'text-gray-500'}`}>| Screenplay-Driven Department Workspaces & AI Intelligence</span>
         </div>
 
         {/* Global Search Input & Quick Filters */}
         <div className="flex items-center gap-2 flex-1 max-w-xl">
           <div className="relative w-full">
-            <Search size={14} className="absolute left-3 top-2.5 text-gray-500" />
+            <Search size={14} className={`absolute left-3 top-2.5 ${isLight ? 'text-slate-400' : 'text-gray-500'}`} />
             <input 
               type="text" 
               placeholder="Search Crew Members, Departments, Props, Assets, Meetings, Reports..." 
               value={globalSearch}
               onChange={(e) => setGlobalSearch(e.target.value)}
-              className="w-full bg-[#0d0d0f] border border-[#2a2a2d] text-xs text-white pl-9 pr-3 py-1.5 rounded-lg outline-none focus:border-[#f5a623] transition-colors"
+              className={`w-full border text-xs pl-9 pr-3 py-1.5 rounded-lg outline-none transition-colors ${
+                isLight 
+                  ? 'bg-slate-50 border-slate-300 text-slate-900 placeholder:text-slate-400 focus:border-amber-500 shadow-sm' 
+                  : 'bg-[#0d0d0f] border-[#2a2a2d] text-white focus:border-[#f5a623]'
+              }`}
             />
             {globalSearch && (
-              <button onClick={() => setGlobalSearch('')} className="absolute right-2.5 top-2.5 text-gray-500 hover:text-white">
+              <button onClick={() => setGlobalSearch('')} className={`absolute right-2.5 top-2.5 ${isLight ? 'text-slate-400 hover:text-slate-700' : 'text-gray-500 hover:text-white'}`}>
                 <X size={12} />
               </button>
             )}
           </div>
 
-          <div className="hidden lg:flex items-center gap-1.5 bg-[#1a1a1e] border border-[#2a2a2d] p-1 rounded-lg">
+          <div className={`hidden lg:flex items-center gap-1.5 border p-1 rounded-lg ${
+            isLight ? 'bg-slate-50 border-slate-200' : 'bg-[#1a1a1e] border-[#2a2a2d]'
+          }`}>
             <select 
               value={filterDept} 
               onChange={(e) => setFilterDept(e.target.value)}
-              className="bg-transparent text-[10px] font-bold text-gray-300 outline-none cursor-pointer px-1"
+              className={`bg-transparent text-[10px] font-bold outline-none cursor-pointer px-1 ${
+                isLight ? 'text-slate-700' : 'text-gray-300'
+              }`}
             >
               <option value="all">All Depts</option>
-              {ALL_DEPARTMENTS.map(d => (
-                <option key={d.id} value={d.id} className="bg-[#111]">{d.name}</option>
+              {(Object.entries(groupedDepartments) as [string, DepartmentMeta[]][]).map(([groupName, depts]) => (
+                <optgroup key={groupName} label={groupName} className={isLight ? 'bg-white text-amber-700 font-bold' : 'bg-[#111] text-amber-400 font-bold'}>
+                  {depts.map(d => (
+                    <option key={d.id} value={d.id} className={isLight ? 'bg-white text-slate-800 font-normal' : 'bg-[#111] text-gray-200 font-normal'}>{d.name}</option>
+                  ))}
+                </optgroup>
               ))}
             </select>
           </div>
@@ -1058,18 +1204,26 @@ export const CrewView: React.FC<CrewViewProps> = ({
         <div className="flex items-center gap-2">
           <button 
             onClick={handleExportExcel}
-            className="flex items-center gap-1.5 bg-[#222] hover:bg-[#2e2e2e] text-gray-300 hover:text-white border border-[#333] text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors"
+            className={`flex items-center gap-1.5 border text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors ${
+              isLight 
+                ? 'bg-white hover:bg-slate-100 text-slate-700 border-slate-300 shadow-sm' 
+                : 'bg-[#222] hover:bg-[#2e2e2e] text-gray-300 border-[#333]'
+            }`}
             title="Export Department Data to Excel"
           >
-            <FileSpreadsheet size={14} className="text-emerald-400" />
+            <FileSpreadsheet size={14} className="text-emerald-600 dark:text-emerald-400" />
             <span className="hidden md:inline">Export Excel</span>
           </button>
           <button 
             onClick={() => window.print()}
-            className="flex items-center gap-1.5 bg-[#222] hover:bg-[#2e2e2e] text-gray-300 hover:text-white border border-[#333] text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors"
+            className={`flex items-center gap-1.5 border text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors ${
+              isLight 
+                ? 'bg-white hover:bg-slate-100 text-slate-700 border-slate-300 shadow-sm' 
+                : 'bg-[#222] hover:bg-[#2e2e2e] text-gray-300 border-[#333]'
+            }`}
             title="Print Production Report"
           >
-            <Printer size={14} className="text-blue-400" />
+            <Printer size={14} className="text-blue-600 dark:text-blue-400" />
             <span className="hidden md:inline">Print</span>
           </button>
         </div>
@@ -1079,122 +1233,130 @@ export const CrewView: React.FC<CrewViewProps> = ({
       <div className="flex-1 flex overflow-hidden">
         
         {/* LEFT SIDEBAR NAVIGATION */}
-        <div className="w-56 bg-[#141416] border-r border-[#242426] flex flex-col justify-between shrink-0 overflow-y-auto custom-scrollbar">
+        <div className={`w-56 border-r flex flex-col justify-between shrink-0 overflow-y-auto custom-scrollbar ${
+          isLight ? 'bg-white border-slate-200 text-slate-700' : 'bg-[#141416] border-[#242426]'
+        }`}>
           <div className="p-3 space-y-4">
             
             {/* Primary Modules */}
             <div>
-              <div className="text-[10px] font-mono font-bold text-gray-500 uppercase tracking-widest px-2 mb-2">Main Navigation</div>
+              <div className={`text-[10px] font-mono font-bold uppercase tracking-widest px-2 mb-2 ${
+                isLight ? 'text-slate-400' : 'text-gray-500'
+              }`}>Main Navigation</div>
               <div className="space-y-0.5">
-                <button
-                  onClick={() => setActiveSidebarItem('dashboard')}
-                  className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-bold transition-all ${
-                    activeSidebarItem === 'dashboard' 
-                      ? 'bg-[#222226] text-[#f5a623] border border-[#f5a623]/30 shadow-sm' 
-                      : 'text-gray-400 hover:text-white hover:bg-[#1a1a1d]'
-                  }`}
-                >
-                  <LayoutDashboard size={16} />
-                  <span>Dashboard</span>
-                </button>
-
-                <button
-                  onClick={() => setActiveSidebarItem('departments')}
-                  className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-bold transition-all ${
-                    activeSidebarItem === 'departments' 
-                      ? 'bg-[#222226] text-[#f5a623] border border-[#f5a623]/30 shadow-sm' 
-                      : 'text-gray-400 hover:text-white hover:bg-[#1a1a1d]'
-                  }`}
-                >
-                  <div className="flex items-center gap-2.5">
-                    <Layers size={16} />
-                    <span>Departments</span>
-                  </div>
-                  <span className="text-[9px] font-mono bg-[#2a2a2e] text-gray-300 px-1.5 py-0.5 rounded-full">{ALL_DEPARTMENTS.length}</span>
-                </button>
-
-                <button
-                  onClick={() => setActiveSidebarItem('meetings')}
-                  className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-bold transition-all ${
-                    activeSidebarItem === 'meetings' 
-                      ? 'bg-[#222226] text-[#f5a623] border border-[#f5a623]/30 shadow-sm' 
-                      : 'text-gray-400 hover:text-white hover:bg-[#1a1a1d]'
-                  }`}
-                >
-                  <div className="flex items-center gap-2.5">
-                    <Calendar size={16} />
-                    <span>Meetings</span>
-                  </div>
-                  <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
-                </button>
-
-                <button
-                  onClick={() => setActiveSidebarItem('reports')}
-                  className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-bold transition-all ${
-                    activeSidebarItem === 'reports' 
-                      ? 'bg-[#222226] text-[#f5a623] border border-[#f5a623]/30 shadow-sm' 
-                      : 'text-gray-400 hover:text-white hover:bg-[#1a1a1d]'
-                  }`}
-                >
-                  <FileText size={16} />
-                  <span>Reports</span>
-                </button>
-
-                <button
-                  onClick={() => setActiveSidebarItem('contacts')}
-                  className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-bold transition-all ${
-                    activeSidebarItem === 'contacts' 
-                      ? 'bg-[#222226] text-[#f5a623] border border-[#f5a623]/30 shadow-sm' 
-                      : 'text-gray-400 hover:text-white hover:bg-[#1a1a1d]'
-                  }`}
-                >
-                  <Contact size={16} />
-                  <span>Contacts</span>
-                </button>
-
-                <button
-                  onClick={() => setActiveSidebarItem('templates')}
-                  className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-bold transition-all ${
-                    activeSidebarItem === 'templates' 
-                      ? 'bg-[#222226] text-[#f5a623] border border-[#f5a623]/30 shadow-sm' 
-                      : 'text-gray-400 hover:text-white hover:bg-[#1a1a1d]'
-                  }`}
-                >
-                  <BookOpen size={16} />
-                  <span>Templates</span>
-                </button>
+                {[
+                  { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+                  { id: 'departments', label: 'Departments', icon: Layers, badge: ALL_DEPARTMENTS.length },
+                  { id: 'meetings', label: 'Meetings', icon: Calendar, pulse: true },
+                  { id: 'reports', label: 'Reports', icon: FileText },
+                  { id: 'contacts', label: 'Contacts', icon: Contact },
+                  { id: 'templates', label: 'Templates', icon: BookOpen },
+                ].map(item => {
+                  const Icon = item.icon;
+                  const isActive = activeSidebarItem === item.id;
+                  return (
+                    <button
+                      key={item.id}
+                      onClick={() => setActiveSidebarItem(item.id as any)}
+                      className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-bold transition-all ${
+                        isActive
+                          ? isLight
+                            ? 'bg-amber-500/10 text-amber-800 border border-amber-300 shadow-sm'
+                            : 'bg-[#222226] text-[#f5a623] border border-[#f5a623]/30 shadow-sm'
+                          : isLight
+                            ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                            : 'text-gray-400 hover:text-white hover:bg-[#1a1a1d]'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <Icon size={16} />
+                        <span>{item.label}</span>
+                      </div>
+                      {item.badge !== undefined && (
+                        <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded-full ${
+                          isLight ? 'bg-slate-200 text-slate-700' : 'bg-[#2a2a2e] text-gray-300'
+                        }`}>{item.badge}</span>
+                      )}
+                      {item.pulse && (
+                        <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
+                      )}
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
-            {/* Department Quick List */}
+            {/* Department Quick List Grouped */}
             <div>
-              <div className="text-[10px] font-mono font-bold text-gray-500 uppercase tracking-widest px-2 mb-2 flex items-center justify-between">
-                <span>32 Workspaces</span>
-                <span className="text-[9px] text-[#f5a623]">Active</span>
+              <div className="text-[10px] font-mono font-bold uppercase tracking-widest px-2 mb-2 flex items-center justify-between">
+                <span className={isLight ? 'text-slate-400' : 'text-gray-500'}>Workspaces ({ALL_DEPARTMENTS.length})</span>
+                <span className="text-[9px] text-amber-600 font-bold">Grouped</span>
               </div>
-              <div className="space-y-0.5 max-h-[380px] overflow-y-auto custom-scrollbar pr-1">
-                {ALL_DEPARTMENTS.map(d => {
-                  const Icon = d.icon;
-                  const isSelected = activeSidebarItem === 'departments' && selectedDeptId === d.id;
+              <div className="space-y-3 max-h-[420px] overflow-y-auto custom-scrollbar pr-1">
+                {(Object.entries(groupedDepartments) as [string, DepartmentMeta[]][]).map(([groupName, depts]) => {
+                  const isCollapsed = collapsedGroups[groupName];
+                  const hasSelected = depts.some(d => d.id === selectedDeptId);
                   return (
-                    <button
-                      key={d.id}
-                      onClick={() => {
-                        setSelectedDeptId(d.id);
-                        setActiveSidebarItem('departments');
-                      }}
-                      className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-all ${
-                        isSelected 
-                          ? 'bg-[#28282d] text-white font-bold border-l-2 border-[#f5a623]' 
-                          : 'text-gray-400 hover:text-gray-200 hover:bg-[#18181b]'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2 truncate">
-                        <Icon size={14} className={d.accentClass} />
-                        <span className="truncate">{d.name}</span>
-                      </div>
-                      <span className="text-[9px] font-mono text-gray-500">{d.progress}%</span>
-                    </button>
+                    <div key={groupName} className="space-y-1">
+                      {/* Group Header Button */}
+                      <button
+                        type="button"
+                        onClick={() => toggleGroup(groupName)}
+                        className={`w-full flex items-center justify-between px-2 py-1 text-[10px] font-mono font-bold uppercase rounded transition-all cursor-pointer ${
+                          hasSelected 
+                            ? isLight 
+                              ? 'bg-amber-100 text-amber-800 border border-amber-300' 
+                              : 'bg-amber-500/15 text-amber-400 border border-amber-500/30' 
+                            : isLight
+                              ? 'text-amber-800 bg-slate-100 hover:bg-slate-200/80'
+                              : 'text-amber-400/80 hover:text-amber-300 bg-[#1a1a1e] hover:bg-[#222226]'
+                        }`}
+                      >
+                        <span className="truncate flex items-center gap-1">
+                          <ChevronDown size={11} className={`transition-transform duration-200 shrink-0 ${isCollapsed ? '-rotate-90 text-gray-500' : 'text-amber-500'}`} />
+                          <span className="truncate">{groupName}</span>
+                        </span>
+                        <span className={`text-[9px] font-mono px-1 py-0.2 rounded border shrink-0 ${
+                          isLight ? 'bg-white text-slate-600 border-slate-300' : 'bg-black/40 text-gray-400 border-[#2a2a2e]'
+                        }`}>
+                          {depts.length}
+                        </span>
+                      </button>
+
+                      {/* Group Department Items */}
+                      {!isCollapsed && (
+                        <div className="pl-1 space-y-0.5">
+                          {depts.map(d => {
+                            const Icon = d.icon;
+                            const isSelected = activeSidebarItem === 'departments' && selectedDeptId === d.id;
+                            return (
+                              <button
+                                key={d.id}
+                                onClick={() => {
+                                  setSelectedDeptId(d.id);
+                                  setActiveSidebarItem('departments');
+                                }}
+                                className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-all ${
+                                  isSelected 
+                                    ? isLight
+                                      ? 'bg-slate-200 text-slate-900 font-bold border-l-2 border-amber-500 shadow-sm'
+                                      : 'bg-[#28282d] text-white font-bold border-l-2 border-[#f5a623] shadow-sm' 
+                                    : isLight
+                                      ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                                      : 'text-gray-400 hover:text-gray-200 hover:bg-[#18181b]'
+                                }`}
+                              >
+                                <div className="flex items-center gap-2 truncate">
+                                  <Icon size={13} className={d.accentClass} />
+                                  <span className="truncate">{d.name}</span>
+                                </div>
+                                <span className={`text-[9px] font-mono ${isLight ? 'text-slate-400' : 'text-gray-500'}`}>{d.progress}%</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
                   );
                 })}
               </div>
@@ -1203,19 +1365,23 @@ export const CrewView: React.FC<CrewViewProps> = ({
           </div>
 
           {/* AI Intelligence Footer Badge */}
-          <div className="p-3 border-t border-[#242426] bg-[#0d0d0f]">
-            <div className="flex items-center gap-2 text-amber-400 font-bold text-[11px] mb-1">
+          <div className={`p-3 border-t ${
+            isLight ? 'border-slate-200 bg-slate-50' : 'border-[#242426] bg-[#0d0d0f]'
+          }`}>
+            <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400 font-bold text-[11px] mb-1">
               <Sparkles size={14} />
               <span>Production AI Active</span>
             </div>
-            <p className="text-[10px] text-gray-500 leading-tight">
+            <p className={`text-[10px] leading-tight ${isLight ? 'text-slate-500' : 'text-gray-500'}`}>
               Screenplay sync enabled. {insights.length} active warnings detected.
             </p>
           </div>
         </div>
 
         {/* RIGHT WORKSPACE AREA */}
-        <div className="flex-1 bg-[#0f0f11] flex flex-col overflow-hidden">
+        <div className={`flex-1 flex flex-col overflow-hidden ${
+          isLight ? 'bg-slate-100/70' : 'bg-[#0f0f11]'
+        }`}>
           
           {/* VIEW ROUTER */}
 
@@ -1224,15 +1390,19 @@ export const CrewView: React.FC<CrewViewProps> = ({
             <div className="flex-1 overflow-y-auto custom-scrollbar p-6 space-y-6">
               
               {/* Dashboard Banner */}
-              <div className="bg-gradient-to-r from-[#1c1c22] via-[#16161a] to-[#1a1208] border border-[#333] rounded-2xl p-6 relative overflow-hidden shadow-xl">
+              <div className={`border rounded-2xl p-6 relative overflow-hidden shadow-xl ${
+                isLight 
+                  ? 'bg-gradient-to-r from-amber-500/10 via-amber-100/40 to-slate-100 border-amber-200 text-slate-900' 
+                  : 'bg-gradient-to-r from-[#1c1c22] via-[#16161a] to-[#1a1208] border-[#333] text-white'
+              }`}>
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 z-10 relative">
                   <div>
-                    <div className="flex items-center gap-2 text-amber-400 font-mono text-xs uppercase tracking-widest font-bold mb-1">
+                    <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400 font-mono text-xs uppercase tracking-widest font-bold mb-1">
                       <Film size={16} />
                       <span>Screenplay Single Source of Truth</span>
                     </div>
-                    <h1 className="text-2xl font-black text-white tracking-tight">Film Production Crew Command</h1>
-                    <p className="text-xs text-gray-400 mt-1 max-w-2xl leading-relaxed">
+                    <h1 className="text-2xl font-black tracking-tight">Film Production Crew Command</h1>
+                    <p className={`text-xs mt-1 max-w-2xl leading-relaxed ${isLight ? 'text-slate-600' : 'text-gray-400'}`}>
                       Real-time department synchronization derived from screenplay breakdown. Automatic meeting agenda generation, asset continuity graph, and department reports.
                     </p>
                   </div>
@@ -1240,7 +1410,9 @@ export const CrewView: React.FC<CrewViewProps> = ({
                   <div className="flex items-center gap-3">
                     <button 
                       onClick={() => setShowDependencyGraphAsset('Hero Gun')}
-                      className="flex items-center gap-2 bg-[#26262a] hover:bg-[#333] border border-[#444] text-amber-400 text-xs font-bold px-4 py-2 rounded-xl transition-all shadow"
+                      className={`flex items-center gap-2 border text-amber-700 dark:text-amber-400 text-xs font-bold px-4 py-2 rounded-xl transition-all shadow ${
+                        isLight ? 'bg-white hover:bg-slate-50 border-slate-300' : 'bg-[#26262a] hover:bg-[#333] border-[#444]'
+                      }`}
                     >
                       <GitFork size={16} />
                       <span>Dependency Graph</span>
@@ -1248,7 +1420,7 @@ export const CrewView: React.FC<CrewViewProps> = ({
 
                     <button 
                       onClick={() => setActiveSidebarItem('meetings')}
-                      className="flex items-center gap-2 bg-[#f5a623] hover:bg-[#e0951a] text-black text-xs font-black px-4 py-2 rounded-xl transition-all shadow-[0_0_15px_rgba(245,166,35,0.3)]"
+                      className="flex items-center gap-2 bg-[#f5a623] hover:bg-[#e0951a] text-black text-xs font-black px-4 py-2 rounded-xl transition-all shadow-[0_0_15px_rgba(245,166,35,0.3)] cursor-pointer"
                     >
                       <Plus size={16} />
                       <span>New Meeting Workspace</span>
@@ -1259,58 +1431,68 @@ export const CrewView: React.FC<CrewViewProps> = ({
 
               {/* KPI Summary Cards */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div className="bg-[#161618] border border-[#262628] rounded-xl p-4 space-y-2">
-                  <div className="flex items-center justify-between text-gray-400 text-xs font-bold uppercase">
+                <div className={`border rounded-xl p-4 space-y-2 ${
+                  isLight ? 'bg-white border-slate-200 shadow-sm' : 'bg-[#161618] border-[#262628]'
+                }`}>
+                  <div className={`flex items-center justify-between text-xs font-bold uppercase ${isLight ? 'text-slate-500' : 'text-gray-400'}`}>
                     <span>Departments</span>
-                    <Layers size={16} className="text-blue-400" />
+                    <Layers size={16} className="text-blue-500" />
                   </div>
-                  <div className="text-2xl font-black text-white">32 Workspaces</div>
-                  <div className="text-[10px] text-emerald-400 font-bold flex items-center gap-1">
+                  <div className={`text-2xl font-black ${isLight ? 'text-slate-900' : 'text-white'}`}>32 Workspaces</div>
+                  <div className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold flex items-center gap-1">
                     <CheckCircle2 size={12} /> 100% Operational
                   </div>
                 </div>
 
-                <div className="bg-[#161618] border border-[#262628] rounded-xl p-4 space-y-2">
-                  <div className="flex items-center justify-between text-gray-400 text-xs font-bold uppercase">
+                <div className={`border rounded-xl p-4 space-y-2 ${
+                  isLight ? 'bg-white border-slate-200 shadow-sm' : 'bg-[#161618] border-[#262628]'
+                }`}>
+                  <div className={`flex items-center justify-between text-xs font-bold uppercase ${isLight ? 'text-slate-500' : 'text-gray-400'}`}>
                     <span>Active Crew</span>
-                    <Users size={16} className="text-amber-400" />
+                    <Users size={16} className="text-amber-500" />
                   </div>
-                  <div className="text-2xl font-black text-white">{crewMembers.length + 128} Members</div>
-                  <div className="text-[10px] text-gray-400 font-mono">18 Call Times Set Today</div>
+                  <div className={`text-2xl font-black ${isLight ? 'text-slate-900' : 'text-white'}`}>{crewMembers.length + 128} Members</div>
+                  <div className={`text-[10px] font-mono ${isLight ? 'text-slate-500' : 'text-gray-400'}`}>18 Call Times Set Today</div>
                 </div>
 
-                <div className="bg-[#161618] border border-[#262628] rounded-xl p-4 space-y-2">
-                  <div className="flex items-center justify-between text-gray-400 text-xs font-bold uppercase">
+                <div className={`border rounded-xl p-4 space-y-2 ${
+                  isLight ? 'bg-white border-slate-200 shadow-sm' : 'bg-[#161618] border-[#262628]'
+                }`}>
+                  <div className={`flex items-center justify-between text-xs font-bold uppercase ${isLight ? 'text-slate-500' : 'text-gray-400'}`}>
                     <span>Pending Tasks</span>
-                    <CheckCircle2 size={16} className="text-purple-400" />
+                    <CheckCircle2 size={16} className="text-purple-500" />
                   </div>
-                  <div className="text-2xl font-black text-white">{tasks.length + 14} Tasks</div>
-                  <div className="text-[10px] text-amber-400 font-bold">5 Critical Items</div>
+                  <div className={`text-2xl font-black ${isLight ? 'text-slate-900' : 'text-white'}`}>{tasks.length + 14} Tasks</div>
+                  <div className="text-[10px] text-amber-600 dark:text-amber-400 font-bold">5 Critical Items</div>
                 </div>
 
-                <div className="bg-[#161618] border border-[#262628] rounded-xl p-4 space-y-2">
-                  <div className="flex items-center justify-between text-gray-400 text-xs font-bold uppercase">
+                <div className={`border rounded-xl p-4 space-y-2 ${
+                  isLight ? 'bg-white border-slate-200 shadow-sm' : 'bg-[#161618] border-[#262628]'
+                }`}>
+                  <div className={`flex items-center justify-between text-xs font-bold uppercase ${isLight ? 'text-slate-500' : 'text-gray-400'}`}>
                     <span>Production Scenes</span>
-                    <Film size={16} className="text-emerald-400" />
+                    <Film size={16} className="text-emerald-500" />
                   </div>
-                  <div className="text-2xl font-black text-white">{beats.length} Scenes</div>
-                  <div className="text-[10px] text-emerald-400 font-bold">Synced with Breakdown</div>
+                  <div className={`text-2xl font-black ${isLight ? 'text-slate-900' : 'text-white'}`}>{beats.length} Scenes</div>
+                  <div className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold">Synced with Breakdown</div>
                 </div>
               </div>
 
               {/* AI INSIGHTS WARNING CARDS */}
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2 text-amber-400 font-bold text-sm">
+                  <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400 font-bold text-sm">
                     <Sparkles size={18} />
                     <span>AI Production Intelligence & Warning Cards</span>
                   </div>
-                  <span className="text-xs text-gray-500 font-mono">{insights.length} Detected Warnings</span>
+                  <span className={`text-xs font-mono ${isLight ? 'text-slate-500' : 'text-gray-500'}`}>{insights.length} Detected Warnings</span>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {insights.map(item => (
-                    <div key={item.id} className="bg-[#17171a] border border-[#2e2e33] rounded-xl p-4 space-y-3 hover:border-amber-500/40 transition-colors">
+                    <div key={item.id} className={`border rounded-xl p-4 space-y-3 hover:border-amber-500/50 transition-colors shadow-sm ${
+                      isLight ? 'bg-white border-slate-200 text-slate-900' : 'bg-[#17171a] border-[#2e2e33] text-white'
+                    }`}>
                       <div className="flex items-start justify-between gap-3">
                         <div className="flex items-center gap-2">
                           <span className={`p-1.5 rounded-lg ${item.severity === 'high' ? 'bg-red-500/20 text-red-400 border border-red-500/30' : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'}`}>
@@ -1326,12 +1508,14 @@ export const CrewView: React.FC<CrewViewProps> = ({
                         </span>
                       </div>
 
-                      <p className="text-xs text-gray-300 leading-relaxed bg-[#111113] p-2.5 rounded-lg border border-[#222]">
+                      <p className={`text-xs leading-relaxed p-2.5 rounded-lg border ${
+                        isLight ? 'bg-slate-50 text-slate-700 border-slate-200' : 'bg-[#111113] text-gray-300 border-[#222]'
+                      }`}>
                         {item.description}
                       </p>
 
                       <div className="flex items-center justify-between text-[11px] pt-1">
-                        <span className="text-amber-400 font-bold flex items-center gap-1">
+                        <span className="text-amber-600 dark:text-amber-400 font-bold flex items-center gap-1">
                           <ArrowRight size={12} /> {item.actionRecommendation}
                         </span>
                         <button 
@@ -1339,7 +1523,9 @@ export const CrewView: React.FC<CrewViewProps> = ({
                             setSelectedDeptId(item.departmentId);
                             setActiveSidebarItem('departments');
                           }}
-                          className="text-gray-400 hover:text-white font-bold underline text-[10px]"
+                          className={`font-bold underline text-[10px] ${
+                            isLight ? 'text-slate-500 hover:text-slate-900' : 'text-gray-400 hover:text-white'
+                          }`}
                         >
                           Open Workspace
                         </button>
@@ -1349,50 +1535,77 @@ export const CrewView: React.FC<CrewViewProps> = ({
                 </div>
               </div>
 
-              {/* Department Workspaces Grid */}
-              <div className="space-y-3">
-                <div className="text-sm font-bold text-white flex items-center justify-between">
-                  <span>32 Department Workspaces Overview</span>
-                  <span className="text-xs text-gray-500">Click any card to launch workspace</span>
+              {/* Department Workspaces Grid Grouped */}
+              <div className="space-y-6">
+                <div className="text-sm font-bold flex items-center justify-between">
+                  <span className={isLight ? 'text-slate-900' : 'text-white'}>Department Workspaces ({ALL_DEPARTMENTS.length}) Overview</span>
+                  <span className={`text-xs ${isLight ? 'text-slate-500' : 'text-gray-500'}`}>Grouped by Film Department Categories</span>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-                  {ALL_DEPARTMENTS.map(d => {
-                    const Icon = d.icon;
-                    return (
-                      <div 
-                        key={d.id}
-                        onClick={() => {
-                          setSelectedDeptId(d.id);
-                          setActiveSidebarItem('departments');
-                        }}
-                        className="bg-[#151518] border border-[#252528] hover:border-[#f5a623]/50 rounded-xl p-3.5 cursor-pointer transition-all hover:bg-[#1a1a1e] group space-y-2.5 shadow-sm"
-                      >
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <div className={`p-2 rounded-lg ${d.bgClass} ${d.borderClass} border`}>
-                              <Icon size={16} className={d.accentClass} />
-                            </div>
-                            <div>
-                              <div className="text-xs font-bold text-white group-hover:text-[#f5a623] transition-colors">{d.name}</div>
-                              <div className="text-[10px] text-gray-500">{d.hod}</div>
-                            </div>
-                          </div>
-                          <ChevronRight size={16} className="text-gray-600 group-hover:text-white transition-colors" />
-                        </div>
-
-                        <div className="space-y-1">
-                          <div className="flex justify-between text-[10px] text-gray-400 font-mono">
-                            <span>Progress</span>
-                            <span>{d.progress}%</span>
-                          </div>
-                          <div className="w-full h-1.5 bg-[#252528] rounded-full overflow-hidden">
-                            <div className="h-full bg-gradient-to-r from-amber-500 to-emerald-500 rounded-full" style={{ width: `${d.progress}%` }}></div>
-                          </div>
-                        </div>
+                <div className="space-y-6">
+                  {(Object.entries(groupedDepartments) as [string, DepartmentMeta[]][]).map(([groupName, depts]) => (
+                    <div key={groupName} className="space-y-3">
+                      <div className={`flex items-center gap-2 border-b pb-2 ${
+                        isLight ? 'border-slate-200' : 'border-[#2a2a2d]'
+                      }`}>
+                        <span className="text-xs font-mono font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider">{groupName}</span>
+                        <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full border ${
+                          isLight ? 'bg-amber-100 text-amber-800 border-amber-300' : 'bg-amber-500/10 text-amber-300 border-amber-500/20'
+                        }`}>
+                          {depts.length} Workspaces
+                        </span>
                       </div>
-                    );
-                  })}
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                        {depts.map(d => {
+                          const Icon = d.icon;
+                          return (
+                            <div 
+                              key={d.id}
+                              onClick={() => {
+                                setSelectedDeptId(d.id);
+                                setActiveSidebarItem('departments');
+                              }}
+                              className={`border rounded-xl p-3.5 cursor-pointer transition-all group space-y-2.5 shadow-sm ${
+                                isLight 
+                                  ? 'bg-white border-slate-200 hover:border-amber-400 hover:bg-slate-50/80 text-slate-900' 
+                                  : 'bg-[#151518] border-[#252528] hover:border-[#f5a623]/50 hover:bg-[#1a1a1e] text-white'
+                              }`}
+                            >
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2 truncate">
+                                  <div className={`p-2 rounded-lg ${d.bgClass} ${d.borderClass} border shrink-0`}>
+                                    <Icon size={16} className={d.accentClass} />
+                                  </div>
+                                  <div className="truncate">
+                                    <div className={`text-xs font-bold transition-colors truncate ${
+                                      isLight ? 'text-slate-900 group-hover:text-amber-600' : 'text-white group-hover:text-[#f5a623]'
+                                    }`}>{d.name}</div>
+                                    <div className={`text-[10px] truncate ${isLight ? 'text-slate-500' : 'text-gray-500'}`}>{d.hod}</div>
+                                  </div>
+                                </div>
+                                <ChevronRight size={16} className={`transition-colors shrink-0 ${
+                                  isLight ? 'text-slate-400 group-hover:text-slate-800' : 'text-gray-600 group-hover:text-white'
+                                }`} />
+                              </div>
+
+                              <div className="space-y-1">
+                                <div className={`flex justify-between text-[10px] font-mono ${isLight ? 'text-slate-500' : 'text-gray-400'}`}>
+                                  <span>Progress</span>
+                                  <span>{d.progress}%</span>
+                                </div>
+                                <div className={`w-full h-1.5 rounded-full overflow-hidden ${
+                                  isLight ? 'bg-slate-200' : 'bg-[#252528]'
+                                }`}>
+                                  <div className="h-full bg-gradient-to-r from-amber-500 to-emerald-500 rounded-full" style={{ width: `${d.progress}%` }}></div>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
 
@@ -1404,7 +1617,9 @@ export const CrewView: React.FC<CrewViewProps> = ({
             <div className="flex-1 flex flex-col overflow-hidden">
               
               {/* DEPARTMENT HEADER */}
-              <div className="bg-[#161619] border-b border-[#26262a] p-5 space-y-4 shrink-0">
+              <div className={`border-b p-5 space-y-4 shrink-0 ${
+                isLight ? 'bg-white border-slate-200 text-slate-900 shadow-sm' : 'bg-[#161619] border-[#26262a] text-white'
+              }`}>
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                   
                   {/* Title & HOD info */}
@@ -1417,13 +1632,13 @@ export const CrewView: React.FC<CrewViewProps> = ({
                         </div>
                         <div>
                           <div className="flex items-center gap-2">
-                            <h2 className="text-xl font-black text-white">{currentDept.name} Department Workspace</h2>
+                            <h2 className={`text-xl font-black ${isLight ? 'text-slate-900' : 'text-white'}`}>{currentDept.name} Department Workspace</h2>
                             <span className={`text-[10px] font-mono font-bold uppercase px-2.5 py-0.5 rounded-full border ${currentDept.bgClass} ${currentDept.borderClass} ${currentDept.accentClass}`}>
                               {currentDept.status}
                             </span>
                           </div>
-                          <p className="text-xs text-gray-400 mt-0.5">
-                            HOD: <strong className="text-white">{currentDept.hod}</strong> | Category: <span className="text-amber-400">{currentDept.category}</span>
+                          <p className={`text-xs mt-0.5 ${isLight ? 'text-slate-500' : 'text-gray-400'}`}>
+                            HOD: <strong className={isLight ? 'text-slate-900' : 'text-white'}>{currentDept.hod}</strong> | Category: <span className="text-amber-600 dark:text-amber-400 font-bold">{currentDept.category}</span>
                           </p>
                         </div>
                       </div>
@@ -1432,59 +1647,78 @@ export const CrewView: React.FC<CrewViewProps> = ({
 
                   {/* Header Metrics Strip */}
                   <div className="flex items-center gap-2 flex-wrap text-xs">
-                    <div className="bg-[#1f1f23] border border-[#2d2d32] px-3 py-1.5 rounded-xl flex items-center gap-2">
-                      <Film size={14} className="text-emerald-400" />
-                      <span className="text-gray-400 font-mono">Scenes:</span>
-                      <span className="font-bold text-white">{beats.length}</span>
+                    <div className={`border px-3 py-1.5 rounded-xl flex items-center gap-2 ${
+                      isLight ? 'bg-slate-100 border-slate-200 text-slate-800' : 'bg-[#1f1f23] border-[#2d2d32] text-white'
+                    }`}>
+                      <Film size={14} className="text-emerald-500" />
+                      <span className={`font-mono ${isLight ? 'text-slate-500' : 'text-gray-400'}`}>Scenes:</span>
+                      <span className="font-bold">{beats.length}</span>
                     </div>
 
-                    <div className="bg-[#1f1f23] border border-[#2d2d32] px-3 py-1.5 rounded-xl flex items-center gap-2">
-                      <Package size={14} className="text-amber-400" />
-                      <span className="text-gray-400 font-mono">Assets:</span>
-                      <span className="font-bold text-white">{deptAssets.length}</span>
+                    <div className={`border px-3 py-1.5 rounded-xl flex items-center gap-2 ${
+                      isLight ? 'bg-slate-100 border-slate-200 text-slate-800' : 'bg-[#1f1f23] border-[#2d2d32] text-white'
+                    }`}>
+                      <Package size={14} className="text-amber-500" />
+                      <span className={`font-mono ${isLight ? 'text-slate-500' : 'text-gray-400'}`}>Assets:</span>
+                      <span className="font-bold">{deptAssets.length}</span>
                     </div>
 
-                    <div className="bg-[#1f1f23] border border-[#2d2d32] px-3 py-1.5 rounded-xl flex items-center gap-2">
-                      <Users size={14} className="text-purple-400" />
-                      <span className="text-gray-400 font-mono">Crew:</span>
-                      <span className="font-bold text-white">{crewMembers.filter(c => c.departmentId === selectedDeptId).length || 6}</span>
+                    <div className={`border px-3 py-1.5 rounded-xl flex items-center gap-2 ${
+                      isLight ? 'bg-slate-100 border-slate-200 text-slate-800' : 'bg-[#1f1f23] border-[#2d2d32] text-white'
+                    }`}>
+                      <Users size={14} className="text-purple-500" />
+                      <span className={`font-mono ${isLight ? 'text-slate-500' : 'text-gray-400'}`}>Crew:</span>
+                      <span className="font-bold">{crewMembers.filter(c => c.departmentId === selectedDeptId).length || 6}</span>
                     </div>
 
-                    <div className="bg-[#1f1f23] border border-[#2d2d32] px-3 py-1.5 rounded-xl flex items-center gap-2">
-                      <Calendar size={14} className="text-blue-400" />
-                      <span className="text-gray-400 font-mono">Next Sync:</span>
-                      <span className="font-bold text-amber-400">Today 04:00 PM</span>
+                    <div className={`border px-3 py-1.5 rounded-xl flex items-center gap-2 ${
+                      isLight ? 'bg-slate-100 border-slate-200 text-slate-800' : 'bg-[#1f1f23] border-[#2d2d32] text-white'
+                    }`}>
+                      <Calendar size={14} className="text-blue-500" />
+                      <span className={`font-mono ${isLight ? 'text-slate-500' : 'text-gray-400'}`}>Next Sync:</span>
+                      <span className="font-bold text-amber-600 dark:text-amber-400">Today 04:00 PM</span>
                     </div>
                   </div>
 
                 </div>
 
-                {/* 5 CORE TABS STRIP */}
-                <div className="flex items-center gap-1 border-b border-[#28282c] pb-1 overflow-x-auto custom-scrollbar">
-                  {[
-                    { id: 'crew', label: 'Crew Roster', icon: Users },
-                    { id: 'tasks', label: 'Tasks', icon: CheckCircle2 },
-                    { id: 'scenes', label: 'Assigned Scenes', icon: Film },
-                    { id: 'assets', label: 'Assets', icon: Package },
-                    { id: 'budget', label: 'Budget', icon: IndianRupee },
-                  ].map(tab => {
-                    const Icon = tab.icon;
-                    const isActive = deptTab === tab.id;
-                    return (
-                      <button
-                        key={tab.id}
-                        onClick={() => setDeptTab(tab.id as any)}
-                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all shrink-0 ${
-                          isActive 
-                            ? 'bg-[#28282d] text-[#f5a623] border border-[#f5a623]/30 shadow' 
-                            : 'text-gray-400 hover:text-white hover:bg-[#1a1a1d]'
-                        }`}
-                      >
-                        <Icon size={14} />
-                        <span>{tab.label}</span>
-                      </button>
-                    );
-                  })}
+                {/* CORE TABS STRIP */}
+                <div className={`flex items-center gap-1 border-b pb-1 overflow-x-auto custom-scrollbar ${
+                  isLight ? 'border-slate-200' : 'border-[#28282c]'
+                }`}>
+                  {(() => {
+                    const isContinuityEligible = isContinuityApplicableDept(selectedDeptId, currentDept?.name);
+                    const effectiveTab = (deptTab === 'continuity' && !isContinuityEligible) ? 'crew' : deptTab;
+                    return [
+                      { id: 'crew', label: 'Crew Roster', icon: Users },
+                      { id: 'tasks', label: 'Tasks', icon: CheckCircle2 },
+                      { id: 'scenes', label: 'Assigned Scenes', icon: Film },
+                      { id: 'assets', label: 'Assets', icon: Package },
+                      { id: 'budget', label: 'Budget', icon: IndianRupee },
+                      ...(isContinuityEligible ? [{ id: 'continuity', label: 'Continuity & Looks', icon: Layers }] : []),
+                    ].map(tab => {
+                      const Icon = tab.icon;
+                      const isActive = effectiveTab === tab.id;
+                      return (
+                        <button
+                          key={tab.id}
+                          onClick={() => setDeptTab(tab.id as any)}
+                          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all shrink-0 cursor-pointer ${
+                            isActive 
+                              ? isLight 
+                                ? 'bg-amber-100 text-amber-800 border border-amber-300 shadow-sm' 
+                                : 'bg-[#28282d] text-[#f5a623] border border-[#f5a623]/30 shadow' 
+                              : isLight
+                                ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                                : 'text-gray-400 hover:text-white hover:bg-[#1a1a1d]'
+                          }`}
+                        >
+                          <Icon size={14} />
+                          <span>{tab.label}</span>
+                        </button>
+                      );
+                    });
+                  })()}
                 </div>
               </div>
 
@@ -1495,10 +1729,10 @@ export const CrewView: React.FC<CrewViewProps> = ({
                 {deptTab === 'crew' && (
                   <div className="space-y-4">
                     <div className="flex items-center justify-between">
-                      <h3 className="text-sm font-bold text-white">Department Crew Roster & Hierarchy</h3>
+                      <h3 className={`text-sm font-bold ${isLight ? 'text-slate-900' : 'text-white'}`}>Department Crew Roster & Hierarchy</h3>
                       <button 
                         onClick={() => setShowAddCrewModal(true)}
-                        className="bg-[#f5a623] hover:bg-[#e0951a] text-black text-xs font-bold px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5"
+                        className="bg-[#f5a623] hover:bg-[#e0951a] text-black text-xs font-bold px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer shadow"
                       >
                         <UserPlus size={14} /> Add Crew Member
                       </button>
@@ -1506,21 +1740,25 @@ export const CrewView: React.FC<CrewViewProps> = ({
 
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                       {deptCrew.map(member => (
-                        <div key={member.id} className="bg-[#161618] border border-[#262628] rounded-xl p-4 space-y-3">
+                        <div key={member.id} className={`border rounded-xl p-4 space-y-3 shadow-sm ${
+                          isLight ? 'bg-white border-slate-200 text-slate-900' : 'bg-[#161618] border-[#262628] text-white'
+                        }`}>
                           <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-full bg-[#2a2a2e] border border-[#444] flex items-center justify-center font-bold text-amber-400">
+                            <div className={`w-10 h-10 rounded-full border flex items-center justify-center font-bold text-amber-600 dark:text-amber-400 ${
+                              isLight ? 'bg-amber-50 border-amber-200' : 'bg-[#2a2a2e] border-[#444]'
+                            }`}>
                               {member.name.charAt(0)}
                             </div>
                             <div>
-                              <h4 className="text-sm font-bold text-white">{member.name}</h4>
-                              <span className="text-[10px] font-mono text-amber-400 uppercase font-bold">{member.role}</span>
+                              <h4 className={`text-sm font-bold ${isLight ? 'text-slate-900' : 'text-white'}`}>{member.name}</h4>
+                              <span className="text-[10px] font-mono text-amber-600 dark:text-amber-400 uppercase font-bold">{member.role}</span>
                             </div>
                           </div>
 
-                          <div className="text-xs text-gray-300 space-y-1 font-mono">
-                            <div className="flex items-center gap-2"><Phone size={12} className="text-gray-500" /> {member.phone}</div>
-                            <div className="flex items-center gap-2"><Mail size={12} className="text-gray-500" /> {member.email}</div>
-                            <div className="flex items-center gap-2"><Clock size={12} className="text-gray-500" /> Call Time: <strong className="text-amber-400">{member.callTime || '06:30 AM'}</strong></div>
+                          <div className={`text-xs space-y-1 font-mono ${isLight ? 'text-slate-600' : 'text-gray-300'}`}>
+                            <div className="flex items-center gap-2"><Phone size={12} className={isLight ? 'text-slate-400' : 'text-gray-500'} /> {member.phone}</div>
+                            <div className="flex items-center gap-2"><Mail size={12} className={isLight ? 'text-slate-400' : 'text-gray-500'} /> {member.email}</div>
+                            <div className="flex items-center gap-2"><Clock size={12} className={isLight ? 'text-slate-400' : 'text-gray-500'} /> Call Time: <strong className="text-amber-600 dark:text-amber-400">{member.callTime || '06:30 AM'}</strong></div>
                           </div>
                         </div>
                       ))}
@@ -1890,6 +2128,7 @@ export const CrewView: React.FC<CrewViewProps> = ({
                             <th className="p-3">Status</th>
                             <th className="p-3">Priority</th>
                             <th className="p-3">Assets</th>
+                            <th className="p-3">Continuity Looks</th>
                             <th className="p-3 text-right">Action</th>
                           </tr>
                         </thead>
@@ -1956,6 +2195,32 @@ export const CrewView: React.FC<CrewViewProps> = ({
                                       ))}
                                       {s.relatedAssets.length > 2 && <span className="text-[10px] text-gray-500">+{s.relatedAssets.length - 2}</span>}
                                     </div>
+                                  </td>
+                                  <td className="p-3">
+                                    {(() => {
+                                      const sNum = parseInt(s.sceneNum.replace(/\D/g, ''), 10) || 1;
+                                      const matching = continuityLooks.filter(l => sNum >= l.fromScene && sNum <= l.toScene);
+                                      if (matching.length === 0) {
+                                        return <span className="text-[10px] text-gray-500 font-mono italic">No look logged</span>;
+                                      }
+                                      return (
+                                        <div className="flex gap-1 flex-wrap">
+                                          {matching.slice(0, 2).map(m => (
+                                            <button
+                                              key={m.id}
+                                              onClick={() => setDeptTab('continuity')}
+                                              className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-amber-500/10 text-amber-400 border border-amber-500/30 hover:bg-amber-500/20 cursor-pointer truncate max-w-[130px]"
+                                              title={`${m.targetName}: #${m.lookNumber} ${m.title}`}
+                                            >
+                                              #{m.lookNumber}: {m.title}
+                                            </button>
+                                          ))}
+                                          {matching.length > 2 && (
+                                            <span className="text-[10px] text-amber-400 font-mono">+{matching.length - 2}</span>
+                                          )}
+                                        </div>
+                                      );
+                                    })()}
                                   </td>
                                   <td className="p-3 text-right">
                                     <button 
@@ -2475,6 +2740,234 @@ export const CrewView: React.FC<CrewViewProps> = ({
                         </>
                       );
                     })()}
+                  </div>
+                )}
+                {/* 6. CONTINUITY & LOOKS INSPECTOR TAB (Only for Costume, Makeup, Vehicles) */}
+                {deptTab === 'continuity' && isContinuityApplicableDept(selectedDeptId, currentDept.name) && (
+                  <div className="space-y-6 animate-in fade-in duration-200">
+                    {(() => {
+                      // Filter looks for active department
+                      const deptLooks = continuityLooks.filter(look => {
+                        if (look.dept.toLowerCase() === selectedDeptId.toLowerCase()) return true;
+                        if ((selectedDeptId === 'costume' || selectedDeptId === 'wardrobe') && look.dept === 'costume') return true;
+                        if ((selectedDeptId === 'makeup' || selectedDeptId === 'hair' || selectedDeptId === 'sfx') && look.dept === 'makeup') return true;
+                        if ((selectedDeptId === 'props' || selectedDeptId === 'art' || selectedDeptId === 'set_decoration') && look.dept === 'props') return true;
+                        if ((selectedDeptId === 'vehicles' || selectedDeptId === 'transport') && look.dept === 'vehicle') return true;
+                        return false;
+                      });
+
+                      // Scenes for this department
+                      const deptScenes = (beats && beats.length > 0)
+                        ? beats.map((b, idx) => ({
+                            id: b.id || `scene-${idx + 1}`,
+                            sceneNum: b.sceneNumber || String(idx + 1),
+                            title: b.title || b.summary || `Scene #${idx + 1}`,
+                            location: b.location || 'Location Unspecified',
+                            status: 'Scheduled'
+                          }))
+                        : [
+                            { id: 'sc-1', sceneNum: '1', title: 'EXT. RAVINE - NIGHT', location: 'Ravine Trail', status: 'Scheduled' },
+                            { id: 'sc-2', sceneNum: '2', title: 'INT. COMMAND TENT - NIGHT', location: 'Base Camp', status: 'In Progress' },
+                            { id: 'sc-3', sceneNum: '3', title: 'EXT. FOREST OUTSKIRTS - DAY', location: 'Pine Ridge', status: 'Scheduled' },
+                          ];
+
+                      // If no looks exist for this department at all:
+                      if (deptLooks.length === 0) {
+                        return (
+                          <div className={`p-8 rounded-2xl border text-center space-y-4 my-2 ${
+                            isLight ? 'bg-amber-500/5 border-amber-500/20 text-slate-800' : 'bg-[#181612] border-amber-500/20 text-white'
+                          }`}>
+                            <div className="w-12 h-12 rounded-full bg-amber-500/20 text-amber-400 flex items-center justify-center mx-auto font-bold">
+                              <AlertCircle size={24} />
+                            </div>
+                            <div className="space-y-1">
+                              <h3 className="text-base font-bold text-amber-400">
+                                Continuity has not been worked out for {currentDept.name} yet.
+                              </h3>
+                              <p className={`text-xs max-w-lg mx-auto ${isLight ? 'text-slate-600' : 'text-gray-400'}`}>
+                                No continuity looks or scene breakdowns have been logged for this department. Detailed continuity timelines, outfit variations, and FX damage tracking are managed in the main Continuity workspace.
+                              </p>
+                            </div>
+                            <div className="pt-2">
+                              <button
+                                onClick={() => {
+                                  if (typeof window !== 'undefined') {
+                                    window.dispatchEvent(new CustomEvent('backstage_navigate_view', { detail: 'continuity' }));
+                                  }
+                                }}
+                                className="bg-amber-500 hover:bg-amber-600 text-black font-bold text-xs px-4 py-2 rounded-lg transition-all shadow inline-flex items-center gap-1.5 cursor-pointer"
+                              >
+                                <Layers size={14} />
+                                <span>Go to Dedicated Continuity Page</span>
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <div className="space-y-4">
+                          {/* Top Header */}
+                          <div className="flex items-center justify-between flex-wrap gap-3 pb-2 border-b border-[#28282c]">
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <h3 className={`text-sm font-bold ${isLight ? 'text-slate-900' : 'text-white'}`}>
+                                  {currentDept.name} — Scene Continuity Grid
+                                </h3>
+                                <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                                  {deptLooks.length} Active Look{deptLooks.length > 1 ? 's' : ''} Logged
+                                </span>
+                              </div>
+                              <p className={`text-[11px] mt-0.5 ${isLight ? 'text-slate-500' : 'text-gray-400'}`}>
+                                Compact scene-by-scene visual grid for rapid glance & continuity verification.
+                              </p>
+                            </div>
+
+                            <button
+                              onClick={() => {
+                                if (typeof window !== 'undefined') {
+                                  window.dispatchEvent(new CustomEvent('backstage_navigate_view', { detail: 'continuity' }));
+                                }
+                              }}
+                              className="bg-[#242428] hover:bg-[#303036] text-gray-200 border border-[#3d3d42] font-semibold text-xs px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 cursor-pointer"
+                            >
+                              <Layers size={13} className="text-amber-400" />
+                              <span>Open Main Continuity Studio</span>
+                            </button>
+                          </div>
+
+                          {/* Scene-by-Scene Compact Grid of Little Cards */}
+                          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+                            {deptScenes.map((scene) => {
+                              const sceneNumInt = parseInt(scene.sceneNum.replace(/\D/g, ''), 10) || 1;
+                              const matchingLooks = deptLooks.filter(l => sceneNumInt >= l.fromScene && sceneNumInt <= l.toScene);
+
+                              return (
+                                <div
+                                  key={scene.id}
+                                  className={`p-3 rounded-xl border flex flex-col justify-between space-y-2 transition-all hover:border-amber-500/40 hover:shadow-lg ${
+                                    isLight ? 'bg-white border-slate-200' : 'bg-[#161618] border-[#262628]'
+                                  }`}
+                                >
+                                  <div>
+                                    {/* Card Header */}
+                                    <div className="flex items-center justify-between gap-1 pb-1.5 border-b border-[#242428]">
+                                      <span className="px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 font-mono font-bold text-[10px] border border-amber-500/20">
+                                        SC #{scene.sceneNum}
+                                      </span>
+                                      <span className="text-[9px] font-mono text-gray-400 truncate max-w-[100px]" title={scene.location}>
+                                        {scene.location}
+                                      </span>
+                                    </div>
+
+                                    {/* Scene Title */}
+                                    <h4 className={`text-xs font-bold mt-1.5 truncate ${isLight ? 'text-slate-900' : 'text-white'}`} title={scene.title}>
+                                      {scene.title}
+                                    </h4>
+
+                                    {/* Matching Looks or Placeholder */}
+                                    <div className="mt-2 space-y-1.5">
+                                      {matchingLooks.length > 0 ? (
+                                        matchingLooks.map(look => (
+                                          <div
+                                            key={look.id}
+                                            className={`p-2 rounded-lg border space-y-1 ${
+                                              isLight ? 'bg-slate-50 border-slate-200' : 'bg-[#111114] border-[#252528]'
+                                            }`}
+                                          >
+                                            <div className="flex items-center justify-between gap-1">
+                                              <span className="text-[10px] font-mono font-bold text-amber-400 truncate">
+                                                {look.targetName}
+                                              </span>
+                                              <span className="text-[8px] font-mono px-1 py-0.2 rounded bg-black/40 text-gray-300 border border-[#333] shrink-0">
+                                                Look #{look.lookNumber}
+                                              </span>
+                                            </div>
+
+                                            <div className={`text-[11px] font-bold line-clamp-1 ${isLight ? 'text-slate-800' : 'text-gray-200'}`}>
+                                              {look.title}
+                                            </div>
+
+                                            {/* Badges */}
+                                            <div className="flex items-center gap-1 flex-wrap text-[8px] font-mono">
+                                              {look.damageLevel && look.damageLevel !== 'None' ? (
+                                                <span className="px-1 py-0.2 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20 font-bold">
+                                                  ⚡ {look.damageLevel}
+                                                </span>
+                                              ) : (
+                                                <span className="px-1 py-0.2 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-bold">
+                                                  Clean
+                                                </span>
+                                              )}
+
+                                              {look.bloodLevel && look.bloodLevel !== 'None' && (
+                                                <span className="px-1 py-0.2 rounded bg-red-500/10 text-red-400 border border-red-500/20 font-bold">
+                                                  🩸 {look.bloodLevel}
+                                                </span>
+                                              )}
+                                            </div>
+
+                                            {look.imageUrl && (
+                                              <div
+                                                onClick={() => setSelectedImageModalUrl(look.imageUrl || null)}
+                                                className="relative h-16 w-full mt-1.5 rounded overflow-hidden border border-[#2a2a2e] cursor-pointer group bg-black"
+                                              >
+                                                <img
+                                                  src={look.imageUrl}
+                                                  alt={look.title}
+                                                  className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                                                />
+                                                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-[9px] font-bold">
+                                                  View Photo
+                                                </div>
+                                              </div>
+                                            )}
+                                          </div>
+                                        ))
+                                      ) : (
+                                        <div className="p-2 rounded-lg border border-dashed border-[#28282c] bg-[#111114]/40 text-amber-500/70 text-[10px] italic flex items-center gap-1.5">
+                                          <AlertCircle size={11} className="text-amber-500/60 shrink-0" />
+                                          <span>Continuity not worked out</span>
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+
+                                  <div className="text-[9px] font-mono text-gray-500 pt-1.5 border-t border-[#222226] flex items-center justify-between">
+                                    <span>Status: {scene.status}</span>
+                                    <span className="text-amber-400 font-bold">
+                                      {matchingLooks.length > 0 ? `${matchingLooks.length} Look${matchingLooks.length > 1 ? 's' : ''}` : 'No Looks'}
+                                    </span>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                    {/* MODAL: IMAGE LIGHTBOX PREVIEW */}
+                    {selectedImageModalUrl && (
+                      <div
+                        onClick={() => setSelectedImageModalUrl(null)}
+                        className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4 cursor-pointer"
+                      >
+                        <div className="relative max-w-4xl max-h-[90vh] overflow-hidden rounded-xl bg-black">
+                          <img
+                            src={selectedImageModalUrl}
+                            alt="Continuity Reference Photo"
+                            className="w-full h-full object-contain max-h-[85vh]"
+                          />
+                          <button
+                            onClick={() => setSelectedImageModalUrl(null)}
+                            className="absolute top-3 right-3 bg-black/60 text-white p-2 rounded-full hover:bg-black"
+                          >
+                            <X size={20} />
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
 

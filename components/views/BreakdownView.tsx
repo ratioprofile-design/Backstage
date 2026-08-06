@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useProject } from '../../context/ProjectContext';
 import { BreakdownData, BreakdownItem, Beat, Shot } from '../../types';
 import { generateBreakdown } from '../../services/gemini';
+import { isSameCharacterName, getHighlightSearchTerms } from '../../utils/characterUtils';
 import { 
     ListChecks, Users, Package, Mic2, Shirt, Wand2, Flame, MapPin, 
     Search, LayoutGrid, List as ListIcon, Eye, 
@@ -501,7 +502,10 @@ const BreakdownView: React.FC = () => {
                 const contentMatch = (s.beat.content || '').toLowerCase().includes(lower);
                 const titleMatch = (s.beat.title || '').toLowerCase().includes(lower);
                 const breakdownMatch = s.beat.breakdown ? Object.values(s.beat.breakdown).some((items: any) => 
-                    Array.isArray(items) && items.some(i => (typeof i === 'string' ? i : i.name).toLowerCase().includes(lower))
+                    Array.isArray(items) && items.some(i => {
+                        const itemName = typeof i === 'string' ? i : i.name;
+                        return isSameCharacterName(itemName, searchTerm) || itemName.toLowerCase().includes(lower);
+                    })
                 ) : false;
 
                 if (!locMatch && !contentMatch && !titleMatch && !breakdownMatch) {
@@ -528,7 +532,13 @@ const BreakdownView: React.FC = () => {
         };
 
         const catArray = [...(currentBreakdown[category] || [])];
-        const exists = catArray.some(i => (typeof i === 'string' ? i : i.name).toLowerCase() === cleanName.toLowerCase());
+        const exists = catArray.some(i => {
+            const itemName = typeof i === 'string' ? i : i.name;
+            if (category === 'cast') {
+                return isSameCharacterName(itemName, cleanName);
+            }
+            return itemName.toLowerCase() === cleanName.toLowerCase();
+        });
         if (!exists) {
             catArray.push({ name: cleanName, source: 'Manual Entry' });
             currentBreakdown[category] = catArray;
@@ -554,7 +564,7 @@ const BreakdownView: React.FC = () => {
     const handleAnalyzeSingleBeat = async (beat: Beat) => {
         const div = document.createElement('div');
         div.innerHTML = beat.content || '';
-        const text = div.innerText || '';
+        const text = div.textContent || div.innerText || '';
         if (!text.trim()) {
             alert("This scene has no script content to analyze.");
             return;
@@ -587,7 +597,7 @@ const BreakdownView: React.FC = () => {
         const validBeats = targetBeats.filter(b => {
             const div = document.createElement('div');
             div.innerHTML = b.content || '';
-            return (div.textContent || '').trim().length > 0;
+            return (div.textContent || div.innerText || '').trim().length > 0;
         });
 
         if (validBeats.length === 0) {
@@ -611,7 +621,7 @@ const BreakdownView: React.FC = () => {
                 }
                 const div = document.createElement('div');
                 div.innerHTML = beat.content || '';
-                const text = div.innerText || '';
+                const text = div.textContent || div.innerText || '';
                 try {
                     const result = await generateBreakdown(text, 'gemini-3-flash-preview', breakdownLanguage);
                     if (result && isMounted.current) {

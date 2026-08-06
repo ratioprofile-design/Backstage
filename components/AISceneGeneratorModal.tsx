@@ -120,20 +120,20 @@ export const AISceneGeneratorModal: React.FC<AISceneGeneratorModalProps> = ({ is
               </div>
               <div>
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs font-black text-amber-400 uppercase tracking-wider">20 Scenes</span>
+                  <span className="text-xs font-black text-amber-400 uppercase tracking-wider">20 Scenes (Tamil)</span>
                   <span className="text-[10px] bg-amber-500/20 text-amber-300 border border-amber-500/30 px-1.5 py-0.5 rounded font-mono">
-                    Standard
+                    Tamil Nadu
                   </span>
                 </div>
-                <h3 className="text-sm font-bold text-white mb-1">Feature Outline</h3>
+                <h3 className="text-sm font-bold text-white mb-1">Tamil Disaster Feature</h3>
                 <p className="text-[11px] text-gray-400 leading-relaxed mb-3">
-                  20 scenes formatted with sluglines, dialogue, script breakdown elements, and character profiles.
+                  20-Scene Tamil screenplay set across Tamil Nadu: Abhirami searching for her engineer father during a global mega-storm. Manual breakdown ready.
                 </p>
               </div>
 
               <div className="pt-2 border-t border-[#2a2a2a] flex items-center justify-between text-[10px] text-gray-400">
                 <span className="flex items-center gap-1"><Layers size={11} /> 5 Acts</span>
-                <span className="flex items-center gap-1"><Film size={11} /> 20 Connected Beats</span>
+                <span className="flex items-center gap-1"><Film size={11} /> 20 Tamil Scenes</span>
               </div>
             </div>
 

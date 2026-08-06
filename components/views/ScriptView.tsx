@@ -1002,7 +1002,7 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'cast
     });
   };
 
-  const handleAnalyzeBreakdown = async () => { if (!activeBeat) return; setIsAnalyzing(true); const div = document.createElement('div'); div.innerHTML = activeBeat.content; const text = div.innerText; const result = await generateBreakdown(text, 'gemini-3-flash-preview', breakdownLanguage); if (result) { updateBeat(activeBeat.id, { breakdown: result }); } else { alert("Failed to analyze breakdown."); } setIsAnalyzing(false); };
+  const handleAnalyzeBreakdown = async () => { if (!activeBeat) return; setIsAnalyzing(true); const div = document.createElement('div'); div.innerHTML = activeBeat.content || ''; const text = div.textContent || div.innerText || ''; const result = await generateBreakdown(text, 'gemini-3-flash-preview', breakdownLanguage); if (result) { updateBeat(activeBeat.id, { breakdown: result }); } else { alert("Failed to analyze breakdown."); } setIsAnalyzing(false); };
   
   const addTag = (targetBeatId: number, category: keyof BreakdownData, tag: string, source: string = '') => { 
     const targetBeat = beats.find(b => b.id === targetBeatId);
@@ -1018,7 +1018,13 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'cast
     } 
   };
 
-  const removeTag = (category: keyof BreakdownData, tag: string) => { if (!activeBeat) return; const current = activeBeat.breakdown || { props: [], sound: [], costume: [], vfx: [], practical: [], cast: [], location: [] }; const list = current[category] || []; const newList = list.filter(i => (typeof i === 'string' ? i : i.name) !== tag); updateBeat(activeBeat.id, { breakdown: { ...current, [category]: newList } }); };
+  const removeTag = (category: keyof BreakdownData, tag: string) => { 
+    if (!activeBeat) return; 
+    const current = activeBeat.breakdown || { props: [], sound: [], costume: [], vfx: [], practical: [], cast: [], location: [] }; 
+    const list = current[category] || []; 
+    const newList = list.filter(i => (typeof i === 'string' ? i : i.name) !== tag); 
+    updateBeat(activeBeat.id, { breakdown: { ...current, [category]: newList } }); 
+  };
   const handleCreateSnapshot = () => { if (!activeBeat) return; const newVersion: BeatVersion = { id: `v-${Date.now()}`, timestamp: Date.now(), title: activeBeat.title || 'Untitled', content: activeBeat.content, summary: activeBeat.summary }; const currentVersions = activeBeat.versions || []; updateBeat(activeBeat.id, { versions: [...currentVersions, newVersion] }); };
   const handleRestoreClick = (v: BeatVersion) => { if (!activeBeat) return; setDiffVersion(v); };
   const confirmRestoreVersion = () => { if (!activeBeat || !diffVersion) return; const backupVersion: BeatVersion = { id: `backup-${Date.now()}`, timestamp: Date.now(), title: activeBeat.title, content: activeBeat.content, summary: activeBeat.summary }; updateBeat(activeBeat.id, { title: diffVersion.title, content: diffVersion.content, summary: diffVersion.summary, versions: [...(activeBeat.versions || []), backupVersion] }); setDiffVersion(null); };
@@ -1134,7 +1140,7 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'cast
                 key={i} 
                 draggable 
                 onDragStart={(e) => handleTagDragStart(e, category, name)} 
-                onMouseEnter={() => source && highlightSourceText(source, category)} 
+                onMouseEnter={() => (source || name) && highlightSourceText(source || name, category)} 
                 onMouseLeave={clearHighlight} 
                 className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-[10.5px] border group cursor-move transition-all ${
                   isLight ? catStyle.lightTag : catStyle.darkTag
