@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useProject } from '../../context/ProjectContext';
+import { isTauri, getTauriFs, getTauriDialog } from '../../utils/desktop';
 import { ScriptConfig } from '../../types';
 import { 
   Save, Upload, Printer, 
@@ -221,7 +222,7 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
     storyboardConfig, setStoryboardConfig, isStoryboardFeatureEnabled, setStoryboardFeatureEnabled,
     scratchpadConfig, setScratchpadConfig,
     boardLayerOrder = ['annotations', 'text', 'connections', 'groups', 'beats'], setBoardLayerOrder,
-    loadProject, closeProject, downloadProject, saveProjectAs, fileHandle,
+    loadProject, closeProject, downloadProject, saveProjectAs, fileHandle, filePath, setFilePath,
     beats, currentUser, isCloudMode,
     stabilityApiKey, setStabilityApiKey,
     appTheme = 'dark', setAppTheme,
@@ -293,6 +294,34 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
       reader.readAsText(file);
     }
     e.target.value = ''; 
+  };
+
+  const handleLoadTauriFile = async () => {
+    try {
+      const dialog = await getTauriDialog();
+      if (dialog) {
+        const selected = await dialog.open({
+          filters: [{ name: 'Backstage File', extensions: ['bst', 'json'] }],
+          multiple: false
+        });
+        if (selected) {
+          const fs = await getTauriFs();
+          if (fs) {
+            const content = await fs.readTextFile(selected as string);
+            const data = JSON.parse(content);
+            loadProject(data);
+            setFilePath(selected as string);
+            alert("Project Loaded Successfully!");
+            if (onNavigateToBoard) {
+              onNavigateToBoard();
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.error("Failed to load project via Tauri", err);
+      alert("Invalid project file");
+    }
   };
 
   const updateFormat = (elm: keyof ScriptConfig, prop: string, val: any) => {
@@ -828,7 +857,7 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
                             onClick={saveProjectAs}
                             icon={Save}
                             title="Save As Native File"
-                            desc={fileHandle ? "Save current project to linked native file handle." : "Link project to a local .bst file on your disk for direct auto-saving."}
+                            desc={fileHandle || filePath ? "Save current project to linked native file." : "Link project to a local .bst file on your disk for direct auto-saving."}
                             accentColor={appAccentColor}
                         />
 
@@ -843,7 +872,7 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
                         <div className="md:col-span-2">
                           <input type="file" ref={fileInputRef} onChange={handleFileLoad} accept=".bst,.json" className="hidden" />
                           <LargeActionCard 
-                              onClick={() => fileInputRef.current?.click()}
+                              onClick={isTauri() ? handleLoadTauriFile : () => fileInputRef.current?.click()}
                               icon={Upload}
                               title="Load Project File"
                               desc="Import and open an existing .bst or JSON script file from your disk."

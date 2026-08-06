@@ -9,6 +9,7 @@ import {
 import { INITIAL_STATE } from '../constants';
 import { supabase, upsertProject, fetchProjectData, fetchUserProjects, isSupabaseConfigured } from '../services/supabase';
 import { createAuto5ScenesDataset, createAutoScenesDataset } from '../services/sampleGenerator';
+import { isTauri, getTauriFs, getTauriDialog, getTauriWindow } from '../utils/desktop';
 
 const ProjectContext = createContext<ProjectContextType | undefined>(undefined);
 
@@ -33,6 +34,38 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [schemaError, setSchemaError] = useState<string | null>(null);
   
   const [fileHandle, setFileHandle] = useState<any | null>(null);
+  const [filePath, setFilePath] = useState<string | null>(null);
+
+  // Intercept window close in Tauri if there are unsaved changes
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    
+    async function setupCloseIntercept() {
+      const tauriWin = await getTauriWindow();
+      const tauriDialog = await getTauriDialog();
+      if (tauriWin && tauriDialog) {
+        const currentWindow = tauriWin.getCurrentWindow() as any;
+        unlisten = await currentWindow.onCloseRequest(async (event: any) => {
+          if (hasUnsavedChangesRef.current) {
+            event.preventDefault();
+            const confirmClose = await tauriDialog.ask(
+              "You have unsaved changes. Are you sure you want to exit?",
+              { title: "Unsaved Changes", kind: "warning" }
+            );
+            if (confirmClose) {
+              await currentWindow.destroy();
+            }
+          }
+        });
+      }
+    }
+    
+    setupCloseIntercept();
+    
+    return () => {
+      if (unlisten) unlisten();
+    };
+  }, []);
 
   // Use refs for sync flags to avoid re-triggering effects
   const isSavingRef = useRef(false);
@@ -418,7 +451,17 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
         const project = projectList.find(p => p.id === currentProjectId);
         await upsertProject(currentProjectId, supabaseUser.id, project?.name || 'Untitled', projectData);
       } else {
-        if (fileHandle) {
+        if (isTauri() && filePath) {
+          try {
+            const fs = await getTauriFs();
+            if (fs) {
+              await fs.writeTextFile(filePath, JSON.stringify(projectData, null, 2));
+            }
+          } catch (err) {
+            console.error("Tauri save error", err);
+            localStorage.setItem(`project_data_${currentProjectId}`, JSON.stringify(projectData));
+          }
+        } else if (fileHandle) {
           try {
             const writable = await fileHandle.createWritable();
             await writable.write(JSON.stringify(projectData, null, 2));
@@ -440,20 +483,63 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     isTamilMode, tamilFontScale, tamilFontFamily, userDictionary, isOsInputMode, osInputShortcut,
     scriptConfig, scriptViewMode, scratchpadConfig, storyboardConfig, isStoryboardFeatureEnabled,
     breakdownLanguage, breakdownLockedOnly, isPdfDropEnabled, isRedoEnabled, writingGoal, stabilityApiKey,
-    dailyStats, sessionStartCount, lastSessionDate, boardLayerOrder, characterDesignLocked, supabaseUser, fileHandle
+    dailyStats, sessionStartCount, lastSessionDate, boardLayerOrder, characterDesignLocked, supabaseUser, fileHandle, filePath
   ]);
 
   const saveProjectAs = useCallback(async () => {
     if (!currentProjectId) return;
-    try {
-      const project = projectList.find(p => p.id === currentProjectId);
-      const fileName = `${(project?.name || 'Untitled').replace(/\s+/g, '_').toLowerCase()}.bst`;
-      // @ts-ignore
-      const handle = await window.showSaveFilePicker({ suggestedName: fileName, types: [{ description: 'Backstage File', accept: { 'application/json': ['.bst'] } }] });
-      setFileHandle(handle);
-      setHasUnsavedChanges(true);
-    } catch {}
-  }, [currentProjectId, projectList]);
+    const projectData: ProjectState & { lastInstanceId?: string } = {
+      beats, groups, connections, annotations, characterData, generatedShots, 
+      scratchpad, globalNotes, panX, panY, scale, nextId, nextAnnoId, activeBoardId,
+      isTamilMode, tamilFontScale, tamilFontFamily, userDictionary,
+      isOsInputMode, osInputShortcut, scriptConfig, scriptViewMode,
+      scratchpadConfig, storyboardConfig, isStoryboardFeatureEnabled,
+      breakdownLanguage, breakdownLockedOnly, isPdfDropEnabled, isRedoEnabled, 
+      writingGoal, geminiApiKey: '', stabilityApiKey, 
+      dailyStats, sessionStartCount, lastSessionDate, boardLayerOrder,
+      characterDesignLocked,
+      lastInstanceId: INSTANCE_ID // Tag the update with this instance ID
+    };
+    if (isTauri()) {
+      try {
+        const dialog = await getTauriDialog();
+        const project = projectList.find(p => p.id === currentProjectId);
+        const fileName = `${(project?.name || 'Untitled').replace(/\s+/g, '_').toLowerCase()}.bst`;
+        if (dialog) {
+          const selected = await dialog.save({
+            filters: [{ name: 'Backstage File', extensions: ['bst'] }],
+            defaultPath: fileName
+          });
+          if (selected) {
+            setFilePath(selected);
+            const fs = await getTauriFs();
+            if (fs) {
+              await fs.writeTextFile(selected, JSON.stringify(projectData, null, 2));
+            }
+            setHasUnsavedChanges(false);
+          }
+        }
+      } catch (err) {
+        console.error("Tauri saveAs error", err);
+      }
+    } else {
+      try {
+        const project = projectList.find(p => p.id === currentProjectId);
+        const fileName = `${(project?.name || 'Untitled').replace(/\s+/g, '_').toLowerCase()}.bst`;
+        // @ts-ignore
+        const handle = await window.showSaveFilePicker({ suggestedName: fileName, types: [{ description: 'Backstage File', accept: { 'application/json': ['.bst'] } }] });
+        setFileHandle(handle);
+        setHasUnsavedChanges(true);
+      } catch {}
+    }
+  }, [
+    currentProjectId, projectList, beats, groups, connections, annotations, characterData, 
+    generatedShots, scratchpad, globalNotes, panX, panY, scale, nextId, nextAnnoId, activeBoardId,
+    isTamilMode, tamilFontScale, tamilFontFamily, userDictionary, isOsInputMode, osInputShortcut,
+    scriptConfig, scriptViewMode, scratchpadConfig, storyboardConfig, isStoryboardFeatureEnabled,
+    breakdownLanguage, breakdownLockedOnly, isPdfDropEnabled, isRedoEnabled, writingGoal, stabilityApiKey,
+    dailyStats, sessionStartCount, lastSessionDate, boardLayerOrder, characterDesignLocked
+  ]);
 
   // Debounced Auto-Save (Faster Sync: 1000ms)
   useEffect(() => {
@@ -628,7 +714,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   }, []);
 
   const value: ProjectContextType = {
-    beats, groups, connections, annotations, characterData, generatedShots, scratchpad, globalNotes, panX, panY, scale, nextId, nextAnnoId, activeBoardId, isTamilMode, tamilFontScale, tamilFontFamily, userDictionary, isOsInputMode, osInputShortcut, scriptConfig, scriptViewMode, scratchpadConfig, storyboardConfig, isStoryboardFeatureEnabled, breakdownLanguage, breakdownLockedOnly, isPdfDropEnabled, isRedoEnabled, writingGoal, geminiApiKey: '', stabilityApiKey, dailyStats, sessionStartCount, lastSessionDate, boardLayerOrder, characterDesignLocked, setCharacterDesignLocked: setCharacterDesignLockedWrapped, appTheme, appAccentColor, appLanguage, currentUser, currentProjectId, projectList, hasUnsavedChanges, schemaError, isSaving, fileHandle, isInitialLoading, isCloudMode: !!supabaseUser, login, logout, selectProject, createProject, deleteProject, closeProject, clearSchemaError: () => { setSchemaError(null); if (supabaseUser) refreshProjectList(supabaseUser.id); }, setBeats: setBeatsWrapped, setGroups: setGroupsWrapped, setConnections: setConnectionsWrapped, setAnnotations: setAnnotationsWrapped, setCharacterData: setCharacterDataWrapped, setGeneratedShots, setScratchpad: setScratchpadWrapped, setGlobalNotes: setGlobalNotesWrapped, updateGeneratedShot: (id, u) => { setGeneratedShots(p => p.map(s => s.id === id ? { ...s, ...u } : s)); setHasUnsavedChanges(true); }, addGeneratedShot: (i) => { const n = { id: `shot-${Date.now()}`, shotSize: 'WIDE', angle: 'EYE LEVEL', description: '', subject: '', scene: '?', imageHistory: [] }; const s = [...generatedShots]; s.splice(i + 1, 0, n); setGeneratedShots(s); captureSnapshot(); }, removeGeneratedShot: (id) => { setGeneratedShots(p => p.filter(s => s.id !== id)); captureSnapshot(); }, moveGeneratedShot: (f, t) => { const s = [...generatedShots]; const [m] = s.splice(f, 1); s.splice(t, 0, m); setGeneratedShots(s); captureSnapshot(); }, setPan: (x, y) => { setPanX(x); setPanY(y); }, setScale, updateBeat, addBeat, reorderBeats, addGroup: (g) => { const id = nextId; setNextId(p => p + 1); setGroups(p => [...p, { ...g, id, boardId: activeBoardId }]); captureSnapshot(); }, updateGroup: (id, u) => { setGroups(p => p.map(g => g.id === id ? { ...g, ...u } : g)); setHasUnsavedChanges(true); }, removeGroup: (id) => { setGroups(p => p.filter(g => g.id !== id)); captureSnapshot(); }, loadProject: applyProjectState, saveProject, saveProjectAs, setActiveBoardId, setTamilMode, setTamilFontScale, setTamilFontFamily, learnTamilWord: (e, t) => { setUserDictionary(p => { const c = p[e.toLowerCase()] || []; if (!c.includes(t)) return { ...p, [e.toLowerCase()]: [t, ...c] }; return p; }); }, setOsInputMode, setOsInputShortcut, setScriptConfig, setScriptViewMode, setScratchpadConfig, setStoryboardConfig, setStoryboardFeatureEnabled, setAppTheme, setAppAccentColor, setAppLanguage, setBreakdownLanguage, setBreakdownLockedOnly, setPdfDropEnabled, setRedoEnabled, setWritingGoal, setGeminiApiKey: () => {}, setStabilityApiKey, setBoardLayerOrder, setNextId, undo, redo, canUndo: historyIndexRef.current > 0, canRedo: historyIndexRef.current < historyRef.current.length - 1, captureSnapshot, downloadProject, autoGenerate5Scenes, autoGenerateScenes
+    beats, groups, connections, annotations, characterData, generatedShots, scratchpad, globalNotes, panX, panY, scale, nextId, nextAnnoId, activeBoardId, isTamilMode, tamilFontScale, tamilFontFamily, userDictionary, isOsInputMode, osInputShortcut, scriptConfig, scriptViewMode, scratchpadConfig, storyboardConfig, isStoryboardFeatureEnabled, breakdownLanguage, breakdownLockedOnly, isPdfDropEnabled, isRedoEnabled, writingGoal, geminiApiKey: '', stabilityApiKey, dailyStats, sessionStartCount, lastSessionDate, boardLayerOrder, characterDesignLocked, setCharacterDesignLocked: setCharacterDesignLockedWrapped, appTheme, appAccentColor, appLanguage, currentUser, currentProjectId, projectList, hasUnsavedChanges, schemaError, isSaving, fileHandle, filePath, setFilePath, isInitialLoading, isCloudMode: !!supabaseUser, login, logout, selectProject, createProject, deleteProject, closeProject, clearSchemaError: () => { setSchemaError(null); if (supabaseUser) refreshProjectList(supabaseUser.id); }, setBeats: setBeatsWrapped, setGroups: setGroupsWrapped, setConnections: setConnectionsWrapped, setAnnotations: setAnnotationsWrapped, setCharacterData: setCharacterDataWrapped, setGeneratedShots, setScratchpad: setScratchpadWrapped, setGlobalNotes: setGlobalNotesWrapped, updateGeneratedShot: (id, u) => { setGeneratedShots(p => p.map(s => s.id === id ? { ...s, ...u } : s)); setHasUnsavedChanges(true); }, addGeneratedShot: (i) => { const n = { id: `shot-${Date.now()}`, shotSize: 'WIDE', angle: 'EYE LEVEL', description: '', subject: '', scene: '?', imageHistory: [] }; const s = [...generatedShots]; s.splice(i + 1, 0, n); setGeneratedShots(s); captureSnapshot(); }, removeGeneratedShot: (id) => { setGeneratedShots(p => p.filter(s => s.id !== id)); captureSnapshot(); }, moveGeneratedShot: (f, t) => { const s = [...generatedShots]; const [m] = s.splice(f, 1); s.splice(t, 0, m); setGeneratedShots(s); captureSnapshot(); }, setPan: (x, y) => { setPanX(x); setPanY(y); }, setScale, updateBeat, addBeat, reorderBeats, addGroup: (g) => { const id = nextId; setNextId(p => p + 1); setGroups(p => [...p, { ...g, id, boardId: activeBoardId }]); captureSnapshot(); }, updateGroup: (id, u) => { setGroups(p => p.map(g => g.id === id ? { ...g, ...u } : g)); setHasUnsavedChanges(true); }, removeGroup: (id) => { setGroups(p => p.filter(g => g.id !== id)); captureSnapshot(); }, loadProject: applyProjectState, saveProject, saveProjectAs, setActiveBoardId, setTamilMode, setTamilFontScale, setTamilFontFamily, learnTamilWord: (e, t) => { setUserDictionary(p => { const c = p[e.toLowerCase()] || []; if (!c.includes(t)) return { ...p, [e.toLowerCase()]: [t, ...c] }; return p; }); }, setOsInputMode, setOsInputShortcut, setScriptConfig, setScriptViewMode, setScratchpadConfig, setStoryboardConfig, setStoryboardFeatureEnabled, setAppTheme, setAppAccentColor, setAppLanguage, setBreakdownLanguage, setBreakdownLockedOnly, setPdfDropEnabled, setRedoEnabled, setWritingGoal, setGeminiApiKey: () => {}, setStabilityApiKey, setBoardLayerOrder, setNextId, undo, redo, canUndo: historyIndexRef.current > 0, canRedo: historyIndexRef.current < historyRef.current.length - 1, captureSnapshot, downloadProject, autoGenerate5Scenes, autoGenerateScenes
   };
 
   return <ProjectContext.Provider value={value}>{children}</ProjectContext.Provider>;

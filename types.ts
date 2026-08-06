@@ -316,6 +316,8 @@ export interface ProjectContextType extends ProjectState {
   
   // File System Handles (Final Draft Mode)
   fileHandle: any | null; 
+  filePath: string | null;
+  setFilePath: (path: string | null) => void;
   
   login: (username: string) => void;
   logout: () => void;
