@@ -311,8 +311,10 @@ export interface ProjectContextType extends ProjectState {
   projectList: ProjectMetadata[];
   schemaError: string | null;
   isCloudMode: boolean;
+  supabaseUser: any;
   isSaving: boolean;
   isInitialLoading: boolean;
+  cloudOffline: boolean;
   
   // File System Handles (Final Draft Mode)
   fileHandle: any | null; 

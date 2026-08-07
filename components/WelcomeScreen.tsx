@@ -1,6 +1,7 @@
 import React from 'react';
-import { FilePlus2, FolderOpen, Clock, Film } from 'lucide-react';
+import { FilePlus2, FolderOpen, Clock, Film, Cloud, CloudOff, Trash2, LogIn, ChevronRight } from 'lucide-react';
 import { RecentFile } from '../utils/recentFiles';
+import { ProjectMetadata } from '../types';
 
 interface WelcomeScreenProps {
   recents: RecentFile[];
@@ -8,9 +9,27 @@ interface WelcomeScreenProps {
   onOpen: () => void;
   onOpenRecent: (path: string) => void;
   onDismiss: () => void;
+  isCloudMode?: boolean;
+  currentUser?: string | null;
+  cloudProjects?: ProjectMetadata[];
+  onOpenCloudProject?: (id: string) => void;
+  onDeleteCloudProject?: (id: string) => void;
+  onOpenAuth?: () => void;
 }
 
-const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ recents, onNew, onOpen, onOpenRecent, onDismiss }) => {
+const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
+  recents,
+  onNew,
+  onOpen,
+  onOpenRecent,
+  onDismiss,
+  isCloudMode,
+  currentUser,
+  cloudProjects,
+  onOpenCloudProject,
+  onDeleteCloudProject,
+  onOpenAuth,
+}) => {
   return (
     <div className="fixed inset-0 z-[700] bg-[#050505] text-white flex items-center justify-center font-sans">
       <div className="w-full max-w-[880px] px-10">
@@ -46,6 +65,19 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ recents, onNew, onOpen, o
               </div>
             </button>
 
+            {!isCloudMode && (
+              <button
+                onClick={() => onOpenAuth?.()}
+                className="group flex items-center gap-4 px-5 py-4 rounded-xl bg-[#111] border border-white/10 hover:border-[#10b981]/50 hover:bg-[#161616] transition-all"
+              >
+                <CloudOff size={20} className="text-gray-500 group-hover:text-[#10b981] shrink-0" />
+                <div className="text-left">
+                  <div className="text-sm font-black uppercase tracking-wider">Sign In to Cloud</div>
+                  <div className="text-[11px] font-medium text-gray-500">Back up projects & sync across devices</div>
+                </div>
+              </button>
+            )}
+
             <button
               onClick={onDismiss}
               className="flex items-center justify-center gap-2 px-5 py-2 rounded-lg text-[11px] font-bold text-gray-500 uppercase tracking-wider hover:text-gray-300 transition-colors"
@@ -55,6 +87,41 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ recents, onNew, onOpen, o
           </div>
 
           <div className="bg-[#0c0c0c] border border-white/10 rounded-xl p-5 flex flex-col">
+            {isCloudMode && (
+              <>
+                <div className="flex items-center gap-2 mb-3">
+                  <Cloud size={14} className="text-[#10b981]" />
+                  <span className="text-[10px] font-black text-emerald-500 uppercase tracking-[0.25em]">Cloud Projects</span>
+                  {currentUser && <span className="ml-auto text-[10px] text-gray-600 truncate max-w-[140px]">{currentUser}</span>}
+                </div>
+                {cloudProjects && cloudProjects.length > 0 ? (
+                  <div className="flex flex-col gap-1.5 overflow-y-auto max-h-[150px] pr-1">
+                    {cloudProjects.map(p => (
+                      <div key={p.id} className="group flex items-center gap-2">
+                        <button
+                          onClick={() => onOpenCloudProject?.(p.id)}
+                          className="flex-1 flex items-center gap-2 px-3 py-2 rounded-lg bg-[#111] border border-white/5 hover:border-[#10b981]/40 hover:bg-[#161616] transition-all text-left"
+                        >
+                          <span className="text-[13px] font-semibold text-gray-200 truncate">{p.name}</span>
+                          <ChevronRight size={12} className="text-gray-600 group-hover:text-[#10b981] ml-auto shrink-0" />
+                        </button>
+                        <button
+                          onClick={() => onDeleteCloudProject?.(p.id)}
+                          className="p-1.5 rounded text-gray-600 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                          title="Delete project"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-[11px] text-gray-600 mb-3">No cloud projects yet. Create one or open a file — it will sync automatically.</div>
+                )}
+                <div className="h-px bg-white/5 my-4 shrink-0"></div>
+              </>
+            )}
+
             <div className="flex items-center gap-2 mb-4">
               <Clock size={14} className="text-gray-500" />
               <span className="text-[10px] font-black text-gray-400 uppercase tracking-[0.25em]">Recent Files</span>

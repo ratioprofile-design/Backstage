@@ -33,6 +33,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [isSaving, setIsSaving] = useState(false);
   const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [schemaError, setSchemaError] = useState<string | null>(null);
+  const [cloudOffline, setCloudOffline] = useState(false);
   
   const [fileHandle, setFileHandle] = useState<any | null>(null);
   const [filePath, setFilePath] = useState<string | null>(null);
@@ -72,10 +73,12 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const isSavingRef = useRef(false);
   const hasUnsavedChangesRef = useRef(false);
   const isRemoteUpdateRef = useRef(false); // Flag to prevent remote data from triggering "unsaved changes"
+  const cloudOfflineRef = useRef(false);
 
   // Update refs when state changes
   useEffect(() => { isSavingRef.current = isSaving; }, [isSaving]);
   useEffect(() => { hasUnsavedChangesRef.current = hasUnsavedChanges; }, [hasUnsavedChanges]);
+  useEffect(() => { cloudOfflineRef.current = cloudOffline; }, [cloudOffline]);
 
   // --- PROJECT STATE ---
   const [beats, setBeats] = useState<Beat[]>(INITIAL_STATE.beats);
@@ -146,24 +149,29 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   // Monitor Supabase Auth
   useEffect(() => {
+    console.log('[ctx] auth effect running, isSupabaseConfigured=', isSupabaseConfigured);
     if (!isSupabaseConfigured) {
         setIsInitialLoading(false);
         return;
     }
 
     supabase.auth.getSession().then(({ data: { session } }) => {
+      console.log('[ctx] getSession result:', session ? `session for ${session.user.email}` : 'no session');
       if (session) {
         setSupabaseUser(session.user);
         setCurrentUser(session.user.email || 'Cloud User');
+        setCloudOffline(false);
         refreshProjectList(session.user.id);
       }
       setIsInitialLoading(false);
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      console.log('[ctx] onAuthStateChange event=', _event, 'session=', session ? `yes ${session.user.email}` : 'no');
       if (session) {
         setSupabaseUser(session.user);
         setCurrentUser(session.user.email || 'Cloud User');
+        setCloudOffline(false);
         refreshProjectList(session.user.id);
       } else {
         setSupabaseUser(null);
@@ -347,6 +355,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setCurrentUser(null);
     setCurrentProjectId(null);
     setSchemaError(null);
+    setCloudOffline(false);
     setFileHandle(null);
   };
 
@@ -450,44 +459,65 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       lastInstanceId: INSTANCE_ID // Tag the update with this instance ID
     };
     let saved = false;
-    try {
-      if (supabaseUser) {
+    let cloudFailed = false;
+
+    // 1. Cloud (only when signed in) — if the network drops, fall through to local
+    if (supabaseUser) {
+      try {
         const project = projectList.find(p => p.id === currentProjectId);
         await upsertProject(currentProjectId, supabaseUser.id, project?.name || 'Untitled', projectData);
         saved = true;
-      } else {
-        if (isTauri() && filePath) {
-          try {
-            const fs = await getTauriFs();
-            if (fs) {
-              await fs.writeTextFile(filePath, JSON.stringify(projectData, null, 2));
-              saved = true;
-            }
-          } catch (err) {
-            console.error("Tauri save error", err);
-          }
-        }
-        if (!saved && fileHandle) {
-          try {
-            const writable = await fileHandle.createWritable();
-            await writable.write(JSON.stringify(projectData, null, 2));
-            await writable.close();
+      } catch (err) {
+        cloudFailed = true;
+        console.error("Cloud save failed — falling back to local storage", err);
+      }
+    }
+
+    // 2. Local fallback (offline cloud, or no cloud user) — the opened .bst file
+    //    and the localStorage mirror keep the work safe when Supabase is unreachable.
+    if (!saved) {
+      if (isTauri() && filePath) {
+        try {
+          const fs = await getTauriFs();
+          if (fs) {
+            await fs.writeTextFile(filePath, JSON.stringify(projectData, null, 2));
             saved = true;
-          } catch (err) {
-            console.error("File System Access save error", err);
           }
-        }
-        if (!saved && currentProjectId) {
-          localStorage.setItem(`project_data_${currentProjectId}`, JSON.stringify(projectData));
-          saved = true;
+        } catch (err) {
+          console.error("Tauri save error", err);
         }
       }
-      // Always keep a crash-safe mirror so nothing is ever lost
-      localStorage.setItem('backstage_last_session', JSON.stringify(projectData));
-      if (saved) setHasUnsavedChanges(false);
-    } finally {
-        setTimeout(() => setIsSaving(false), 200);
+      if (!saved && fileHandle) {
+        try {
+          const writable = await fileHandle.createWritable();
+          await writable.write(JSON.stringify(projectData, null, 2));
+          await writable.close();
+          saved = true;
+        } catch (err) {
+          console.error("File System Access save error", err);
+        }
+      }
+      if (!saved && currentProjectId) {
+        try {
+          localStorage.setItem(`project_data_${currentProjectId}`, JSON.stringify(projectData));
+          saved = true;
+        } catch (err) {
+          console.error("Local project storage save error", err);
+        }
+      }
     }
+
+    // 3. Always keep a crash-safe mirror so nothing is ever lost,
+    //    even when both cloud and file writes fail.
+    try {
+      localStorage.setItem('backstage_last_session', JSON.stringify(projectData));
+    } catch (err) {
+      console.error("localStorage mirror save error", err);
+    }
+
+    setCloudOffline(cloudFailed);
+    if (saved) setHasUnsavedChanges(false);
+    setTimeout(() => setIsSaving(false), 200);
   }, [
     currentProjectId, projectList, beats, groups, connections, annotations, characterData, 
     generatedShots, scratchpad, globalNotes, panX, panY, scale, nextId, nextAnnoId, activeBoardId,
@@ -496,6 +526,19 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     breakdownLanguage, breakdownLockedOnly, isPdfDropEnabled, isRedoEnabled, writingGoal, stabilityApiKey,
     dailyStats, sessionStartCount, lastSessionDate, boardLayerOrder, characterDesignLocked, supabaseUser, fileHandle, filePath
   ]);
+
+  // When connectivity returns after an offline fallback save, re-push the latest
+  // project to the cloud automatically.
+  useEffect(() => {
+      if (!isSupabaseConfigured || !supabaseUser) return;
+      const handleOnline = () => {
+          if (cloudOfflineRef.current && currentProjectId) {
+              saveProject();
+          }
+      };
+      window.addEventListener('online', handleOnline);
+      return () => window.removeEventListener('online', handleOnline);
+  }, [supabaseUser, currentProjectId, saveProject]);
 
   const saveProjectAs = useCallback(async () => {
     const projectData: ProjectState & { lastInstanceId?: string } = {
@@ -739,7 +782,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   }, []);
 
   const value: ProjectContextType = {
-    beats, groups, connections, annotations, characterData, generatedShots, scratchpad, globalNotes, panX, panY, scale, nextId, nextAnnoId, activeBoardId, isTamilMode, tamilFontScale, tamilFontFamily, userDictionary, isOsInputMode, osInputShortcut, scriptConfig, scriptViewMode, scratchpadConfig, storyboardConfig, isStoryboardFeatureEnabled, breakdownLanguage, breakdownLockedOnly, isPdfDropEnabled, isRedoEnabled, writingGoal, geminiApiKey: '', stabilityApiKey, dailyStats, sessionStartCount, lastSessionDate, boardLayerOrder, characterDesignLocked, setCharacterDesignLocked: setCharacterDesignLockedWrapped, appTheme, appAccentColor, appLanguage, currentUser, currentProjectId, projectList, hasUnsavedChanges, schemaError, isSaving, fileHandle, filePath, setFilePath, isInitialLoading, isCloudMode: !!supabaseUser, login, logout, selectProject, createProject, deleteProject, closeProject, clearSchemaError: () => { setSchemaError(null); if (supabaseUser) refreshProjectList(supabaseUser.id); }, setBeats: setBeatsWrapped, setGroups: setGroupsWrapped, setConnections: setConnectionsWrapped, setAnnotations: setAnnotationsWrapped, setCharacterData: setCharacterDataWrapped, setGeneratedShots, setScratchpad: setScratchpadWrapped, setGlobalNotes: setGlobalNotesWrapped, updateGeneratedShot: (id, u) => { setGeneratedShots(p => p.map(s => s.id === id ? { ...s, ...u } : s)); setHasUnsavedChanges(true); }, addGeneratedShot: (i) => { const n = { id: `shot-${Date.now()}`, shotSize: 'WIDE', angle: 'EYE LEVEL', description: '', subject: '', scene: '?', imageHistory: [] }; const s = [...generatedShots]; s.splice(i + 1, 0, n); setGeneratedShots(s); captureSnapshot(); }, removeGeneratedShot: (id) => { setGeneratedShots(p => p.filter(s => s.id !== id)); captureSnapshot(); }, moveGeneratedShot: (f, t) => { const s = [...generatedShots]; const [m] = s.splice(f, 1); s.splice(t, 0, m); setGeneratedShots(s); captureSnapshot(); }, setPan: (x, y) => { setPanX(x); setPanY(y); }, setScale, updateBeat, addBeat, reorderBeats, addGroup: (g) => { const id = nextId; setNextId(p => p + 1); setGroups(p => [...p, { ...g, id, boardId: activeBoardId }]); captureSnapshot(); }, updateGroup: (id, u) => { setGroups(p => p.map(g => g.id === id ? { ...g, ...u } : g)); setHasUnsavedChanges(true); }, removeGroup: (id) => { setGroups(p => p.filter(g => g.id !== id)); captureSnapshot(); }, loadProject: applyProjectState, saveProject, saveProjectAs, setActiveBoardId, setTamilMode, setTamilFontScale, setTamilFontFamily, learnTamilWord: (e, t) => { setUserDictionary(p => { const c = p[e.toLowerCase()] || []; if (!c.includes(t)) return { ...p, [e.toLowerCase()]: [t, ...c] }; return p; }); }, setOsInputMode, setOsInputShortcut, setScriptConfig, setScriptViewMode, setScratchpadConfig, setStoryboardConfig, setStoryboardFeatureEnabled, setAppTheme, setAppAccentColor, setAppLanguage, setBreakdownLanguage, setBreakdownLockedOnly, setPdfDropEnabled, setRedoEnabled, setWritingGoal, setGeminiApiKey: () => {}, setStabilityApiKey, setBoardLayerOrder, setNextId, undo, redo, canUndo: historyIndexRef.current > 0, canRedo: historyIndexRef.current < historyRef.current.length - 1, captureSnapshot, downloadProject, autoGenerate5Scenes, autoGenerateScenes
+    beats, groups, connections, annotations, characterData, generatedShots, scratchpad, globalNotes, panX, panY, scale, nextId, nextAnnoId, activeBoardId, isTamilMode, tamilFontScale, tamilFontFamily, userDictionary, isOsInputMode, osInputShortcut, scriptConfig, scriptViewMode, scratchpadConfig, storyboardConfig, isStoryboardFeatureEnabled, breakdownLanguage, breakdownLockedOnly, isPdfDropEnabled, isRedoEnabled, writingGoal, geminiApiKey: '', stabilityApiKey, dailyStats, sessionStartCount, lastSessionDate, boardLayerOrder, characterDesignLocked, setCharacterDesignLocked: setCharacterDesignLockedWrapped, appTheme, appAccentColor, appLanguage, currentUser, currentProjectId, projectList, hasUnsavedChanges, schemaError, isSaving, fileHandle, filePath, setFilePath,   isInitialLoading, isCloudMode: !!supabaseUser, supabaseUser, cloudOffline, login, logout, selectProject, createProject, deleteProject, closeProject, clearSchemaError: () => { setSchemaError(null); if (supabaseUser) refreshProjectList(supabaseUser.id); }, setBeats: setBeatsWrapped, setGroups: setGroupsWrapped, setConnections: setConnectionsWrapped, setAnnotations: setAnnotationsWrapped, setCharacterData: setCharacterDataWrapped, setGeneratedShots, setScratchpad: setScratchpadWrapped, setGlobalNotes: setGlobalNotesWrapped, updateGeneratedShot: (id, u) => { setGeneratedShots(p => p.map(s => s.id === id ? { ...s, ...u } : s)); setHasUnsavedChanges(true); }, addGeneratedShot: (i) => { const n = { id: `shot-${Date.now()}`, shotSize: 'WIDE', angle: 'EYE LEVEL', description: '', subject: '', scene: '?', imageHistory: [] }; const s = [...generatedShots]; s.splice(i + 1, 0, n); setGeneratedShots(s); captureSnapshot(); }, removeGeneratedShot: (id) => { setGeneratedShots(p => p.filter(s => s.id !== id)); captureSnapshot(); }, moveGeneratedShot: (f, t) => { const s = [...generatedShots]; const [m] = s.splice(f, 1); s.splice(t, 0, m); setGeneratedShots(s); captureSnapshot(); }, setPan: (x, y) => { setPanX(x); setPanY(y); }, setScale, updateBeat, addBeat, reorderBeats, addGroup: (g) => { const id = nextId; setNextId(p => p + 1); setGroups(p => [...p, { ...g, id, boardId: activeBoardId }]); captureSnapshot(); }, updateGroup: (id, u) => { setGroups(p => p.map(g => g.id === id ? { ...g, ...u } : g)); setHasUnsavedChanges(true); }, removeGroup: (id) => { setGroups(p => p.filter(g => g.id !== id)); captureSnapshot(); }, loadProject: applyProjectState, saveProject, saveProjectAs, setActiveBoardId, setTamilMode, setTamilFontScale, setTamilFontFamily, learnTamilWord: (e, t) => { setUserDictionary(p => { const c = p[e.toLowerCase()] || []; if (!c.includes(t)) return { ...p, [e.toLowerCase()]: [t, ...c] }; return p; }); }, setOsInputMode, setOsInputShortcut, setScriptConfig, setScriptViewMode, setScratchpadConfig, setStoryboardConfig, setStoryboardFeatureEnabled, setAppTheme, setAppAccentColor, setAppLanguage, setBreakdownLanguage, setBreakdownLockedOnly, setPdfDropEnabled, setRedoEnabled, setWritingGoal, setGeminiApiKey: () => {}, setStabilityApiKey, setBoardLayerOrder, setNextId, undo, redo, canUndo: historyIndexRef.current > 0, canRedo: historyIndexRef.current < historyRef.current.length - 1, captureSnapshot, downloadProject, autoGenerate5Scenes, autoGenerateScenes
   };
 
   return <ProjectContext.Provider value={value}>{children}</ProjectContext.Provider>;

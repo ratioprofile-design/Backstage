@@ -19,6 +19,7 @@ import EditorModal from './components/EditorModal';
 import PrintPreviewModal from './components/PrintPreviewModal';
 import NewProjectModal from './components/NewProjectModal';
 import WelcomeScreen from './components/WelcomeScreen';
+import AuthScreen from './components/AuthScreen';
 import InboxModal, { DEFAULT_INBOX_TASKS } from './components/InboxModal';
 import InboxView from './components/views/InboxView';
 import { ViewMode, ScriptConfig, AppTask, ProjectState } from './types';
@@ -26,6 +27,7 @@ import { INITIAL_STATE } from './constants';
 import { Loader2, Film } from 'lucide-react';
 import { isTauri, getTauriFs, getTauriDialog } from './utils/desktop';
 import { getRecentFiles, addRecentFile, RecentFile } from './utils/recentFiles';
+import { isSupabaseConfigured } from './services/supabase';
 
 const StyleInjector: React.FC = () => {
   const { scriptConfig, scratchpadConfig, appTheme, appAccentColor } = useProject();
@@ -181,14 +183,18 @@ const StyleInjector: React.FC = () => {
 };
 
 const AppContent: React.FC = () => {
-  const { currentUser, currentProjectId, undo, redo, isInitialLoading, saveProject, saveProjectAs, loadProject, closeProject, setAppTheme, filePath, setFilePath } = useProject();
+  console.log('[probe] AppContent mounted, supabase user =', useProject ? 'n/a' : 'n/a');
+  const { currentUser, currentProjectId, undo, redo, isInitialLoading, saveProject, saveProjectAs, loadProject, closeProject, setAppTheme, filePath, setFilePath, supabaseUser, isCloudMode, logout, selectProject, deleteProject, projectList } = useProject();
   const [currentView, setCurrentView] = useState<ViewMode>('board');
   const [openBeatIds, setOpenBeatIds] = useState<number[]>([]);
   const [showPrintPreview, setShowPrintPreview] = useState(false);
   const [showNewProject, setShowNewProject] = useState(false);
   const [showWelcome, setShowWelcome] = useState(true);
+  const [authSkipped, setAuthSkipped] = useState(false);
   const [recentFiles, setRecentFiles] = useState<RecentFile[]>(() => getRecentFiles());
   const [refreshKey, setRefreshKey] = useState(0);
+
+  const showAuth = isSupabaseConfigured && !supabaseUser && !authSkipped;
 
   // Open a project file from an absolute path (native menu "Open File..." / recent files / welcome screen)
   const openPath = useCallback(async (path: string): Promise<boolean> => {
@@ -426,6 +432,7 @@ const AppContent: React.FC = () => {
             onPrint={() => setShowPrintPreview(true)}
             onOpenInbox={() => setIsInboxOpen(true)}
             unreadCount={inboxTasks.filter(t => !t.isRead).length}
+            onOpenAuth={() => setAuthSkipped(false)}
         />
       </div>
       
@@ -499,7 +506,17 @@ const AppContent: React.FC = () => {
             if (ok) setShowWelcome(false);
           }}
           onDismiss={() => setShowWelcome(false)}
+          isCloudMode={isCloudMode}
+          currentUser={currentUser}
+          cloudProjects={projectList}
+          onOpenCloudProject={(id) => { selectProject(id); setShowWelcome(false); }}
+          onDeleteCloudProject={(id) => { if (supabaseUser) deleteProject(id); }}
+          onOpenAuth={() => setAuthSkipped(false)}
         />
+      )}
+
+      {showAuth && (
+        <AuthScreen onSkip={() => setAuthSkipped(true)} />
       )}
 
       <InboxModal

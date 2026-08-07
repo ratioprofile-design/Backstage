@@ -11,6 +11,7 @@
     "fs:allow-write-text-file",
     "fs:allow-exists",
     "dialog:allow-open",
-    "dialog:allow-save"
+    "dialog:allow-save",
+    "log:default"
   ]
 }

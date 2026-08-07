@@ -5,7 +5,7 @@ import { useProject } from '../context/ProjectContext';
 import { 
     Target, Zap, Clock, Film, RotateCcw, RotateCw, CheckCircle2, 
     TrendingUp, Save, Cloud, CloudOff, Wifi, WifiOff, CloudUpload,
-    Loader2, Check, FileCode, Inbox, Sun, Moon
+    Loader2, Check, FileCode, Inbox, Sun, Moon, LogIn, LogOut, ChevronDown
 } from 'lucide-react';
 import { isSupabaseConfigured } from '../services/supabase';
 import { AISceneGeneratorModal } from './AISceneGeneratorModal';
@@ -17,6 +17,7 @@ interface AppHeaderProps {
   onPrint?: () => void;
   onOpenInbox?: () => void;
   unreadCount?: number;
+  onOpenAuth?: () => void;
 }
 
 const AppHeader: React.FC<AppHeaderProps> = ({ 
@@ -24,18 +25,20 @@ const AppHeader: React.FC<AppHeaderProps> = ({
   onViewChange, 
   onRefresh,
   onOpenInbox,
-  unreadCount = 0
+  unreadCount = 0,
+  onOpenAuth
 }) => {
   const { 
       isStoryboardFeatureEnabled, writingGoal, dailyStats, beats,
       projectList, currentProjectId,
       undo, redo, canUndo, canRedo,
       saveProject, saveProjectAs, hasUnsavedChanges, currentUser, isCloudMode, isSaving, fileHandle,
-      autoGenerate5Scenes, appTheme, setAppTheme
+      autoGenerate5Scenes, appTheme, setAppTheme, logout, cloudOffline
   } = useProject();
 
   const [showSavedConfirmation, setShowSavedConfirmation] = useState(false);
   const [isAiModalOpen, setIsAiModalOpen] = useState(false);
+  const [showUserMenu, setShowUserMenu] = useState(false);
 
   const activeProjectName = useMemo(() => {
       const proj = projectList.find(p => p.id === currentProjectId);
@@ -120,10 +123,11 @@ const AppHeader: React.FC<AppHeaderProps> = ({
   const saveTitle = useMemo(() => {
       if (isSaving) return "Writing to Disk...";
       if (showSavedConfirmation) return "Successfully Saved";
+      if (isCloudActive && cloudOffline) return "Offline — Saved Locally (will sync when back online)";
       if (isCloudActive) return hasUnsavedChanges ? "Syncing to Production" : "Synced to Production";
       if (fileHandle) return hasUnsavedChanges ? `Save changes to ${fileHandle.name}` : `${fileHandle.name} is up to date`;
       return "Linked to Local Storage (Click to save to disk file)";
-  }, [isSaving, showSavedConfirmation, isCloudActive, hasUnsavedChanges, fileHandle]);
+  }, [isSaving, showSavedConfirmation, isCloudActive, cloudOffline, hasUnsavedChanges, fileHandle]);
 
   return (
     <>
@@ -276,6 +280,71 @@ const AppHeader: React.FC<AppHeaderProps> = ({
           >
             {appTheme === 'light' ? <Moon size={16} /> : <Sun size={16} />}
           </button>
+
+          {/* CLOUD / USER MENU */}
+          <div className="relative">
+            <button
+              onClick={() => setShowUserMenu(v => !v)}
+              className={`h-9 rounded-[4px] px-2.5 bg-[#222] border flex items-center gap-2 transition-all shadow-sm ${
+                isCloudActive
+                  ? cloudOffline
+                    ? 'border-[#f59e0b]/50 text-amber-400 hover:border-[#f59e0b]'
+                    : 'border-[#10b981]/50 text-emerald-400 hover:border-[#10b981]'
+                  : 'border-[#3d3d3d] text-gray-500 hover:border-[#f5a623] hover:text-[#f5a623]'
+              }`}
+              title={isCloudActive ? `Signed in as ${currentUser}${cloudOffline ? ' — offline, saving locally' : ''}` : 'Sign in to cloud sync'}
+            >
+              {isCloudActive ? (cloudOffline ? <WifiOff size={15} /> : <Cloud size={15} />) : <CloudOff size={15} />}
+              <span className="hidden xl:inline text-[10px] font-black uppercase tracking-wider max-w-[110px] truncate">
+                {isCloudActive ? (currentUser || 'Cloud') : 'Cloud'}
+              </span>
+              <ChevronDown size={11} className="opacity-60" />
+            </button>
+
+            {showUserMenu && (
+              <>
+                <div className="fixed inset-0 z-[900]" onClick={() => setShowUserMenu(false)} />
+                <div className="absolute right-0 top-11 z-[901] w-64 bg-[#161616] border border-[#333] rounded-xl shadow-2xl overflow-hidden">
+                  {isCloudActive ? (
+                    <>
+                      <div className="px-4 py-3 border-b border-[#2a2a2a]">
+                        <div className={`text-[9px] font-black uppercase tracking-widest mb-1 flex items-center gap-1.5 ${cloudOffline ? 'text-amber-500' : 'text-emerald-500'}`}>
+                          {cloudOffline ? <WifiOff size={11} /> : <Cloud size={11} />} {cloudOffline ? 'Offline — Saved Locally' : 'Cloud Sync Active'}
+                        </div>
+                        <div className="text-[13px] font-semibold text-white truncate">{currentUser || 'Cloud User'}</div>
+                        <div className="text-[10px] text-gray-500">
+                          {cloudOffline ? 'Network down — edits saved to disk & local storage. Will auto-sync when back online.' : 'Projects are backed up & synced'}
+                        </div>
+                      </div>
+                      <button
+                        onClick={async () => { setShowUserMenu(false); await logout(); }}
+                        className="w-full flex items-center gap-2.5 px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-red-400 hover:bg-red-500/10 transition-colors"
+                      >
+                        <LogOut size={13} /> Sign Out
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <div className="px-4 py-3 border-b border-[#2a2a2a]">
+                        <div className="text-[9px] font-black uppercase tracking-widest text-gray-500 mb-1 flex items-center gap-1.5">
+                          <CloudOff size={11} /> Local Mode
+                        </div>
+                        <div className="text-[10px] text-gray-500 leading-relaxed">
+                          Working on this device only. Sign in to back up projects and sync across devices.
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => { setShowUserMenu(false); onOpenAuth?.(); }}
+                        className="w-full flex items-center gap-2.5 px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-[#f5a623] hover:bg-[#f5a623]/10 transition-colors"
+                      >
+                        <LogIn size={13} /> Sign In to Cloud
+                      </button>
+                    </>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
         </div>
       </header>
 
