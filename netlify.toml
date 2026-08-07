@@ -1,0 +1,10 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+# The repo has an npm peer-dependency conflict (recharts@2.13.3 vs react@19),
+# so the install step must tolerate it. NPM_FLAGS is applied to the default
+# `npm install` Netlify runs before the build.
+[build.environment]
+  NPM_FLAGS = "--legacy-peer-deps"
+  NODE_VERSION = "22"
