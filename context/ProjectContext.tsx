@@ -10,6 +10,7 @@ import { INITIAL_STATE } from '../constants';
 import { supabase, upsertProject, fetchProjectData, fetchUserProjects, isSupabaseConfigured } from '../services/supabase';
 import { createAuto5ScenesDataset, createAutoScenesDataset } from '../services/sampleGenerator';
 import { isTauri, getTauriFs, getTauriDialog, getTauriWindow } from '../utils/desktop';
+import { addRecentFile } from '../utils/recentFiles';
 
 const ProjectContext = createContext<ProjectContextType | undefined>(undefined);
 
@@ -256,17 +257,6 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     };
   }, [currentProjectId, supabaseUser, applyProjectState]);
 
-  // Sync on window focus
-  useEffect(() => {
-      const handleFocus = () => {
-          if (currentProjectId && !hasUnsavedChangesRef.current && !isSavingRef.current) {
-              selectProject(currentProjectId);
-          }
-      };
-      window.addEventListener('focus', handleFocus);
-      return () => window.removeEventListener('focus', handleFocus);
-  }, [currentProjectId]);
-
   const refreshProjectList = async (userId: string) => {
     try {
       const dbProjects = await fetchUserProjects(userId);
@@ -364,6 +354,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setCurrentProjectId(null);
     localStorage.removeItem('currentProjectId');
     setFileHandle(null);
+    setFilePath(null);
     applyProjectState(INITIAL_STATE);
     setPanX(INITIAL_STATE.panX);
     setPanY(INITIAL_STATE.panY);
@@ -394,7 +385,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     selectProject(id);
   };
 
-  const selectProject = async (id: string) => {
+  const selectProject = async (id: string, opts?: { silent?: boolean }) => {
     setFileHandle(null);
     if (supabaseUser) {
       try {
@@ -403,7 +394,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       } catch (err: any) {
         if (err.code === '42P01') setSchemaError("TABLE_MISSING");
         else if (err.code === '42703' || err.message?.includes('data')) setSchemaError("COLUMN_MISSING");
-        else applyProjectState(INITIAL_STATE);
+        else if (!opts?.silent) applyProjectState(INITIAL_STATE);
       }
     } else {
       const dataStr = localStorage.getItem(`project_data_${id}`);
@@ -412,6 +403,18 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setCurrentProjectId(id);
     localStorage.setItem('currentProjectId', id);
   };
+
+  // Sync on window focus (cloud mode only — the local window is the sole writer otherwise,
+  // and re-fetching can overwrite in-progress work with stale storage/file data)
+  useEffect(() => {
+      const handleFocus = () => {
+          if (supabaseUser && currentProjectId && !hasUnsavedChangesRef.current && !isSavingRef.current) {
+              selectProject(currentProjectId, { silent: true });
+          }
+      };
+      window.addEventListener('focus', handleFocus);
+      return () => window.removeEventListener('focus', handleFocus);
+  }, [supabaseUser, currentProjectId, selectProject]);
 
   const deleteProject = async (id: string) => {
     if (supabaseUser) {
@@ -432,7 +435,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   const saveProject = useCallback(async () => {
-    if (!currentProjectId || isRemoteUpdateRef.current) return;
+    if (isRemoteUpdateRef.current) return;
     setIsSaving(true);
     const projectData: ProjectState & { lastInstanceId?: string } = {
       beats, groups, connections, annotations, characterData, generatedShots, 
@@ -446,34 +449,42 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       characterDesignLocked,
       lastInstanceId: INSTANCE_ID // Tag the update with this instance ID
     };
+    let saved = false;
     try {
       if (supabaseUser) {
         const project = projectList.find(p => p.id === currentProjectId);
         await upsertProject(currentProjectId, supabaseUser.id, project?.name || 'Untitled', projectData);
+        saved = true;
       } else {
         if (isTauri() && filePath) {
           try {
             const fs = await getTauriFs();
             if (fs) {
               await fs.writeTextFile(filePath, JSON.stringify(projectData, null, 2));
+              saved = true;
             }
           } catch (err) {
             console.error("Tauri save error", err);
-            localStorage.setItem(`project_data_${currentProjectId}`, JSON.stringify(projectData));
           }
-        } else if (fileHandle) {
+        }
+        if (!saved && fileHandle) {
           try {
             const writable = await fileHandle.createWritable();
             await writable.write(JSON.stringify(projectData, null, 2));
             await writable.close();
-          } catch {
-            localStorage.setItem(`project_data_${currentProjectId}`, JSON.stringify(projectData));
+            saved = true;
+          } catch (err) {
+            console.error("File System Access save error", err);
           }
-        } else {
+        }
+        if (!saved && currentProjectId) {
           localStorage.setItem(`project_data_${currentProjectId}`, JSON.stringify(projectData));
+          saved = true;
         }
       }
-      setHasUnsavedChanges(false);
+      // Always keep a crash-safe mirror so nothing is ever lost
+      localStorage.setItem('backstage_last_session', JSON.stringify(projectData));
+      if (saved) setHasUnsavedChanges(false);
     } finally {
         setTimeout(() => setIsSaving(false), 200);
     }
@@ -487,7 +498,6 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   ]);
 
   const saveProjectAs = useCallback(async () => {
-    if (!currentProjectId) return;
     const projectData: ProjectState & { lastInstanceId?: string } = {
       beats, groups, connections, annotations, characterData, generatedShots, 
       scratchpad, globalNotes, panX, panY, scale, nextId, nextAnnoId, activeBoardId,
@@ -517,6 +527,11 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
               await fs.writeTextFile(selected, JSON.stringify(projectData, null, 2));
             }
             setHasUnsavedChanges(false);
+            addRecentFile(selected, fileName.replace(/\.bst$/i, ''));
+            if (currentProjectId) {
+              localStorage.setItem(`project_data_${currentProjectId}`, JSON.stringify(projectData));
+            }
+            localStorage.setItem('backstage_last_session', JSON.stringify(projectData));
           }
         }
       } catch (err) {
@@ -529,8 +544,18 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
         // @ts-ignore
         const handle = await window.showSaveFilePicker({ suggestedName: fileName, types: [{ description: 'Backstage File', accept: { 'application/json': ['.bst'] } }] });
         setFileHandle(handle);
-        setHasUnsavedChanges(true);
-      } catch {}
+        const writable = await handle.createWritable();
+        await writable.write(JSON.stringify(projectData, null, 2));
+        await writable.close();
+        setHasUnsavedChanges(false);
+        addRecentFile(handle.name, fileName.replace(/\.bst$/i, ''));
+        if (currentProjectId) {
+          localStorage.setItem(`project_data_${currentProjectId}`, JSON.stringify(projectData));
+        }
+        localStorage.setItem('backstage_last_session', JSON.stringify(projectData));
+      } catch (err) {
+        console.error("Web saveAs error", err);
+      }
     }
   }, [
     currentProjectId, projectList, beats, groups, connections, annotations, characterData, 

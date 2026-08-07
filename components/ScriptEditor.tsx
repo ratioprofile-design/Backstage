@@ -143,7 +143,13 @@ export const ScriptEditor = forwardRef<ScriptEditorHandle, ScriptEditorProps>(({
         isPreviewingRef.current = false;
     }
     
-    onSave(e.currentTarget.innerHTML);
+    // Commit to context immediately so saves always capture the latest keystrokes.
+    // The debounced onSave is only used as a fallback (e.g. views without onSaveImmediate).
+    if (onSaveImmediate) {
+      onSaveImmediate(e.currentTarget.innerHTML);
+    } else {
+      onSave(e.currentTarget.innerHTML);
+    }
     detectFormat();
 
     const block = getCurrentBlock();

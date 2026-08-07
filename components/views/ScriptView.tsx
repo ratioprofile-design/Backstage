@@ -16,6 +16,7 @@ import { ScriptEditor, ScriptEditorHandle } from '../ScriptEditor';
 import { SlugInput } from '../SlugInput';
 import { generateBreakdown } from '../../services/gemini';
 import { BreakdownData, BreakdownItem, BeatVersion, Note, Beat, Group, Connection, BeatStatus } from '../../types';
+import { extractScriptCharacterSuggestions } from '../../utils/characterUtils';
 import { BlockEditor } from '../BlockEditor';
 import DiffModal from '../DiffModal';
 import { STORYLINE_COLORS, SUPPORTED_LANGUAGES } from '../../constants';
@@ -944,7 +945,7 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'cast
   const activeBeat = useMemo(() => beats.find(b => b.id === activeBeatId), [beats, activeBeatId]);
   const locationCount = useMemo(() => new Set(beats.map(b => (b.slug?.location || '').trim().toUpperCase()).filter(Boolean)).size, [beats]);
   const uniqueLocations = useMemo(() => { const locs = new Set<string>(); ['HOUSE', 'KITCHEN', 'BEDROOM', 'OFFICE', 'PARK', 'STREET', 'CAR', 'APARTMENT', 'SCHOOL', 'HOSPITAL'].forEach(l => locs.add(l)); beats.forEach(b => { if (b.slug.location && b.slug.location.trim()) { locs.add(b.slug.location.trim()); } }); return Array.from(locs).sort(); }, [beats]);
-  const uniqueCharacters = useMemo(() => { const chars = new Set<string>(); beats.forEach(b => { const div = document.createElement('div'); div.innerHTML = b.content; div.querySelectorAll('.sc-character').forEach(el => { const name = el.textContent?.trim().replace(/\s*\(.*\)$/, '').toUpperCase(); if (name && name.length > 1) chars.add(name); }); }); return Array.from(chars).sort(); }, [beats]);
+  const uniqueCharacters = useMemo(() => extractScriptCharacterSuggestions(beats), [beats]);
 
   useLayoutEffect(() => { const container = scrollerRef.current; const paper = paperLayerRef.current; const content = contentRef.current; if (!container || !paper || !content) return; const run = () => runPaginationPass(container, paper, content, theme, scriptViewMode); run(); const observer = new ResizeObserver(() => window.requestAnimationFrame(run)); const beatEls = content.querySelectorAll('.beat-block'); beatEls.forEach(el => observer.observe(el)); observer.observe(content); return () => observer.disconnect(); }, [sortedBeats, theme, zoom, scriptViewMode]); 
   

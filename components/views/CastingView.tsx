@@ -251,7 +251,7 @@ export const CastingView: React.FC<{ onNavigateToView?: (view: 'characterdesign'
       if (!beat.content) return;
       const temp = document.createElement('div');
       temp.innerHTML = beat.content;
-      const charElements = temp.querySelectorAll('.sc-line-character');
+      const charElements = temp.querySelectorAll('.sc-line.sc-character');
 
       charElements.forEach(charEl => {
         const rawName = (charEl.textContent || '')
@@ -285,7 +285,7 @@ export const CastingView: React.FC<{ onNavigateToView?: (view: 'characterdesign'
       if (!beat.content) return;
       const temp = document.createElement('div');
       temp.innerHTML = beat.content;
-      const charElements = temp.querySelectorAll('.sc-line-character');
+      const charElements = temp.querySelectorAll('.sc-line.sc-character');
 
       charElements.forEach(charEl => {
         const rawName = (charEl.textContent || '')
@@ -298,8 +298,8 @@ export const CastingView: React.FC<{ onNavigateToView?: (view: 'characterdesign'
         if (matchedKey && metrics[matchedKey]) {
           metrics[matchedKey].sceneCount += 1;
           let nextEl = charEl.nextElementSibling;
-          while (nextEl && !nextEl.classList.contains('sc-line-character') && !nextEl.classList.contains('sc-line-slugline')) {
-            if (nextEl.classList.contains('sc-line-dialogue')) {
+          while (nextEl && !nextEl.classList.contains('sc-character') && !nextEl.classList.contains('sc-slugline')) {
+            if (nextEl.classList.contains('sc-dialogue')) {
               const text = (nextEl.textContent || '').trim();
               if (text) {
                 metrics[matchedKey].dialogueWords += text.split(/\s+/).length;

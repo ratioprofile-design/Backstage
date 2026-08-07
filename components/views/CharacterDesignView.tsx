@@ -50,7 +50,7 @@ const CharacterDesignView: React.FC<{ onNavigateToView?: (view: 'characterdesign
       if (!beat.content) return;
       const temp = document.createElement('div');
       temp.innerHTML = beat.content;
-      const charElements = temp.querySelectorAll('.sc-line-character');
+      const charElements = temp.querySelectorAll('.sc-line.sc-character');
       charElements.forEach(charEl => {
         const rawName = (charEl.textContent || '')
           .replace(/\(V\.O\.\)|\(O\.S\.\)|\(CONT'D\)|\(OFF-SCREEN\)|\(VOICE\)/gi, '')
@@ -74,7 +74,7 @@ const CharacterDesignView: React.FC<{ onNavigateToView?: (view: 'characterdesign
       if (!beat.content) return;
       const temp = document.createElement('div');
       temp.innerHTML = beat.content;
-      const charElements = temp.querySelectorAll('.sc-line-character');
+      const charElements = temp.querySelectorAll('.sc-line.sc-character');
       charElements.forEach(charEl => {
         const rawName = (charEl.textContent || '')
           .replace(/\(V\.O\.\)|\(O\.S\.\)|\(CONT'D\)|\(OFF-SCREEN\)|\(VOICE\)/gi, '')
@@ -85,8 +85,8 @@ const CharacterDesignView: React.FC<{ onNavigateToView?: (view: 'characterdesign
         if (matchedKey && metrics[matchedKey]) {
           metrics[matchedKey].sceneCount += 1;
           let nextEl = charEl.nextElementSibling;
-          while (nextEl && !nextEl.classList.contains('sc-line-character') && !nextEl.classList.contains('sc-line-slugline')) {
-            if (nextEl.classList.contains('sc-line-dialogue')) {
+          while (nextEl && !nextEl.classList.contains('sc-character') && !nextEl.classList.contains('sc-slugline')) {
+            if (nextEl.classList.contains('sc-dialogue')) {
               const text = (nextEl.textContent || '').trim();
               if (text) metrics[matchedKey].dialogueWords += text.split(/\s+/).length;
             }
@@ -118,12 +118,12 @@ const CharacterDesignView: React.FC<{ onNavigateToView?: (view: 'characterdesign
   const goToPreviousCharacter = () => {
     if (roleNames.length === 0) return;
     const prev = roleNames[(activeRoleIndex - 1 + roleNames.length) % roleNames.length];
-    if (prev) setSelectedRole(prev);
+    if (prev) selectCharacter(prev);
   };
   const goToNextCharacter = () => {
     if (roleNames.length === 0) return;
     const next = roleNames[(activeRoleIndex + 1) % roleNames.length];
-    if (next) setSelectedRole(next);
+    if (next) selectCharacter(next);
   };
 
   const updateCharacter = (charName: string, updates: Partial<CharacterData>) => {
@@ -132,6 +132,29 @@ const CharacterDesignView: React.FC<{ onNavigateToView?: (view: 'characterdesign
       [charName]: { ...(prev[charName] || { id: charName, name: charName } as CharacterData), ...updates }
     }));
   };
+
+  // Auto-create a minimal design bible when a script-detected character is selected,
+  // so clicking a name card always opens the full editor (not the empty state).
+  const ensureCharacter = (charName: string) => {
+    setCharacterData(prev => {
+      if (prev[charName]) return prev;
+      return { ...prev, [charName]: { id: charName, name: charName } as CharacterData };
+    });
+  };
+
+  const selectCharacter = (charName: string) => {
+    ensureCharacter(charName);
+    setSelectedRole(charName);
+  };
+
+  // When the roster auto-detects new characters, materialize an entry for the
+  // currently selected role so the dossier is always editable.
+  useEffect(() => {
+    if (activeRoleName && !characterData[activeRoleName]) {
+      ensureCharacter(activeRoleName);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeRoleName, roleNames.length]);
 
   const field = (label: string, value: string, onChange: (v: string) => void, placeholder?: string, mono = false) => (
     <div>
@@ -385,7 +408,7 @@ const CharacterDesignView: React.FC<{ onNavigateToView?: (view: 'characterdesign
           <div className="flex items-center gap-2 shrink-0">
             <select
               value={activeRoleName}
-              onChange={(e) => setSelectedRole(e.target.value)}
+              onChange={(e) => selectCharacter(e.target.value)}
               className={`px-2 py-1.5 border text-[11px] font-mono outline-none cursor-pointer ${isLight ? 'bg-white border-slate-300 text-slate-900' : 'bg-[#181a22] border-slate-700 text-white'}`}
               title="Select character"
             >
@@ -428,7 +451,7 @@ const CharacterDesignView: React.FC<{ onNavigateToView?: (view: 'characterdesign
             return (
               <div
                 key={charName}
-                onClick={() => setSelectedRole(charName)}
+                onClick={() => selectCharacter(charName)}
                 className={`px-3 py-2 border cursor-pointer shrink-0 flex flex-col justify-between transition-all min-w-[150px] max-w-[190px] ${
                   isSelected
                     ? (isLight ? 'bg-slate-900 text-white border-slate-900 ring-2 ring-amber-400' : 'bg-[#262a38] text-white border-amber-500 ring-2 ring-amber-500/50')

@@ -4,6 +4,7 @@ import { useProject } from '../context/ProjectContext';
 import { ScriptEditor } from './ScriptEditor';
 import { SlugInput } from './SlugInput';
 import { BeatVersion, Beat, Connection, Note } from '../types';
+import { extractScriptCharacterSuggestions } from '../utils/characterUtils';
 import { 
   X, Save, CheckCircle2, Cloud, 
   Clock, Bold, Italic, Underline,
@@ -165,7 +166,7 @@ const calculateGraphOrder = (beats: Beat[], connections: Connection[]) => {
 };
 
 const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScript, onFocus, initialOffset = 0 }) => {
-  const { beats, updateBeat, scriptConfig, characterData, groups, connections, setConnections, scratchpadConfig, captureSnapshot } = useProject();
+  const { beats, updateBeat, scriptConfig, groups, connections, setConnections, scratchpadConfig, captureSnapshot } = useProject();
   
   const beat = beats.find(b => b.id === beatId);
   const isReady = beat?.status === 'ready';
@@ -392,21 +393,7 @@ const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScri
     return Array.from(locs).sort();
   }, [beats]);
 
-  const uniqueCharacters = useMemo(() => {
-      const chars = new Set<string>();
-      Object.values(characterData).forEach((c: any) => {
-          if (c.name) chars.add(c.name.toUpperCase());
-      });
-      beats.forEach(b => {
-          const div = document.createElement('div');
-          div.innerHTML = b.content;
-          div.querySelectorAll('.sc-character').forEach(el => {
-              const name = el.textContent?.trim().replace(/\s*\(.*\)$/, '').toUpperCase();
-              if (name && name.length > 1) chars.add(name);
-          });
-      });
-      return Array.from(chars).sort();
-  }, [beats, characterData]);
+  const uniqueCharacters = useMemo(() => extractScriptCharacterSuggestions(beats), [beats]);
 
   useEffect(() => {
       const checkStyles = () => {

@@ -1,5 +1,5 @@
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ProjectProvider, useProject } from './context/ProjectContext';
 import AppHeader from './components/AppHeader';
 import BoardView from './components/views/BoardView';
@@ -17,10 +17,15 @@ import ShotListView from './components/views/ShotListView';
 import ContinuityView from './components/views/ContinuityView';
 import EditorModal from './components/EditorModal';
 import PrintPreviewModal from './components/PrintPreviewModal';
+import NewProjectModal from './components/NewProjectModal';
+import WelcomeScreen from './components/WelcomeScreen';
 import InboxModal, { DEFAULT_INBOX_TASKS } from './components/InboxModal';
 import InboxView from './components/views/InboxView';
-import { ViewMode, ScriptConfig, AppTask } from './types';
+import { ViewMode, ScriptConfig, AppTask, ProjectState } from './types';
+import { INITIAL_STATE } from './constants';
 import { Loader2, Film } from 'lucide-react';
+import { isTauri, getTauriFs, getTauriDialog } from './utils/desktop';
+import { getRecentFiles, addRecentFile, RecentFile } from './utils/recentFiles';
 
 const StyleInjector: React.FC = () => {
   const { scriptConfig, scratchpadConfig, appTheme, appAccentColor } = useProject();
@@ -176,11 +181,147 @@ const StyleInjector: React.FC = () => {
 };
 
 const AppContent: React.FC = () => {
-  const { currentUser, currentProjectId, undo, redo, isInitialLoading } = useProject();
+  const { currentUser, currentProjectId, undo, redo, isInitialLoading, saveProject, saveProjectAs, loadProject, closeProject, setAppTheme, filePath, setFilePath } = useProject();
   const [currentView, setCurrentView] = useState<ViewMode>('board');
   const [openBeatIds, setOpenBeatIds] = useState<number[]>([]);
   const [showPrintPreview, setShowPrintPreview] = useState(false);
+  const [showNewProject, setShowNewProject] = useState(false);
+  const [showWelcome, setShowWelcome] = useState(true);
+  const [recentFiles, setRecentFiles] = useState<RecentFile[]>(() => getRecentFiles());
   const [refreshKey, setRefreshKey] = useState(0);
+
+  // Open a project file from an absolute path (native menu "Open File..." / recent files / welcome screen)
+  const openPath = useCallback(async (path: string): Promise<boolean> => {
+    try {
+      const fs = await getTauriFs();
+      if (!fs) return false;
+      const content = await fs.readTextFile(path);
+      loadProject(JSON.parse(content));
+      setFilePath(path);
+      setRecentFiles(addRecentFile(path));
+      return true;
+    } catch (err) {
+      console.error("Failed to open project file", err);
+      return false;
+    }
+  }, [loadProject, setFilePath]);
+
+  // Open a project file from disk (native menu "Open File...")
+  // Guarded so macOS double-delivered menu events can't stack/reopen the picker.
+  const fileDialogOpenRef = useRef(false);
+  const handleMenuOpenFile = useCallback(async () => {
+    if (fileDialogOpenRef.current) return;
+    fileDialogOpenRef.current = true;
+    try {
+      const dialog = await getTauriDialog();
+      if (!dialog) return;
+      const selected = await dialog.open({
+        filters: [{ name: 'Backstage File', extensions: ['bst', 'json'] }],
+        multiple: false,
+      });
+      if (selected) {
+        const ok = await openPath(selected as string);
+        if (ok) setShowWelcome(false);
+      }
+    } catch (err) {
+      console.error("Failed to open project file", err);
+    } finally {
+      fileDialogOpenRef.current = false;
+    }
+  }, [openPath]);
+
+  // Create a brand new blank script file: prompt for Finder location/name, write it, open it.
+  const handleMenuNewFile = useCallback(async () => {
+    if (fileDialogOpenRef.current) return;
+    fileDialogOpenRef.current = true;
+    try {
+      const dialog = await getTauriDialog();
+      if (!dialog) return;
+      const selected = await dialog.save({
+        filters: [{ name: 'Backstage File', extensions: ['bst'] }],
+        defaultPath: 'Untitled.bst',
+      });
+      if (!selected) return;
+      const fresh: ProjectState = { ...INITIAL_STATE };
+      const fs = await getTauriFs();
+      if (fs) {
+        await fs.writeTextFile(selected, JSON.stringify(fresh, null, 2));
+      }
+      loadProject(fresh);
+      setFilePath(selected);
+      setRecentFiles(addRecentFile(selected));
+      setShowWelcome(false);
+    } catch (err) {
+      console.error("Failed to create new project file", err);
+    } finally {
+      fileDialogOpenRef.current = false;
+    }
+  }, [loadProject, setFilePath]);
+
+  const handleMenuCheckForUpdates = useCallback(async () => {
+    try {
+      const dialog = await getTauriDialog();
+      if (!dialog) return;
+      const { getVersion } = await import('@tauri-apps/api/app');
+      const version = await getVersion();
+      await dialog.message(`You're up to date! You are running version ${version}.`, {
+        title: "Check for Updates",
+        kind: "info",
+      });
+    } catch (err) {
+      console.error("Failed to check for updates", err);
+    }
+  }, []);
+
+  // Native menu bar events (File, View, Theme, App menu)
+  const lastMenuEventRef = useRef<{ id: string; time: number }>({ id: '', time: 0 });
+  useEffect(() => {
+    if (!isTauri()) return;
+    let unlisten: (() => void) | null = null;
+    let cancelled = false;
+
+    (async () => {
+      const { listen } = await import('@tauri-apps/api/event');
+      if (cancelled) return;
+      unlisten = await listen('menu-click', async (event: any) => {
+        const id = event.payload as string;
+        const now = Date.now();
+        if (lastMenuEventRef.current.id === id && now - lastMenuEventRef.current.time < 400) return;
+        lastMenuEventRef.current = { id, time: now };
+        switch (id) {
+          case 'new-project': {
+            if (isTauri()) await handleMenuNewFile();
+            else setShowNewProject(true);
+            break;
+          }
+          case 'save-file': {
+            if (filePath) saveProject();
+            else await saveProjectAs();
+            break;
+          }
+          case 'save-as-file': {
+            if (fileDialogOpenRef.current) break;
+            fileDialogOpenRef.current = true;
+            try { await saveProjectAs(); } finally { fileDialogOpenRef.current = false; }
+            break;
+          }
+          case 'open-file': await handleMenuOpenFile(); break;
+          case 'print-file': setShowPrintPreview(true); break;
+          case 'close-project': closeProject(); setShowWelcome(true); break;
+          case 'theme-dark': setAppTheme('dark'); break;
+          case 'theme-light': setAppTheme('light'); break;
+          case 'theme-system': setAppTheme('system'); break;
+          case 'check-for-updates': await handleMenuCheckForUpdates(); break;
+          default: break;
+        }
+      });
+    })();
+
+    return () => {
+      cancelled = true;
+      if (unlisten) unlisten();
+    };
+  }, [saveProject, saveProjectAs, handleMenuOpenFile, handleMenuNewFile, handleMenuCheckForUpdates, closeProject, setAppTheme, filePath]);
 
   // Central Inbox State
   const [isInboxOpen, setIsInboxOpen] = useState(false);
@@ -288,7 +429,7 @@ const AppContent: React.FC = () => {
         />
       </div>
       
-      <main className="w-full h-[calc(100vh-50px)] mt-[50px] relative print:hidden print:mt-0 print:h-auto overflow-y-auto overflow-x-hidden">
+      <main className={`w-full relative print:hidden print:mt-0 print:h-auto overflow-y-auto overflow-x-hidden h-[calc(100vh-50px)] mt-[50px]`}>
         {currentView === 'board' && <div className="w-full h-full"><BoardView key={`board-${refreshKey}`} onEditBeat={handleEditBeat} /></div>}
         {currentView === 'script' && <ScriptView key={`script-${refreshKey}`} onNavigateToView={(v) => setCurrentView(v)} />}
         {currentView === 'casting' && <div className="w-full h-full"><CastingView key={`casting-${refreshKey}`} onNavigateToView={(v) => setCurrentView(v)} /></div>}
@@ -339,6 +480,26 @@ const AppContent: React.FC = () => {
 
       {showPrintPreview && (
         <PrintPreviewModal onClose={() => setShowPrintPreview(false)} />
+      )}
+
+      {showNewProject && (
+        <NewProjectModal onClose={() => setShowNewProject(false)} />
+      )}
+
+      {showWelcome && (
+        <WelcomeScreen
+          recents={recentFiles}
+          onNew={() => {
+            if (isTauri()) handleMenuNewFile();
+            else { setShowNewProject(true); setShowWelcome(false); }
+          }}
+          onOpen={() => handleMenuOpenFile()}
+          onOpenRecent={async (path) => {
+            const ok = await openPath(path);
+            if (ok) setShowWelcome(false);
+          }}
+          onDismiss={() => setShowWelcome(false)}
+        />
       )}
 
       <InboxModal

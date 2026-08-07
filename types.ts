@@ -321,7 +321,7 @@ export interface ProjectContextType extends ProjectState {
   
   login: (username: string) => void;
   logout: () => void;
-  selectProject: (id: string) => void;
+  selectProject: (id: string, opts?: { silent?: boolean }) => void;
   createProject: (name: string) => void;
   deleteProject: (id: string) => void;
   closeProject: () => void;

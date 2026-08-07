@@ -127,7 +127,7 @@ const AppHeader: React.FC<AppHeaderProps> = ({
 
   return (
     <>
-      <header className="fixed top-0 left-0 w-full h-[50px] bg-[#111] border-b border-[#3d3d3d] flex items-center justify-between px-5 z-[500] select-none shadow-[0_2px_10px_rgba(0,0,0,0.3)] font-['Helvetica_Neue',Helvetica,Arial,sans-serif]">
+      <header className={`fixed left-0 w-full h-[50px] bg-[#111] border-b border-[#3d3d3d] flex items-center justify-between px-5 top-0 z-[500] select-none shadow-[0_2px_10px_rgba(0,0,0,0.3)] font-['Helvetica_Neue',Helvetica,Arial,sans-serif]`}>
         
         {/* LEFT: Cinematic Logo */}
         <div className="flex items-center gap-4 h-full flex-1">

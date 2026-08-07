@@ -144,6 +144,30 @@ export function getHighlightSearchTerms(text: string): string[] {
 }
 
 /**
+ * Extracts unique, normalized character-name suggestions from screenplay content.
+ * Reads ONLY `.sc-character` cue lines from the given beats' content, so the
+ * script editor's character suggestions are never influenced by breakdown data,
+ * character-design data, or any other page.
+ */
+export function extractScriptCharacterSuggestions(beats: { content?: string }[]): string[] {
+  const chars = new Set<string>();
+  beats.forEach((b) => {
+    if (!b.content) return;
+    const div = document.createElement('div');
+    div.innerHTML = b.content;
+    div.querySelectorAll('.sc-character').forEach((el) => {
+      const name = (el.textContent || '')
+        .replace(/\([^)]*\)/g, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .toUpperCase();
+      if (name && name.length > 1) chars.add(name);
+    });
+  });
+  return Array.from(chars).sort();
+}
+
+/**
  * Deduplicates an array of character names, combining bilingual and single names into unified entries.
  */
 export function deduplicateCharacterNames(names: string[]): string[] {

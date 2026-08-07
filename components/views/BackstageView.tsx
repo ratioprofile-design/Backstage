@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useProject } from '../../context/ProjectContext';
 import { isTauri, getTauriFs, getTauriDialog } from '../../utils/desktop';
+import { addRecentFile } from '../../utils/recentFiles';
 import { ScriptConfig } from '../../types';
 import { 
   Save, Upload, Printer, 
@@ -311,6 +312,7 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
             const data = JSON.parse(content);
             loadProject(data);
             setFilePath(selected as string);
+            addRecentFile(selected as string);
             alert("Project Loaded Successfully!");
             if (onNavigateToBoard) {
               onNavigateToBoard();
