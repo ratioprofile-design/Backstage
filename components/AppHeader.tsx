@@ -226,12 +226,10 @@ const AppHeader: React.FC<AppHeaderProps> = ({
           <button
               onClick={() => onAskAnything?.()}
               disabled={!aiAvailable}
-              className="p-2 rounded-lg transition-all duration-300 border flex items-center gap-2 group cursor-pointer bg-gradient-to-br from-[#252018] to-[#1a1a1a] border-[#f5a623]/40 text-[#f5a623] hover:border-[#f5a623] hover:shadow-[0_0_12px_rgba(245,166,35,0.35)] disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:border-[#f5a623]/40 disabled:hover:shadow-none"
-              title={aiStatusTitle}
+              className="w-9 h-9 rounded-lg transition-all duration-300 border flex items-center justify-center group cursor-pointer bg-gradient-to-br from-[#252018] to-[#1a1a1a] border-[#f5a623]/40 text-[#f5a623] hover:border-[#f5a623] hover:shadow-[0_0_12px_rgba(245,166,35,0.35)] disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:border-[#f5a623]/40 disabled:hover:shadow-none"
+              title={`Ask Anything (AI Assistant) — ${aiStatusTitle}`}
           >
-              <span className={`w-2 h-2 rounded-full ${aiAvailable ? 'bg-green-400 shadow-[0_0_6px_rgba(74,222,128,0.8)]' : 'bg-red-500 shadow-[0_0_6px_rgba(248,113,113,0.8)]'}`}></span>
-              <Sparkles size={18} className="fill-[#f5a623]/30 group-hover:scale-110 transition-transform duration-300" />
-              <span className="hidden lg:inline text-[10px] font-black uppercase tracking-wider">Ask Anything</span>
+              <Sparkles size={16} className="fill-[#f5a623]/30 group-hover:scale-110 transition-transform duration-300" />
           </button>
         </div>
 
@@ -279,55 +277,37 @@ const AppHeader: React.FC<AppHeaderProps> = ({
         <div className="flex items-center justify-end gap-[10px] h-full flex-1">
           <button 
             onClick={() => onViewChange('goals')}
-            className={`relative overflow-hidden flex items-center gap-3 px-3 py-1.5 rounded-[4px] border transition-all duration-300 group min-w-[140px] h-9 ${
+            className={`relative overflow-hidden flex items-center justify-center w-9 h-9 rounded-[4px] border transition-all duration-300 group ${
               currentView === 'goals'
                 ? 'bg-[#222] border-[#f5a623] shadow-[0_0_10px_rgba(245,166,35,0.2)]'
                 : writingGoal.isActive 
                     ? 'bg-[#1a1a1a] border-[#333] hover:border-[#555]' 
                     : 'bg-[#222] border-[#444] text-[#888] hover:border-[#666] hover:text-[#ccc]'
             }`}
-            title={progressDisplay ? `${progressDisplay.label} Progress: ${progressDisplay.percent}%` : "Set Goal"}
+            title={writingGoal.isActive && progressDisplay ? `Goal Progress: ${progressDisplay.current}/${progressDisplay.target} ${progressDisplay.unit} (${progressDisplay.percent}%) — ${progressDisplay.label}` : "Set Deadline / Writing Goal"}
           >
              {/* Progress Bar Background */}
              {writingGoal.isActive && progressDisplay && (
-                 <div 
-                    className={`absolute left-0 top-0 bottom-0 transition-all duration-500 ease-out pointer-events-none ${
-                        progressDisplay.showTotal
-                            ? (progressDisplay.iDone ? 'bg-green-500/30' : 'bg-[#f5a623]/30') 
-                            : 'bg-blue-600/40' 
-                    }`}
-                    style={{ width: `${progressDisplay.percent}%` }}
-                 />
+                  <div 
+                     className={`absolute left-0 top-0 bottom-0 transition-all duration-500 ease-out pointer-events-none ${
+                         progressDisplay.showTotal
+                             ? (progressDisplay.iDone ? 'bg-green-500/30' : 'bg-[#f5a623]/30') 
+                             : 'bg-blue-600/40' 
+                     }`}
+                     style={{ width: `${progressDisplay.percent}%` }}
+                  />
              )}
 
              {writingGoal.isActive && progressDisplay ? (
-                 <>
-                    <div className={`z-10 ${
-                        progressDisplay.showTotal
-                            ? (progressDisplay.iDone ? 'text-green-500' : 'text-[#f5a623]') 
-                            : 'text-blue-400'
-                    }`}>
-                        {progressDisplay.iDone ? <CheckCircle2 size={14} /> : (progressDisplay.showTotal ? <Target size={14} /> : <TrendingUp size={14} />)}
-                    </div>
-                    <div className="flex flex-col items-start z-10">
-                        <div className="flex items-baseline gap-1">
-                            <span className={`text-[10px] font-black uppercase leading-none ${progressDisplay.showTotal ? 'text-gray-200' : 'text-blue-100'}`}>
-                                {progressDisplay.current.toLocaleString()}
-                            </span>
-                            <span className="text-[8px] font-bold text-gray-500 uppercase leading-none">
-                                / {progressDisplay.target.toLocaleString()} {progressDisplay.unit}
-                            </span>
-                        </div>
-                        <span className={`text-[8px] font-bold uppercase leading-none mt-0.5 ${progressDisplay.showTotal ? 'text-[#f5a623]' : 'text-blue-400'}`}>
-                            {progressDisplay.label}
-                        </span>
-                    </div>
-                 </>
+                 <div className={`z-10 ${
+                     progressDisplay.showTotal
+                         ? (progressDisplay.iDone ? 'text-green-500' : 'text-[#f5a623]') 
+                         : 'text-blue-400'
+                 }`}>
+                     {progressDisplay.iDone ? <CheckCircle2 size={14} /> : (progressDisplay.showTotal ? <Target size={14} /> : <TrendingUp size={14} />)}
+                 </div>
              ) : (
-                 <>
-                    <Clock size={14} />
-                    <span className="text-[11px] font-bold uppercase tracking-wide">Set Deadline</span>
-                 </>
+                 <Clock size={14} className="z-10" />
              )}
           </button>
           {/* THEME TOGGLE BUTTON */}
