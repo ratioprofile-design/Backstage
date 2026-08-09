@@ -1,5 +1,6 @@
 import React, { useMemo, useRef, useState, useEffect } from 'react';
 import { useProject } from '../../context/ProjectContext';
+import { useAiKeyStatus } from '../../context/AiKeyStatusContext';
 import { CharacterData } from '../../types';
 import { generateImage } from '../../services/gemini';
 import { deduplicateCharacterNames, isSameCharacterName } from '../../utils/characterUtils';
@@ -37,7 +38,8 @@ const BILLING_TIERS = [
 ] as const;
 
 const CharacterDesignView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'casting') => void }> = ({ onNavigateToView }) => {
-  const { characterData, setCharacterData, beats, appTheme, storyboardConfig, stabilityApiKey, characterDesignLocked, setCharacterDesignLocked } = useProject();
+  const { characterData, setCharacterData, beats, appTheme, storyboardConfig, characterDesignLocked, setCharacterDesignLocked } = useProject();
+  const { aiAvailable } = useAiKeyStatus();
   const isLight = appTheme === 'light' || (appTheme === 'system' && typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: light)').matches);
   const isLocked = !!characterDesignLocked;
 
@@ -241,9 +243,7 @@ const CharacterDesignView: React.FC<{ onNavigateToView?: (view: 'characterdesign
       const url = await generateImage({
         prompt,
         aspectRatio: '4:3',
-        model: storyboardConfig.imageModel || 'gemini-2.5-flash-image',
-        provider: storyboardConfig.provider,
-        stabilityApiKey
+        model: storyboardConfig.imageModel || 'gemini-2.5-flash-image'
       });
       if (url) {
         updateCharacter(activeRoleName, { aiImages: [...(target.aiImages || []), url] });
@@ -793,7 +793,7 @@ const CharacterDesignView: React.FC<{ onNavigateToView?: (view: 'characterdesign
                   <button
                     type="button"
                     onClick={handleGeneratePortrait}
-                    disabled={generatingPortrait || isLocked}
+                    disabled={generatingPortrait || isLocked || !aiAvailable}
                     className="aspect-[4/3] border border-dashed border-violet-600/60 text-violet-500 hover:text-violet-400 hover:border-violet-500 flex flex-col items-center justify-center gap-1 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
                   >
                     {generatingPortrait ? <Loader2 size={16} className="animate-spin" /> : <Wand2 size={16} />}

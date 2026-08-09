@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect, useRef, memo, useMemo } from 'react';
 import { useProject } from '../../context/ProjectContext';
+import { useAiKeyStatus } from '../../context/AiKeyStatusContext';
 import { generateShotList, generateImage } from '../../services/gemini';
 import { 
     Wand2, Image as ImageIcon, Film, Loader2, Download, Camera,
@@ -252,7 +253,7 @@ const isValidImage = (url: string | null | undefined): boolean => {
     return !!url && (url.startsWith('data:image') || url.startsWith('http') || url.startsWith('blob:'));
 };
 
-const StoryCard = memo(({ shot, index, total, onUpdate, onAddNext, onDelete, onMove, onRender, onDownload, onOpenInspector, onToBoard, isRendering, isSelected, onToggleSelect, isLight }: any) => {
+const StoryCard = memo(({ shot, index, total, onUpdate, onAddNext, onDelete, onMove, onRender, onDownload, onOpenInspector, onToBoard, isRendering, isSelected, onToggleSelect, isLight, aiAvailable }: any) => {
     const [historyIndex, setHistoryIndex] = useState(-1);
     const [sendState, setSendState] = useState<'idle' | 'sending' | 'sent'>('idle');
     const [confirmDelete, setConfirmDelete] = useState(false);
@@ -477,7 +478,7 @@ const StoryCard = memo(({ shot, index, total, onUpdate, onAddNext, onDelete, onM
             <div className={`p-2 border-t flex gap-2 ${
                 isLight ? 'bg-slate-50 border-slate-200' : 'bg-[#121216] border-[#22222a]'
             }`}>
-                <button onClick={() => onRender(index)} disabled={isRendering} className={`flex-1 border py-1.5 rounded-md text-[10px] font-extrabold uppercase flex items-center justify-center gap-1.5 transition-all cursor-pointer disabled:opacity-50 ${
+                <button onClick={() => onRender(index)} disabled={isRendering || !aiAvailable} title={aiAvailable ? undefined : "AI unavailable — no working API key"} className={`flex-1 border py-1.5 rounded-md text-[10px] font-extrabold uppercase flex items-center justify-center gap-1.5 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
                     isLight 
                         ? 'bg-slate-900 hover:bg-slate-800 text-white border-slate-900 shadow-2xs' 
                         : 'bg-[#1e1e28] border-[#2c2c3a] text-zinc-200 hover:bg-[#282836] hover:text-white hover:border-amber-500/50'
@@ -508,9 +509,9 @@ const StoryCard = memo(({ shot, index, total, onUpdate, onAddNext, onDelete, onM
             </div>
         </div>
     );
-}, (prev, next) => prev.shot === next.shot && prev.index === next.index && prev.isRendering === next.isRendering && prev.total === next.total && prev.isSelected === next.isSelected && prev.isLight === next.isLight);
+}, (prev, next) => prev.shot === next.shot && prev.index === next.index && prev.isRendering === next.isRendering && prev.total === next.total && prev.isSelected === next.isSelected && prev.isLight === next.isLight && prev.aiAvailable === next.aiAvailable);
 
-const ShotRow = memo(({ shot, index, total, onUpdate, onAddNext, onDelete, onMove, onRender, isRendering, isSelected, onToggleSelect, isLight }: any) => {
+const ShotRow = memo(({ shot, index, total, onUpdate, onAddNext, onDelete, onMove, onRender, isRendering, isSelected, onToggleSelect, isLight, aiAvailable }: any) => {
     const [confirmDelete, setConfirmDelete] = useState(false);
     useEffect(() => {
         if (confirmDelete) {
@@ -545,7 +546,7 @@ const ShotRow = memo(({ shot, index, total, onUpdate, onAddNext, onDelete, onMov
                 </div>
             </td>
             <td className={`p-2 w-32 border-r ${isLight ? 'border-slate-200' : 'border-[#22222a]'}`}>
-                <div className="w-28 h-16 bg-black rounded border border-[#2a2a36] overflow-hidden relative flex items-center justify-center cursor-pointer hover:border-amber-500 group/thumb" onClick={() => onRender(index)}>
+                <div className={`w-28 h-16 bg-black rounded border overflow-hidden relative flex items-center justify-center ${aiAvailable ? 'cursor-pointer hover:border-amber-500 group/thumb' : 'cursor-not-allowed opacity-40 group/thumb'} ${isLight ? 'border-slate-300' : 'border-[#2a2a36]'}`} onClick={() => aiAvailable && onRender(index)} title={aiAvailable ? undefined : "AI unavailable — no working API key"}>
                     {isValidImage(shot.imageUrl) ? (<img src={shot.imageUrl} loading="lazy" className="w-full h-full object-cover" />) : (<Film size={16} className="text-zinc-600" />)}
                     {isRendering ? (<div className="absolute inset-0 bg-black/60 flex items-center justify-center"><Loader2 size={16} className="animate-spin text-amber-400" /></div>) : (<div className="absolute inset-0 bg-black/60 opacity-0 group-hover/thumb:opacity-100 flex items-center justify-center transition-opacity"><Wand2 size={16} className="text-white" /></div>)}
                 </div>
@@ -615,8 +616,9 @@ const StoryboardView: React.FC = () => {
       beats, generatedShots, setGeneratedShots, updateGeneratedShot, 
       addGeneratedShot, removeGeneratedShot, moveGeneratedShot, storyboardConfig, setStoryboardConfig,
       characterData, setAnnotations, panX, panY, scale,
-      stabilityApiKey, projectList = [], currentProjectId = null, appTheme
+      projectList = [], currentProjectId = null, appTheme
   } = useProject();
+  const { aiAvailable } = useAiKeyStatus();
   
   const isLight = appTheme === 'light' || (appTheme === 'system' && typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: light)').matches);
   
@@ -711,9 +713,7 @@ const StoryboardView: React.FC = () => {
                const url = await generateImage({
                    prompt, 
                    aspectRatio: storyboardConfig.aspectRatio || '16:9',
-                   model: storyboardConfig.imageModel || 'gemini-2.5-flash-image',
-                   provider: storyboardConfig.provider,
-                   stabilityApiKey: stabilityApiKey
+                   model: storyboardConfig.imageModel || 'gemini-2.5-flash-image'
                });
                if (url) {
                    const newHistory = shot.imageHistory ? [...shot.imageHistory] : [];
@@ -936,7 +936,7 @@ const StoryboardView: React.FC = () => {
       const text = getScriptSegment();
       if (!text.trim()) { alert("No scenes found in that range."); return; }
       
-      const rawShots = await generateShotList(text, storyboardConfig.textModel || 'gemini-3-flash-preview');
+      const rawShots = await generateShotList(text, storyboardConfig.textModel || 'gemini-2.5-flash');
       const shotsArray = Array.isArray(rawShots) 
         ? rawShots 
         : (rawShots && typeof rawShots === 'object' 
@@ -1054,13 +1054,9 @@ const StoryboardView: React.FC = () => {
 
   // --- RENDER LOGIC (Single & Queue) ---
   const renderSingleShot = async (index: number) => {
-    if (storyboardConfig.provider === 'stability' && !stabilityApiKey) {
-        alert("Please set Stability API Key in Backstage settings.");
-        return;
-    }
-
     const shot = generatedShots[index];
     if (!shot) return;
+    if (!aiAvailable) return;
     
     setCurrentlyRenderingId(shot.id);
     try {
@@ -1069,9 +1065,7 @@ const StoryboardView: React.FC = () => {
       const url = await generateImage({
           prompt, 
           aspectRatio: storyboardConfig.aspectRatio || '16:9',
-          model: storyboardConfig.imageModel || 'gemini-2.5-flash-image',
-          provider: storyboardConfig.provider,
-          stabilityApiKey: stabilityApiKey
+          model: storyboardConfig.imageModel || 'gemini-2.5-flash-image'
       });
 
       if (url) {
@@ -1088,8 +1082,6 @@ const StoryboardView: React.FC = () => {
   };
 
   const handleRenderAll = async () => {
-    if (storyboardConfig.provider === 'stability' && !stabilityApiKey) { alert("Please set Stability API Key."); return; }
-
     if (generatedShots.length === 0) return;
     setIsQueueRunning(true);
     cancelQueueRef.current = false;
@@ -1105,9 +1097,7 @@ const StoryboardView: React.FC = () => {
              const url = await generateImage({
                  prompt, 
                  aspectRatio: storyboardConfig.aspectRatio || '16:9',
-                 model: storyboardConfig.imageModel || 'gemini-2.5-flash-image',
-                 provider: storyboardConfig.provider,
-                 stabilityApiKey: stabilityApiKey
+                 model: storyboardConfig.imageModel || 'gemini-2.5-flash-image'
              });
              if (url) {
                  const newHistory = shot.imageHistory ? [...shot.imageHistory] : [];
@@ -1251,7 +1241,7 @@ const StoryboardView: React.FC = () => {
   };
 
   const activeShot = inspectorShotId ? generatedShots.find(s => s.id === inspectorShotId) : null;
-  const isApiConnected = storyboardConfig.provider === 'stability' ? !!stabilityApiKey : true;
+  const isApiConnected = true;
 
   return (
     <div className={`w-full h-full flex flex-col overflow-hidden relative ${isLight ? 'bg-slate-100 text-slate-800' : 'bg-[#121215] text-zinc-100'}`}>
@@ -1271,8 +1261,8 @@ const StoryboardView: React.FC = () => {
 
             <button 
                 onClick={handlePlanShots} 
-                disabled={analyzing || isQueueRunning} 
-                className={`flex items-center gap-2 border px-3 py-1.5 rounded-lg text-xs font-bold uppercase transition-all cursor-pointer ${
+                disabled={analyzing || isQueueRunning || !aiAvailable} 
+                className={`flex items-center gap-2 border px-3 py-1.5 rounded-lg text-xs font-bold uppercase transition-all cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 ${
                     isLight 
                         ? 'bg-amber-500 text-white border-amber-600 hover:bg-amber-600 shadow-sm' 
                         : 'bg-[#22222c] border-[#2d2d3a] hover:bg-amber-500 hover:text-slate-950 text-zinc-200'
@@ -1706,6 +1696,7 @@ const StoryboardView: React.FC = () => {
                                         isSelected={selectedIds.has(shot.id)}
                                         onToggleSelect={handleToggleSelect}
                                         isLight={isLight}
+                                        aiAvailable={aiAvailable}
                                     />
                                 ))}
                             </tbody>

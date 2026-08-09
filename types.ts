@@ -41,7 +41,6 @@ export interface ScratchpadConfig {
 }
 
 export interface StoryboardConfig {
-  provider: 'google' | 'stability'; // New provider toggle
   style: string; // e.g. "Charcoal Sketch", "Photorealistic"
   aspectRatio: string; // e.g. "16:9", "4:3"
   imageModel?: string; // Model ID for image generation
@@ -285,7 +284,8 @@ export interface ProjectState {
   
   // AI Keys
   geminiApiKey: string;
-  stabilityApiKey: string;
+  openrouterKey: string;
+  generalAiModel: string;
 
   // Analytics
   dailyStats: Record<string, number>; // YYYY-MM-DD -> Word Count
@@ -405,7 +405,8 @@ export interface ProjectContextType extends ProjectState {
 
   // AI Keys
   setGeminiApiKey: (key: string) => void;
-  setStabilityApiKey: (key: string) => void;
+  setOpenrouterKey: (key: string) => void;
+  setGeneralAiModel: (model: string) => void;
 
   // Board Layers
   setBoardLayerOrder: (order: BoardLayer[]) => void;
@@ -627,6 +628,8 @@ export interface Beat {
   status?: BeatStatus; // Readiness status
   versions?: BeatVersion[]; // History of changes
   boardId?: number; // Target Board Page
+  w?: number; // Board card width (custom resized)
+  h?: number; // Board card height (custom resized)
 }
 
 export type ConnectionStyle = 'curve' | 'zigzag';
@@ -657,6 +660,7 @@ export interface Annotation {
   rx?: number;
   text?: string; // Content for text annotations
   fontSize?: number;
+  rotation?: number; // Annotation rotation in degrees (drawings)
   imageUrl?: string; // Content for image annotations
   audioUrl?: string; // Content for audio annotations
   boardId?: number;

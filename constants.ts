@@ -88,17 +88,17 @@ export const AVAILABLE_ENGLISH_FONTS = [
 
 export const AVAILABLE_IMAGE_MODELS = [
     { label: 'Gemini 2.5 Flash Image (Fast & Cheap)', value: 'gemini-2.5-flash-image' },
-    { label: 'Gemini 3 Pro Image (High Quality)', value: 'gemini-3-pro-image-preview' },
-    { label: 'Imagen 3 (Premium)', value: 'imagen-3.0-generate-002' },
-    { label: 'Stable Diffusion XL (Stability AI)', value: 'stable-diffusion-xl-1024-v1-0' },
-    { label: 'SD 1.6 (Stability AI)', value: 'stable-diffusion-v1-6' }
+    { label: 'Imagen 3 (Premium)', value: 'imagen-3.0-generate-002' }
 ];
 
 export const AVAILABLE_TEXT_MODELS = [
-    { label: 'Gemini 3 Flash (Fast)', value: 'gemini-3-flash-preview' },
-    { label: 'Gemini 3 Pro (Smart)', value: 'gemini-3-pro-preview' },
-    { label: 'Gemini 2.5 Flash', value: 'gemini-2.5-flash' },
+    { label: 'Gemini 2.5 Flash (Fast)', value: 'gemini-2.5-flash' },
+    { label: 'Gemini 2.5 Pro (Smart)', value: 'gemini-2.5-pro' },
+    { label: 'NVIDIA Nemotron 3 Nano (Free)', value: 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free' },
+    { label: 'Moonshot Kimi K3 (Free)', value: 'moonshotai/kimi-k3-free' },
 ];
+
+export const GEMINI_TEXT_MODELS = AVAILABLE_TEXT_MODELS.filter(m => !m.value.includes('/'));
 
 export const VISUAL_STYLES = [
     'Charcoal Sketch',
@@ -266,11 +266,10 @@ export const INITIAL_STATE: ProjectState = {
   },
 
   storyboardConfig: {
-    provider: 'google',
     style: 'Charcoal Sketch',
     aspectRatio: '16:9',
     imageModel: 'gemini-2.5-flash-image', 
-    textModel: 'gemini-3-flash-preview'
+    textModel: 'gemini-2.5-flash'
   },
   isStoryboardFeatureEnabled: true,
   breakdownLanguage: 'english',
@@ -289,7 +288,8 @@ export const INITIAL_STATE: ProjectState = {
     dailyWritingMinutes: 120 // 2 hours default
   },
   geminiApiKey: '',
-  stabilityApiKey: '',
+  openrouterKey: '',
+  generalAiModel: 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free',
   dailyStats: {},
   sessionStartCount: 0,
   lastSessionDate: new Date().toISOString().split('T')[0],

@@ -2,22 +2,263 @@ import { GoogleGenAI } from "@google/genai";
 import { BreakdownData, Beat } from "../types";
 
 // Removed defensive client initialization and singleton pattern to follow guidelines
-// requiring direct process.env.API_KEY usage and per-call instantiation.
+// requiring direct import.meta.env.VITE_GEMINI_API_KEY usage and per-call instantiation.
 
-export async function generateText(prompt: string, model: string = 'gemini-3-flash-preview'): Promise<string> {
-  try {
-    // Always use a new instance right before the call to ensure latest API key is used.
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+export const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
+export const TOKENROUTER_BASE_URL = 'https://api.tokenrouter.com/v1';
+export const GEMINI_FALLBACK_MODEL = 'gemini-2.5-flash';
+
+const QUOTA_ERROR_RE = /quota|credit|balance|insufficient|recharge|429/i;
+
+function quotaErrorMessage(provider: string, status: number, message: string): string {
+  return `${provider} rejected the request (HTTP ${status}) because the account has no usable balance: "${message.slice(0, 140)}". Recharge the account, or switch the General Purpose model to a Gemini model in Backstage > AI.`;
+}
+
+async function callGeminiText(prompt: string, model: string, jsonMode: boolean): Promise<string> {
+  if (!import.meta.env.VITE_GEMINI_API_KEY) {
+    throw new Error("Gemini API key is not set. Add GEMINI_API_KEY to the .env file, or fix the TokenRouter/OpenRouter account balance in Backstage > AI.");
+  }
+  const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY });
+  if (jsonMode) {
     const response = await ai.models.generateContent({
       model: model,
       contents: prompt,
+      config: { responseMimeType: 'application/json' },
     });
-    // Access text property directly (GenerateContentResponse features a text property, not a method)
     return response.text || '';
+  }
+  const response = await ai.models.generateContent({
+    model: model,
+    contents: prompt,
+  });
+  return response.text || '';
+}
+
+// TokenRouter blocks browser CORS, so in dev we tunnel through the Vite dev
+// server proxy (/tokenrouter -> https://api.tokenrouter.com). Production builds
+// fall back to the direct URL.
+function tokenRouterBaseUrl(): string {
+  return import.meta.env.DEV ? '/tokenrouter/v1' : TOKENROUTER_BASE_URL;
+}
+
+// OpenRouter/TokentRouter models use slugs like "nvidia/..." or "moonshotai/...".
+// Google models never contain a "/", so this is a reliable router.
+export function isOpenRouterModel(model: string): boolean {
+  return typeof model === 'string' && model.includes('/');
+}
+
+// OpenRouter keys always start with "sk-or-v1-". Everything else starting with
+// "sk-" is treated as a TokenRouter key. Defaults to TokenRouter when present.
+export function resolveBaseUrl(apiKey?: string): string {
+  if (apiKey && apiKey.startsWith('sk-or-v1-')) return OPENROUTER_BASE_URL;
+  return tokenRouterBaseUrl();
+}
+
+// OpenAI-compatible chat completion against OpenRouter or TokenRouter.
+async function openAICompletion(baseUrl: string, prompt: string, model: string, apiKey: string, jsonMode = false): Promise<string> {
+  const provider = baseUrl.includes('openrouter') ? 'OpenRouter' : 'TokenRouter';
+  const res = await fetch(`${baseUrl}/chat/completions`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model,
+      messages: [{ role: 'user', content: prompt }],
+      ...(jsonMode ? { response_format: { type: 'json_object' } } : {}),
+    }),
+  });
+  if (!res.ok) {
+    const errText = await res.text();
+    let message = `${provider} API Error ${res.status}: ${errText.slice(0, 300)}`;
+    if (QUOTA_ERROR_RE.test(message)) {
+      message = quotaErrorMessage(provider, res.status, errText);
+    }
+    throw new Error(message);
+  }
+  const data = await res.json();
+  return data?.choices?.[0]?.message?.content || '';
+}
+
+// Routes a text prompt to OpenRouter/TokenRouter or Google Gemini based on the model slug.
+// Falls back to Gemini automatically when the external provider is out of credit
+// and a Gemini key is configured.
+async function callTextModel(prompt: string, model: string, jsonMode: boolean, openRouterApiKey?: string): Promise<string> {
+  if (isOpenRouterModel(model)) {
+    // Prefer the in-app key (Backstage AI tab), fall back to env vars.
+    const key = openRouterApiKey || import.meta.env.VITE_TOKENROUTER_API_KEY || import.meta.env.VITE_OPENROUTER_API_KEY;
+    if (!key) {
+      throw new Error("API key not set. Add it in Backstage > AI.");
+    }
+    try {
+      return await openAICompletion(resolveBaseUrl(key), prompt, model, key, jsonMode);
+    } catch (err: any) {
+      const msg = err?.message || '';
+      if (QUOTA_ERROR_RE.test(msg) && import.meta.env.VITE_GEMINI_API_KEY) {
+        console.warn('External provider out of credit — falling back to Gemini.');
+        return callGeminiText(prompt, GEMINI_FALLBACK_MODEL, jsonMode);
+      }
+      throw err;
+    }
+  }
+  return callGeminiText(prompt, model, jsonMode);
+}
+
+export async function generateText(prompt: string, model: string = 'gemini-2.5-flash', openRouterApiKey?: string): Promise<string> {
+  try {
+    return await callTextModel(prompt, model, false, openRouterApiKey);
   } catch (error) {
-    console.error("Gemini Text Gen Error:", error);
+    console.error("AI Text Gen Error:", error);
     throw error;
   }
+}
+
+// Validates an API key against its provider (TokenRouter or OpenRouter).
+// ok = key authenticates; quotaOk = a real completion succeeded (catches $0 credit).
+export async function testApiKey(apiKey: string): Promise<{ ok: boolean; provider: string; quotaOk: boolean; error?: string }> {
+  const provider = apiKey && apiKey.startsWith('sk-or-v1-') ? 'OpenRouter' : 'TokenRouter';
+  const baseUrl = resolveBaseUrl(apiKey);
+  try {
+    // OpenRouter exposes /auth/key; TokenRouter lists models for the key.
+    const res = await fetch(`${baseUrl}/${provider === 'OpenRouter' ? 'auth/key' : 'models'}`, {
+      headers: { 'Authorization': `Bearer ${apiKey}` },
+    });
+    if (!res.ok) {
+      let message = `HTTP ${res.status}`;
+      try {
+        const body = await res.json();
+        if (body?.error?.message) message = body.error.message;
+      } catch { /* ignore parse errors */ }
+      return { ok: false, provider, quotaOk: false, error: message };
+    }
+
+    // Probe with a 1-token completion on the first model the key can access,
+    // so a $0-balance account surfaces as "valid key, but no credit".
+    const listData = await res.json();
+    const modelId = Array.isArray(listData?.data) && listData.data.length > 0 ? listData.data[0].id : undefined;
+    if (modelId) {
+      try {
+        const probe = await fetch(`${baseUrl}/chat/completions`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+          body: JSON.stringify({ model: modelId, messages: [{ role: 'user', content: 'hi' }], max_tokens: 1 }),
+        });
+        const pbody = await probe.json().catch(() => null);
+        if (!probe.ok) {
+          const msg = pbody?.error?.message || `HTTP ${probe.status}`;
+          if (/quota|credit|balance|recharge|insufficient/i.test(msg)) {
+            return { ok: true, provider, quotaOk: false, error: msg };
+          }
+        }
+      } catch { /* completion probe failed non-fatally — key still authenticated */ }
+    }
+
+    return { ok: true, provider, quotaOk: true };
+  } catch (err: any) {
+    return { ok: false, provider, quotaOk: false, error: err?.message || 'Network error' };
+  }
+}
+
+// Probes the configured Gemini key with a tiny generateContent call.
+export async function testGeminiApiKey(): Promise<{ ok: boolean; error?: string }> {
+  const key = import.meta.env.VITE_GEMINI_API_KEY;
+  if (!key) {
+    return { ok: false, error: 'Gemini API key is not set — add VITE_GEMINI_API_KEY to the .env file.' };
+  }
+  try {
+    const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
+      body: JSON.stringify({
+        contents: [{ role: 'user', parts: [{ text: 'reply OK' }] }],
+        generationConfig: { maxOutputTokens: 5 },
+      }),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      const msg = body?.error?.message || `HTTP ${res.status}`;
+      return { ok: false, error: msg };
+    }
+    return { ok: true };
+  } catch (err: any) {
+    return { ok: false, error: err?.message || 'Network error' };
+  }
+}
+
+export interface ChatMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+// Multi-turn conversation routed to OpenRouter/TokenRouter (full history) or Gemini.
+// Falls back to Gemini automatically when the external provider is out of credit
+// and a Gemini key is configured.
+export async function chatWithAI(
+  messages: ChatMessage[],
+  model: string,
+  systemPrompt?: string,
+  openRouterApiKey?: string
+): Promise<string> {
+  if (isOpenRouterModel(model)) {
+    const key = openRouterApiKey || import.meta.env.VITE_TOKENROUTER_API_KEY || import.meta.env.VITE_OPENROUTER_API_KEY;
+    if (!key) {
+      throw new Error("API key not set. Add it in Backstage > AI.");
+    }
+    const provider = resolveBaseUrl(key).includes('openrouter') ? 'OpenRouter' : 'TokenRouter';
+    try {
+      const baseUrl = resolveBaseUrl(key);
+      const res = await fetch(`${baseUrl}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${key}`,
+        },
+        body: JSON.stringify({
+          model,
+          messages: [
+            ...(systemPrompt ? [{ role: 'system', content: systemPrompt }] : []),
+            ...messages.map(m => ({ role: m.role, content: m.content })),
+          ],
+        }),
+      });
+      if (!res.ok) {
+        const errText = await res.text();
+        let message = `${provider} API Error ${res.status}: ${errText.slice(0, 300)}`;
+        if (QUOTA_ERROR_RE.test(message)) {
+          message = quotaErrorMessage(provider, res.status, errText);
+        }
+        throw new Error(message);
+      }
+      const data = await res.json();
+      return data?.choices?.[0]?.message?.content || '';
+    } catch (err: any) {
+      const msg = err?.message || '';
+      if (QUOTA_ERROR_RE.test(msg) && import.meta.env.VITE_GEMINI_API_KEY) {
+        console.warn('External provider out of credit — falling back to Gemini for chat.');
+        return chatGemini(messages, GEMINI_FALLBACK_MODEL, systemPrompt);
+      }
+      throw err;
+    }
+  }
+
+  return chatGemini(messages, model, systemPrompt);
+}
+
+async function chatGemini(messages: ChatMessage[], model: string, systemPrompt?: string): Promise<string> {
+  if (!import.meta.env.VITE_GEMINI_API_KEY) {
+    throw new Error("Gemini API key is not set. Add GEMINI_API_KEY to the .env file, or fix the TokenRouter/OpenRouter account balance in Backstage > AI.");
+  }
+  const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY });
+  const contents = [
+    ...(systemPrompt ? [{ role: 'user' as const, parts: [{ text: systemPrompt }] }] : []),
+    ...messages.map(m => ({
+      role: (m.role === 'assistant' ? 'model' : 'user') as 'user' | 'model',
+      parts: [{ text: m.content }],
+    })),
+  ];
+  const response = await ai.models.generateContent({ model, contents });
+  return response.text || '';
 }
 
 // Helper to sanitize JSON strings with bad escapes
@@ -57,7 +298,8 @@ function createSmartChunks(text: string, maxChars: number): string[] {
 
 export async function convertTextToScript(
     rawText: string, 
-    model: string = 'gemini-3-flash-preview'
+    model: string = 'gemini-2.5-flash',
+    openRouterApiKey?: string
 ): Promise<Beat[]> {
     const chunkSize = 30000;
     const chunks = createSmartChunks(rawText, chunkSize);
@@ -74,13 +316,7 @@ export async function convertTextToScript(
         `;
 
         try {
-            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-            const response = await ai.models.generateContent({
-                model: model,
-                contents: prompt,
-                config: { responseMimeType: 'application/json' }
-            });
-            const text = response.text || '[]';
+            const text = await callTextModel(prompt, model, true, openRouterApiKey);
             const parsedScenes = safeJSONParse(text);
 
             if (Array.isArray(parsedScenes)) {
@@ -115,20 +351,15 @@ export async function convertTextToScript(
 
 export async function analyzeScriptBatch(
     scenes: { id: number, content: string }[], 
-    model: string = 'gemini-3-flash-preview'
+    model: string = 'gemini-2.5-flash',
+    openRouterApiKey?: string
 ): Promise<any[]> {
     if (scenes.length === 0) return [];
     const simplifiedInput = scenes.map(s => ({ id: s.id, text: s.content.replace(/<[^>]+>/g, ' ').substring(0, 1000) }));
     const prompt = `Analyze the following script scenes... ${JSON.stringify(simplifiedInput)}`;
 
     try {
-        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-        const response = await ai.models.generateContent({
-            model: model,
-            contents: prompt,
-            config: { responseMimeType: 'application/json' }
-        });
-        const text = response.text || '[]';
+        const text = await callTextModel(prompt, model, true, openRouterApiKey);
         return safeJSONParse(text);
     } catch (e) {
         console.error("Batch Analysis Error", e);
@@ -136,7 +367,7 @@ export async function analyzeScriptBatch(
     }
 }
 
-export async function generateShotList(scriptSegment: string, model: string = 'gemini-3-flash-preview'): Promise<any[]> {
+export async function generateShotList(scriptSegment: string, model: string = 'gemini-2.5-flash'): Promise<any[]> {
   const prompt = `You are an expert cinematographer. Analyze the following screenplay segment and break it down into a list of shot cards.
 Return ONLY a raw JSON Array of shot objects. Do not wrap in markdown or object keys.
 Each object should contain:
@@ -150,7 +381,7 @@ Screenplay Segment:
 """${scriptSegment}"""`;
 
   try {
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+      const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY });
       const response = await ai.models.generateContent({
           model: model,
           contents: prompt,
@@ -178,7 +409,7 @@ export async function generateShotDivisionPreview(
   sceneHeading: string,
   scriptSegment: string,
   styleMode: string = 'Cinematic Pace',
-  model: string = 'gemini-3-flash-preview'
+  model: string = 'gemini-2.5-flash'
 ): Promise<any[]> {
   const prompt = `You are an A-list Director of Photography and Director. Analyze this scene and create a professional, highly detailed Shot Division breakdown in "${styleMode}" style.
 Scene Heading: ${sceneHeading}
@@ -200,7 +431,7 @@ Return ONLY a raw JSON Array of shot objects. Each object MUST contain:
 Ensure shots cover the complete scene logically from start to finish.`;
 
   try {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY });
     const response = await ai.models.generateContent({
       model: model,
       contents: prompt,
@@ -225,7 +456,7 @@ export async function predictNextShotSummary(
   scriptText: string,
   existingShots: any[],
   partialInput: { shotSize?: string; angle?: string; subject?: string; description?: string },
-  model: string = 'gemini-3-flash-preview'
+  model: string = 'gemini-2.5-flash'
 ): Promise<{ description: string; subject: string; lens: string; movement: string; scriptReference: string } | null> {
   const existingSummary = existingShots.map((s, idx) => `Shot #${idx + 1}: ${s.shotSize} ${s.angle} on ${s.subject || 'scene'} - ${s.description}`).join('\n');
   
@@ -253,7 +484,7 @@ Return ONLY a raw JSON Object with:
 `;
 
   try {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY });
     const response = await ai.models.generateContent({
       model: model,
       contents: prompt,
@@ -279,8 +510,9 @@ Return ONLY a raw JSON Object with:
 
 export async function generateBreakdown(
   scriptText: string, 
-  model: string = 'gemini-3-flash-preview', 
-  language: 'english' | 'tamil' = 'english'
+  model: string = 'gemini-2.5-flash', 
+  language: 'english' | 'tamil' = 'english',
+  openRouterApiKey?: string
 ): Promise<BreakdownData | null> {
   const langInstruction = language === 'tamil' 
     ? `CRITICAL LANGUAGE REQUIREMENT FOR TAMIL:
@@ -336,13 +568,7 @@ ${language === 'tamil' ? `{
 `;
 
   try {
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-      const response = await ai.models.generateContent({
-          model: model,
-          contents: prompt,
-          config: { responseMimeType: 'application/json' }
-      });
-      const text = response.text || '{}';
+      const text = await callTextModel(prompt, model, true, openRouterApiKey);
       const data = safeJSONParse(text);
 
       const normalize = (arr: any[]) => {
@@ -387,7 +613,7 @@ export async function generateImage(promptOrOptions: any): Promise<string | null
   let aspectRatio = (typeof promptOrOptions === 'object' && promptOrOptions?.aspectRatio) ? promptOrOptions.aspectRatio : '16:9';
 
   try {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY });
     if (model && model.includes('imagen')) {
         const response = await ai.models.generateImages({
             model: model,
@@ -429,7 +655,7 @@ export async function identifyActorFromImage(base64Image: string): Promise<strin
       }
     }
 
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY });
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash',
       contents: [

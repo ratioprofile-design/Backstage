@@ -14,6 +14,7 @@ import {
   Bold, Italic, Underline, Strikethrough, Eraser
 } from 'lucide-react';
 import DualViewToggle from '../DualViewToggle';
+import { useAiKeyStatus } from '../../context/AiKeyStatusContext';
 
 const BILLING_TIERS = [
   { id: 'lead', label: 'Lead Role', badge: 'bg-amber-500/20 text-amber-400 border-amber-500/40', badgeLight: 'bg-amber-100 text-amber-800 border-amber-300' },
@@ -136,6 +137,7 @@ const SettingsSection: React.FC<{ title: string; children: React.ReactNode }> = 
 
 export const CastingView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'casting') => void }> = ({ onNavigateToView }) => {
   const { characterData, setCharacterData, beats, appTheme, projectList, currentProjectId, characterDesignLocked } = useProject();
+  const { aiAvailable } = useAiKeyStatus();
   const isLight = appTheme === 'light' || (appTheme === 'system' && typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: light)').matches);
   const isLocked = !!characterDesignLocked;
 
@@ -2758,8 +2760,9 @@ export const CastingView: React.FC<{ onNavigateToView?: (view: 'characterdesign'
                       <button
                         type="button"
                         onClick={() => triggerActorRecognition(editingArtistData.artist.photoUrl, true)}
-                        disabled={isIdentifying}
-                        className="text-[9px] text-amber-500 hover:text-amber-400 flex items-center gap-1 uppercase disabled:opacity-50 font-bold"
+                        disabled={isIdentifying || !aiAvailable}
+                        title={aiAvailable ? undefined : "AI unavailable — no working API key. Fix in Backstage > AI."}
+                        className="text-[9px] text-amber-500 hover:text-amber-400 flex items-center gap-1 uppercase disabled:opacity-50 disabled:cursor-not-allowed font-bold"
                       >
                         <Brain size={10} />
                         {isIdentifying ? 'Scanning...' : 'AI Scan Actor Name'}

@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useProject } from '../../context/ProjectContext';
+import { useAiKeyStatus } from '../../context/AiKeyStatusContext';
 import { BreakdownData, BreakdownItem, Beat, Shot } from '../../types';
 import { generateBreakdown } from '../../services/gemini';
 import { isSameCharacterName, getHighlightSearchTerms } from '../../utils/characterUtils';
@@ -36,8 +37,11 @@ const BreakdownView: React.FC = () => {
         generatedShots,
         projectList = [],
         currentProjectId = null,
-        appTheme
+        appTheme,
+        generalAiModel,
+        openrouterKey
     } = useProject();
+    const { aiAvailable } = useAiKeyStatus();
 
     const isLight = appTheme === 'light' || (appTheme === 'system' && typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: light)').matches);
 
@@ -572,7 +576,7 @@ const BreakdownView: React.FC = () => {
 
         setAnalyzingBeatId(beat.id);
         try {
-            const result = await generateBreakdown(text, 'gemini-3-flash-preview', breakdownLanguage);
+            const result = await generateBreakdown(text, generalAiModel, breakdownLanguage, openrouterKey);
             if (result && isMounted.current) {
                 updateBeat(beat.id, { breakdown: result });
             }
@@ -623,7 +627,7 @@ const BreakdownView: React.FC = () => {
                 div.innerHTML = beat.content || '';
                 const text = div.textContent || div.innerText || '';
                 try {
-                    const result = await generateBreakdown(text, 'gemini-3-flash-preview', breakdownLanguage);
+                    const result = await generateBreakdown(text, generalAiModel, breakdownLanguage, openrouterKey);
                     if (result && isMounted.current) {
                         updateBeat(beat.id, { breakdown: result });
                     }
@@ -780,7 +784,7 @@ const BreakdownView: React.FC = () => {
 
                         <button 
                             onClick={handleAnalyze} 
-                            disabled={isAnalyzing} 
+                            disabled={isAnalyzing || !aiAvailable} 
                             className={`flex items-center gap-2 border px-3.5 py-1.5 rounded-md text-xs font-bold uppercase transition-all disabled:opacity-50 ${
                                 isLight 
                                     ? 'bg-slate-100 hover:bg-[#f5a623] hover:text-black text-slate-700 border-slate-300' 
@@ -1018,7 +1022,7 @@ const BreakdownView: React.FC = () => {
                                                     {/* Single Scene AI Re-Analyze */}
                                                     <button 
                                                         onClick={() => handleAnalyzeSingleBeat(item.beat)}
-                                                        disabled={isBeingAnalyzed || isAnalyzing}
+                                                        disabled={isBeingAnalyzed || isAnalyzing || !aiAvailable}
                                                         title="Re-Analyze Breakdown for this scene"
                                                         className={`px-2.5 py-1 border rounded text-[10px] font-bold uppercase flex items-center gap-1 transition-all disabled:opacity-50 ${
                                                             isLight 

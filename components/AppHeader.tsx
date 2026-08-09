@@ -2,12 +2,13 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { ViewMode } from '../types';
 import { useProject } from '../context/ProjectContext';
-import { 
+import {
     Target, Zap, Clock, Film, RotateCcw, RotateCw, CheckCircle2, 
     TrendingUp, Save, Cloud, CloudOff, Wifi, WifiOff, CloudUpload,
-    Loader2, Check, FileCode, Inbox, Sun, Moon, LogIn, LogOut, ChevronDown
+    Loader2, Check, FileCode, Inbox, Sun, Moon, LogIn, LogOut, ChevronDown, Sparkles, User
 } from 'lucide-react';
 import { isSupabaseConfigured } from '../services/supabase';
+import { useAiKeyStatus } from '../context/AiKeyStatusContext';
 import { AISceneGeneratorModal } from './AISceneGeneratorModal';
 
 interface AppHeaderProps {
@@ -18,6 +19,7 @@ interface AppHeaderProps {
   onOpenInbox?: () => void;
   unreadCount?: number;
   onOpenAuth?: () => void;
+  onAskAnything?: () => void;
 }
 
 const AppHeader: React.FC<AppHeaderProps> = ({ 
@@ -26,19 +28,39 @@ const AppHeader: React.FC<AppHeaderProps> = ({
   onRefresh,
   onOpenInbox,
   unreadCount = 0,
-  onOpenAuth
+  onOpenAuth,
+  onAskAnything
 }) => {
   const { 
       isStoryboardFeatureEnabled, writingGoal, dailyStats, beats,
       projectList, currentProjectId,
       undo, redo, canUndo, canRedo,
       saveProject, saveProjectAs, hasUnsavedChanges, currentUser, isCloudMode, isSaving, fileHandle,
-      autoGenerate5Scenes, appTheme, setAppTheme, logout, cloudOffline
+      autoGenerate5Scenes, appTheme, setAppTheme, logout, cloudOffline, supabaseUser
   } = useProject();
+
+  const { aiAvailable, router, gemini, testing } = useAiKeyStatus();
+  const aiStatusTitle = testing
+      ? 'Checking AI API keys...'
+      : aiAvailable
+        ? (router.state === 'valid' ? `${router.provider} key OK · Gemini key ${gemini.state === 'valid' ? 'OK' : 'off'}` : 'AI ready (Gemini key OK)')
+        : `AI unavailable — no working API key${gemini.state === 'invalid' ? ' (Gemini key ' + (gemini.error ? 'error' : 'not set') + ')' : ''}${router.state === 'nocredit' ? ' (TokenRouter needs credit)' : ''}. Fix in Backstage > AI.`;
 
   const [showSavedConfirmation, setShowSavedConfirmation] = useState(false);
   const [isAiModalOpen, setIsAiModalOpen] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
 
   const activeProjectName = useMemo(() => {
       const proj = projectList.find(p => p.id === currentProjectId);
@@ -175,6 +197,18 @@ const AppHeader: React.FC<AppHeaderProps> = ({
                   </span>
               )}
           </button>
+
+          {/* ASK ANYTHING (AI Assistant) */}
+          <button
+              onClick={() => onAskAnything?.()}
+              disabled={!aiAvailable}
+              className="p-2 rounded-lg transition-all duration-300 border flex items-center gap-2 group cursor-pointer bg-gradient-to-br from-[#252018] to-[#1a1a1a] border-[#f5a623]/40 text-[#f5a623] hover:border-[#f5a623] hover:shadow-[0_0_12px_rgba(245,166,35,0.35)] disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:border-[#f5a623]/40 disabled:hover:shadow-none"
+              title={aiStatusTitle}
+          >
+              <span className={`w-2 h-2 rounded-full ${aiAvailable ? 'bg-green-400 shadow-[0_0_6px_rgba(74,222,128,0.8)]' : 'bg-red-500 shadow-[0_0_6px_rgba(248,113,113,0.8)]'}`}></span>
+              <Sparkles size={18} className="fill-[#f5a623]/30 group-hover:scale-110 transition-transform duration-300" />
+              <span className="hidden lg:inline text-[10px] font-black uppercase tracking-wider">Ask Anything</span>
+          </button>
         </div>
 
         {/* CENTER: View Switcher */}
@@ -285,20 +319,20 @@ const AppHeader: React.FC<AppHeaderProps> = ({
           <div className="relative">
             <button
               onClick={() => setShowUserMenu(v => !v)}
-              className={`h-9 rounded-[4px] px-2.5 bg-[#222] border flex items-center gap-2 transition-all shadow-sm ${
-                isCloudActive
-                  ? cloudOffline
-                    ? 'border-[#f59e0b]/50 text-amber-400 hover:border-[#f59e0b]'
-                    : 'border-[#10b981]/50 text-emerald-400 hover:border-[#10b981]'
-                  : 'border-[#3d3d3d] text-gray-500 hover:border-[#f5a623] hover:text-[#f5a623]'
-              }`}
-              title={isCloudActive ? `Signed in as ${currentUser}${cloudOffline ? ' — offline, saving locally' : ''}` : 'Sign in to cloud sync'}
+              className="relative w-8 h-8 rounded-full flex items-center justify-center transition-all focus:outline-none shrink-0"
+              title={isCloudActive ? `Signed in as ${currentUser}` : 'Sign in'}
             >
-              {isCloudActive ? (cloudOffline ? <WifiOff size={15} /> : <Cloud size={15} />) : <CloudOff size={15} />}
-              <span className="hidden xl:inline text-[10px] font-black uppercase tracking-wider max-w-[110px] truncate">
-                {isCloudActive ? (currentUser || 'Cloud') : 'Cloud'}
-              </span>
-              <ChevronDown size={11} className="opacity-60" />
+              {supabaseUser?.user_metadata?.avatar_url ? (
+                <img
+                  src={supabaseUser.user_metadata.avatar_url}
+                  alt="Profile"
+                  className={`w-8 h-8 rounded-full object-cover border-2 ${isOnline ? 'border-green-500' : 'border-yellow-500'}`}
+                />
+              ) : (
+                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-black bg-gradient-to-br from-[#f5a623] to-[#ffb73c] text-black border-2 ${isOnline ? 'border-green-500' : 'border-yellow-500'}`}>
+                  {currentUser ? currentUser.charAt(0).toUpperCase() : <User size={14} />}
+                </div>
+              )}
             </button>
 
             {showUserMenu && (

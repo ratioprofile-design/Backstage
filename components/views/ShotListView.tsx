@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useProject } from '../../context/ProjectContext';
+import { useAiKeyStatus } from '../../context/AiKeyStatusContext';
 import { Shot } from '../../types';
 import { generateShotDivisionPreview, predictNextShotSummary } from '../../services/gemini';
 import { 
@@ -51,6 +52,7 @@ export const ShotListView: React.FC<ShotListViewProps> = ({ onNavigateToStoryboa
     characterData,
     appTheme
   } = useProject();
+  const { aiAvailable } = useAiKeyStatus();
 
   const isLight = appTheme === 'light' || (appTheme === 'system' && typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: light)').matches);
 
@@ -427,7 +429,7 @@ export const ShotListView: React.FC<ShotListViewProps> = ({ onNavigateToStoryboa
         sceneToAnalyze.heading,
         sceneToAnalyze.rawText,
         previewStyle,
-        storyboardConfig.textModel || 'gemini-3-flash-preview'
+        storyboardConfig.textModel || 'gemini-2.5-flash'
       );
 
       const formatted = rawShots.map((s, idx) => ({
@@ -1470,8 +1472,8 @@ export const ShotListView: React.FC<ShotListViewProps> = ({ onNavigateToStoryboa
 
               <button
                 onClick={handleGenerateAIPreview}
-                disabled={isPreviewGenerating}
-                className="px-3.5 py-1.5 bg-[#222] hover:bg-[#333] text-purple-300 border border-purple-500/30 rounded-lg text-xs font-bold uppercase flex items-center gap-2 transition-colors"
+                disabled={isPreviewGenerating || !aiAvailable}
+                className="px-3.5 py-1.5 bg-[#222] hover:bg-[#333] text-purple-300 border border-purple-500/30 rounded-lg text-xs font-bold uppercase flex items-center gap-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <RefreshCw size={12} className={isPreviewGenerating ? "animate-spin" : ""} />
                 Regenerate AI Preview

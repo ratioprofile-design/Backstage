@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { ProjectProvider, useProject } from '../context/ProjectContext';
+import { AiKeyStatusProvider } from '../context/AiKeyStatusContext';
 import AppHeader from './AppHeader';
 import BoardView from './views/BoardView';
 import ScriptView from './views/ScriptView';
@@ -15,6 +16,7 @@ import CrewView from './views/CrewView';
 import { ContinuityView } from './views/ContinuityView';
 import EditorModal from './EditorModal';
 import PrintPreviewModal from './PrintPreviewModal';
+import { AIAssistantModal } from './AIAssistantModal';
 import { ViewMode, ScriptConfig } from '../types';
 import { Loader2, Film } from 'lucide-react';
 
@@ -156,6 +158,7 @@ const AppContent: React.FC = () => {
   const [currentView, setCurrentView] = useState<ViewMode>('board');
   const [openBeatIds, setOpenBeatIds] = useState<number[]>([]);
   const [showPrintPreview, setShowPrintPreview] = useState(false);
+  const [showAssistant, setShowAssistant] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
 
   // Global Keyboard Shortcuts for Undo/Redo
@@ -227,6 +230,7 @@ const AppContent: React.FC = () => {
             onViewChange={setCurrentView}
             onRefresh={handleRefresh}
             onPrint={() => setShowPrintPreview(true)}
+            onAskAnything={() => setShowAssistant(true)}
         />
       </div>
       
@@ -270,6 +274,8 @@ const AppContent: React.FC = () => {
       {showPrintPreview && (
         <PrintPreviewModal onClose={() => setShowPrintPreview(false)} />
       )}
+
+      <AIAssistantModal isOpen={showAssistant} onClose={() => setShowAssistant(false)} />
     </>
   );
 };
@@ -277,7 +283,9 @@ const AppContent: React.FC = () => {
 const App: React.FC = () => {
   return (
     <ProjectProvider>
-      <AppContent />
+      <AiKeyStatusProvider>
+        <AppContent />
+      </AiKeyStatusProvider>
     </ProjectProvider>
   );
 };

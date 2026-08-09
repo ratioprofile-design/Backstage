@@ -1,5 +1,5 @@
 import React from 'react';
-import { FilePlus2, FolderOpen, Clock, Film, Cloud, CloudOff, Trash2, LogIn, ChevronRight } from 'lucide-react';
+import { FilePlus2, FolderOpen, Clock, Film, Cloud, Trash2, ChevronRight } from 'lucide-react';
 import { RecentFile } from '../utils/recentFiles';
 import { ProjectMetadata } from '../types';
 
@@ -22,132 +22,111 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
   onNew,
   onOpen,
   onOpenRecent,
-  onDismiss,
   isCloudMode,
   currentUser,
   cloudProjects,
   onOpenCloudProject,
   onDeleteCloudProject,
-  onOpenAuth,
 }) => {
   return (
-    <div className="fixed inset-0 z-[700] bg-[#050505] text-white flex items-center justify-center font-sans">
-      <div className="w-full max-w-[880px] px-10">
-        <div className="flex items-center justify-center gap-4 mb-2">
-          <div className="w-12 h-12 rounded-xl bg-[#111] border border-white/10 flex items-center justify-center">
+    <div className="fixed inset-0 z-[700] bg-[#08080c] text-white flex items-center justify-center font-sans">
+      <div className="w-full max-w-[640px] px-8 py-12 bg-[#101014] border border-white/5 rounded-2xl shadow-2xl flex flex-col gap-8">
+        
+        {/* Header */}
+        <div className="flex flex-col items-center gap-3 text-center">
+          <div className="w-12 h-12 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center">
             <Film className="text-[#f5a623]" size={24} />
           </div>
-        </div>
-        <h1 className="text-center text-3xl font-black tracking-[0.35em] uppercase mb-1">Backstage</h1>
-        <p className="text-center text-[11px] font-medium text-gray-500 uppercase tracking-[0.3em] mb-10">Screenplay Workspace</p>
-
-        <div className="grid grid-cols-[1fr_1.1fr] gap-6">
-          <div className="flex flex-col gap-3">
-            <button
-              onClick={onNew}
-              className="group flex items-center gap-4 px-5 py-4 rounded-xl bg-[#f5a623] text-black hover:bg-[#ffb73c] transition-all"
-            >
-              <FilePlus2 size={20} className="shrink-0" />
-              <div className="text-left">
-                <div className="text-sm font-black uppercase tracking-wider">New Script</div>
-                <div className="text-[11px] font-medium text-black/70">Choose where to save a fresh file</div>
-              </div>
-            </button>
-
-            <button
-              onClick={onOpen}
-              className="group flex items-center gap-4 px-5 py-4 rounded-xl bg-[#111] border border-white/10 hover:border-[#f5a623]/50 hover:bg-[#161616] transition-all"
-            >
-              <FolderOpen size={20} className="text-[#f5a623] shrink-0" />
-              <div className="text-left">
-                <div className="text-sm font-black uppercase tracking-wider">Open File</div>
-                <div className="text-[11px] font-medium text-gray-500">Browse for a .bst file on your Mac</div>
-              </div>
-            </button>
-
-            {!isCloudMode && (
-              <button
-                onClick={() => onOpenAuth?.()}
-                className="group flex items-center gap-4 px-5 py-4 rounded-xl bg-[#111] border border-white/10 hover:border-[#10b981]/50 hover:bg-[#161616] transition-all"
-              >
-                <CloudOff size={20} className="text-gray-500 group-hover:text-[#10b981] shrink-0" />
-                <div className="text-left">
-                  <div className="text-sm font-black uppercase tracking-wider">Sign In to Cloud</div>
-                  <div className="text-[11px] font-medium text-gray-500">Back up projects & sync across devices</div>
-                </div>
-              </button>
-            )}
-
-            <button
-              onClick={onDismiss}
-              className="flex items-center justify-center gap-2 px-5 py-2 rounded-lg text-[11px] font-bold text-gray-500 uppercase tracking-wider hover:text-gray-300 transition-colors"
-            >
-              Skip for now
-            </button>
+          <div>
+            <h1 className="text-2xl font-black tracking-[0.25em] uppercase text-white">Backstage</h1>
+            <p className="text-[10px] font-bold text-gray-500 uppercase tracking-[0.2em] mt-1">Screenplay Workspace</p>
           </div>
+        </div>
 
-          <div className="bg-[#0c0c0c] border border-white/10 rounded-xl p-5 flex flex-col">
-            {isCloudMode && (
-              <>
-                <div className="flex items-center gap-2 mb-3">
-                  <Cloud size={14} className="text-[#10b981]" />
-                  <span className="text-[10px] font-black text-emerald-500 uppercase tracking-[0.25em]">Cloud Projects</span>
-                  {currentUser && <span className="ml-auto text-[10px] text-gray-600 truncate max-w-[140px]">{currentUser}</span>}
+        {/* Quick Actions */}
+        <div className="grid grid-cols-2 gap-4">
+          <button
+            onClick={onNew}
+            className="flex flex-col items-center justify-center gap-3 p-6 rounded-xl bg-[#f5a623] hover:bg-[#ffb73c] text-black transition-all duration-300 group"
+          >
+            <FilePlus2 size={24} className="group-hover:scale-110 transition-transform duration-300" />
+            <span className="text-xs font-black uppercase tracking-wider">New Script</span>
+          </button>
+
+          <button
+            onClick={onOpen}
+            className="flex flex-col items-center justify-center gap-3 p-6 rounded-xl bg-white/5 border border-white/10 hover:border-white/20 hover:bg-white/[0.08] text-white transition-all duration-300 group"
+          >
+            <FolderOpen size={24} className="text-[#f5a623] group-hover:scale-110 transition-transform duration-300" />
+            <span className="text-xs font-black uppercase tracking-wider">Open File</span>
+          </button>
+        </div>
+
+        {/* Cloud & Recents */}
+        <div className="flex flex-col gap-6">
+          {isCloudMode && (
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center gap-2 border-b border-white/5 pb-2">
+                <Cloud size={14} className="text-[#10b981]" />
+                <span className="text-[10px] font-black text-emerald-500 uppercase tracking-widest">Cloud Projects</span>
+                {currentUser && <span className="ml-auto text-[10px] text-gray-500 truncate max-w-[200px]">{currentUser}</span>}
+              </div>
+              
+              {cloudProjects && cloudProjects.length > 0 ? (
+                <div className="flex flex-col gap-1 max-h-[140px] overflow-y-auto pr-1">
+                  {cloudProjects.map(p => (
+                    <div key={p.id} className="group flex items-center gap-2">
+                      <button
+                        onClick={() => onOpenCloudProject?.(p.id)}
+                        className="flex-1 flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 hover:bg-white/10 transition-all text-left"
+                      >
+                        <span className="text-xs font-semibold text-gray-300 truncate">{p.name}</span>
+                        <ChevronRight size={12} className="text-gray-500 ml-auto shrink-0" />
+                      </button>
+                      <button
+                        onClick={() => onDeleteCloudProject?.(p.id)}
+                        className="p-2 rounded text-gray-500 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                        title="Delete project"
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    </div>
+                  ))}
                 </div>
-                {cloudProjects && cloudProjects.length > 0 ? (
-                  <div className="flex flex-col gap-1.5 overflow-y-auto max-h-[150px] pr-1">
-                    {cloudProjects.map(p => (
-                      <div key={p.id} className="group flex items-center gap-2">
-                        <button
-                          onClick={() => onOpenCloudProject?.(p.id)}
-                          className="flex-1 flex items-center gap-2 px-3 py-2 rounded-lg bg-[#111] border border-white/5 hover:border-[#10b981]/40 hover:bg-[#161616] transition-all text-left"
-                        >
-                          <span className="text-[13px] font-semibold text-gray-200 truncate">{p.name}</span>
-                          <ChevronRight size={12} className="text-gray-600 group-hover:text-[#10b981] ml-auto shrink-0" />
-                        </button>
-                        <button
-                          onClick={() => onDeleteCloudProject?.(p.id)}
-                          className="p-1.5 rounded text-gray-600 hover:text-red-400 hover:bg-red-500/10 transition-colors"
-                          title="Delete project"
-                        >
-                          <Trash2 size={13} />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="text-[11px] text-gray-600 mb-3">No cloud projects yet. Create one or open a file — it will sync automatically.</div>
-                )}
-                <div className="h-px bg-white/5 my-4 shrink-0"></div>
-              </>
-            )}
-
-            <div className="flex items-center gap-2 mb-4">
-              <Clock size={14} className="text-gray-500" />
-              <span className="text-[10px] font-black text-gray-400 uppercase tracking-[0.25em]">Recent Files</span>
+              ) : (
+                <div className="text-[11px] text-gray-500 py-2">No cloud projects. New scripts will sync automatically.</div>
+              )}
             </div>
+          )}
+
+          {/* Recent Files */}
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center gap-2 border-b border-white/5 pb-2">
+              <Clock size={14} className="text-gray-400" />
+              <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Recent Files</span>
+            </div>
+            
             {recents.length === 0 ? (
-              <div className="flex-1 flex flex-col items-center justify-center text-center py-10">
-                <FolderOpen size={28} className="text-gray-700 mb-3" />
-                <p className="text-xs text-gray-600">No recent files yet.</p>
-                <p className="text-[11px] text-gray-700 mt-1">New or opened scripts will show up here.</p>
+              <div className="text-center py-6 text-xs text-gray-500 bg-white/5 rounded-xl border border-white/5">
+                No recent files yet.
               </div>
             ) : (
-              <div className="flex flex-col gap-1.5 overflow-y-auto max-h-[260px] pr-1">
+              <div className="flex flex-col gap-1 max-h-[160px] overflow-y-auto pr-1">
                 {recents.map(f => (
                   <button
                     key={f.path}
                     onClick={() => onOpenRecent(f.path)}
-                    className="flex flex-col gap-0.5 px-3 py-2.5 rounded-lg bg-[#111] border border-white/5 hover:border-[#f5a623]/40 hover:bg-[#161616] transition-all text-left"
+                    className="flex flex-col gap-0.5 px-3 py-2.5 rounded-lg bg-white/5 hover:bg-white/10 transition-all text-left"
                   >
-                    <span className="text-[13px] font-semibold text-gray-200 truncate">{f.name}</span>
-                    <span className="text-[10px] text-gray-600 truncate">{f.path}</span>
+                    <span className="text-xs font-semibold text-gray-300 truncate">{f.name}</span>
+                    <span className="text-[9px] text-gray-500 truncate">{f.path}</span>
                   </button>
                 ))}
               </div>
             )}
           </div>
         </div>
+
       </div>
     </div>
   );

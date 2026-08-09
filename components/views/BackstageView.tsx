@@ -19,12 +19,14 @@ import {
 } from 'lucide-react';
 import PrintPreviewModal from '../PrintPreviewModal';
 import { 
-    AVAILABLE_IMAGE_MODELS, AVAILABLE_TEXT_MODELS,
+    AVAILABLE_IMAGE_MODELS, AVAILABLE_TEXT_MODELS, GEMINI_TEXT_MODELS,
     VISUAL_STYLES, NOTE_FONTS, AVAILABLE_ENGLISH_FONTS,
     ACCENT_COLORS, APP_LANGUAGES, BREAKDOWN_LANGUAGES
 } from '../../constants';
 import { BlockEditor } from '../BlockEditor';
 import { isSupabaseConfigured } from '../../services/supabase';
+import { testApiKey } from '../../services/gemini';
+import { useAiKeyStatus } from '../../context/AiKeyStatusContext';
 
 const TEXT_COLORS = [
   { name: 'Black', value: '#000000', class: 'bg-black' },
@@ -225,7 +227,8 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
     boardLayerOrder = ['annotations', 'text', 'connections', 'groups', 'beats'], setBoardLayerOrder,
     loadProject, closeProject, downloadProject, saveProjectAs, fileHandle, filePath, setFilePath,
     beats, currentUser, isCloudMode,
-    stabilityApiKey, setStabilityApiKey,
+    openrouterKey, setOpenrouterKey,
+    generalAiModel, setGeneralAiModel,
     appTheme = 'dark', setAppTheme,
     appAccentColor = '#f5a623', setAppAccentColor,
     appLanguage = 'english', setAppLanguage,
@@ -234,9 +237,11 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
     isRedoEnabled, setRedoEnabled
   } = useProject();
 
+  const { aiAvailable, router: routerStatus, gemini: geminiStatus, testing: keysTesting, refresh: refreshKeyStatus } = useAiKeyStatus();
+
   const isLight = appTheme === 'light' || (appTheme === 'system' && typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: light)').matches);
 
-  const [activeCategory, setActiveCategory] = useState<'appearance' | 'project' | 'formatting' | 'scratchpad' | 'board' | 'storyboard' | 'features'>('appearance');
+  const [activeCategory, setActiveCategory] = useState<'appearance' | 'project' | 'formatting' | 'scratchpad' | 'board' | 'ai' | 'features'>('appearance');
   const [selectedFormatElement, setSelectedFormatElement] = useState<keyof ScriptConfig | 'visualization'>('action');
   
   // Preview States
@@ -245,11 +250,31 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
   
   // Install & API 
   const [installPrompt, setInstallPrompt] = useState<any>(null);
-  const [tempStabilityKey, setTempStabilityKey] = useState(stabilityApiKey || '');
+  const [tempOpenrouterKey, setTempOpenrouterKey] = useState(
+      openrouterKey || import.meta.env.VITE_TOKENROUTER_API_KEY || import.meta.env.VITE_OPENROUTER_API_KEY || ''
+  );
+  const [keyTestStatus, setKeyTestStatus] = useState<'idle' | 'testing' | 'valid' | 'nocredit' | 'invalid'>('idle');
+  const [keyTestError, setKeyTestError] = useState('');
+  const [keyTestProvider, setKeyTestProvider] = useState('');
+
+  const handleTestOpenrouterKey = async () => {
+      const key = tempOpenrouterKey.trim();
+      if (!key) return;
+      setKeyTestStatus('testing');
+      setKeyTestError('');
+      setKeyTestProvider('');
+      const result = await testApiKey(key);
+      setKeyTestProvider(result.provider);
+      setKeyTestError(result.error || '');
+      if (!result.ok) setKeyTestStatus('invalid');
+      else if (!result.quotaOk) setKeyTestStatus('nocredit');
+      else setKeyTestStatus('valid');
+      refreshKeyStatus(key);
+  };
 
   useEffect(() => {
-      setTempStabilityKey(stabilityApiKey || '');
-  }, [stabilityApiKey]);
+      setTempOpenrouterKey(openrouterKey || import.meta.env.VITE_TOKENROUTER_API_KEY || import.meta.env.VITE_OPENROUTER_API_KEY || '');
+  }, [openrouterKey]);
 
   const blockBounds = scriptConfig.blockBounds;
   const updateBlockBounds = (updates: any) => setScriptConfig({ 
@@ -477,16 +502,14 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
                   desc="Z-Index Layer Stack"
                   accentColor={appAccentColor}
               />
-              {isStoryboardFeatureEnabled && (
-                  <SidebarItem 
-                      active={activeCategory === 'storyboard'} 
-                      onClick={() => setActiveCategory('storyboard')} 
-                      icon={ImageIcon} 
-                      label="Storyboard AI" 
-                      desc="Generative Models & Styles"
-                      accentColor={appAccentColor}
-                  />
-              )}
+              <SidebarItem 
+                  active={activeCategory === 'ai'} 
+                  onClick={() => setActiveCategory('ai')} 
+                  icon={Sparkles} 
+                  label="AI" 
+                  desc="Models, Keys & Assistant"
+                  accentColor={appAccentColor}
+              />
               <SidebarItem 
                   active={activeCategory === 'features'} 
                   onClick={() => setActiveCategory('features')} 
@@ -1281,57 +1304,117 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
                 </ViewContainer>
             )}
 
-            {/* TAB 6: STORYBOARD AI */}
-            {activeCategory === 'storyboard' && (
-                <ViewContainer title="Storyboard AI" subtitle="Configure AI generative models and visual defaults for shot visualization.">
+            {/* TAB 6: AI HUB */}
+            {activeCategory === 'ai' && (
+                <ViewContainer title="AI" subtitle="One place for every AI feature — storyboard generation, documentation & breakdowns, and the Ask Anything assistant.">
                     <div className="grid grid-cols-1 gap-6 max-w-4xl">
                         <div className="bg-[#111] p-6 rounded-sm border border-[#222]">
-                            <h4 className="text-sm font-bold text-white uppercase mb-4">AI Provider Engine</h4>
+                            <div className="flex items-center gap-4 mb-6">
+                                <div className="w-10 h-10 rounded-sm flex items-center justify-center text-black" style={{ backgroundColor: appAccentColor }}>
+                                    <Sparkles size={20} />
+                                </div>
+                                <div>
+                                    <h4 className="text-base font-bold text-white uppercase tracking-wider">AI Models &amp; API Keys</h4>
+                                    <p className="text-xs text-gray-400 mt-1">Gemini powers storyboarding via the GEMINI_API_KEY environment variable. Documentation, breakdowns &amp; the Ask Anything assistant run on your NVIDIA Nemotron / Moonshot Kimi models through TokenRouter.</p>
+                                </div>
+                            </div>
+                            <div className={`flex items-center gap-2 px-3 py-2 mb-4 rounded border text-[11px] font-semibold ${aiAvailable ? 'border-green-500/30 bg-green-500/10 text-green-400' : 'border-red-500/30 bg-red-500/10 text-red-400'}`}>
+                                <span className={`w-2 h-2 rounded-full ${keysTesting ? 'bg-amber-400 animate-pulse' : aiAvailable ? 'bg-green-400 shadow-[0_0_6px_rgba(74,222,128,0.8)]' : 'bg-red-500 shadow-[0_0_6px_rgba(248,113,113,0.8)]'}`}></span>
+                                {keysTesting
+                                    ? 'Checking API keys...'
+                                    : aiAvailable
+                                        ? (routerStatus.state === 'valid'
+                                            ? `AI ready — ${routerStatus.provider} key OK${geminiStatus.state === 'valid' ? ' · Gemini key OK' : ''}`
+                                            : 'AI ready — running on Gemini key (TokenRouter has no credit)')
+                                        : 'AI unavailable — no working API key. Fix a key below to re-enable AI features.'}
+                            </div>
                             <div className="space-y-4">
                                 <div>
-                                    <Label>Active Provider</Label>
-                                    <div className="flex bg-[#000] border border-[#333] rounded p-1 gap-1">
+                                    <Label>API Key (TokenRouter / OpenRouter)</Label>
+                                    <p className="text-[10px] text-gray-500 mt-1 mb-2">Your TokenRouter key is baked in as the default — it unlocks NVIDIA Nemotron &amp; Moonshot Kimi. OpenRouter keys (sk-or-v1-...) are auto-detected. Leave empty to use Gemini for everything.</p>
+                                    <div className="flex gap-2 relative">
+                                        <input 
+                                            type="password"
+                                            value={tempOpenrouterKey}
+                                            onChange={(e) => setTempOpenrouterKey(e.target.value)}
+                                            className="w-full bg-[#000] border border-[#333] rounded px-3 py-2 text-xs text-white focus:border-[#f5a623] outline-none"
+                                            placeholder="sk-... (TokenRouter) or sk-or-v1-... (OpenRouter)"
+                                        />
                                         <button 
-                                            onClick={() => setStoryboardConfig({...storyboardConfig, provider: 'google'})}
-                                            className={`flex-1 py-2 rounded text-xs font-bold uppercase transition-all ${storyboardConfig.provider === 'google' ? 'text-black' : 'text-gray-500 hover:text-white'}`}
-                                            style={storyboardConfig.provider === 'google' ? { backgroundColor: appAccentColor } : {}}
+                                            onClick={() => { setOpenrouterKey(tempOpenrouterKey); setKeyTestStatus('idle'); }}
+                                            className="px-4 py-2 bg-[#222] border border-[#333] hover:bg-[#333] text-white text-xs font-bold uppercase rounded"
                                         >
-                                            Google Gemini / Imagen
+                                            Save
                                         </button>
+                                    </div>
+                                    <div className="flex items-center gap-3 mt-3">
                                         <button 
-                                            onClick={() => setStoryboardConfig({...storyboardConfig, provider: 'stability'})}
-                                            className={`flex-1 py-2 rounded text-xs font-bold uppercase transition-all ${storyboardConfig.provider === 'stability' ? 'text-black' : 'text-gray-500 hover:text-white'}`}
-                                            style={storyboardConfig.provider === 'stability' ? { backgroundColor: appAccentColor } : {}}
+                                            onClick={handleTestOpenrouterKey}
+                                            disabled={keyTestStatus === 'testing' || !tempOpenrouterKey.trim()}
+                                            className="px-3 py-1.5 bg-[#000] border border-[#333] hover:border-[#f5a623] disabled:opacity-40 disabled:cursor-not-allowed text-[10px] font-bold uppercase text-gray-300 rounded transition-all"
                                         >
-                                            Stability AI
+                                            {keyTestStatus === 'testing' ? 'Testing...' : 'Test Key'}
                                         </button>
+                                        {keyTestStatus !== 'idle' && (
+                                            <span className={`flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide ${
+                                                keyTestStatus === 'valid' ? 'text-green-400' : 
+                                                keyTestStatus === 'nocredit' ? 'text-amber-400' :
+                                                keyTestStatus === 'invalid' ? 'text-red-400' : 'text-amber-400'
+                                            }`}>
+                                                <span className={`w-2 h-2 rounded-full ${
+                                                    keyTestStatus === 'valid' ? 'bg-green-400 shadow-[0_0_6px_rgba(74,222,128,0.8)]' : 
+                                                    keyTestStatus === 'nocredit' ? 'bg-amber-400 shadow-[0_0_6px_rgba(245,166,35,0.8)]' :
+                                                    keyTestStatus === 'invalid' ? 'bg-red-400 shadow-[0_0_6px_rgba(248,113,113,0.8)]' : 'bg-amber-400 animate-pulse'
+                                                }`}></span>
+                                                {keyTestStatus === 'valid' ? `Key Valid — ${keyTestProvider}` :
+                                                 keyTestStatus === 'nocredit' ? `Key Valid — ${keyTestProvider} needs credit${keyTestError ? ` (${keyTestError})` : ''}` :
+                                                 keyTestStatus === 'invalid' ? `Key Invalid${keyTestError ? ` — ${keyTestError}` : ''}` : 'Testing Connection...'}
+                                            </span>
+                                        )}
                                     </div>
                                 </div>
-                                {storyboardConfig.provider === 'stability' && (
-                                    <div className="animate-in slide-in-from-top-2">
-                                        <Label>Stability API Key</Label>
-                                        <div className="flex gap-2 relative">
-                                            <input 
-                                                type="password"
-                                                value={tempStabilityKey}
-                                                onChange={(e) => setTempStabilityKey(e.target.value)}
-                                                className="w-full bg-[#000] border border-[#333] rounded px-3 py-2 text-xs text-white focus:border-[#f5a623] outline-none"
-                                                placeholder="sk-..."
-                                            />
-                                            <button 
-                                                onClick={() => { setStabilityApiKey(tempStabilityKey); alert("Stability Key Saved"); }}
-                                                className="px-4 py-2 bg-[#222] border border-[#333] hover:bg-[#333] text-white text-xs font-bold uppercase rounded"
-                                            >
-                                                Save
-                                            </button>
-                                        </div>
+                                <div>
+                                    <Label>Gemini API Key</Label>
+                                    <p className="text-[10px] text-gray-500 mt-1 mb-2">Storyboard generation and the automatic AI fallback always run on Gemini. The key comes from <span className="text-gray-300">VITE_GEMINI_API_KEY</span> in the <span className="text-gray-300">.env</span> file (or a Google AI Studio key).</p>
+                                    <div className="flex items-center gap-3">
+                                        <button 
+                                            onClick={() => refreshKeyStatus()}
+                                            disabled={keysTesting}
+                                            className="px-3 py-1.5 bg-[#000] border border-[#333] hover:border-[#f5a623] disabled:opacity-40 disabled:cursor-not-allowed text-[10px] font-bold uppercase text-gray-300 rounded transition-all"
+                                        >
+                                            {keysTesting ? 'Testing...' : 'Test Gemini Key'}
+                                        </button>
+                                        <span className={`flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide ${
+                                            keysTesting ? 'text-amber-400' :
+                                            geminiStatus.state === 'valid' ? 'text-green-400' : 'text-red-400'
+                                        }`}>
+                                            <span className={`w-2 h-2 rounded-full ${
+                                                keysTesting ? 'bg-amber-400 animate-pulse' :
+                                                geminiStatus.state === 'valid' ? 'bg-green-400 shadow-[0_0_6px_rgba(74,222,128,0.8)]' : 'bg-red-400 shadow-[0_0_6px_rgba(248,113,113,0.8)]'
+                                            }`}></span>
+                                            {keysTesting ? 'Checking...' :
+                                             geminiStatus.state === 'valid' ? 'Gemini Key Valid' :
+                                             `Gemini Key Not Working${geminiStatus.error ? ` — ${geminiStatus.error}` : ''}`}
+                                        </span>
                                     </div>
-                                )}
+                                </div>
+                                <div>
+                                    <Label>General Purpose AI Model (Docs, Breakdown, Analysis, Ask Anything)</Label>
+                                    <p className="text-[10px] text-gray-500 mt-1 mb-2">Used for script breakdowns, scene analysis and the Ask Anything assistant. Select Gemini or an NVIDIA/Kimi model via your TokenRouter key.</p>
+                                    <select 
+                                        value={generalAiModel}
+                                        onChange={(e) => setGeneralAiModel(e.target.value)}
+                                        className="w-full bg-[#000] border border-[#333] rounded px-3 py-2 text-xs text-white focus:border-[#f5a623] outline-none"
+                                    >
+                                        {AVAILABLE_TEXT_MODELS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+                                    </select>
+                                </div>
                             </div>
                         </div>
 
                         <div className="bg-[#111] p-6 rounded-sm border border-[#222]">
-                            <h4 className="text-sm font-bold text-white uppercase mb-4">Model Configuration</h4>
+                            <h4 className="text-sm font-bold text-white uppercase mb-1">Storyboard Model Configuration</h4>
+                            <p className="text-[10px] text-gray-500 mb-4">Storyboard generation always runs on Google Gemini (Gemini / Imagen).</p>
                             <div className="space-y-4">
                                 <div>
                                     <Label>Image Generation Model</Label>
@@ -1340,24 +1423,20 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
                                         onChange={(e) => setStoryboardConfig({...storyboardConfig, imageModel: e.target.value})}
                                         className="w-full bg-[#000] border border-[#333] rounded px-3 py-2 text-xs text-white focus:border-[#f5a623] outline-none"
                                     >
-                                        {AVAILABLE_IMAGE_MODELS.filter(m => {
-                                            if (storyboardConfig.provider === 'stability') return m.value.includes('stable');
-                                            return !m.value.includes('stable');
-                                        }).map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+                                        {AVAILABLE_IMAGE_MODELS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
                                     </select>
                                 </div>
-                                {storyboardConfig.provider === 'google' && (
-                                    <div>
-                                        <Label>Script Analysis Model</Label>
-                                        <select 
-                                            value={storyboardConfig.textModel}
-                                            onChange={(e) => setStoryboardConfig({...storyboardConfig, textModel: e.target.value})}
-                                            className="w-full bg-[#000] border border-[#333] rounded px-3 py-2 text-xs text-white focus:border-[#f5a623] outline-none"
-                                        >
-                                            {AVAILABLE_TEXT_MODELS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
-                                        </select>
-                                    </div>
-                                )}
+                                <div>
+                                    <Label>Script Analysis Model</Label>
+                                    <p className="text-[10px] text-gray-500 mt-1 mb-2">Used to break down scenes into shot lists. Gemini only.</p>
+                                    <select 
+                                        value={storyboardConfig.textModel}
+                                        onChange={(e) => setStoryboardConfig({...storyboardConfig, textModel: e.target.value})}
+                                        className="w-full bg-[#000] border border-[#333] rounded px-3 py-2 text-xs text-white focus:border-[#f5a623] outline-none"
+                                    >
+                                        {GEMINI_TEXT_MODELS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+                                    </select>
+                                </div>
                             </div>
                         </div>
 
@@ -1398,18 +1477,6 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
             {activeCategory === 'features' && (
                 <ViewContainer title="System Tools & Options" subtitle="Configure experimental capabilities, OS shortcuts, and input modes.">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div className="md:col-span-2 bg-[#111] p-6 rounded-sm border border-[#222]">
-                            <div className="flex items-center gap-4">
-                                <div className="w-10 h-10 rounded-sm flex items-center justify-center text-black" style={{ backgroundColor: appAccentColor }}>
-                                    <Sparkles size={20} />
-                                </div>
-                                <div>
-                                    <h4 className="text-base font-bold text-white uppercase tracking-wider">Generative AI Pipeline</h4>
-                                    <p className="text-xs text-gray-400 mt-1">AI capabilities are powered directly server-side using Google Gemini APIs.</p>
-                                </div>
-                            </div>
-                        </div>
-
                         {installPrompt && (
                             <div 
                                 className="bg-[#111] p-5 rounded-sm border border-[#f5a623] shadow-[0_0_15px_rgba(245,166,35,0.2)] flex items-center justify-between group cursor-pointer hover:bg-[#181818] transition-colors"

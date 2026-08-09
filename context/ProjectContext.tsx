@@ -111,7 +111,8 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [isPdfDropEnabled, setPdfDropEnabled] = useState(INITIAL_STATE.isPdfDropEnabled);
   const [isRedoEnabled, setRedoEnabled] = useState(INITIAL_STATE.isRedoEnabled);
   const [writingGoal, setWritingGoal] = useState<WritingGoal>(INITIAL_STATE.writingGoal);
-  const [stabilityApiKey, setStabilityApiKey] = useState(INITIAL_STATE.stabilityApiKey);
+  const [openrouterKey, setOpenrouterKey] = useState(INITIAL_STATE.openrouterKey);
+  const [generalAiModel, setGeneralAiModel] = useState(INITIAL_STATE.generalAiModel);
   const [dailyStats, setDailyStats] = useState(INITIAL_STATE.dailyStats);
   const [sessionStartCount, setSessionStartCount] = useState(INITIAL_STATE.sessionStartCount);
   const [lastSessionDate, setLastSessionDate] = useState(new Date().toISOString().split('T')[0]);
@@ -211,6 +212,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setScriptViewMode(cleanData.scriptViewMode || INITIAL_STATE.scriptViewMode);
     setScratchpadConfig(cleanData.scratchpadConfig || INITIAL_STATE.scratchpadConfig);
     setStoryboardConfig(cleanData.storyboardConfig || INITIAL_STATE.storyboardConfig);
+    setGeneralAiModel(cleanData.generalAiModel || INITIAL_STATE.generalAiModel);
     setWritingGoal(cleanData.writingGoal || INITIAL_STATE.writingGoal);
     setBoardLayerOrder(cleanData.boardLayerOrder || INITIAL_STATE.boardLayerOrder);
     setTamilMode(cleanData.isTamilMode ?? INITIAL_STATE.isTamilMode);
@@ -304,7 +306,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       isTamilMode, scriptConfig, scriptViewMode, scratchpadConfig,
       storyboardConfig, isStoryboardFeatureEnabled, breakdownLanguage,
       breakdownLockedOnly, isPdfDropEnabled, isRedoEnabled, writingGoal,
-      boardLayerOrder, stabilityApiKey, nextId, nextAnnoId,
+      boardLayerOrder, nextId, nextAnnoId,
       dailyStats, sessionStartCount, lastSessionDate
     };
     const snapshot = JSON.stringify(currentProjectState);
@@ -321,7 +323,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     isTamilMode, scriptConfig, scriptViewMode, scratchpadConfig,
     storyboardConfig, isStoryboardFeatureEnabled, breakdownLanguage,
     breakdownLockedOnly, isPdfDropEnabled, isRedoEnabled, writingGoal,
-    boardLayerOrder, stabilityApiKey, nextId, nextAnnoId,
+    boardLayerOrder, nextId, nextAnnoId,
     dailyStats, sessionStartCount, lastSessionDate
   ]);
 
@@ -453,7 +455,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       isOsInputMode, osInputShortcut, scriptConfig, scriptViewMode,
       scratchpadConfig, storyboardConfig, isStoryboardFeatureEnabled,
       breakdownLanguage, breakdownLockedOnly, isPdfDropEnabled, isRedoEnabled, 
-      writingGoal, geminiApiKey: '', stabilityApiKey, 
+      writingGoal, geminiApiKey: '', openrouterKey, generalAiModel, 
       dailyStats, sessionStartCount, lastSessionDate, boardLayerOrder,
       characterDesignLocked,
       lastInstanceId: INSTANCE_ID // Tag the update with this instance ID
@@ -523,7 +525,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     generatedShots, scratchpad, globalNotes, panX, panY, scale, nextId, nextAnnoId, activeBoardId,
     isTamilMode, tamilFontScale, tamilFontFamily, userDictionary, isOsInputMode, osInputShortcut,
     scriptConfig, scriptViewMode, scratchpadConfig, storyboardConfig, isStoryboardFeatureEnabled,
-    breakdownLanguage, breakdownLockedOnly, isPdfDropEnabled, isRedoEnabled, writingGoal, stabilityApiKey,
+    breakdownLanguage, breakdownLockedOnly, isPdfDropEnabled, isRedoEnabled, writingGoal, openrouterKey, generalAiModel,
     dailyStats, sessionStartCount, lastSessionDate, boardLayerOrder, characterDesignLocked, supabaseUser, fileHandle, filePath
   ]);
 
@@ -548,7 +550,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       isOsInputMode, osInputShortcut, scriptConfig, scriptViewMode,
       scratchpadConfig, storyboardConfig, isStoryboardFeatureEnabled,
       breakdownLanguage, breakdownLockedOnly, isPdfDropEnabled, isRedoEnabled, 
-      writingGoal, geminiApiKey: '', stabilityApiKey, 
+      writingGoal, geminiApiKey: '', openrouterKey, generalAiModel, 
       dailyStats, sessionStartCount, lastSessionDate, boardLayerOrder,
       characterDesignLocked,
       lastInstanceId: INSTANCE_ID // Tag the update with this instance ID
@@ -605,7 +607,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     generatedShots, scratchpad, globalNotes, panX, panY, scale, nextId, nextAnnoId, activeBoardId,
     isTamilMode, tamilFontScale, tamilFontFamily, userDictionary, isOsInputMode, osInputShortcut,
     scriptConfig, scriptViewMode, scratchpadConfig, storyboardConfig, isStoryboardFeatureEnabled,
-    breakdownLanguage, breakdownLockedOnly, isPdfDropEnabled, isRedoEnabled, writingGoal, stabilityApiKey,
+    breakdownLanguage, breakdownLockedOnly, isPdfDropEnabled, isRedoEnabled, writingGoal, openrouterKey, generalAiModel,
     dailyStats, sessionStartCount, lastSessionDate, boardLayerOrder, characterDesignLocked
   ]);
 
@@ -619,7 +621,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const downloadProject = useCallback(() => {
     if (!currentProjectId) return;
-    const projectData = { beats, groups, connections, annotations, characterData, generatedShots, scratchpad, globalNotes, panX, panY, scale, nextId, nextAnnoId, activeBoardId, isTamilMode, tamilFontScale, tamilFontFamily, userDictionary, isOsInputMode, osInputShortcut, scriptConfig, scriptViewMode, scratchpadConfig, storyboardConfig, isStoryboardFeatureEnabled, breakdownLanguage, breakdownLockedOnly, isPdfDropEnabled, isRedoEnabled, writingGoal, geminiApiKey: '', stabilityApiKey, dailyStats, sessionStartCount, lastSessionDate, boardLayerOrder, characterDesignLocked };
+    const projectData = { beats, groups, connections, annotations, characterData, generatedShots, scratchpad, globalNotes, panX, panY, scale, nextId, nextAnnoId, activeBoardId, isTamilMode, tamilFontScale, tamilFontFamily, userDictionary, isOsInputMode, osInputShortcut, scriptConfig, scriptViewMode, scratchpadConfig, storyboardConfig, isStoryboardFeatureEnabled, breakdownLanguage, breakdownLockedOnly, isPdfDropEnabled, isRedoEnabled, writingGoal, geminiApiKey: '', openrouterKey, generalAiModel, dailyStats, sessionStartCount, lastSessionDate, boardLayerOrder, characterDesignLocked };
     const blob = new Blob([JSON.stringify(projectData, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -630,7 +632,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
     saveProject();
-  }, [currentProjectId, projectList, beats, groups, connections, annotations, characterData, generatedShots, scratchpad, globalNotes, panX, panY, scale, nextId, nextAnnoId, activeBoardId, isTamilMode, tamilFontScale, tamilFontFamily, userDictionary, isOsInputMode, osInputShortcut, scriptConfig, scriptViewMode, scratchpadConfig, storyboardConfig, isStoryboardFeatureEnabled, breakdownLanguage, breakdownLockedOnly, isPdfDropEnabled, isRedoEnabled, writingGoal, stabilityApiKey, dailyStats, sessionStartCount, lastSessionDate, boardLayerOrder, characterDesignLocked, saveProject]);
+  }, [currentProjectId, projectList, beats, groups, connections, annotations, characterData, generatedShots, scratchpad, globalNotes, panX, panY, scale, nextId, nextAnnoId, activeBoardId, isTamilMode, tamilFontScale, tamilFontFamily, userDictionary, isOsInputMode, osInputShortcut, scriptConfig, scriptViewMode, scratchpadConfig, storyboardConfig, isStoryboardFeatureEnabled, breakdownLanguage, breakdownLockedOnly, isPdfDropEnabled, isRedoEnabled, writingGoal, dailyStats, sessionStartCount, lastSessionDate, boardLayerOrder, characterDesignLocked, saveProject]);
 
   const updateBeat = (id: number, updates: Partial<Beat>) => {
     if (isRemoteUpdateRef.current) return;
@@ -782,7 +784,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   }, []);
 
   const value: ProjectContextType = {
-    beats, groups, connections, annotations, characterData, generatedShots, scratchpad, globalNotes, panX, panY, scale, nextId, nextAnnoId, activeBoardId, isTamilMode, tamilFontScale, tamilFontFamily, userDictionary, isOsInputMode, osInputShortcut, scriptConfig, scriptViewMode, scratchpadConfig, storyboardConfig, isStoryboardFeatureEnabled, breakdownLanguage, breakdownLockedOnly, isPdfDropEnabled, isRedoEnabled, writingGoal, geminiApiKey: '', stabilityApiKey, dailyStats, sessionStartCount, lastSessionDate, boardLayerOrder, characterDesignLocked, setCharacterDesignLocked: setCharacterDesignLockedWrapped, appTheme, appAccentColor, appLanguage, currentUser, currentProjectId, projectList, hasUnsavedChanges, schemaError, isSaving, fileHandle, filePath, setFilePath,   isInitialLoading, isCloudMode: !!supabaseUser, supabaseUser, cloudOffline, login, logout, selectProject, createProject, deleteProject, closeProject, clearSchemaError: () => { setSchemaError(null); if (supabaseUser) refreshProjectList(supabaseUser.id); }, setBeats: setBeatsWrapped, setGroups: setGroupsWrapped, setConnections: setConnectionsWrapped, setAnnotations: setAnnotationsWrapped, setCharacterData: setCharacterDataWrapped, setGeneratedShots, setScratchpad: setScratchpadWrapped, setGlobalNotes: setGlobalNotesWrapped, updateGeneratedShot: (id, u) => { setGeneratedShots(p => p.map(s => s.id === id ? { ...s, ...u } : s)); setHasUnsavedChanges(true); }, addGeneratedShot: (i) => { const n = { id: `shot-${Date.now()}`, shotSize: 'WIDE', angle: 'EYE LEVEL', description: '', subject: '', scene: '?', imageHistory: [] }; const s = [...generatedShots]; s.splice(i + 1, 0, n); setGeneratedShots(s); captureSnapshot(); }, removeGeneratedShot: (id) => { setGeneratedShots(p => p.filter(s => s.id !== id)); captureSnapshot(); }, moveGeneratedShot: (f, t) => { const s = [...generatedShots]; const [m] = s.splice(f, 1); s.splice(t, 0, m); setGeneratedShots(s); captureSnapshot(); }, setPan: (x, y) => { setPanX(x); setPanY(y); }, setScale, updateBeat, addBeat, reorderBeats, addGroup: (g) => { const id = nextId; setNextId(p => p + 1); setGroups(p => [...p, { ...g, id, boardId: activeBoardId }]); captureSnapshot(); }, updateGroup: (id, u) => { setGroups(p => p.map(g => g.id === id ? { ...g, ...u } : g)); setHasUnsavedChanges(true); }, removeGroup: (id) => { setGroups(p => p.filter(g => g.id !== id)); captureSnapshot(); }, loadProject: applyProjectState, saveProject, saveProjectAs, setActiveBoardId, setTamilMode, setTamilFontScale, setTamilFontFamily, learnTamilWord: (e, t) => { setUserDictionary(p => { const c = p[e.toLowerCase()] || []; if (!c.includes(t)) return { ...p, [e.toLowerCase()]: [t, ...c] }; return p; }); }, setOsInputMode, setOsInputShortcut, setScriptConfig, setScriptViewMode, setScratchpadConfig, setStoryboardConfig, setStoryboardFeatureEnabled, setAppTheme, setAppAccentColor, setAppLanguage, setBreakdownLanguage, setBreakdownLockedOnly, setPdfDropEnabled, setRedoEnabled, setWritingGoal, setGeminiApiKey: () => {}, setStabilityApiKey, setBoardLayerOrder, setNextId, undo, redo, canUndo: historyIndexRef.current > 0, canRedo: historyIndexRef.current < historyRef.current.length - 1, captureSnapshot, downloadProject, autoGenerate5Scenes, autoGenerateScenes
+    beats, groups, connections, annotations, characterData, generatedShots, scratchpad, globalNotes, panX, panY, scale, nextId, nextAnnoId, activeBoardId, isTamilMode, tamilFontScale, tamilFontFamily, userDictionary, isOsInputMode, osInputShortcut, scriptConfig, scriptViewMode, scratchpadConfig, storyboardConfig, isStoryboardFeatureEnabled,     breakdownLanguage, breakdownLockedOnly, isPdfDropEnabled, isRedoEnabled, writingGoal, geminiApiKey: '', openrouterKey, setOpenrouterKey, generalAiModel, setGeneralAiModel, dailyStats, sessionStartCount, lastSessionDate, boardLayerOrder, characterDesignLocked, setCharacterDesignLocked: setCharacterDesignLockedWrapped, appTheme, appAccentColor, appLanguage, currentUser, currentProjectId, projectList, hasUnsavedChanges, schemaError, isSaving, fileHandle, filePath, setFilePath,   isInitialLoading, isCloudMode: !!supabaseUser, supabaseUser, cloudOffline, login, logout, selectProject, createProject, deleteProject, closeProject, clearSchemaError: () => { setSchemaError(null); if (supabaseUser) refreshProjectList(supabaseUser.id); }, setBeats: setBeatsWrapped, setGroups: setGroupsWrapped, setConnections: setConnectionsWrapped, setAnnotations: setAnnotationsWrapped, setCharacterData: setCharacterDataWrapped, setGeneratedShots, setScratchpad: setScratchpadWrapped, setGlobalNotes: setGlobalNotesWrapped, updateGeneratedShot: (id, u) => { setGeneratedShots(p => p.map(s => s.id === id ? { ...s, ...u } : s)); setHasUnsavedChanges(true); }, addGeneratedShot: (i) => { const n = { id: `shot-${Date.now()}`, shotSize: 'WIDE', angle: 'EYE LEVEL', description: '', subject: '', scene: '?', imageHistory: [] }; const s = [...generatedShots]; s.splice(i + 1, 0, n); setGeneratedShots(s); captureSnapshot(); }, removeGeneratedShot: (id) => { setGeneratedShots(p => p.filter(s => s.id !== id)); captureSnapshot(); }, moveGeneratedShot: (f, t) => { const s = [...generatedShots]; const [m] = s.splice(f, 1); s.splice(t, 0, m); setGeneratedShots(s); captureSnapshot(); }, setPan: (x, y) => { setPanX(x); setPanY(y); }, setScale, updateBeat, addBeat, reorderBeats, addGroup: (g) => { const id = nextId; setNextId(p => p + 1); setGroups(p => [...p, { ...g, id, boardId: activeBoardId }]); captureSnapshot(); }, updateGroup: (id, u) => { setGroups(p => p.map(g => g.id === id ? { ...g, ...u } : g)); setHasUnsavedChanges(true); }, removeGroup: (id) => { setGroups(p => p.filter(g => g.id !== id)); captureSnapshot(); }, loadProject: applyProjectState, saveProject, saveProjectAs, setActiveBoardId, setTamilMode, setTamilFontScale, setTamilFontFamily, learnTamilWord: (e, t) => { setUserDictionary(p => { const c = p[e.toLowerCase()] || []; if (!c.includes(t)) return { ...p, [e.toLowerCase()]: [t, ...c] }; return p; }); }, setOsInputMode, setOsInputShortcut, setScriptConfig, setScriptViewMode, setScratchpadConfig, setStoryboardConfig, setStoryboardFeatureEnabled, setAppTheme, setAppAccentColor, setAppLanguage, setBreakdownLanguage, setBreakdownLockedOnly, setPdfDropEnabled, setRedoEnabled, setWritingGoal, setGeminiApiKey: () => {}, setBoardLayerOrder, setNextId, undo, redo, canUndo: historyIndexRef.current > 0, canRedo: historyIndexRef.current < historyRef.current.length - 1, captureSnapshot, downloadProject, autoGenerate5Scenes, autoGenerateScenes
   };
 
   return <ProjectContext.Provider value={value}>{children}</ProjectContext.Provider>;

@@ -1,6 +1,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ProjectProvider, useProject } from './context/ProjectContext';
+import { AiKeyStatusProvider } from './context/AiKeyStatusContext';
 import AppHeader from './components/AppHeader';
 import BoardView from './components/views/BoardView';
 import ScriptView from './components/views/ScriptView';
@@ -22,9 +23,10 @@ import WelcomeScreen from './components/WelcomeScreen';
 import AuthScreen from './components/AuthScreen';
 import InboxModal, { DEFAULT_INBOX_TASKS } from './components/InboxModal';
 import InboxView from './components/views/InboxView';
+import { AIAssistantModal } from './components/AIAssistantModal';
 import { ViewMode, ScriptConfig, AppTask, ProjectState } from './types';
 import { INITIAL_STATE } from './constants';
-import { Loader2, Film } from 'lucide-react';
+import { Loader2, Film, Cloud } from 'lucide-react';
 import { isTauri, getTauriFs, getTauriDialog } from './utils/desktop';
 import { getRecentFiles, addRecentFile, RecentFile } from './utils/recentFiles';
 import { isSupabaseConfigured } from './services/supabase';
@@ -188,13 +190,27 @@ const AppContent: React.FC = () => {
   const [currentView, setCurrentView] = useState<ViewMode>('board');
   const [openBeatIds, setOpenBeatIds] = useState<number[]>([]);
   const [showPrintPreview, setShowPrintPreview] = useState(false);
+  const [showAssistant, setShowAssistant] = useState(false);
   const [showNewProject, setShowNewProject] = useState(false);
   const [showWelcome, setShowWelcome] = useState(true);
-  const [authSkipped, setAuthSkipped] = useState(false);
   const [recentFiles, setRecentFiles] = useState<RecentFile[]>(() => getRecentFiles());
   const [refreshKey, setRefreshKey] = useState(0);
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
 
-  const showAuth = isSupabaseConfigured && !supabaseUser && !authSkipped;
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
+  const showAuth = isSupabaseConfigured && !supabaseUser;
 
   // Open a project file from an absolute path (native menu "Open File..." / recent files / welcome screen)
   const openPath = useCallback(async (path: string): Promise<boolean> => {
@@ -421,6 +437,57 @@ const AppContent: React.FC = () => {
       );
   }
 
+  if (!isOnline && !supabaseUser) {
+      return (
+          <div className="fixed inset-0 bg-[#050505] flex flex-col items-center justify-center font-sans px-6 text-center">
+              <div className="w-16 h-16 bg-red-500/10 border border-red-500/20 rounded-2xl flex items-center justify-center mb-6">
+                  <Cloud className="text-red-500 animate-pulse" size={32} />
+              </div>
+              <h1 className="text-xl font-bold text-white mb-2">Internet Connection Required</h1>
+              <p className="text-sm text-gray-400 max-w-sm mb-6 leading-relaxed">
+                  Backstage is currently offline. You can only use the application offline if you have already signed in. Please connect to the internet to sign in and activate offline mode.
+              </p>
+              <div className="text-[10px] font-black text-gray-500 uppercase tracking-widest flex items-center gap-2">
+                  <Loader2 className="animate-spin text-gray-600" size={12} />
+                  <span className="text-gray-500">Waiting for network connection...</span>
+              </div>
+          </div>
+      );
+  }
+
+  if (showAuth) {
+      return (
+          <>
+              <StyleInjector />
+              <AuthScreen />
+          </>
+      );
+  }
+
+  if (showWelcome) {
+      return (
+          <WelcomeScreen
+              recents={recentFiles}
+              onNew={() => {
+                  if (isTauri()) handleMenuNewFile();
+                  else { setShowNewProject(true); setShowWelcome(false); }
+              }}
+              onOpen={() => handleMenuOpenFile()}
+              onOpenRecent={async (path) => {
+                  const ok = await openPath(path);
+                  if (ok) setShowWelcome(false);
+              }}
+              onDismiss={() => setShowWelcome(false)}
+              isCloudMode={isCloudMode}
+              currentUser={currentUser}
+              cloudProjects={projectList}
+              onOpenCloudProject={(id) => { selectProject(id); setShowWelcome(false); }}
+              onDeleteCloudProject={(id) => { if (supabaseUser) deleteProject(id); }}
+              onOpenAuth={() => {}}
+          />
+      );
+  }
+
   return (
     <>
       <StyleInjector />
@@ -432,7 +499,8 @@ const AppContent: React.FC = () => {
             onPrint={() => setShowPrintPreview(true)}
             onOpenInbox={() => setIsInboxOpen(true)}
             unreadCount={inboxTasks.filter(t => !t.isRead).length}
-            onOpenAuth={() => setAuthSkipped(false)}
+            onOpenAuth={() => {}}
+            onAskAnything={() => setShowAssistant(true)}
         />
       </div>
       
@@ -493,31 +561,8 @@ const AppContent: React.FC = () => {
         <NewProjectModal onClose={() => setShowNewProject(false)} />
       )}
 
-      {showWelcome && (
-        <WelcomeScreen
-          recents={recentFiles}
-          onNew={() => {
-            if (isTauri()) handleMenuNewFile();
-            else { setShowNewProject(true); setShowWelcome(false); }
-          }}
-          onOpen={() => handleMenuOpenFile()}
-          onOpenRecent={async (path) => {
-            const ok = await openPath(path);
-            if (ok) setShowWelcome(false);
-          }}
-          onDismiss={() => setShowWelcome(false)}
-          isCloudMode={isCloudMode}
-          currentUser={currentUser}
-          cloudProjects={projectList}
-          onOpenCloudProject={(id) => { selectProject(id); setShowWelcome(false); }}
-          onDeleteCloudProject={(id) => { if (supabaseUser) deleteProject(id); }}
-          onOpenAuth={() => setAuthSkipped(false)}
-        />
-      )}
 
-      {showAuth && (
-        <AuthScreen onSkip={() => setAuthSkipped(true)} />
-      )}
+
 
       <InboxModal
         isOpen={isInboxOpen}
@@ -528,6 +573,8 @@ const AppContent: React.FC = () => {
         onAddTask={handleAddTask}
         onDeleteTask={handleDeleteTask}
       />
+
+      <AIAssistantModal isOpen={showAssistant} onClose={() => setShowAssistant(false)} />
     </>
   );
 };
@@ -535,7 +582,9 @@ const AppContent: React.FC = () => {
 const App: React.FC = () => {
   return (
     <ProjectProvider>
-      <AppContent />
+      <AiKeyStatusProvider>
+        <AppContent />
+      </AiKeyStatusProvider>
     </ProjectProvider>
   );
 };

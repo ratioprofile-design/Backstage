@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useProject } from '../context/ProjectContext';
+import { useAiKeyStatus } from '../context/AiKeyStatusContext';
 import { Zap, X, Film, Sparkles, Check, Layers, Sliders, Play } from 'lucide-react';
 
 interface AISceneGeneratorModalProps {
@@ -9,6 +10,7 @@ interface AISceneGeneratorModalProps {
 
 export const AISceneGeneratorModal: React.FC<AISceneGeneratorModalProps> = ({ isOpen, onClose }) => {
   const { autoGenerateScenes } = useProject();
+  const { aiAvailable } = useAiKeyStatus();
   const [selectedCount, setSelectedCount] = useState<5 | 20 | 50>(20);
   const [customTopic, setCustomTopic] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
@@ -212,8 +214,9 @@ export const AISceneGeneratorModal: React.FC<AISceneGeneratorModalProps> = ({ is
 
           <button
             onClick={() => handleGenerate(selectedCount)}
-            disabled={isGenerating}
-            className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-[#f5a623] to-[#e08b10] hover:from-[#fcae2b] hover:to-[#ef9418] text-black font-bold text-xs uppercase tracking-wider rounded-lg shadow-lg shadow-amber-500/20 transition-all hover:scale-105 active:scale-95 disabled:opacity-50"
+            disabled={isGenerating || !aiAvailable}
+            className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-[#f5a623] to-[#e08b10] hover:from-[#fcae2b] hover:to-[#ef9418] text-black font-bold text-xs uppercase tracking-wider rounded-lg shadow-lg shadow-amber-500/20 transition-all hover:scale-105 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+            title={aiAvailable ? undefined : "AI unavailable — no working API key. Fix in Backstage > AI."}
           >
             {isGenerating ? (
               <span>Generating {selectedCount} Scenes...</span>
