@@ -308,6 +308,30 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const refreshProjectList = async (userId: string) => {
     try {
+      // Check for unsynced local offline projects to migrate to Supabase
+      const localListRaw = localStorage.getItem('projectList');
+      if (localListRaw) {
+        try {
+          const localList = JSON.parse(localListRaw) as ProjectMetadata[];
+          if (localList.length > 0) {
+            for (const localProj of localList) {
+              const localDataRaw = localStorage.getItem(`project_data_${localProj.id}`);
+              const localData = localDataRaw ? JSON.parse(localDataRaw) : INITIAL_STATE;
+              
+              // Upload to Supabase
+              await upsertProject(localProj.id, userId, localProj.name, localData);
+              
+              // Clean up local data storage
+              localStorage.removeItem(`project_data_${localProj.id}`);
+            }
+            // Clear local project list since all are migrated
+            localStorage.removeItem('projectList');
+          }
+        } catch (syncErr) {
+          console.warn("[sync] Unsynced projects migration failed:", syncErr);
+        }
+      }
+
       const dbProjects = await fetchUserProjects(userId);
       const email = supabaseUser?.email || '';
       const invited = email ? await fetchInvitedProjects(email) : [];
