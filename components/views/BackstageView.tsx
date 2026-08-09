@@ -1430,7 +1430,7 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
                                                     grokTestStatus === 'valid' ? 'bg-green-400 shadow-[0_0_6px_rgba(74,222,128,0.8)]' : 
                                                     grokTestStatus === 'invalid' ? 'bg-red-400 shadow-[0_0_6px_rgba(248,113,113,0.8)]' : 'bg-amber-400 animate-pulse'
                                                 }`}></span>
-                                                {grokTestStatus === 'valid' ? `Key Valid — Grok API is active` :
+                                                {grokTestStatus === 'valid' ? (tempGrokKey.trim().startsWith('gsk_') ? `Key Valid — Groq API is active` : `Key Valid — Grok API is active`) :
                                                  grokTestStatus === 'invalid' ? `Key Invalid${grokTestError ? ` — ${grokTestError}` : ''}` : 'Testing Connection...'}
                                             </span>
                                         )}

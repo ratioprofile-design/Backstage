@@ -85,9 +85,29 @@ async function openAICompletion(baseUrl: string, prompt: string, model: string, 
 // Falls back to Gemini automatically when the external provider is out of credit
 // and a Gemini key is configured.
 async function callTextModel(prompt: string, model: string, jsonMode: boolean, openRouterApiKey?: string): Promise<string> {
-  if (typeof model === 'string' && model.startsWith('grok-')) {
+  const isGrokModel = typeof model === 'string' && model.startsWith('grok-');
+  const isGroqModel = typeof model === 'string' && model.startsWith('groq-');
+  
+  if (isGrokModel || isGroqModel) {
     const key = localStorage.getItem('grok_api_key') || '';
-    return await openAICompletion('https://api.x.ai/v1', prompt, model, key, jsonMode);
+    const isGroqKey = key.startsWith('gsk_');
+    const url = isGroqKey 
+      ? 'https://api.groq.com/openai/v1' 
+      : 'https://api.x.ai/v1';
+    
+    let realModel = model;
+    if (isGroqKey) {
+      if (model.startsWith('grok-')) {
+        realModel = 'llama-3.3-70b-versatile';
+      } else if (model.startsWith('groq-')) {
+        realModel = model.replace('groq-', '');
+      }
+    } else {
+      if (model.startsWith('groq-')) {
+        realModel = 'grok-beta';
+      }
+    }
+    return await openAICompletion(url, prompt, realModel, key, jsonMode);
   }
   if (isOpenRouterModel(model)) {
     // Prefer the in-app key (Backstage AI tab), fall back to env vars.
@@ -121,14 +141,20 @@ export async function generateText(prompt: string, model: string = 'gemini-2.5-f
 
 export async function testGrokKey(apiKey: string): Promise<{ ok: boolean; error?: string }> {
   try {
-    const res = await fetch('https://api.x.ai/v1/chat/completions', {
+    const isGroq = apiKey.startsWith('gsk_');
+    const url = isGroq 
+      ? 'https://api.groq.com/openai/v1/chat/completions'
+      : 'https://api.x.ai/v1/chat/completions';
+    const model = isGroq ? 'llama-3.3-70b-versatile' : 'grok-beta';
+
+    const res = await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: 'grok-beta',
+        model: model,
         messages: [{ role: 'user', content: 'Ping' }],
         max_tokens: 1
       }),
@@ -137,7 +163,15 @@ export async function testGrokKey(apiKey: string): Promise<{ ok: boolean; error?
       let message = `HTTP ${res.status}`;
       try {
         const body = await res.json();
-        if (body?.error?.message) message = body.error.message;
+        if (body?.error) {
+          if (typeof body.error === 'string') {
+            message = body.error;
+          } else if (body.error.message) {
+            message = body.error.message;
+          }
+        } else if (body?.message) {
+          message = body.message;
+        }
       } catch { /* ignore parse errors */ }
       return { ok: false, error: message };
     }
