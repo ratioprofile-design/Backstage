@@ -38,7 +38,7 @@ const AppHeader: React.FC<AppHeaderProps> = ({
       projectList, currentProjectId,
       undo, redo, canUndo, canRedo,
       saveProject, saveProjectAs, hasUnsavedChanges, currentUser, isCloudMode, isSaving, fileHandle,
-      autoGenerate5Scenes, appTheme, setAppTheme, logout, cloudOffline, supabaseUser, userRole
+      autoGenerate5Scenes, appTheme, setAppTheme, logout, cloudOffline, supabaseUser, userRole, appAccentColor
   } = useProject();
 
   const { aiAvailable, router, gemini, testing } = useAiKeyStatus();
@@ -178,31 +178,15 @@ const AppHeader: React.FC<AppHeaderProps> = ({
                       <span className="text-[13px] font-black tracking-tight text-white uppercase leading-none group-hover:text-[#f5a623] transition-colors duration-300">
                           Backstage
                       </span>
-                      <span className="text-[7px] font-bold tracking-[0.2em] text-[#555] uppercase leading-none mt-0.5 group-hover:text-white transition-colors duration-300 ml-[1px] truncate max-w-[120px]">
+                      <span 
+                          className="text-[7px] font-bold tracking-[0.2em] uppercase leading-none mt-0.5 ml-[1px] truncate max-w-[120px]"
+                          style={{ color: appAccentColor || '#f5a623' }}
+                      >
                           {fileHandle ? fileHandle.name : activeProjectName}
                       </span>
                   </div>
               </div>
           </div>
-
-          {userRole?.includes('writer') && (
-            <button
-              onClick={() => {
-                const email = prompt("Enter email to invite as collaborator to this project:");
-                if (email) {
-                  import('../services/supabase').then(({ inviteUserToProject }) => {
-                    inviteUserToProject(currentProjectId || 'empty', fileHandle ? fileHandle.name : activeProjectName, email, currentUser || undefined);
-                    alert(`Invited ${email} successfully!`);
-                  });
-                }
-              }}
-              className="px-2.5 py-1 rounded bg-[#f5a623]/10 hover:bg-[#f5a623]/20 border border-[#f5a623]/30 hover:border-[#f5a623]/60 text-[#f5a623] text-[9px] font-black uppercase tracking-wider transition-all"
-            >
-              + Invite
-            </button>
-          )}
-
-          <div className="h-4 w-px bg-[#333] mx-1"></div>
 
           {/* INBOX ICON (Next to Backstage Logo) - Dedicated Page Switcher */}
           <button
