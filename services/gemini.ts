@@ -118,6 +118,35 @@ export async function generateText(prompt: string, model: string = 'gemini-2.5-f
   }
 }
 
+
+export async function testGrokKey(apiKey: string): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const res = await fetch('https://api.x.ai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: 'grok-beta',
+        messages: [{ role: 'user', content: 'Ping' }],
+        max_tokens: 1
+      }),
+    });
+    if (!res.ok) {
+      let message = `HTTP ${res.status}`;
+      try {
+        const body = await res.json();
+        if (body?.error?.message) message = body.error.message;
+      } catch { /* ignore parse errors */ }
+      return { ok: false, error: message };
+    }
+    return { ok: true };
+  } catch (err: any) {
+    return { ok: false, error: err?.message || 'Connection failed' };
+  }
+}
+
 // Validates an API key against its provider (TokenRouter or OpenRouter).
 // ok = key authenticates; quotaOk = a real completion succeeded (catches $0 credit).
 export async function testApiKey(apiKey: string): Promise<{ ok: boolean; provider: string; quotaOk: boolean; error?: string }> {

@@ -25,7 +25,7 @@ import {
 } from '../../constants';
 import { BlockEditor } from '../BlockEditor';
 import { isSupabaseConfigured } from '../../services/supabase';
-import { testApiKey } from '../../services/gemini';
+import { testApiKey, testGrokKey } from '../../services/gemini';
 import { useAiKeyStatus } from '../../context/AiKeyStatusContext';
 
 const TEXT_COLORS = [
@@ -271,6 +271,20 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
       else if (!result.quotaOk) setKeyTestStatus('nocredit');
       else setKeyTestStatus('valid');
       refreshKeyStatus(key);
+  };
+
+  const [grokTestStatus, setGrokTestStatus] = useState<'idle' | 'testing' | 'valid' | 'invalid'>('idle');
+  const [grokTestError, setGrokTestError] = useState('');
+
+  const handleTestGrokKey = async () => {
+      const key = tempGrokKey.trim();
+      if (!key) return;
+      setGrokTestStatus('testing');
+      setGrokTestError('');
+      const result = await testGrokKey(key);
+      setGrokTestError(result.error || '');
+      if (!result.ok) setGrokTestStatus('invalid');
+      else setGrokTestStatus('valid');
   };
 
   useEffect(() => {
@@ -1399,6 +1413,27 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
                                         >
                                             Save
                                         </button>
+                                    </div>
+                                    <div className="flex items-center gap-3 mt-3">
+                                        <button 
+                                            onClick={handleTestGrokKey}
+                                            disabled={grokTestStatus === 'testing' || !tempGrokKey.trim()}
+                                            className="px-3 py-1.5 bg-[#000] border border-[#333] hover:border-[#f5a623] disabled:opacity-40 disabled:cursor-not-allowed text-[10px] font-bold uppercase text-gray-300 rounded transition-all"
+                                        >
+                                            {grokTestStatus === 'testing' ? 'Testing...' : 'Test Key'}
+                                        </button>
+                                        {grokTestStatus !== 'idle' && (
+                                            <span className={`flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide ${
+                                                grokTestStatus === 'valid' ? 'text-green-400' : 'text-red-400'
+                                            }`}>
+                                                <span className={`w-2 h-2 rounded-full ${
+                                                    grokTestStatus === 'valid' ? 'bg-green-400 shadow-[0_0_6px_rgba(74,222,128,0.8)]' : 
+                                                    grokTestStatus === 'invalid' ? 'bg-red-400 shadow-[0_0_6px_rgba(248,113,113,0.8)]' : 'bg-amber-400 animate-pulse'
+                                                }`}></span>
+                                                {grokTestStatus === 'valid' ? `Key Valid — Grok API is active` :
+                                                 grokTestStatus === 'invalid' ? `Key Invalid${grokTestError ? ` — ${grokTestError}` : ''}` : 'Testing Connection...'}
+                                            </span>
+                                        )}
                                     </div>
                                 </div>
                                 <div>
