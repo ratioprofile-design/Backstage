@@ -888,46 +888,93 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
                             </div>
                         </div>
                         {/* PROJECT SWITCHER & INVITED PROJECTS */}
-                        {isCloudMode && (
-                            <div className="md:col-span-2 bg-[#111] p-6 rounded-sm border border-[#222] space-y-4">
-                                <h4 className="text-xs font-bold text-white uppercase tracking-wider pb-2 border-b border-[#222]">
-                                    Switch Cloud Workspace ({projectList?.length || 0})
-                                </h4>
-                                <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1">
-                                    {projectList?.map(proj => {
-                                        const isCurrent = proj.id === currentProjectId;
-                                        return (
-                                            <div 
-                                                key={proj.id} 
-                                                className={`flex items-center justify-between p-3 rounded border transition-all ${
-                                                    isCurrent 
-                                                        ? 'bg-amber-500/10 border-amber-500/30' 
-                                                        : 'bg-[#151515] border-[#222] hover:border-[#333]'
-                                                }`}
-                                            >
-                                                <div className="min-w-0">
-                                                    <span className="text-xs font-bold text-white truncate block">{proj.name}</span>
-                                                    {proj.isInvited && (
-                                                        <span className="text-[9px] text-amber-500 font-bold uppercase tracking-wider mt-0.5 block">
-                                                            Invited Workspace (Collaborator)
-                                                        </span>
-                                                    )}
-                                                </div>
-                                                <button
-                                                    onClick={() => selectProject(proj.id)}
-                                                    disabled={isCurrent}
-                                                    style={isCurrent ? { borderColor: 'rgba(245,166,35,0.4)', color: '#f5a623' } : {}}
-                                                    className={`px-3 py-1 text-[9px] font-black uppercase rounded border transition-all ${
+                        {projectList && projectList.length > 0 && (
+                            <div className="md:col-span-2 bg-[#111] p-6 rounded-sm border border-[#222] space-y-6">
+                                {/* SECTION 1: MY OWN WORKSPACES */}
+                                <div className="space-y-3">
+                                    <h4 className="text-[10px] font-black text-white uppercase tracking-widest pb-1 border-b border-[#222] flex items-center justify-between">
+                                        <span>My Own Workspaces (Online & Offline)</span>
+                                        <span className="text-[9px] text-gray-500">{(projectList.filter(p => !p.isInvited)).length} Projects</span>
+                                    </h4>
+                                    <div className="space-y-2 max-h-[160px] overflow-y-auto pr-1">
+                                        {(projectList.filter(p => !p.isInvited)).map(proj => {
+                                            const isCurrent = proj.id === currentProjectId;
+                                            return (
+                                                <div 
+                                                    key={proj.id} 
+                                                    className={`flex items-center justify-between p-3 rounded border transition-all ${
                                                         isCurrent 
-                                                            ? 'opacity-60 cursor-default font-bold' 
-                                                            : 'bg-[#222] border-[#333] hover:border-gray-500 text-gray-300'
+                                                            ? 'bg-amber-500/10 border-amber-500/30' 
+                                                            : 'bg-[#151515] border-[#222] hover:border-[#333]'
                                                     }`}
                                                 >
-                                                    {isCurrent ? 'Active' : 'Open'}
-                                                </button>
-                                            </div>
-                                        );
-                                    })}
+                                                    <div className="min-w-0">
+                                                        <span className="text-xs font-bold text-white truncate block">{proj.name}</span>
+                                                    </div>
+                                                    <button
+                                                        onClick={() => selectProject(proj.id)}
+                                                        disabled={isCurrent}
+                                                        style={isCurrent ? { borderColor: 'rgba(245,166,35,0.4)', color: '#f5a623' } : {}}
+                                                        className={`px-3 py-1 text-[9px] font-black uppercase rounded border transition-all ${
+                                                            isCurrent 
+                                                                ? 'opacity-60 cursor-default font-bold' 
+                                                                : 'bg-[#222] border-[#333] hover:border-gray-500 text-gray-300'
+                                                        }`}
+                                                    >
+                                                        {isCurrent ? 'Active' : 'Open'}
+                                                    </button>
+                                                </div>
+                                            );
+                                        })}
+                                        {(projectList.filter(p => !p.isInvited)).length === 0 && (
+                                            <div className="text-[10px] text-gray-500 py-2">No personal workspaces found.</div>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* SECTION 2: COLLABORATIONS */}
+                                <div className="space-y-3">
+                                    <h4 className="text-[10px] font-black text-amber-500 uppercase tracking-widest pb-1 border-b border-amber-500/10 flex items-center justify-between">
+                                        <span>Collaborations</span>
+                                        <span className="text-[9px] text-gray-500">{(projectList.filter(p => p.isInvited)).length} Projects</span>
+                                    </h4>
+                                    <div className="space-y-2 max-h-[160px] overflow-y-auto pr-1">
+                                        {(projectList.filter(p => p.isInvited)).map(proj => {
+                                            const isCurrent = proj.id === currentProjectId;
+                                            return (
+                                                <div 
+                                                    key={proj.id} 
+                                                    className={`flex items-center justify-between p-3 rounded border transition-all ${
+                                                        isCurrent 
+                                                            ? 'bg-amber-500/10 border-amber-500/30' 
+                                                            : 'bg-[#151515] border-[#222] hover:border-[#333]'
+                                                    }`}
+                                                >
+                                                    <div className="min-w-0">
+                                                        <span className="text-xs font-bold text-white truncate block">{proj.name}</span>
+                                                        <span className="text-[9px] text-amber-500 font-bold uppercase tracking-wider mt-0.5 block">
+                                                            Invited Workspace
+                                                        </span>
+                                                    </div>
+                                                    <button
+                                                        onClick={() => selectProject(proj.id)}
+                                                        disabled={isCurrent}
+                                                        style={isCurrent ? { borderColor: 'rgba(245,166,35,0.4)', color: '#f5a623' } : {}}
+                                                        className={`px-3 py-1 text-[9px] font-black uppercase rounded border transition-all ${
+                                                            isCurrent 
+                                                                ? 'opacity-60 cursor-default font-bold' 
+                                                                : 'bg-[#222] border-[#333] hover:border-gray-500 text-gray-300'
+                                                        }`}
+                                                    >
+                                                        {isCurrent ? 'Active' : 'Open'}
+                                                    </button>
+                                                </div>
+                                            );
+                                        })}
+                                        {(projectList.filter(p => p.isInvited)).length === 0 && (
+                                            <div className="text-[10px] text-gray-500 py-2">No invited collaborations.</div>
+                                        )}
+                                    </div>
                                 </div>
                             </div>
                         )}
