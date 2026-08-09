@@ -38,7 +38,8 @@ const AppHeader: React.FC<AppHeaderProps> = ({
       projectList, currentProjectId,
       undo, redo, canUndo, canRedo,
       saveProject, saveProjectAs, hasUnsavedChanges, currentUser, isCloudMode, isSaving, fileHandle,
-      autoGenerate5Scenes, appTheme, setAppTheme, logout, cloudOffline, supabaseUser, userRole, appAccentColor
+      autoGenerate5Scenes, appTheme, setAppTheme, logout, cloudOffline, supabaseUser, userRole, appAccentColor,
+      collaborators = []
   } = useProject();
 
   const { aiAvailable, router, gemini, testing } = useAiKeyStatus();
@@ -302,6 +303,25 @@ const AppHeader: React.FC<AppHeaderProps> = ({
           >
             {appTheme === 'light' ? <Moon size={16} /> : <Sun size={16} />}
           </button>
+
+          {/* COLLABORATORS AVATAR STACK */}
+          {isCloudMode && collaborators.length > 0 && (
+            <div className="flex items-center -space-x-1.5 mr-1 select-none">
+              {collaborators.map((collab: any) => {
+                const initial = (collab.name || collab.email).charAt(0).toUpperCase();
+                const tooltip = `${collab.name || collab.email} (${collab.role})`;
+                return (
+                  <div 
+                    key={collab.email}
+                    className="w-7 h-7 rounded-full bg-gradient-to-br from-amber-500 to-orange-600 text-black border border-[#111] flex items-center justify-center text-[10px] font-black uppercase tracking-wider shadow cursor-default transition-transform hover:scale-110 hover:z-10"
+                    title={tooltip}
+                  >
+                    {initial}
+                  </div>
+                );
+              })}
+            </div>
+          )}
 
           {/* CLOUD / USER MENU */}
           <div className="relative">
