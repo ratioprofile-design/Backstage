@@ -155,6 +155,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [lastSessionDate, setLastSessionDate] = useState(new Date().toISOString().split('T')[0]);
   const [boardLayerOrder, setBoardLayerOrder] = useState<BoardLayer[]>(INITIAL_STATE.boardLayerOrder);
   const [characterDesignLocked, setCharacterDesignLocked] = useState(INITIAL_STATE.characterDesignLocked);
+  const [collaborators, setCollaborators] = useState<any[]>(INITIAL_STATE.collaborators || []);
 
   // App Appearance & Customization State
   const [appTheme, setAppThemeState] = useState<'dark' | 'light' | 'system'>(() => {
@@ -259,6 +260,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setNextAnnoId(cleanData.nextAnnoId ?? INITIAL_STATE.nextAnnoId);
     setDailyStats(cleanData.dailyStats || INITIAL_STATE.dailyStats);
     setCharacterDesignLocked(cleanData.characterDesignLocked ?? INITIAL_STATE.characterDesignLocked);
+    setCollaborators(cleanData.collaborators || INITIAL_STATE.collaborators || []);
     if (cleanData.appTheme) setAppThemeState(cleanData.appTheme);
     if (cleanData.appAccentColor) setAppAccentColorState(cleanData.appAccentColor);
     if (cleanData.appLanguage) setAppLanguageState(cleanData.appLanguage);
@@ -459,7 +461,25 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (supabaseUser) {
       try {
         const data = await fetchProjectData(id);
-        applyProjectState(data || INITIAL_STATE);
+        const cleanData = data || INITIAL_STATE;
+        applyProjectState(cleanData);
+
+        // Auto-register current user as an active collaborator inside project metadata
+        const currentEmail = supabaseUser.email?.toLowerCase().trim();
+        if (currentEmail) {
+          const collabs = Array.isArray(cleanData.collaborators) ? [...cleanData.collaborators] : [];
+          if (!collabs.some((c: any) => c.email.toLowerCase() === currentEmail)) {
+            collabs.push({
+              email: currentEmail,
+              name: supabaseUser.user_metadata?.name || currentEmail.split('@')[0],
+              role: 'Collaborator',
+              editAccess: 'edit',
+              allowedPages: ['board', 'script', 'casting', 'storyboard', 'shotlist', 'production']
+            });
+            setCollaborators(collabs);
+            setHasUnsavedChanges(true);
+          }
+        }
       } catch (err: any) {
         if (err.code === '42P01') setSchemaError("TABLE_MISSING");
         else if (err.code === '42703' || err.message?.includes('data')) setSchemaError("COLUMN_MISSING");
@@ -516,6 +536,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       writingGoal, geminiApiKey: '', openrouterKey, generalAiModel, 
       dailyStats, sessionStartCount, lastSessionDate, boardLayerOrder,
       characterDesignLocked,
+      collaborators,
       lastInstanceId: INSTANCE_ID // Tag the update with this instance ID
     };
     let saved = false;
@@ -841,9 +862,16 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setHasUnsavedChanges(true);
   }, []);
 
+  const setCollaboratorsWrapped = useCallback((val: React.SetStateAction<any[]>) => {
+    if (isRemoteUpdateRef.current) return;
+    setCollaborators(val);
+    setHasUnsavedChanges(true);
+  }, []);
+
   const value: ProjectContextType = {
     beats, groups, connections, annotations, characterData, generatedShots, scratchpad, globalNotes, panX, panY, scale, nextId, nextAnnoId, activeBoardId, isTamilMode, tamilFontScale, tamilFontFamily, userDictionary, isOsInputMode, osInputShortcut, scriptConfig, scriptViewMode, scratchpadConfig, storyboardConfig, isStoryboardFeatureEnabled,     breakdownLanguage, breakdownLockedOnly, isPdfDropEnabled, isRedoEnabled, writingGoal, geminiApiKey: '', openrouterKey, setOpenrouterKey, generalAiModel, setGeneralAiModel, dailyStats, sessionStartCount, lastSessionDate, boardLayerOrder, characterDesignLocked, setCharacterDesignLocked: setCharacterDesignLockedWrapped, appTheme, appAccentColor, appLanguage, currentUser, currentProjectId, projectList, hasUnsavedChanges, schemaError, isSaving, fileHandle, filePath, setFilePath,   isInitialLoading, isCloudMode: !!supabaseUser, supabaseUser, cloudOffline, login, logout, selectProject, createProject, deleteProject, closeProject, clearSchemaError: () => { setSchemaError(null); if (supabaseUser) refreshProjectList(supabaseUser.id); }, setBeats: setBeatsWrapped, setGroups: setGroupsWrapped, setConnections: setConnectionsWrapped, setAnnotations: setAnnotationsWrapped, setCharacterData: setCharacterDataWrapped, setGeneratedShots, setScratchpad: setScratchpadWrapped, setGlobalNotes: setGlobalNotesWrapped, updateGeneratedShot: (id, u) => { setGeneratedShots(p => p.map(s => s.id === id ? { ...s, ...u } : s)); setHasUnsavedChanges(true); }, addGeneratedShot: (i) => { const n = { id: `shot-${Date.now()}`, shotSize: 'WIDE', angle: 'EYE LEVEL', description: '', subject: '', scene: '?', imageHistory: [] }; const s = [...generatedShots]; s.splice(i + 1, 0, n); setGeneratedShots(s); captureSnapshot(); }, removeGeneratedShot: (id) => { setGeneratedShots(p => p.filter(s => s.id !== id)); captureSnapshot(); }, moveGeneratedShot: (f, t) => { const s = [...generatedShots]; const [m] = s.splice(f, 1); s.splice(t, 0, m); setGeneratedShots(s); captureSnapshot(); }, setPan: (x, y) => { setPanX(x); setPanY(y); }, setScale, updateBeat, addBeat, reorderBeats, addGroup: (g) => { const id = nextId; setNextId(p => p + 1); setGroups(p => [...p, { ...g, id, boardId: activeBoardId }]); captureSnapshot(); }, updateGroup: (id, u) => { setGroups(p => p.map(g => g.id === id ? { ...g, ...u } : g)); setHasUnsavedChanges(true); }, removeGroup: (id) => { setGroups(p => p.filter(g => g.id !== id)); captureSnapshot(); }, loadProject: applyProjectState, saveProject, saveProjectAs, setActiveBoardId, setTamilMode, setTamilFontScale, setTamilFontFamily, learnTamilWord: (e, t) => { setUserDictionary(p => { const c = p[e.toLowerCase()] || []; if (!c.includes(t)) return { ...p, [e.toLowerCase()]: [t, ...c] }; return p; }); }, setOsInputMode, setOsInputShortcut, setScriptConfig, setScriptViewMode, setScratchpadConfig, setStoryboardConfig, setStoryboardFeatureEnabled, setAppTheme, setAppAccentColor, setAppLanguage, setBreakdownLanguage, setBreakdownLockedOnly, setPdfDropEnabled, setRedoEnabled, setWritingGoal, setGeminiApiKey: () => {}, setBoardLayerOrder, setNextId, undo, redo, canUndo: historyIndexRef.current > 0, canRedo: historyIndexRef.current < historyRef.current.length - 1, captureSnapshot, downloadProject, autoGenerate5Scenes, autoGenerateScenes,
-    userRole, updateUserRole, grokKey, setGrokKey
+    userRole, updateUserRole, grokKey, setGrokKey,
+    collaborators, setCollaborators: setCollaboratorsWrapped
   };
 
   return <ProjectContext.Provider value={value}>{children}</ProjectContext.Provider>;

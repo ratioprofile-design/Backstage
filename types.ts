@@ -304,6 +304,7 @@ export interface ProjectState {
 
   // Writer's Page Lock: prevents crew from editing the Character Design page
   characterDesignLocked?: boolean;
+  collaborators?: any[];
 }
 
 export interface ProjectContextType extends ProjectState {
@@ -350,6 +351,7 @@ export interface ProjectContextType extends ProjectState {
   // Scratchpad
   setScratchpad: (content: string) => void;
   setGlobalNotes: (notes: Note[]) => void;
+  setCollaborators: (collabs: any[]) => void;
 
   // Shot Management Helpers
   setGeneratedShots: (shots: Shot[] | ((prev: Shot[]) => Shot[])) => void;

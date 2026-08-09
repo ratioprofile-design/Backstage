@@ -298,7 +298,8 @@ export const INITIAL_STATE: ProjectState = {
   // Order from Bottom (index 0) to Top (index 4)
   // Drawings -> Text -> Connections -> Groups -> Beats
   boardLayerOrder: ['annotations', 'text', 'connections', 'groups', 'beats'],
-  characterDesignLocked: false
+  characterDesignLocked: false,
+  collaborators: []
 };
 
 export const SCRIPT_FORMATS = [

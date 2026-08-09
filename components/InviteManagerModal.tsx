@@ -41,7 +41,7 @@ const MOCK_PROFILES: UserProfile[] = [
 ];
 
 export const InviteManagerModal: React.FC<InviteManagerModalProps> = ({ isOpen, onClose }) => {
-  const { currentProjectId, appTheme, projectList, currentUser } = useProject();
+  const { currentProjectId, appTheme, projectList, currentUser, collaborators = [], setCollaborators } = useProject();
   const isLight = appTheme === 'light';
 
   const activeProjectName = useMemo(() => {
@@ -49,9 +49,8 @@ export const InviteManagerModal: React.FC<InviteManagerModalProps> = ({ isOpen, 
     return proj ? proj.name : 'SEQUENCER';
   }, [projectList, currentProjectId]);
 
-  // State to hold collaborators (mocked initially, stored in localStorage)
-  const [collaborators, setCollaborators] = useState<Collaborator[]>([]);
   const [inviteEmail, setInviteEmail] = useState('');
+  const [pendingEmails, setPendingEmails] = useState<string[]>([]);
   const [inviteRole, setInviteRole] = useState('writer');
   const [inviteEdit, setInviteEdit] = useState<'edit' | 'view'>('edit');
   const [invitePages, setInvitePages] = useState<string[]>(['board', 'script', 'casting', 'storyboard', 'shotlist', 'production']);
@@ -135,45 +134,22 @@ export const InviteManagerModal: React.FC<InviteManagerModalProps> = ({ isOpen, 
     return matches;
   }, [inviteEmail, supabaseProfiles]);
 
-  // Load collaborators on open
+  // Load pending invites from Supabase on open
   useEffect(() => {
-    if (!isOpen) return;
-    const stored = localStorage.getItem(`collaborators_${currentProjectId || 'default'}`);
-    if (stored) {
-      setCollaborators(JSON.parse(stored));
-    } else {
-      // Default mock users
-      const initial: Collaborator[] = [
-        {
-          email: 'writer@backstage.com',
-          name: 'James Cameron',
-          role: 'Writer',
-          editAccess: 'edit',
-          allowedPages: ['board', 'script', 'casting', 'storyboard']
-        },
-        {
-          email: 'director@backstage.com',
-          name: 'Christopher Nolan',
-          role: 'Director',
-          editAccess: 'view',
-          allowedPages: ['board', 'script', 'casting', 'storyboard', 'shotlist', 'production']
-        },
-        {
-          email: 'cinematographer@backstage.com',
-          name: 'Roger Deakins',
-          role: 'Cinematographer',
-          editAccess: 'edit',
-          allowedPages: ['storyboard', 'shotlist', 'board']
+    if (!isOpen || !currentProjectId || !isSupabaseConfigured) return;
+    supabase
+      .from('project_invites')
+      .select('invitee_email')
+      .eq('project_id', currentProjectId)
+      .then(({ data, error }) => {
+        if (data && !error) {
+          setPendingEmails(data.map((inv: any) => inv.invitee_email.toLowerCase().trim()));
         }
-      ];
-      setCollaborators(initial);
-      localStorage.setItem(`collaborators_${currentProjectId || 'default'}`, JSON.stringify(initial));
-    }
+      });
   }, [isOpen, currentProjectId]);
 
   const saveCollaborators = (updated: Collaborator[]) => {
     setCollaborators(updated);
-    localStorage.setItem(`collaborators_${currentProjectId || 'default'}`, JSON.stringify(updated));
   };
 
   const handleSelectProfile = (profile: UserProfile) => {
@@ -260,10 +236,45 @@ export const InviteManagerModal: React.FC<InviteManagerModalProps> = ({ isOpen, 
     saveCollaborators(updated);
   };
 
-  const handleRemoveCollaborator = (email: string) => {
+  const combinedList = useMemo(() => {
+    const list = collaborators.map(c => ({
+      ...c,
+      status: 'Active' as const,
+      isPending: false
+    }));
+
+    pendingEmails.forEach(email => {
+      if (!list.some(c => c.email.toLowerCase() === email.toLowerCase())) {
+        list.push({
+          email,
+          name: email.split('@')[0],
+          role: 'Collaborator',
+          editAccess: 'view' as const,
+          allowedPages: ['board', 'script', 'casting', 'storyboard', 'shotlist', 'production'],
+          status: 'Pending' as const,
+          isPending: true
+        });
+      }
+    });
+
+    return list;
+  }, [collaborators, pendingEmails]);
+
+  const handleRemoveCollaborator = async (email: string, isPending?: boolean) => {
     if (confirm(`Are you sure you want to remove ${email}?`)) {
-      const updated = collaborators.filter(c => c.email !== email);
-      saveCollaborators(updated);
+      if (isPending) {
+        if (isSupabaseConfigured && currentProjectId) {
+          await supabase
+            .from('project_invites')
+            .delete()
+            .eq('project_id', currentProjectId)
+            .eq('invitee_email', email.toLowerCase().trim());
+          setPendingEmails(p => p.filter(e => e.toLowerCase().trim() !== email.toLowerCase().trim()));
+        }
+      } else {
+        const updated = collaborators.filter(c => c.email !== email);
+        saveCollaborators(updated);
+      }
     }
   };
 
@@ -481,61 +492,88 @@ export const InviteManagerModal: React.FC<InviteManagerModalProps> = ({ isOpen, 
           {/* Right Section: Manage Existing Collaborators list */}
           <div className="flex-1 p-5 overflow-y-auto flex flex-col">
             <h4 className="text-[10px] font-black uppercase text-amber-500 tracking-wider mb-4 flex items-center gap-2">
-              <Users size={14} /> Workspace Collaborators ({collaborators.length})
+              <Users size={14} /> Workspace Collaborators ({combinedList.length})
             </h4>
 
-            {collaborators.length === 0 ? (
+            {combinedList.length === 0 ? (
               <div className={`flex flex-col items-center justify-center flex-1 py-12 ${isLight ? 'text-slate-300' : 'text-gray-600'}`}>
                 <Users size={48} strokeWidth={1} className="mb-2" />
-                <span className="text-xs">No active collaborators invited yet.</span>
+                <span className="text-xs">No active collaborators or invites yet.</span>
               </div>
             ) : (
               <div className="space-y-4 flex-1">
-                {collaborators.map((collab) => (
+                {combinedList.map((collab) => (
                   <div 
                     key={collab.email}
-                    className={`p-4 border rounded-xl flex flex-col lg:flex-row lg:items-center justify-between gap-4 transition-colors ${isLight ? 'bg-slate-50/50 border-slate-200 hover:bg-slate-50' : 'bg-white/[0.01] border-[#222] hover:bg-white/[0.02]'}`}
+                    className={`p-4 border rounded-xl flex flex-col lg:flex-row lg:items-center justify-between gap-4 transition-colors ${
+                      collab.isPending 
+                        ? (isLight ? 'bg-amber-50/20 border-amber-200/50' : 'bg-amber-500/[0.01] border-amber-500/10')
+                        : (isLight ? 'bg-slate-50/50 border-slate-200 hover:bg-slate-50' : 'bg-white/[0.01] border-[#222] hover:bg-white/[0.02]')
+                    }`}
                   >
                     {/* User profile & basic info */}
-                    <div className="flex items-start gap-3">
-                      <div className="w-8 h-8 rounded-full bg-gradient-to-br from-amber-500 to-orange-500 text-black font-black text-xs flex items-center justify-center uppercase shrink-0 shadow-sm">
+                    <div className="flex items-start gap-3 min-w-0">
+                      <div className={`w-8 h-8 rounded-full font-black text-xs flex items-center justify-center uppercase shrink-0 shadow-sm ${
+                        collab.isPending 
+                          ? 'bg-amber-500/20 text-amber-500' 
+                          : 'bg-gradient-to-br from-amber-500 to-orange-500 text-black'
+                      }`}>
                         {(collab.name || collab.email).charAt(0)}
                       </div>
-                      <div>
-                        <div className="text-xs font-black flex items-center gap-2">
-                          <span className={isLight ? 'text-slate-900' : 'text-white'}>{collab.name || collab.email}</span>
-                          <span className="px-1.5 py-0.5 rounded text-[8px] bg-amber-500/10 text-amber-500 border border-amber-500/20 font-black uppercase tracking-wider">{collab.role}</span>
+                      <div className="min-w-0">
+                        <div className="text-xs font-black flex flex-wrap items-center gap-2">
+                          <span className={`truncate ${isLight ? 'text-slate-900' : 'text-white'}`}>{collab.name || collab.email}</span>
+                          <span className="px-1.5 py-0.5 rounded text-[8px] bg-amber-500/10 text-amber-500 border border-amber-500/20 font-black uppercase tracking-wider shrink-0">{collab.role}</span>
+                          
+                          {/* Status Badge */}
+                          <span className={`px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-wider flex items-center gap-1 shrink-0 ${
+                            collab.isPending 
+                              ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' 
+                              : 'bg-green-500/10 text-green-400 border border-green-500/20'
+                          }`}>
+                            <span className={`w-1 h-1 rounded-full ${collab.isPending ? 'bg-amber-400' : 'bg-green-400 animate-pulse'}`}></span>
+                            {collab.isPending ? 'Pending Invite' : 'Active (Joined)'}
+                          </span>
                         </div>
                         {collab.name && (
-                          <div className="text-[9px] text-gray-500 mt-0.5">{collab.email}</div>
+                          <div className="text-[9px] text-gray-500 mt-0.5 truncate">{collab.email}</div>
                         )}
                         
                         {/* Edit Access Privileges toggle */}
-                        <div className="flex items-center gap-1.5 mt-2">
-                          <span className={`text-[9px] font-bold uppercase ${isLight ? 'text-slate-505' : 'text-gray-400'}`}>Privilege:</span>
-                          <select
-                            value={collab.editAccess}
-                            onChange={(e) => changeEditAccess(collab.email, e.target.value as 'edit' | 'view')}
-                            className={`text-[9px] font-black uppercase px-2 py-0.5 rounded border outline-none ${isLight ? 'bg-white border-slate-200 text-slate-800' : 'bg-black border-[#333] text-gray-300'}`}
-                          >
-                            <option value="edit">Can Edit Everything</option>
-                            <option value="view">View/Read Only</option>
-                          </select>
-                        </div>
+                        {!collab.isPending && (
+                          <div className="flex items-center gap-1.5 mt-2">
+                            <span className={`text-[9px] font-bold uppercase ${isLight ? 'text-slate-500' : 'text-gray-400'}`}>Privilege:</span>
+                            <select
+                              value={collab.editAccess}
+                              onChange={(e) => changeEditAccess(collab.email, e.target.value as 'edit' | 'view')}
+                              className={`text-[9px] font-black uppercase px-2 py-0.5 rounded border outline-none ${isLight ? 'bg-white border-slate-200 text-slate-800' : 'bg-black border-[#333] text-gray-300'}`}
+                            >
+                              <option value="edit">Can Edit Everything</option>
+                              <option value="view">View/Read Only</option>
+                            </select>
+                          </div>
+                        )}
                       </div>
                     </div>
 
                     {/* Page Permissions checkboxes */}
                     <div className="flex-1 max-w-lg lg:px-4">
-                      <span className={`block text-[9px] font-bold uppercase mb-1.5 ${isLight ? 'text-slate-505' : 'text-gray-500'}`}>Page Permissions</span>
+                      <span className={`block text-[9px] font-bold uppercase mb-1.5 ${isLight ? 'text-slate-505' : 'text-gray-500'}`}>
+                        {collab.isPending ? 'Permissions (Apply on Join)' : 'Page Permissions'}
+                      </span>
                       <div className="flex flex-wrap gap-1.5">
                         {AVAILABLE_PAGES.map(p => {
                           const hasAccess = collab.allowedPages.includes(p.id);
                           return (
                             <button
                               key={p.id}
+                              disabled={collab.isPending}
                               onClick={() => togglePageAccess(collab.email, p.id)}
-                              className={`px-2 py-1 text-[8px] font-black uppercase rounded border transition-all flex items-center gap-1 ${hasAccess ? 'bg-green-500/10 border-green-500/30 text-green-400' : (isLight ? 'bg-slate-100 border-slate-200 text-slate-400' : 'bg-[#181818] border-[#222] text-gray-500')}`}
+                              className={`px-2 py-1 text-[8px] font-black uppercase rounded border transition-all flex items-center gap-1 ${
+                                collab.isPending
+                                  ? 'opacity-40 cursor-default bg-transparent border-white/5 text-gray-600'
+                                  : (hasAccess ? 'bg-green-500/10 border-green-500/30 text-green-400' : (isLight ? 'bg-slate-100 border-slate-200 text-slate-400' : 'bg-[#181818] border-[#222] text-gray-500'))
+                              }`}
                             >
                               <span className={`w-1 h-1 rounded-full ${hasAccess ? 'bg-green-400 shadow-[0_0_4px_rgba(74,222,128,0.8)]' : 'bg-transparent border border-gray-600'}`}></span>
                               {p.label}
@@ -548,9 +586,9 @@ export const InviteManagerModal: React.FC<InviteManagerModalProps> = ({ isOpen, 
                     {/* Trash remove button */}
                     <div className="flex items-center justify-end shrink-0 border-t lg:border-t-0 pt-2 lg:pt-0 border-white/5">
                       <button
-                        onClick={() => handleRemoveCollaborator(collab.email)}
+                        onClick={() => handleRemoveCollaborator(collab.email, collab.isPending)}
                         className={`p-2 rounded-lg transition-colors flex items-center justify-center ${isLight ? 'hover:bg-red-50 text-slate-400 hover:text-red-500' : 'hover:bg-red-500/10 text-gray-500 hover:text-red-400'}`}
-                        title="Remove Collaborator"
+                        title={collab.isPending ? 'Cancel Invitation' : 'Remove Collaborator'}
                       >
                         <Trash2 size={15} />
                       </button>
