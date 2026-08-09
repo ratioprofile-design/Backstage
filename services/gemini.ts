@@ -85,6 +85,10 @@ async function openAICompletion(baseUrl: string, prompt: string, model: string, 
 // Falls back to Gemini automatically when the external provider is out of credit
 // and a Gemini key is configured.
 async function callTextModel(prompt: string, model: string, jsonMode: boolean, openRouterApiKey?: string): Promise<string> {
+  if (typeof model === 'string' && model.startsWith('grok-')) {
+    const key = localStorage.getItem('grok_api_key') || '';
+    return await openAICompletion('https://api.x.ai/v1', prompt, model, key, jsonMode);
+  }
   if (isOpenRouterModel(model)) {
     // Prefer the in-app key (Backstage AI tab), fall back to env vars.
     const key = openRouterApiKey || import.meta.env.VITE_TOKENROUTER_API_KEY || import.meta.env.VITE_OPENROUTER_API_KEY;

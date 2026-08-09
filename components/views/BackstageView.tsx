@@ -228,6 +228,7 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
     loadProject, closeProject, downloadProject, saveProjectAs, fileHandle, filePath, setFilePath,
     beats, currentUser, isCloudMode,
     openrouterKey, setOpenrouterKey,
+    grokKey, setGrokKey,
     generalAiModel, setGeneralAiModel,
     appTheme = 'dark', setAppTheme,
     appAccentColor = '#f5a623', setAppAccentColor,
@@ -275,6 +276,14 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
   useEffect(() => {
       setTempOpenrouterKey(openrouterKey || import.meta.env.VITE_TOKENROUTER_API_KEY || import.meta.env.VITE_OPENROUTER_API_KEY || '');
   }, [openrouterKey]);
+
+  const [tempGrokKey, setTempGrokKey] = useState(
+      grokKey || ''
+  );
+
+  useEffect(() => {
+      setTempGrokKey(grokKey || '');
+  }, [grokKey]);
 
   const blockBounds = scriptConfig.blockBounds;
   const updateBlockBounds = (updates: any) => setScriptConfig({ 
@@ -1371,6 +1380,25 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
                                                  keyTestStatus === 'invalid' ? `Key Invalid${keyTestError ? ` — ${keyTestError}` : ''}` : 'Testing Connection...'}
                                             </span>
                                         )}
+                                    </div>
+                                </div>
+                                <div>
+                                    <Label>Grok API Key</Label>
+                                    <p className="text-[10px] text-gray-500 mt-1 mb-2">Used for Grok 2 and Grok Beta models. Keys start with "gsk_".</p>
+                                    <div className="flex gap-2">
+                                        <input 
+                                            type="password"
+                                            value={tempGrokKey}
+                                            onChange={(e) => setTempGrokKey(e.target.value)}
+                                            className="w-full bg-[#000] border border-[#333] rounded px-3 py-2 text-xs text-white focus:border-[#f5a623] outline-none"
+                                            placeholder="gsk_..."
+                                        />
+                                        <button 
+                                            onClick={() => { setGrokKey(tempGrokKey); localStorage.setItem('grok_api_key', tempGrokKey); alert("Grok API key saved!"); }}
+                                            className="px-4 py-2 bg-[#222] border border-[#333] hover:bg-[#333] text-white text-xs font-bold uppercase rounded"
+                                        >
+                                            Save
+                                        </button>
                                     </div>
                                 </div>
                                 <div>

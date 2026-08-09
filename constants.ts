@@ -94,6 +94,8 @@ export const AVAILABLE_IMAGE_MODELS = [
 export const AVAILABLE_TEXT_MODELS = [
     { label: 'Gemini 2.5 Flash (Fast)', value: 'gemini-2.5-flash' },
     { label: 'Gemini 2.5 Pro (Smart)', value: 'gemini-2.5-pro' },
+    { label: 'Grok 2 (Smart & Creative)', value: 'grok-2-1212' },
+    { label: 'Grok Beta (Fast)', value: 'grok-beta' },
     { label: 'NVIDIA Nemotron 3 Nano (Free)', value: 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free' },
     { label: 'Moonshot Kimi K3 (Free)', value: 'moonshotai/kimi-k3-free' },
 ];
