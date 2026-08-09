@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Mail, Trash2, UserPlus, CheckSquare, Square, X, Key, Users } from 'lucide-react';
+import { Mail, Trash2, UserPlus, CheckSquare, Square, X, Key, Users, Check, User } from 'lucide-react';
 import { useProject } from '../context/ProjectContext';
 
 interface InviteManagerModalProps {
@@ -9,9 +9,16 @@ interface InviteManagerModalProps {
 
 interface Collaborator {
   email: string;
+  name?: string;
   role: string;
   editAccess: 'edit' | 'view';
   allowedPages: string[];
+}
+
+interface UserProfile {
+  name: string;
+  email: string;
+  defaultRole: string;
 }
 
 const AVAILABLE_PAGES = [
@@ -21,6 +28,15 @@ const AVAILABLE_PAGES = [
   { id: 'storyboard', label: 'Storyboard' },
   { id: 'shotlist', label: 'Shot List' },
   { id: 'production', label: 'Production Plan' }
+];
+
+const MOCK_PROFILES: UserProfile[] = [
+  { name: 'James Cameron', email: 'writer@backstage.com', defaultRole: 'writer' },
+  { name: 'Christopher Nolan', email: 'director@backstage.com', defaultRole: 'director' },
+  { name: 'Kathleen Kennedy', email: 'producer@backstage.com', defaultRole: 'producer' },
+  { name: 'Sam Mendes', email: 'ad@backstage.com', defaultRole: 'ad' },
+  { name: 'Roger Deakins', email: 'cinematographer@backstage.com', defaultRole: 'cinematographer' },
+  { name: 'Alex Honnold', email: 'user@backstage.com', defaultRole: 'writer' }
 ];
 
 export const InviteManagerModal: React.FC<InviteManagerModalProps> = ({ isOpen, onClose }) => {
@@ -34,9 +50,19 @@ export const InviteManagerModal: React.FC<InviteManagerModalProps> = ({ isOpen, 
   const [inviteEdit, setInviteEdit] = useState<'edit' | 'view'>('edit');
   const [invitePages, setInvitePages] = useState<string[]>(['board', 'script', 'casting', 'storyboard', 'shotlist', 'production']);
 
+  // Suggestion & Selection state
+  const [selectedProfile, setSelectedProfile] = useState<UserProfile | null>(null);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+
   // Request invite state
   const [requestProjectId, setRequestProjectId] = useState('');
   const [requestStatus, setRequestStatus] = useState<'idle' | 'sending' | 'success'>('idle');
+
+  // Filter profiles based on typed text
+  const filteredProfiles = MOCK_PROFILES.filter(p => 
+    p.email.toLowerCase().includes(inviteEmail.toLowerCase()) ||
+    p.name.toLowerCase().includes(inviteEmail.toLowerCase())
+  );
 
   // Load collaborators on open
   useEffect(() => {
@@ -48,19 +74,22 @@ export const InviteManagerModal: React.FC<InviteManagerModalProps> = ({ isOpen, 
       // Default mock users
       const initial: Collaborator[] = [
         {
-          email: 'alice@example.com',
+          email: 'writer@backstage.com',
+          name: 'James Cameron',
           role: 'Writer',
           editAccess: 'edit',
           allowedPages: ['board', 'script', 'casting', 'storyboard']
         },
         {
-          email: 'bob@example.com',
+          email: 'director@backstage.com',
+          name: 'Christopher Nolan',
           role: 'Director',
           editAccess: 'view',
           allowedPages: ['board', 'script', 'casting', 'storyboard', 'shotlist', 'production']
         },
         {
-          email: 'charlie@example.com',
+          email: 'cinematographer@backstage.com',
+          name: 'Roger Deakins',
           role: 'Cinematographer',
           editAccess: 'edit',
           allowedPages: ['storyboard', 'shotlist', 'board']
@@ -76,18 +105,34 @@ export const InviteManagerModal: React.FC<InviteManagerModalProps> = ({ isOpen, 
     localStorage.setItem(`collaborators_${currentProjectId || 'default'}`, JSON.stringify(updated));
   };
 
+  const handleSelectProfile = (profile: UserProfile) => {
+    setSelectedProfile(profile);
+    setInviteEmail(profile.email);
+    setInviteRole(profile.defaultRole);
+    setShowSuggestions(false);
+  };
+
+  const handleClearSelection = () => {
+    setSelectedProfile(null);
+    setInviteEmail('');
+  };
+
   const handleSendInvite = (e: React.FormEvent) => {
     e.preventDefault();
     if (!inviteEmail.trim()) return;
 
+    const emailToInvite = selectedProfile ? selectedProfile.email : inviteEmail.toLowerCase().trim();
+    const nameToInvite = selectedProfile ? selectedProfile.name : emailToInvite.split('@')[0];
+
     // Check if already invited
-    if (collaborators.some(c => c.email.toLowerCase() === inviteEmail.toLowerCase().trim())) {
+    if (collaborators.some(c => c.email.toLowerCase() === emailToInvite.toLowerCase())) {
       alert('This person is already a collaborator.');
       return;
     }
 
     const newCollab: Collaborator = {
-      email: inviteEmail.toLowerCase().trim(),
+      email: emailToInvite,
+      name: nameToInvite,
       role: inviteRole.charAt(0).toUpperCase() + inviteRole.slice(1),
       editAccess: inviteEdit,
       allowedPages: invitePages
@@ -96,7 +141,8 @@ export const InviteManagerModal: React.FC<InviteManagerModalProps> = ({ isOpen, 
     const updated = [...collaborators, newCollab];
     saveCollaborators(updated);
     setInviteEmail('');
-    alert(`Invite sent successfully to ${newCollab.email}!`);
+    setSelectedProfile(null);
+    alert(`Invite sent successfully to ${newCollab.name || newCollab.email}!`);
   };
 
   const handleRequestInvite = (e: React.FormEvent) => {
@@ -178,19 +224,83 @@ export const InviteManagerModal: React.FC<InviteManagerModalProps> = ({ isOpen, 
                 <UserPlus size={14} /> Send Project Invite
               </h4>
               <div className="space-y-4">
-                <div>
-                  <label className={`block text-[9px] font-bold uppercase mb-1.5 ${isLight ? 'text-slate-500' : 'text-gray-400'}`}>Email Address</label>
-                  <div className="relative">
-                    <Mail className="absolute left-3 top-2.5 text-gray-500" size={12} />
-                    <input 
-                      type="email"
-                      required
-                      value={inviteEmail}
-                      onChange={(e) => setInviteEmail(e.target.value)}
-                      placeholder="collaborator@domain.com"
-                      className={`w-full text-xs pl-8 pr-3 py-2 rounded border outline-none focus:border-amber-500 ${isLight ? 'bg-white border-slate-200 text-slate-900' : 'bg-black border-[#333] text-white'}`}
-                    />
-                  </div>
+                
+                {/* Profile selection / search container */}
+                <div className="relative">
+                  <label className={`block text-[9px] font-bold uppercase mb-1.5 ${isLight ? 'text-slate-500' : 'text-gray-400'}`}>Search Profile by Email ID</label>
+                  
+                  {selectedProfile ? (
+                    /* Display Selected Profile Card */
+                    <div className={`p-3 rounded-lg border flex items-center justify-between transition-all ${isLight ? 'bg-amber-500/5 border-amber-500/25' : 'bg-amber-500/[0.03] border-amber-500/20'}`}>
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-7 h-7 rounded-full bg-gradient-to-br from-amber-500 to-orange-500 text-black text-[10px] font-black flex items-center justify-center uppercase">
+                          {selectedProfile.name.charAt(0)}
+                        </div>
+                        <div className="min-w-0">
+                          <p className={`text-xs font-black truncate ${isLight ? 'text-slate-900' : 'text-white'}`}>{selectedProfile.name}</p>
+                          <p className={`text-[9px] truncate ${isLight ? 'text-slate-500' : 'text-gray-400'}`}>{selectedProfile.email}</p>
+                        </div>
+                      </div>
+                      <button 
+                        type="button" 
+                        onClick={handleClearSelection}
+                        className={`p-1 rounded-full transition-colors ${isLight ? 'hover:bg-slate-200 text-slate-400 hover:text-slate-900' : 'hover:bg-white/10 text-gray-500 hover:text-white'}`}
+                      >
+                        <X size={12} />
+                      </button>
+                    </div>
+                  ) : (
+                    /* Search input */
+                    <div className="relative">
+                      <Mail className="absolute left-3 top-2.5 text-gray-500" size={12} />
+                      <input 
+                        type="text"
+                        required
+                        value={inviteEmail}
+                        onChange={(e) => {
+                          setInviteEmail(e.target.value);
+                          setShowSuggestions(true);
+                        }}
+                        onFocus={() => setShowSuggestions(true)}
+                        placeholder="Type email / profile ID..."
+                        className={`w-full text-xs pl-8 pr-3 py-2 rounded border outline-none focus:border-amber-500 ${isLight ? 'bg-white border-slate-200 text-slate-900' : 'bg-black border-[#333] text-white'}`}
+                      />
+
+                      {/* Suggestion Dropdown */}
+                      {showSuggestions && inviteEmail.trim().length > 0 && (
+                        <>
+                          <div className="fixed inset-0 z-30" onClick={() => setShowSuggestions(false)} />
+                          <div className={`absolute left-0 right-0 top-9 z-40 rounded-lg border shadow-xl max-h-48 overflow-y-auto divide-y ${isLight ? 'bg-white border-slate-200 divide-slate-100' : 'bg-[#181818] border-[#2d2d2d] divide-[#222]'}`}>
+                            {filteredProfiles.length > 0 ? (
+                              filteredProfiles.map(p => (
+                                <div 
+                                  key={p.email}
+                                  onClick={() => handleSelectProfile(p)}
+                                  className={`p-2.5 flex items-center gap-2 cursor-pointer transition-colors ${isLight ? 'hover:bg-slate-50' : 'hover:bg-white/[0.02]'}`}
+                                >
+                                  <div className="w-6 h-6 rounded-full bg-amber-500/10 text-amber-500 text-[9px] font-black flex items-center justify-center uppercase shrink-0">
+                                    {p.name.charAt(0)}
+                                  </div>
+                                  <div className="min-w-0 text-left">
+                                    <div className={`text-[10px] font-black truncate ${isLight ? 'text-slate-900' : 'text-white'}`}>{p.name}</div>
+                                    <div className="text-[9px] text-gray-500 truncate">{p.email}</div>
+                                  </div>
+                                </div>
+                              ))
+                            ) : (
+                              <div 
+                                onClick={() => setShowSuggestions(false)}
+                                className={`p-2.5 text-[9px] italic text-center ${isLight ? 'text-slate-400' : 'text-gray-500'}`}
+                              >
+                                Profile not registered. Invite guest anyway.
+                              </div>
+                            )}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  )}
+
                 </div>
 
                 <div>
@@ -308,13 +418,16 @@ export const InviteManagerModal: React.FC<InviteManagerModalProps> = ({ isOpen, 
                     {/* User profile & basic info */}
                     <div className="flex items-start gap-3">
                       <div className="w-8 h-8 rounded-full bg-gradient-to-br from-amber-500 to-orange-500 text-black font-black text-xs flex items-center justify-center uppercase shrink-0 shadow-sm">
-                        {collab.email.charAt(0)}
+                        {(collab.name || collab.email).charAt(0)}
                       </div>
                       <div>
                         <div className="text-xs font-black flex items-center gap-2">
-                          <span className={isLight ? 'text-slate-900' : 'text-white'}>{collab.email}</span>
+                          <span className={isLight ? 'text-slate-900' : 'text-white'}>{collab.name || collab.email}</span>
                           <span className="px-1.5 py-0.5 rounded text-[8px] bg-amber-500/10 text-amber-500 border border-amber-500/20 font-black uppercase tracking-wider">{collab.role}</span>
                         </div>
+                        {collab.name && (
+                          <div className="text-[9px] text-gray-500 mt-0.5">{collab.email}</div>
+                        )}
                         
                         {/* Edit Access Privileges toggle */}
                         <div className="flex items-center gap-1.5 mt-2">
