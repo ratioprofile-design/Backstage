@@ -50,18 +50,36 @@ export const supabase = isSupabaseConfigured
 export const upsertProject = async (id: string, userId: string, name: string, data: any) => {
   if (!isSupabaseConfigured) return;
   
-  const { error } = await supabase
+  // Check if project already exists
+  const { data: existing, error: checkError } = await supabase
     .from('projects')
-    .upsert({
-      id,
-      user_id: userId,
-      name,
-      data,
-      updated_at: new Date().toISOString()
-    });
-  
-  if (error) {
-    throw error;
+    .select('id, user_id')
+    .eq('id', id)
+    .maybeSingle();
+
+  if (existing && !checkError) {
+    // Already exists: update data and name only. Keep the original owner user_id untouched.
+    const { error } = await supabase
+      .from('projects')
+      .update({
+        name,
+        data,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', id);
+    if (error) throw error;
+  } else {
+    // New project: insert with current user as the owner
+    const { error } = await supabase
+      .from('projects')
+      .insert({
+        id,
+        user_id: userId,
+        name,
+        data,
+        updated_at: new Date().toISOString()
+      });
+    if (error) throw error;
   }
 };
 
