@@ -792,7 +792,7 @@ const ContextMenuItem = ({ icon: Icon, label, onClick, danger, submenu, active, 
 };
 
 const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'casting') => void }> = ({ onNavigateToView }) => {
-  const { beats, groups, connections, updateBeat, addBeat, setBeats, setConnections, scriptViewMode, scriptConfig, setScriptConfig, scratchpadConfig, characterData, breakdownLanguage, setBreakdownLanguage, scratchpad, setScratchpad, globalNotes, setGlobalNotes, captureSnapshot, reorderBeats, setActiveBoardId, appTheme, generalAiModel, openrouterKey, userRole, setActiveSceneTitle } = useProject();
+  const { beats, groups, connections, updateBeat, addBeat, setBeats, setConnections, scriptViewMode, scriptConfig, setScriptConfig, scratchpadConfig, characterData, breakdownLanguage, setBreakdownLanguage, scratchpad, setScratchpad, globalNotes, setGlobalNotes, captureSnapshot, reorderBeats, setActiveBoardId, appTheme, generalAiModel, openrouterKey, userRole } = useProject();
   const { aiAvailable } = useAiKeyStatus();
   const isScriptReadOnly = false;
 
@@ -1025,16 +1025,6 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'cast
 
   const activeBeat = useMemo(() => beats.find(b => b.id === activeBeatId), [beats, activeBeatId]);
 
-  useEffect(() => {
-    if (activeSidebar !== 'none') {
-      const typeLabel = activeSidebar === 'breakdown' ? 'Breakdown' : activeSidebar === 'scratchpad' ? (scratchpadMode === 'global' ? 'Global Notes' : 'Scene Notes') : 'History';
-      const targetLabel = activeSidebar === 'scratchpad' && scratchpadMode === 'global' ? 'Entire Screenplay' : (activeBeat?.slug.location || 'Untitled Scene');
-      setActiveSceneTitle(`${typeLabel}: ${targetLabel}`);
-    } else {
-      setActiveSceneTitle(null);
-    }
-    return () => setActiveSceneTitle(null);
-  }, [activeSidebar, activeBeat, scratchpadMode, setActiveSceneTitle]);
 
   const locationCount = useMemo(() => new Set(beats.map(b => (b.slug?.location || '').trim().toUpperCase()).filter(Boolean)).size, [beats]);
   const uniqueLocations = useMemo(() => { const locs = new Set<string>(); ['HOUSE', 'KITCHEN', 'BEDROOM', 'OFFICE', 'PARK', 'STREET', 'CAR', 'APARTMENT', 'SCHOOL', 'HOSPITAL'].forEach(l => locs.add(l)); beats.forEach(b => { if (b.slug.location && b.slug.location.trim()) { locs.add(b.slug.location.trim()); } }); return Array.from(locs).sort(); }, [beats]);
@@ -1426,9 +1416,9 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'cast
                 </div>
                 <div className="flex items-center gap-4">
                     <div className={`flex rounded border p-0.5 ${isLight ? 'bg-slate-100 border-slate-200' : 'bg-[#1a1a1a] border-[#333]'}`}>
-                        <button onClick={() => setActiveSidebar(activeSidebar === 'scratchpad' ? 'none' : 'scratchpad')} className={`p-1.5 rounded flex items-center gap-2 text-[10px] font-bold uppercase transition-all ${activeSidebar === 'scratchpad' ? (isLight ? 'bg-white text-amber-600 shadow-xs' : 'bg-[#222] text-[#f5a623] shadow-sm') : (isLight ? 'text-slate-600 hover:text-slate-900' : 'text-gray-500 hover:text-white')}`} title="Scratchpad"><StickyNote size={14} /></button>
-                        <button onClick={() => setActiveSidebar(activeSidebar === 'breakdown' ? 'none' : 'breakdown')} className={`p-1.5 rounded flex items-center gap-2 text-[10px] font-bold uppercase transition-all ${activeSidebar === 'breakdown' ? (isLight ? 'bg-white text-amber-600 shadow-xs' : 'bg-[#222] text-[#f5a623] shadow-sm') : (isLight ? 'text-slate-600 hover:text-slate-900' : 'text-gray-400 hover:text-white')}`} title="Scene Breakdown"><ListChecks size={14} /></button>
-                        <button onClick={() => setActiveSidebar(activeSidebar === 'history' ? 'none' : 'history')} className={`p-1.5 rounded flex items-center gap-2 text-[10px] font-bold uppercase transition-all ${activeSidebar === 'history' ? (isLight ? 'bg-white text-amber-600 shadow-xs' : 'bg-[#222] text-[#f5a623] shadow-sm') : (isLight ? 'text-slate-600 hover:text-slate-900' : 'text-gray-400 hover:text-white')}`} title="Version History"><History size={14} /></button>
+                        <button onClick={() => setActiveSidebar(activeSidebar === 'scratchpad' ? 'none' : 'scratchpad')} className={`px-2.5 py-1.5 rounded flex items-center gap-1.5 text-[10px] font-bold uppercase transition-all ${activeSidebar === 'scratchpad' ? (isLight ? 'bg-white text-amber-600 shadow-xs' : 'bg-[#222] text-[#f5a623] shadow-sm') : (isLight ? 'text-slate-600 hover:text-slate-900' : 'text-gray-500 hover:text-white')}`} title="Scratchpad"><StickyNote size={13} /> Notes</button>
+                        <button onClick={() => setActiveSidebar(activeSidebar === 'breakdown' ? 'none' : 'breakdown')} className={`px-2.5 py-1.5 rounded flex items-center gap-1.5 text-[10px] font-bold uppercase transition-all ${activeSidebar === 'breakdown' ? (isLight ? 'bg-white text-amber-600 shadow-xs' : 'bg-[#222] text-[#f5a623] shadow-sm') : (isLight ? 'text-slate-600 hover:text-slate-900' : 'text-gray-400 hover:text-white')}`} title="Scene Breakdown"><ListChecks size={13} /> Breakdown</button>
+                        <button onClick={() => setActiveSidebar(activeSidebar === 'history' ? 'none' : 'history')} className={`px-2.5 py-1.5 rounded flex items-center gap-1.5 text-[10px] font-bold uppercase transition-all ${activeSidebar === 'history' ? (isLight ? 'bg-white text-amber-600 shadow-xs' : 'bg-[#222] text-[#f5a623] shadow-sm') : (isLight ? 'text-slate-600 hover:text-slate-900' : 'text-gray-400 hover:text-white')}`} title="Version History"><History size={13} /> Version</button>
                     </div>
                     <div className={`w-[1px] h-4 ${isLight ? 'bg-slate-300' : 'bg-[#333]'}`}></div>
                     <div className={`flex rounded border p-0.5 ${isLight ? 'bg-slate-100 border-slate-200' : 'bg-[#1a1a1a] border-[#333]'}`}>
