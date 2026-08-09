@@ -36,7 +36,7 @@ const AppHeader: React.FC<AppHeaderProps> = ({
       projectList, currentProjectId,
       undo, redo, canUndo, canRedo,
       saveProject, saveProjectAs, hasUnsavedChanges, currentUser, isCloudMode, isSaving, fileHandle,
-      autoGenerate5Scenes, appTheme, setAppTheme, logout, cloudOffline, supabaseUser
+      autoGenerate5Scenes, appTheme, setAppTheme, logout, cloudOffline, supabaseUser, userRole
   } = useProject();
 
   const { aiAvailable, router, gemini, testing } = useAiKeyStatus();
@@ -69,18 +69,31 @@ const AppHeader: React.FC<AppHeaderProps> = ({
 
   const isCloudActive = isCloudMode;
 
-  const views = [
-    { id: 'board', label: 'Board' },
-    { id: 'script', label: 'Script' },
-    { id: 'casting', label: 'Casting & Roster' },
-    { id: 'breakdown', label: 'Breakdown' },
-    { id: 'continuity', label: 'Continuity' },
-    { id: 'crew', label: 'Crew' },
-    { id: 'shotlist', label: 'Shot Division' },
-    { id: 'storyboard', label: 'Storyboard', hidden: !isStoryboardFeatureEnabled },
-    { id: 'schedule', label: 'Production Plan' },
-    { id: 'statistics', label: 'Statistics' }
-  ].filter(v => !v.hidden);
+  const views = useMemo(() => {
+    const list = [
+      { id: 'board', label: 'Board' },
+      { id: 'script', label: 'Script' },
+      { id: 'casting', label: 'Casting & Roster' },
+      { id: 'breakdown', label: 'Breakdown' },
+      { id: 'continuity', label: 'Continuity' },
+      { id: 'crew', label: 'Crew' },
+      { id: 'shotlist', label: 'Shot Division' },
+      { id: 'storyboard', label: 'Storyboard', hidden: !isStoryboardFeatureEnabled },
+      { id: 'schedule', label: 'Production Plan' },
+      { id: 'statistics', label: 'Statistics' }
+    ];
+
+    if (!userRole) return list.filter(v => !v.hidden);
+
+    if (userRole === 'writer') {
+      return list.filter(v => ['board', 'script', 'casting'].includes(v.id) && !v.hidden);
+    }
+    if (userRole === 'cinematographer') {
+      return list.filter(v => ['shotlist', 'storyboard', 'board', 'schedule'].includes(v.id) && !v.hidden);
+    }
+    // director, producer, ad get everything
+    return list.filter(v => !v.hidden);
+  }, [userRole, isStoryboardFeatureEnabled]);
 
   // Handle saved confirmation effect
   useEffect(() => {

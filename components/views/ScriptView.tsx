@@ -791,8 +791,9 @@ const ContextMenuItem = ({ icon: Icon, label, onClick, danger, submenu, active, 
 };
 
 const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'casting') => void }> = ({ onNavigateToView }) => {
-  const { beats, groups, connections, updateBeat, addBeat, setBeats, setConnections, scriptViewMode, scriptConfig, setScriptConfig, scratchpadConfig, characterData, breakdownLanguage, setBreakdownLanguage, scratchpad, setScratchpad, globalNotes, setGlobalNotes, captureSnapshot, reorderBeats, setActiveBoardId, appTheme, generalAiModel, openrouterKey } = useProject();
+  const { beats, groups, connections, updateBeat, addBeat, setBeats, setConnections, scriptViewMode, scriptConfig, setScriptConfig, scratchpadConfig, characterData, breakdownLanguage, setBreakdownLanguage, scratchpad, setScratchpad, globalNotes, setGlobalNotes, captureSnapshot, reorderBeats, setActiveBoardId, appTheme, generalAiModel, openrouterKey, userRole } = useProject();
   const { aiAvailable } = useAiKeyStatus();
+  const isScriptReadOnly = userRole === 'ad';
 
   const isLight = useMemo(() => {
     if (appTheme === 'light') return true;
@@ -1413,21 +1414,23 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'cast
                                                 }}
                                             >
                                                 <div className="flex-1 flex items-center gap-2 font-black uppercase font-screenplay text-sm tracking-wide">
-                                                    <SlugInput id={`beat-prefix-${beat.id}`} value={beat.slug.prefix} onChange={v => handleSlugChange(beat.id, 'prefix', v)} onNext={() => document.getElementById(`beat-location-${beat.id}`)?.focus()} suggestions={SLUG_PREFIXES} className="w-20 shrink-0 font-black" style={{ color: activeBeatId === beat.id ? theme.activeSlugText : theme.slugText }} placeholder="INT." dropdownStyle={{ backgroundColor: theme.dropdownBg, color: theme.dropdownText, borderColor: theme.dropdownBorder }} />
-                                                    <SlugInput id={`beat-location-${beat.id}`} value={beat.slug.location} onChange={v => handleSlugChange(beat.id, 'location', v)} onNext={() => document.getElementById(`beat-time-${beat.id}`)?.focus()} suggestions={uniqueLocations} className="flex-1 font-black" style={{ color: activeBeatId === beat.id ? theme.activeSlugText : theme.slugText }} placeholder="LOCATION" dropdownStyle={{ backgroundColor: theme.dropdownBg, color: theme.dropdownText, borderColor: theme.dropdownBorder }} />
+                                                    <SlugInput id={`beat-prefix-${beat.id}`} value={beat.slug.prefix} onChange={v => handleSlugChange(beat.id, 'prefix', v)} onNext={() => document.getElementById(`beat-location-${beat.id}`)?.focus()} suggestions={SLUG_PREFIXES} className="w-20 shrink-0 font-black" style={{ color: activeBeatId === beat.id ? theme.activeSlugText : theme.slugText }} placeholder="INT." dropdownStyle={{ backgroundColor: theme.dropdownBg, color: theme.dropdownText, borderColor: theme.dropdownBorder }} readOnly={isReady || isScriptReadOnly} />
+                                                    <SlugInput id={`beat-location-${beat.id}`} value={beat.slug.location} onChange={v => handleSlugChange(beat.id, 'location', v)} onNext={() => document.getElementById(`beat-time-${beat.id}`)?.focus()} suggestions={uniqueLocations} className="flex-1 font-black" style={{ color: activeBeatId === beat.id ? theme.activeSlugText : theme.slugText }} placeholder="LOCATION" dropdownStyle={{ backgroundColor: theme.dropdownBg, color: theme.dropdownText, borderColor: theme.dropdownBorder }} readOnly={isReady || isScriptReadOnly} />
                                                     <span className="opacity-60 font-black" style={{ color: activeBeatId === beat.id ? theme.activeSlugText : theme.slugText }}>-</span>
-                                                    <SlugInput id={`beat-time-${beat.id}`} value={beat.slug.time} onChange={v => handleSlugChange(beat.id, 'time', v)} onNext={() => editorRefs.current[beat.id]?.focus()} suggestions={SLUG_TIMES} className="w-32 shrink-0 font-black" style={{ color: activeBeatId === beat.id ? theme.activeSlugText : theme.slugText }} placeholder="TIME" dropdownStyle={{ backgroundColor: theme.dropdownBg, color: theme.dropdownText, borderColor: theme.dropdownBorder }} />
+                                                    <SlugInput id={`beat-time-${beat.id}`} value={beat.slug.time} onChange={v => handleSlugChange(beat.id, 'time', v)} onNext={() => editorRefs.current[beat.id]?.focus()} suggestions={SLUG_TIMES} className="w-32 shrink-0 font-black" style={{ color: activeBeatId === beat.id ? theme.activeSlugText : theme.slugText }} placeholder="TIME" dropdownStyle={{ backgroundColor: theme.dropdownBg, color: theme.dropdownText, borderColor: theme.dropdownBorder }} readOnly={isReady || isScriptReadOnly} />
                                                 </div>
-                                                {isReady && <Lock size={12} style={{ color: activeBeatId === beat.id ? theme.activeSlugText : '#10b981' }} className="ml-2 shrink-0" />}
+                                                {(isReady || isScriptReadOnly) && <Lock size={12} style={{ color: activeBeatId === beat.id ? theme.activeSlugText : '#10b981' }} className="ml-2 shrink-0" />}
                                             </div>
                                             <div>
-                                                <BeatEditorBlock beat={beat} isActive={activeBeatId === beat.id} isReady={isReady} uniqueCharacters={uniqueCharacters} setActiveFormat={setActiveFormat} onUpdateContent={handleContentUpdate} onFocus={() => setActiveBeatId(beat.id)} editorRefCallback={(el) => { editorRefs.current[beat.id] = el; }} />
+                                                <BeatEditorBlock beat={beat} isActive={activeBeatId === beat.id} isReady={isReady || isScriptReadOnly} uniqueCharacters={uniqueCharacters} setActiveFormat={setActiveFormat} onUpdateContent={handleContentUpdate} onFocus={() => setActiveBeatId(beat.id)} editorRefCallback={(el) => { editorRefs.current[beat.id] = el; }} />
                                             </div>
                                         </div>
                                     </React.Fragment>
                                 );
                             })}
-                            <div onClick={handleAddScene} className={`mt-8 mx-auto w-full max-w-xl h-6 border-b border-transparent flex items-center justify-center cursor-pointer transition-all duration-300 group opacity-40 hover:opacity-100 ${isLight ? 'hover:border-amber-500/50' : 'hover:border-[#f5a623]/30'}`}><span className={`text-[9px] font-bold uppercase tracking-[0.2em] flex items-center gap-2 transition-colors ${isLight ? 'text-slate-500 group-hover:text-amber-600' : 'text-[#666] group-hover:text-[#f5a623]'}`}><Plus size={8} /> Add Scene</span></div>
+                            {!isScriptReadOnly && (
+                                <div onClick={handleAddScene} className={`mt-8 mx-auto w-full max-w-xl h-6 border-b border-transparent flex items-center justify-center cursor-pointer transition-all duration-300 group opacity-40 hover:opacity-100 ${isLight ? 'hover:border-amber-500/50' : 'hover:border-[#f5a623]/30'}`}><span className={`text-[9px] font-bold uppercase tracking-[0.2em] flex items-center gap-2 transition-colors ${isLight ? 'text-slate-500 group-hover:text-amber-600' : 'text-[#666] group-hover:text-[#f5a623]'}`}><Plus size={8} /> Add Scene</span></div>
+                            )}
                         </div>
                     </div>
                 </div>

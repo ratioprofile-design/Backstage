@@ -24,6 +24,7 @@ import AuthScreen from './components/AuthScreen';
 import InboxModal, { DEFAULT_INBOX_TASKS } from './components/InboxModal';
 import InboxView from './components/views/InboxView';
 import { AIAssistantModal } from './components/AIAssistantModal';
+import RoleSelectorModal from './components/RoleSelectorModal';
 import { ViewMode, ScriptConfig, AppTask, ProjectState } from './types';
 import { INITIAL_STATE } from './constants';
 import { Loader2, Film, Cloud } from 'lucide-react';
@@ -186,7 +187,7 @@ const StyleInjector: React.FC = () => {
 
 const AppContent: React.FC = () => {
   console.log('[probe] AppContent mounted, supabase user =', useProject ? 'n/a' : 'n/a');
-  const { currentUser, currentProjectId, undo, redo, isInitialLoading, saveProject, saveProjectAs, loadProject, closeProject, setAppTheme, filePath, setFilePath, supabaseUser, isCloudMode, logout, selectProject, deleteProject, projectList } = useProject();
+  const { currentUser, currentProjectId, undo, redo, isInitialLoading, saveProject, saveProjectAs, loadProject, closeProject, setAppTheme, filePath, setFilePath, supabaseUser, isCloudMode, logout, selectProject, deleteProject, projectList, userRole, updateUserRole } = useProject();
   const [currentView, setCurrentView] = useState<ViewMode>('board');
   const [openBeatIds, setOpenBeatIds] = useState<number[]>([]);
   const [showPrintPreview, setShowPrintPreview] = useState(false);
@@ -209,6 +210,19 @@ const AppContent: React.FC = () => {
       window.removeEventListener('offline', handleOffline);
     };
   }, []);
+
+  useEffect(() => {
+    if (!userRole) return;
+    if (userRole === 'writer') {
+      if (!['board', 'script', 'casting'].includes(currentView)) {
+        setCurrentView('board');
+      }
+    } else if (userRole === 'cinematographer') {
+      if (!['shotlist', 'storyboard', 'board', 'schedule'].includes(currentView)) {
+        setCurrentView('board');
+      }
+    }
+  }, [userRole, currentView]);
 
   const showAuth = isSupabaseConfigured && !supabaseUser;
 
@@ -460,6 +474,15 @@ const AppContent: React.FC = () => {
           <>
               <StyleInjector />
               <AuthScreen />
+          </>
+      );
+  }
+
+  if (userRole === null) {
+      return (
+          <>
+              <StyleInjector />
+              <RoleSelectorModal onSelectRole={(role) => updateUserRole(role)} />
           </>
       );
   }

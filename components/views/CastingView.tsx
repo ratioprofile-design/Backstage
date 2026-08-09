@@ -136,13 +136,19 @@ const SettingsSection: React.FC<{ title: string; children: React.ReactNode }> = 
 );
 
 export const CastingView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'casting') => void }> = ({ onNavigateToView }) => {
-  const { characterData, setCharacterData, beats, appTheme, projectList, currentProjectId, characterDesignLocked } = useProject();
+  const { characterData, setCharacterData, beats, appTheme, projectList, currentProjectId, characterDesignLocked, userRole } = useProject();
   const { aiAvailable } = useAiKeyStatus();
   const isLight = appTheme === 'light' || (appTheme === 'system' && typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: light)').matches);
   const isLocked = !!characterDesignLocked;
 
   // Default View: Pipeline (Hero operational view)
   const [activeViewMode, setActiveViewMode] = useState<'pipeline' | 'matrix' | 'comparison' | 'dossier'>('pipeline');
+
+  React.useEffect(() => {
+    if (userRole === 'writer') {
+      setActiveViewMode('dossier');
+    }
+  }, [userRole]);
   const [selectedRole, setSelectedRole] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [filterTier, setFilterTier] = useState<string>('all');
@@ -1090,55 +1096,57 @@ export const CastingView: React.FC<{ onNavigateToView?: (view: 'characterdesign'
 
         {/* Primary View Switcher & Action Button */}
         <div className="flex items-center gap-2 shrink-0">
-          <div className={`flex border p-0.5 ${isLight ? 'bg-slate-200 border-slate-300' : 'bg-[#1a1d26] border-slate-800'}`}>
-            <button
-              onClick={() => setActiveViewMode('pipeline')}
-              className={`px-2.5 py-1 text-[11px] font-medium transition-colors flex items-center gap-1.5 ${
-                activeViewMode === 'pipeline'
-                  ? (isLight ? 'bg-white text-slate-900 shadow-xs font-bold' : 'bg-[#262a36] text-white font-bold')
-                  : (isLight ? 'text-slate-600 hover:text-slate-900' : 'text-slate-400 hover:text-white')
-              }`}
-            >
-              <LayoutGrid size={13} />
-              <span>Pipeline Board</span>
-            </button>
+          {userRole !== 'writer' && (
+            <div className={`flex border p-0.5 ${isLight ? 'bg-slate-200 border-slate-300' : 'bg-[#1a1d26] border-slate-800'}`}>
+              <button
+                onClick={() => setActiveViewMode('pipeline')}
+                className={`px-2.5 py-1 text-[11px] font-medium transition-colors flex items-center gap-1.5 ${
+                  activeViewMode === 'pipeline'
+                    ? (isLight ? 'bg-white text-slate-900 shadow-xs font-bold' : 'bg-[#262a36] text-white font-bold')
+                    : (isLight ? 'text-slate-600 hover:text-slate-900' : 'text-slate-400 hover:text-white')
+                }`}
+              >
+                <LayoutGrid size={13} />
+                <span>Pipeline Board</span>
+              </button>
 
-            <button
-              onClick={() => setActiveViewMode('matrix')}
-              className={`px-2.5 py-1 text-[11px] font-medium transition-colors flex items-center gap-1.5 ${
-                activeViewMode === 'matrix'
-                  ? (isLight ? 'bg-white text-slate-900 shadow-xs font-bold' : 'bg-[#262a36] text-white font-bold')
-                  : (isLight ? 'text-slate-600 hover:text-slate-900' : 'text-slate-400 hover:text-white')
-              }`}
-            >
-              <ListFilter size={13} />
-              <span>Roles Matrix</span>
-            </button>
+              <button
+                onClick={() => setActiveViewMode('matrix')}
+                className={`px-2.5 py-1 text-[11px] font-medium transition-colors flex items-center gap-1.5 ${
+                  activeViewMode === 'matrix'
+                    ? (isLight ? 'bg-white text-slate-900 shadow-xs font-bold' : 'bg-[#262a36] text-white font-bold')
+                    : (isLight ? 'text-slate-600 hover:text-slate-900' : 'text-slate-400 hover:text-white')
+                }`}
+              >
+                <ListFilter size={13} />
+                <span>Roles Matrix</span>
+              </button>
 
-            <button
-              onClick={() => setActiveViewMode('comparison')}
-              className={`px-2.5 py-1 text-[11px] font-medium transition-colors flex items-center gap-1.5 ${
-                activeViewMode === 'comparison'
-                  ? (isLight ? 'bg-white text-slate-900 shadow-xs font-bold' : 'bg-[#262a36] text-white font-bold')
-                  : (isLight ? 'text-slate-600 hover:text-slate-900' : 'text-slate-400 hover:text-white')
-              }`}
-            >
-              <ArrowLeftRight size={13} />
-              <span>Comparison</span>
-            </button>
+              <button
+                onClick={() => setActiveViewMode('comparison')}
+                className={`px-2.5 py-1 text-[11px] font-medium transition-colors flex items-center gap-1.5 ${
+                  activeViewMode === 'comparison'
+                    ? (isLight ? 'bg-white text-slate-900 shadow-xs font-bold' : 'bg-[#262a36] text-white font-bold')
+                    : (isLight ? 'text-slate-600 hover:text-slate-900' : 'text-slate-400 hover:text-white')
+                }`}
+              >
+                <ArrowLeftRight size={13} />
+                <span>Comparison</span>
+              </button>
 
-            <button
-              onClick={() => setActiveViewMode('dossier')}
-              className={`px-2.5 py-1 text-[11px] font-medium transition-colors flex items-center gap-1.5 ${
-                activeViewMode === 'dossier'
-                  ? (isLight ? 'bg-white text-slate-900 shadow-xs font-bold' : 'bg-[#262a36] text-white font-bold')
-                  : (isLight ? 'text-slate-600 hover:text-slate-900' : 'text-slate-400 hover:text-white')
-              }`}
-            >
-              <Folder size={13} />
-              <span>Dossier</span>
-            </button>
-          </div>
+              <button
+                onClick={() => setActiveViewMode('dossier')}
+                className={`px-2.5 py-1 text-[11px] font-medium transition-colors flex items-center gap-1.5 ${
+                  activeViewMode === 'dossier'
+                    ? (isLight ? 'bg-white text-slate-900 shadow-xs font-bold' : 'bg-[#262a36] text-white font-bold')
+                    : (isLight ? 'text-slate-600 hover:text-slate-900' : 'text-slate-400 hover:text-white')
+                }`}
+              >
+                <Folder size={13} />
+                <span>Dossier</span>
+              </button>
+            </div>
+          )}
 
           <button
             onClick={() => window.print()}
