@@ -98,7 +98,7 @@ export const fetchProjectData = async (id: string) => {
 export const inviteUserToProject = async (projectId: string, projectName: string, email: string, invitedBy?: string) => {
   if (isSupabaseConfigured) {
     try {
-      const { error } = await supabase.from('project_invites').upsert({
+      const { error } = await supabase.from('project_invites').insert({
         project_id: projectId,
         project_name: projectName,
         invitee_email: email.toLowerCase().trim(),
