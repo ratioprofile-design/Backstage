@@ -57,62 +57,65 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
         </div>
 
         {/* Quick Actions / Invites */}
-        {isWriter ? (
-          <div className="grid grid-cols-2 gap-4">
-            <button
-              onClick={onNew}
-              className="flex flex-col items-center justify-center gap-3 p-6 rounded-xl bg-[#f5a623] hover:bg-[#ffb73c] text-black transition-all duration-300 group"
-            >
-              <FilePlus2 size={24} className="group-hover:scale-110 transition-transform duration-300" />
-              <span className="text-xs font-black uppercase tracking-wider">New Script</span>
-            </button>
+        <div className="flex flex-col gap-6">
+          {/* Quick Actions for Writers */}
+          {isWriter ? (
+            <div className="grid grid-cols-2 gap-4">
+              <button
+                onClick={onNew}
+                className="flex flex-col items-center justify-center gap-3 p-6 rounded-xl bg-[#f5a623] hover:bg-[#ffb73c] text-black transition-all duration-300 group"
+              >
+                <FilePlus2 size={24} className="group-hover:scale-110 transition-transform duration-300" />
+                <span className="text-xs font-black uppercase tracking-wider">New Script</span>
+              </button>
 
-            <button
-              onClick={onOpen}
-              className="flex flex-col items-center justify-center gap-3 p-6 rounded-xl bg-white/5 border border-white/10 hover:border-white/20 hover:bg-white/[0.08] text-white transition-all duration-300 group"
-            >
-              <FolderOpen size={24} className="text-[#f5a623] group-hover:scale-110 transition-transform duration-300" />
-              <span className="text-xs font-black uppercase tracking-wider">Open File</span>
-            </button>
-          </div>
-        ) : (
-          <div className="flex flex-col gap-5">
-            {/* Elegant Posh Invites Section */}
-            <div className="p-6 rounded-xl bg-gradient-to-b from-[#1c1d24] to-[#121318] border border-amber-500/20 shadow-xl flex flex-col gap-4">
-              <div className="flex items-center gap-2 pb-2 border-b border-white/5">
-                <Mail size={16} className="text-amber-400" />
-                <span className="text-xs font-black uppercase tracking-widest text-amber-400">Workspace Invites</span>
-                <span className="ml-auto text-[9px] text-gray-500 truncate max-w-[180px]">{currentUser}</span>
-              </div>
+              <button
+                onClick={onOpen}
+                className="flex flex-col items-center justify-center gap-3 p-6 rounded-xl bg-white/5 border border-white/10 hover:border-white/20 hover:bg-white/[0.08] text-white transition-all duration-300 group"
+              >
+                <FolderOpen size={24} className="text-[#f5a623] group-hover:scale-110 transition-transform duration-300" />
+                <span className="text-xs font-black uppercase tracking-wider">Open File</span>
+              </button>
+            </div>
+          ) : null}
 
-              {invitedProjects.length > 0 ? (
-                <div className="flex flex-col gap-2 max-h-[160px] overflow-y-auto pr-1">
-                  {invitedProjects.map(p => (
-                    <div key={p.id} className="flex items-center justify-between p-3 rounded-lg bg-white/[0.02] border border-white/5 hover:border-white/10 hover:bg-white/[0.04] transition-all">
-                      <div className="flex flex-col gap-0.5">
-                        <span className="text-xs font-black uppercase tracking-wide text-white">{p.name}</span>
-                        <span className="text-[9px] text-gray-400">Invited by <strong className="text-[#f5a623]">{p.invitedBy || 'Writer'}</strong></span>
-                      </div>
-                      <button
-                        onClick={() => onOpenCloudProject?.(p.id)}
-                        className="px-3 py-1.5 rounded-lg bg-amber-400 text-black text-[10px] font-black uppercase tracking-wider transition-all hover:bg-amber-300 hover:scale-[1.02] active:scale-[0.98] shadow-md"
-                      >
-                        Join Workspace
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-center py-6 flex flex-col gap-2">
-                  <span className="text-xs text-gray-400 font-semibold">No active workspace invites</span>
-                  <span className="text-[10px] text-gray-500 max-w-[340px] mx-auto leading-relaxed">
-                    Ask your project writer to invite you using your email: <strong className="text-gray-400 font-bold">{currentUser}</strong>
-                  </span>
-                </div>
-              )}
+          {/* Elegant Posh Invites Section (For Everyone) */}
+          <div className="p-6 rounded-xl bg-gradient-to-b from-[#1c1d24] to-[#121318] border border-amber-500/20 shadow-xl flex flex-col gap-4">
+            <div className="flex items-center gap-2 pb-2 border-b border-white/5">
+              <Mail size={16} className="text-amber-400" />
+              <span className="text-xs font-black uppercase tracking-widest text-amber-400">Workspace Invites</span>
+              <span className="ml-auto text-[9px] text-gray-500 truncate max-w-[180px]">{currentUser}</span>
             </div>
 
-            {/* Subtle Little Fallbacks */}
+            {invitedProjects.length > 0 ? (
+              <div className="flex flex-col gap-2 max-h-[160px] overflow-y-auto pr-1">
+                {invitedProjects.map(p => (
+                  <div key={p.id} className="flex items-center justify-between p-3 rounded-lg bg-white/[0.02] border border-white/5 hover:border-white/10 hover:bg-white/[0.04] transition-all">
+                    <div className="flex flex-col gap-0.5 min-w-0">
+                      <span className="text-xs font-black uppercase tracking-wide text-white truncate">{p.name}</span>
+                      <span className="text-[9px] text-gray-400 truncate">Invited by <strong className="text-[#f5a623]">{p.invitedBy || 'Writer'}</strong></span>
+                    </div>
+                    <button
+                      onClick={() => onOpenCloudProject?.(p.id)}
+                      className="px-3 py-1.5 rounded-lg bg-amber-400 text-black text-[10px] font-black uppercase tracking-wider transition-all hover:bg-amber-300 hover:scale-[1.02] active:scale-[0.98] shadow-md shrink-0"
+                    >
+                      Join Workspace
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-6 flex flex-col gap-2">
+                <span className="text-xs text-gray-400 font-semibold">No active workspace invites</span>
+                <span className="text-[10px] text-gray-500 max-w-[340px] mx-auto leading-relaxed">
+                  Ask your project writer to invite you using your email: <strong className="text-gray-400 font-bold">{currentUser}</strong>
+                </span>
+              </div>
+            )}
+          </div>
+
+          {/* Minimized Actions for Non-Writers */}
+          {!isWriter && (
             <div className="flex items-center justify-center gap-6 text-[10px] text-gray-500 font-bold uppercase tracking-widest mt-1">
               <button 
                 onClick={onNew} 
@@ -130,8 +133,8 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
                 <span>Open File</span>
               </button>
             </div>
-          </div>
-        )}
+          )}
+        </div>
 
         {/* Cloud & Recents */}
         <div className="flex flex-col gap-6">
