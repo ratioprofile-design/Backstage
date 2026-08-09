@@ -792,7 +792,7 @@ const ContextMenuItem = ({ icon: Icon, label, onClick, danger, submenu, active, 
 };
 
 const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'casting') => void }> = ({ onNavigateToView }) => {
-  const { beats, groups, connections, updateBeat, addBeat, setBeats, setConnections, scriptViewMode, scriptConfig, setScriptConfig, scratchpadConfig, characterData, breakdownLanguage, setBreakdownLanguage, scratchpad, setScratchpad, globalNotes, setGlobalNotes, captureSnapshot, reorderBeats, setActiveBoardId, appTheme, generalAiModel, openrouterKey, userRole } = useProject();
+  const { beats, groups, connections, updateBeat, addBeat, setBeats, setConnections, scriptViewMode, scriptConfig, setScriptConfig, scratchpadConfig, characterData, breakdownLanguage, setBreakdownLanguage, scratchpad, setScratchpad, globalNotes, setGlobalNotes, captureSnapshot, reorderBeats, setActiveBoardId, appTheme, generalAiModel, openrouterKey, userRole, setActiveSceneTitle } = useProject();
   const { aiAvailable } = useAiKeyStatus();
   const isScriptReadOnly = false;
 
@@ -1024,6 +1024,18 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'cast
   }, [sortedBeats, searchTerm]);
 
   const activeBeat = useMemo(() => beats.find(b => b.id === activeBeatId), [beats, activeBeatId]);
+
+  useEffect(() => {
+    if (activeSidebar !== 'none') {
+      const typeLabel = activeSidebar === 'breakdown' ? 'Breakdown' : activeSidebar === 'scratchpad' ? (scratchpadMode === 'global' ? 'Global Notes' : 'Scene Notes') : 'History';
+      const targetLabel = activeSidebar === 'scratchpad' && scratchpadMode === 'global' ? 'Entire Screenplay' : (activeBeat?.slug.location || 'Untitled Scene');
+      setActiveSceneTitle(`${typeLabel}: ${targetLabel}`);
+    } else {
+      setActiveSceneTitle(null);
+    }
+    return () => setActiveSceneTitle(null);
+  }, [activeSidebar, activeBeat, scratchpadMode, setActiveSceneTitle]);
+
   const locationCount = useMemo(() => new Set(beats.map(b => (b.slug?.location || '').trim().toUpperCase()).filter(Boolean)).size, [beats]);
   const uniqueLocations = useMemo(() => { const locs = new Set<string>(); ['HOUSE', 'KITCHEN', 'BEDROOM', 'OFFICE', 'PARK', 'STREET', 'CAR', 'APARTMENT', 'SCHOOL', 'HOSPITAL'].forEach(l => locs.add(l)); beats.forEach(b => { if (b.slug.location && b.slug.location.trim()) { locs.add(b.slug.location.trim()); } }); return Array.from(locs).sort(); }, [beats]);
   const uniqueCharacters = useMemo(() => extractScriptCharacterSuggestions(beats), [beats]);

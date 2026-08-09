@@ -317,6 +317,8 @@ export interface ProjectContextType extends ProjectState {
   cloudOffline: boolean;
   userRole: ('writer' | 'director' | 'producer' | 'ad' | 'cinematographer')[] | null;
   updateUserRole: (roles: ('writer' | 'director' | 'producer' | 'ad' | 'cinematographer')[]) => Promise<void>;
+  activeSceneTitle: string | null;
+  setActiveSceneTitle: (title: string | null) => void;
   
   // File System Handles (Final Draft Mode)
   fileHandle: any | null; 

@@ -36,7 +36,7 @@ const AppHeader: React.FC<AppHeaderProps> = ({
       projectList, currentProjectId,
       undo, redo, canUndo, canRedo,
       saveProject, saveProjectAs, hasUnsavedChanges, currentUser, isCloudMode, isSaving, fileHandle,
-      autoGenerate5Scenes, appTheme, setAppTheme, logout, cloudOffline, supabaseUser, userRole
+      autoGenerate5Scenes, appTheme, setAppTheme, logout, cloudOffline, supabaseUser, userRole, activeSceneTitle
   } = useProject();
 
   const { aiAvailable, router, gemini, testing } = useAiKeyStatus();
@@ -230,6 +230,13 @@ const AppHeader: React.FC<AppHeaderProps> = ({
               <Sparkles size={18} className="fill-[#f5a623]/30 group-hover:scale-110 transition-transform duration-300" />
               <span className="hidden lg:inline text-[10px] font-black uppercase tracking-wider">Ask Anything</span>
           </button>
+
+          {activeSceneTitle && (
+            <div className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-md bg-amber-500/10 border border-amber-500/30 text-amber-400 text-[10px] font-black uppercase tracking-wider max-w-[260px] truncate" title={activeSceneTitle}>
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span>
+              {activeSceneTitle}
+            </div>
+          )}
         </div>
 
         {/* CENTER: View Switcher */}
