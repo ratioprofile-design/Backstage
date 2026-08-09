@@ -1,5 +1,5 @@
 import React from 'react';
-import { FilePlus2, FolderOpen, Clock, Film, Cloud, Trash2, ChevronRight, Mail } from 'lucide-react';
+import { FilePlus2, FolderOpen, Clock, Film, Cloud, Trash2, ChevronRight, Mail, LogOut } from 'lucide-react';
 import { RecentFile } from '../utils/recentFiles';
 import { ProjectMetadata } from '../types';
 import { useProject } from '../context/ProjectContext';
@@ -29,7 +29,7 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
   onOpenCloudProject,
   onDeleteCloudProject,
 }) => {
-  const { userRole } = useProject();
+  const { userRole, logout, schemaError } = useProject();
   const isWriter = userRole?.includes('writer') || false;
 
   const [invitedProjects, setInvitedProjects] = React.useState<any[]>([]);
@@ -55,6 +55,16 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
             <p className="text-[10px] font-bold text-gray-500 uppercase tracking-[0.2em] mt-1">Screenplay Workspace</p>
           </div>
         </div>
+        
+        {schemaError && (
+          <div className="p-4 rounded-xl bg-red-900/20 border border-red-500/30 text-red-200 text-xs flex flex-col gap-2 mx-auto max-w-[500px]">
+            <span className="font-bold uppercase tracking-wider text-red-400">Database Schema Error</span>
+            <span>Your Supabase database table or column configuration does not match the app's required schema.</span>
+            <span className="font-mono text-[10px] bg-black/40 p-2 rounded">
+              {schemaError === 'TABLE_MISSING' ? 'Table "projects" or "project_invites" is missing.' : 'Required columns in table "projects" are missing.'}
+            </span>
+          </div>
+        )}
 
         {/* Quick Actions / Invites */}
         <div className="flex flex-col gap-6">
@@ -143,7 +153,18 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
               <div className="flex items-center gap-2 border-b border-white/5 pb-2">
                 <Cloud size={14} className="text-[#10b981]" />
                 <span className="text-[10px] font-black text-emerald-500 uppercase tracking-widest">Cloud Projects</span>
-                {currentUser && <span className="ml-auto text-[10px] text-gray-500 truncate max-w-[200px]">{currentUser}</span>}
+                {currentUser && (
+                  <div className="ml-auto flex items-center gap-2">
+                    <span className="text-[10px] text-gray-500 truncate max-w-[120px]">{currentUser}</span>
+                    <button
+                      onClick={() => logout()}
+                      className="text-[9px] font-black uppercase text-red-500/80 hover:text-red-400 flex items-center gap-1 bg-red-500/5 hover:bg-red-500/10 border border-red-500/10 px-2 py-0.5 rounded transition-all"
+                    >
+                      <LogOut size={10} />
+                      <span>Sign Out</span>
+                    </button>
+                  </div>
+                )}
               </div>
               
               {cloudProjects && cloudProjects.length > 0 ? (
