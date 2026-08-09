@@ -411,7 +411,14 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   const logout = async () => {
-    if (isSupabaseConfigured) await supabase.auth.signOut();
+    if (isSupabaseConfigured) {
+      try {
+        await supabase.auth.signOut();
+      } catch (err) {
+        console.warn("SignOut error:", err);
+      }
+    }
+    setSupabaseUser(null);
     localStorage.removeItem('currentUser');
     localStorage.removeItem('currentProjectId');
     setCurrentUser(null);
