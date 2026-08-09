@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Mail, Trash2, UserPlus, CheckSquare, Square, X, Key, Users, Check, User } from 'lucide-react';
 import { useProject } from '../context/ProjectContext';
+import { supabase, isSupabaseConfigured } from '../services/supabase';
 
 interface InviteManagerModalProps {
   isOpen: boolean;
@@ -53,20 +54,59 @@ export const InviteManagerModal: React.FC<InviteManagerModalProps> = ({ isOpen, 
   // Suggestion & Selection state
   const [selectedProfile, setSelectedProfile] = useState<UserProfile | null>(null);
   const [showSuggestions, setShowSuggestions] = useState(false);
+  const [supabaseProfiles, setSupabaseProfiles] = useState<UserProfile[]>([]);
 
   // Request invite state
   const [requestProjectId, setRequestProjectId] = useState('');
   const [requestStatus, setRequestStatus] = useState<'idle' | 'sending' | 'success'>('idle');
 
-  // Filter profiles based on typed text
+  // Debounced search on Supabase 'profiles' table
+  useEffect(() => {
+    if (!isOpen || !inviteEmail.trim() || !isSupabaseConfigured) {
+      setSupabaseProfiles([]);
+      return;
+    }
+
+    const delayDebounceFn = setTimeout(async () => {
+      try {
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('name, email')
+          .ilike('email', `%${inviteEmail.trim()}%`)
+          .limit(5);
+
+        if (data && !error) {
+          setSupabaseProfiles(data.map((u: any) => ({
+            name: u.name || u.email.split('@')[0],
+            email: u.email,
+            defaultRole: 'writer'
+          })));
+        }
+      } catch (err) {
+        console.warn("Failed to query Supabase profiles table:", err);
+      }
+    }, 300); // 300ms debounce
+
+    return () => clearTimeout(delayDebounceFn);
+  }, [inviteEmail, isOpen]);
+
+  // Filter profiles based on typed text, merging Supabase and Mock profiles
   const filteredProfiles = useMemo(() => {
     const search = inviteEmail.trim().toLowerCase();
     if (!search) return [];
 
+    // Start with local mocks
     const matches = MOCK_PROFILES.filter(p => 
       p.email.toLowerCase().includes(search) ||
       p.name.toLowerCase().includes(search)
     );
+
+    // Merge Supabase profiles, avoiding duplicates
+    supabaseProfiles.forEach(sp => {
+      if (!matches.some(p => p.email.toLowerCase() === sp.email.toLowerCase())) {
+        matches.push(sp);
+      }
+    });
 
     // If it's a valid email format, or they are typing an email, add a dynamic profile option
     if (search.includes('@') && !matches.some(p => p.email.toLowerCase() === search)) {
@@ -88,7 +128,7 @@ export const InviteManagerModal: React.FC<InviteManagerModalProps> = ({ isOpen, 
     }
 
     return matches;
-  }, [inviteEmail]);
+  }, [inviteEmail, supabaseProfiles]);
 
   // Load collaborators on open
   useEffect(() => {
@@ -253,7 +293,7 @@ export const InviteManagerModal: React.FC<InviteManagerModalProps> = ({ isOpen, 
                 
                 {/* Profile selection / search container */}
                 <div className="relative">
-                  <label className={`block text-[9px] font-bold uppercase mb-1.5 ${isLight ? 'text-slate-500' : 'text-gray-400'}`}>Search Profile by Email ID</label>
+                  <label className={`block text-[9px] font-bold uppercase mb-1.5 ${isLight ? 'text-slate-505' : 'text-gray-400'}`}>Search Profile by Email ID</label>
                   
                   {selectedProfile ? (
                     /* Display Selected Profile Card */
@@ -264,7 +304,7 @@ export const InviteManagerModal: React.FC<InviteManagerModalProps> = ({ isOpen, 
                         </div>
                         <div className="min-w-0">
                           <p className={`text-xs font-black truncate ${isLight ? 'text-slate-900' : 'text-white'}`}>{selectedProfile.name}</p>
-                          <p className={`text-[9px] truncate ${isLight ? 'text-slate-500' : 'text-gray-400'}`}>{selectedProfile.email}</p>
+                          <p className={`text-[9px] truncate ${isLight ? 'text-slate-505' : 'text-gray-400'}`}>{selectedProfile.email}</p>
                         </div>
                       </div>
                       <button 
@@ -330,7 +370,7 @@ export const InviteManagerModal: React.FC<InviteManagerModalProps> = ({ isOpen, 
                 </div>
 
                 <div>
-                  <label className={`block text-[9px] font-bold uppercase mb-1.5 ${isLight ? 'text-slate-500' : 'text-gray-400'}`}>Workspace Role</label>
+                  <label className={`block text-[9px] font-bold uppercase mb-1.5 ${isLight ? 'text-slate-505' : 'text-gray-400'}`}>Workspace Role</label>
                   <select 
                     value={inviteRole}
                     onChange={(e) => setInviteRole(e.target.value)}
@@ -345,7 +385,7 @@ export const InviteManagerModal: React.FC<InviteManagerModalProps> = ({ isOpen, 
                 </div>
 
                 <div>
-                  <label className={`block text-[9px] font-bold uppercase mb-1.5 ${isLight ? 'text-slate-500' : 'text-gray-400'}`}>Editing Privilege</label>
+                  <label className={`block text-[9px] font-bold uppercase mb-1.5 ${isLight ? 'text-slate-505' : 'text-gray-400'}`}>Editing Privilege</label>
                   <div className="flex gap-2">
                     <button
                       type="button"
@@ -365,7 +405,7 @@ export const InviteManagerModal: React.FC<InviteManagerModalProps> = ({ isOpen, 
                 </div>
 
                 <div>
-                  <label className={`block text-[9px] font-bold uppercase mb-2 ${isLight ? 'text-slate-500' : 'text-gray-400'}`}>Accessible Pages</label>
+                  <label className={`block text-[9px] font-bold uppercase mb-2 ${isLight ? 'text-slate-505' : 'text-gray-400'}`}>Accessible Pages</label>
                   <div className="grid grid-cols-2 gap-1.5">
                     {AVAILABLE_PAGES.map(p => (
                       <button
@@ -399,7 +439,7 @@ export const InviteManagerModal: React.FC<InviteManagerModalProps> = ({ isOpen, 
               </h4>
               <div className="space-y-4">
                 <div>
-                  <label className={`block text-[9px] font-bold uppercase mb-1.5 ${isLight ? 'text-slate-500' : 'text-gray-400'}`}>Project Reference ID</label>
+                  <label className={`block text-[9px] font-bold uppercase mb-1.5 ${isLight ? 'text-slate-505' : 'text-gray-400'}`}>Project Reference ID</label>
                   <input 
                     type="text"
                     required
@@ -457,7 +497,7 @@ export const InviteManagerModal: React.FC<InviteManagerModalProps> = ({ isOpen, 
                         
                         {/* Edit Access Privileges toggle */}
                         <div className="flex items-center gap-1.5 mt-2">
-                          <span className={`text-[9px] font-bold uppercase ${isLight ? 'text-slate-500' : 'text-gray-400'}`}>Privilege:</span>
+                          <span className={`text-[9px] font-bold uppercase ${isLight ? 'text-slate-505' : 'text-gray-400'}`}>Privilege:</span>
                           <select
                             value={collab.editAccess}
                             onChange={(e) => changeEditAccess(collab.email, e.target.value as 'edit' | 'view')}
