@@ -91,7 +91,7 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
                     <div key={p.id} className="flex items-center justify-between p-3 rounded-lg bg-white/[0.02] border border-white/5 hover:border-white/10 hover:bg-white/[0.04] transition-all">
                       <div className="flex flex-col gap-0.5">
                         <span className="text-xs font-black uppercase tracking-wide text-white">{p.name}</span>
-                        <span className="text-[9px] text-gray-400">Invited by Writer</span>
+                        <span className="text-[9px] text-gray-400">Invited by <strong className="text-[#f5a623]">{p.invitedBy || 'Writer'}</strong></span>
                       </div>
                       <button
                         onClick={() => onOpenCloudProject?.(p.id)}

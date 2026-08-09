@@ -191,7 +191,7 @@ const AppHeader: React.FC<AppHeaderProps> = ({
                 const email = prompt("Enter email to invite as collaborator to this project:");
                 if (email) {
                   import('../services/supabase').then(({ inviteUserToProject }) => {
-                    inviteUserToProject(currentProjectId || 'empty', fileHandle ? fileHandle.name : activeProjectName, email);
+                    inviteUserToProject(currentProjectId || 'empty', fileHandle ? fileHandle.name : activeProjectName, email, currentUser || undefined);
                     alert(`Invited ${email} successfully!`);
                   });
                 }

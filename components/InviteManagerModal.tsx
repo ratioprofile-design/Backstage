@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Mail, Trash2, UserPlus, CheckSquare, Square, X, Key, Users, Check, User } from 'lucide-react';
 import { useProject } from '../context/ProjectContext';
-import { supabase, isSupabaseConfigured } from '../services/supabase';
+import { supabase, isSupabaseConfigured, inviteUserToProject } from '../services/supabase';
 
 interface InviteManagerModalProps {
   isOpen: boolean;
@@ -41,8 +41,13 @@ const MOCK_PROFILES: UserProfile[] = [
 ];
 
 export const InviteManagerModal: React.FC<InviteManagerModalProps> = ({ isOpen, onClose }) => {
-  const { currentProjectId, appTheme } = useProject();
+  const { currentProjectId, appTheme, projectList, currentUser } = useProject();
   const isLight = appTheme === 'light';
+
+  const activeProjectName = useMemo(() => {
+    const proj = projectList?.find(p => p.id === currentProjectId);
+    return proj ? proj.name : 'SEQUENCER';
+  }, [projectList, currentProjectId]);
 
   // State to hold collaborators (mocked initially, stored in localStorage)
   const [collaborators, setCollaborators] = useState<Collaborator[]>([]);
@@ -204,8 +209,18 @@ export const InviteManagerModal: React.FC<InviteManagerModalProps> = ({ isOpen, 
       allowedPages: invitePages
     };
 
+    // Save locally to project's collaborator settings
     const updated = [...collaborators, newCollab];
     saveCollaborators(updated);
+
+    // Call Supabase/local-storage invite handler so the invited user sees it on their welcome screen!
+    inviteUserToProject(
+      currentProjectId || 'default',
+      activeProjectName,
+      emailToInvite,
+      currentUser || 'Collaborator'
+    );
+
     setInviteEmail('');
     setSelectedProfile(null);
     alert(`Invite sent successfully to ${newCollab.name || newCollab.email}!`);

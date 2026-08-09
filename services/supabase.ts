@@ -95,13 +95,14 @@ export const fetchProjectData = async (id: string) => {
   return data ? data.data : null;
 };
 
-export const inviteUserToProject = async (projectId: string, projectName: string, email: string) => {
+export const inviteUserToProject = async (projectId: string, projectName: string, email: string, invitedBy?: string) => {
   if (isSupabaseConfigured) {
     try {
       const { error } = await supabase.from('project_invites').upsert({
         project_id: projectId,
         project_name: projectName,
         invitee_email: email.toLowerCase().trim(),
+        invited_by: invitedBy || 'Collaborator',
         created_at: new Date().toISOString()
       });
       if (!error) return;
@@ -111,11 +112,23 @@ export const inviteUserToProject = async (projectId: string, projectName: string
   }
 
   const invites = JSON.parse(localStorage.getItem('simulated_invites') || '[]');
-  invites.push({
-    project_id: projectId,
-    project_name: projectName,
-    invitee_email: email.toLowerCase().trim()
-  });
+  // Avoid duplicate simulated invites
+  const existingIdx = invites.findIndex((inv: any) => inv.project_id === projectId && inv.invitee_email === email.toLowerCase().trim());
+  if (existingIdx !== -1) {
+    invites[existingIdx] = {
+      project_id: projectId,
+      project_name: projectName,
+      invitee_email: email.toLowerCase().trim(),
+      invited_by: invitedBy || 'Collaborator'
+    };
+  } else {
+    invites.push({
+      project_id: projectId,
+      project_name: projectName,
+      invitee_email: email.toLowerCase().trim(),
+      invited_by: invitedBy || 'Collaborator'
+    });
+  }
   localStorage.setItem('simulated_invites', JSON.stringify(invites));
 };
 
@@ -130,7 +143,7 @@ export const fetchInvitedProjects = async (email: string) => {
         return data.map((inv: any) => ({
           id: inv.project_id,
           name: inv.project_name || 'Invited Project',
-          invitedBy: 'Collaborator'
+          invitedBy: inv.invited_by || 'Collaborator'
         }));
       }
     } catch (e) {
@@ -144,6 +157,6 @@ export const fetchInvitedProjects = async (email: string) => {
     .map((inv: any) => ({
       id: inv.project_id,
       name: inv.project_name || 'Invited Project',
-      invitedBy: 'Collaborator'
+      invitedBy: inv.invited_by || 'Collaborator'
     }));
 };
