@@ -10,6 +10,8 @@ import {
 import { isSupabaseConfigured } from '../services/supabase';
 import { useAiKeyStatus } from '../context/AiKeyStatusContext';
 import { AISceneGeneratorModal } from './AISceneGeneratorModal';
+import { InviteManagerModal } from './InviteManagerModal';
+import { Users as UsersIcon } from 'lucide-react';
 
 interface AppHeaderProps {
   currentView: ViewMode;
@@ -48,6 +50,7 @@ const AppHeader: React.FC<AppHeaderProps> = ({
 
   const [showSavedConfirmation, setShowSavedConfirmation] = useState(false);
   const [isAiModalOpen, setIsAiModalOpen] = useState(false);
+  const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
 
@@ -372,6 +375,12 @@ const AppHeader: React.FC<AppHeaderProps> = ({
                         </div>
                       </div>
                       <button
+                        onClick={() => { setShowUserMenu(false); setIsInviteModalOpen(true); }}
+                        className="w-full flex items-center gap-2.5 px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-amber-500 hover:bg-amber-500/10 border-b border-[#2a2a2a] transition-colors"
+                      >
+                        <UsersIcon size={13} /> Project Collaboration
+                      </button>
+                      <button
                         onClick={async () => { setShowUserMenu(false); await logout(); }}
                         className="w-full flex items-center gap-2.5 px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-red-400 hover:bg-red-500/10 transition-colors"
                       >
@@ -388,6 +397,12 @@ const AppHeader: React.FC<AppHeaderProps> = ({
                           Working on this device only. Sign in to back up projects and sync across devices.
                         </div>
                       </div>
+                      <button
+                        onClick={() => { setShowUserMenu(false); setIsInviteModalOpen(true); }}
+                        className="w-full flex items-center gap-2.5 px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-amber-500 hover:bg-amber-500/10 border-b border-[#2a2a2a] transition-colors"
+                      >
+                        <UsersIcon size={13} /> Project Collaboration
+                      </button>
                       <button
                         onClick={() => { setShowUserMenu(false); onOpenAuth?.(); }}
                         className="w-full flex items-center gap-2.5 px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-[#f5a623] hover:bg-[#f5a623]/10 transition-colors"
@@ -407,6 +422,12 @@ const AppHeader: React.FC<AppHeaderProps> = ({
       <AISceneGeneratorModal 
         isOpen={isAiModalOpen} 
         onClose={() => setIsAiModalOpen(false)} 
+      />
+
+      {/* Project Invite & Collaboration Modal */}
+      <InviteManagerModal 
+        isOpen={isInviteModalOpen}
+        onClose={() => setIsInviteModalOpen(false)}
       />
     </>
   );
