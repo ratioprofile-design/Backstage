@@ -315,8 +315,8 @@ export interface ProjectContextType extends ProjectState {
   isSaving: boolean;
   isInitialLoading: boolean;
   cloudOffline: boolean;
-  userRole: 'writer' | 'director' | 'producer' | 'ad' | 'cinematographer' | null;
-  updateUserRole: (role: 'writer' | 'director' | 'producer' | 'ad' | 'cinematographer') => Promise<void>;
+  userRole: ('writer' | 'director' | 'producer' | 'ad' | 'cinematographer')[] | null;
+  updateUserRole: (roles: ('writer' | 'director' | 'producer' | 'ad' | 'cinematographer')[]) => Promise<void>;
   
   // File System Handles (Final Draft Mode)
   fileHandle: any | null; 

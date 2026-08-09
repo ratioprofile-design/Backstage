@@ -144,11 +144,18 @@ export const CastingView: React.FC<{ onNavigateToView?: (view: 'characterdesign'
   // Default View: Pipeline (Hero operational view)
   const [activeViewMode, setActiveViewMode] = useState<'pipeline' | 'matrix' | 'comparison' | 'dossier'>('pipeline');
 
+  const isCastingRestricted = userRole
+      ? userRole.includes('writer') && 
+        !userRole.includes('director') && 
+        !userRole.includes('producer') && 
+        !userRole.includes('ad')
+      : false;
+
   React.useEffect(() => {
-    if (userRole === 'writer') {
+    if (isCastingRestricted) {
       setActiveViewMode('dossier');
     }
-  }, [userRole]);
+  }, [isCastingRestricted]);
   const [selectedRole, setSelectedRole] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [filterTier, setFilterTier] = useState<string>('all');
@@ -1096,7 +1103,7 @@ export const CastingView: React.FC<{ onNavigateToView?: (view: 'characterdesign'
 
         {/* Primary View Switcher & Action Button */}
         <div className="flex items-center gap-2 shrink-0">
-          {userRole !== 'writer' && (
+          {!isCastingRestricted && (
             <div className={`flex border p-0.5 ${isLight ? 'bg-slate-200 border-slate-300' : 'bg-[#1a1d26] border-slate-800'}`}>
               <button
                 onClick={() => setActiveViewMode('pipeline')}

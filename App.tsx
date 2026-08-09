@@ -212,15 +212,24 @@ const AppContent: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    if (!userRole) return;
-    if (userRole === 'writer') {
-      if (!['board', 'script', 'casting'].includes(currentView)) {
-        setCurrentView('board');
-      }
-    } else if (userRole === 'cinematographer') {
-      if (!['shotlist', 'storyboard', 'board', 'schedule'].includes(currentView)) {
-        setCurrentView('board');
-      }
+    if (!userRole || userRole.length === 0) return;
+    if (userRole.includes('director') || userRole.includes('producer') || userRole.includes('ad')) return;
+
+    const allowed = new Set<string>();
+    if (userRole.includes('writer')) {
+      allowed.add('board');
+      allowed.add('script');
+      allowed.add('casting');
+    }
+    if (userRole.includes('cinematographer')) {
+      allowed.add('board');
+      allowed.add('shotlist');
+      allowed.add('storyboard');
+      allowed.add('schedule');
+    }
+
+    if (!allowed.has(currentView)) {
+      setCurrentView('board');
     }
   }, [userRole, currentView]);
 
@@ -482,7 +491,7 @@ const AppContent: React.FC = () => {
       return (
           <>
               <StyleInjector />
-              <RoleSelectorModal onSelectRole={(role) => updateUserRole(role)} />
+              <RoleSelectorModal onSelectRoles={(roles) => updateUserRole(roles)} />
           </>
       );
   }

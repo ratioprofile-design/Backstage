@@ -793,7 +793,12 @@ const ContextMenuItem = ({ icon: Icon, label, onClick, danger, submenu, active, 
 const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'casting') => void }> = ({ onNavigateToView }) => {
   const { beats, groups, connections, updateBeat, addBeat, setBeats, setConnections, scriptViewMode, scriptConfig, setScriptConfig, scratchpadConfig, characterData, breakdownLanguage, setBreakdownLanguage, scratchpad, setScratchpad, globalNotes, setGlobalNotes, captureSnapshot, reorderBeats, setActiveBoardId, appTheme, generalAiModel, openrouterKey, userRole } = useProject();
   const { aiAvailable } = useAiKeyStatus();
-  const isScriptReadOnly = userRole === 'ad';
+  const isScriptReadOnly = userRole
+      ? (userRole.includes('ad') || userRole.includes('cinematographer')) && 
+        !userRole.includes('writer') && 
+        !userRole.includes('director') && 
+        !userRole.includes('producer')
+      : false;
 
   const isLight = useMemo(() => {
     if (appTheme === 'light') return true;

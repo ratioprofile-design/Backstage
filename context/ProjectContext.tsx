@@ -34,28 +34,35 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [schemaError, setSchemaError] = useState<string | null>(null);
   const [cloudOffline, setCloudOffline] = useState(false);
-  const [userRole, setUserRole] = useState<'writer' | 'director' | 'producer' | 'ad' | 'cinematographer' | null>(() => {
-    return (localStorage.getItem('user_role') as any) || null;
+  const [userRole, setUserRole] = useState<('writer' | 'director' | 'producer' | 'ad' | 'cinematographer')[] | null>(() => {
+    const raw = localStorage.getItem('user_role');
+    if (!raw) return null;
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return [raw as any];
+    }
   });
 
   useEffect(() => {
     if (supabaseUser) {
       const role = supabaseUser.user_metadata?.role;
       if (role) {
-        setUserRole(role);
-        localStorage.setItem('user_role', role);
+        const parsed = Array.isArray(role) ? role : [role];
+        setUserRole(parsed);
+        localStorage.setItem('user_role', JSON.stringify(parsed));
       }
     }
   }, [supabaseUser]);
 
-  const updateUserRole = useCallback(async (role: 'writer' | 'director' | 'producer' | 'ad' | 'cinematographer') => {
-    setUserRole(role);
-    localStorage.setItem('user_role', role);
+  const updateUserRole = useCallback(async (roles: ('writer' | 'director' | 'producer' | 'ad' | 'cinematographer')[]) => {
+    setUserRole(roles);
+    localStorage.setItem('user_role', JSON.stringify(roles));
     if (isSupabaseConfigured) {
       const { data: { session } } = await supabase.auth.getSession();
       if (session) {
         await supabase.auth.updateUser({
-          data: { role }
+          data: { role: roles }
         });
       }
     }

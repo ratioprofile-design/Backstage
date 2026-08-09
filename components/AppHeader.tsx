@@ -83,16 +83,28 @@ const AppHeader: React.FC<AppHeaderProps> = ({
       { id: 'statistics', label: 'Statistics' }
     ];
 
-    if (!userRole) return list.filter(v => !v.hidden);
+    if (!userRole || userRole.length === 0) return list.filter(v => !v.hidden);
 
-    if (userRole === 'writer') {
-      return list.filter(v => ['board', 'script', 'casting'].includes(v.id) && !v.hidden);
+    // If roles include director, producer, or AD, they get everything
+    if (userRole.includes('director') || userRole.includes('producer') || userRole.includes('ad')) {
+      return list.filter(v => !v.hidden);
     }
-    if (userRole === 'cinematographer') {
-      return list.filter(v => ['shotlist', 'storyboard', 'board', 'schedule'].includes(v.id) && !v.hidden);
+
+    // Otherwise, build the union of writer and cinematographer
+    const allowedIds = new Set<string>();
+    if (userRole.includes('writer')) {
+      allowedIds.add('board');
+      allowedIds.add('script');
+      allowedIds.add('casting');
     }
-    // director, producer, ad get everything
-    return list.filter(v => !v.hidden);
+    if (userRole.includes('cinematographer')) {
+      allowedIds.add('board');
+      allowedIds.add('shotlist');
+      allowedIds.add('storyboard');
+      allowedIds.add('schedule');
+    }
+
+    return list.filter(v => allowedIds.has(v.id) && !v.hidden);
   }, [userRole, isStoryboardFeatureEnabled]);
 
   // Handle saved confirmation effect
@@ -190,6 +202,23 @@ const AppHeader: React.FC<AppHeaderProps> = ({
                   </div>
               </div>
           </div>
+
+          {userRole?.includes('writer') && (
+            <button
+              onClick={() => {
+                const email = prompt("Enter email to invite as collaborator to this project:");
+                if (email) {
+                  import('../services/supabase').then(({ inviteUserToProject }) => {
+                    inviteUserToProject(currentProjectId || 'empty', fileHandle ? fileHandle.name : activeProjectName, email);
+                    alert(`Invited ${email} successfully!`);
+                  });
+                }
+              }}
+              className="px-2.5 py-1 rounded bg-[#f5a623]/10 hover:bg-[#f5a623]/20 border border-[#f5a623]/30 hover:border-[#f5a623]/60 text-[#f5a623] text-[9px] font-black uppercase tracking-wider transition-all"
+            >
+              + Invite
+            </button>
+          )}
 
           <div className="h-4 w-px bg-[#333] mx-1"></div>
 

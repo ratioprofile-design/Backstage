@@ -94,3 +94,56 @@ export const fetchProjectData = async (id: string) => {
   }
   return data ? data.data : null;
 };
+
+export const inviteUserToProject = async (projectId: string, projectName: string, email: string) => {
+  if (isSupabaseConfigured) {
+    try {
+      const { error } = await supabase.from('project_invites').upsert({
+        project_id: projectId,
+        project_name: projectName,
+        invitee_email: email.toLowerCase().trim(),
+        created_at: new Date().toISOString()
+      });
+      if (!error) return;
+    } catch (e) {
+      console.warn("Failed to save to project_invites table, falling back to local storage", e);
+    }
+  }
+
+  const invites = JSON.parse(localStorage.getItem('simulated_invites') || '[]');
+  invites.push({
+    project_id: projectId,
+    project_name: projectName,
+    invitee_email: email.toLowerCase().trim()
+  });
+  localStorage.setItem('simulated_invites', JSON.stringify(invites));
+};
+
+export const fetchInvitedProjects = async (email: string) => {
+  if (isSupabaseConfigured) {
+    try {
+      const { data, error } = await supabase
+        .from('project_invites')
+        .select('*')
+        .eq('invitee_email', email.toLowerCase().trim());
+      if (!error && data) {
+        return data.map((inv: any) => ({
+          id: inv.project_id,
+          name: inv.project_name || 'Invited Project',
+          invitedBy: 'Collaborator'
+        }));
+      }
+    } catch (e) {
+      console.warn("Failed to fetch from project_invites table, falling back to local storage", e);
+    }
+  }
+
+  const invites = JSON.parse(localStorage.getItem('simulated_invites') || '[]');
+  return invites
+    .filter((inv: any) => inv.invitee_email === email.toLowerCase().trim())
+    .map((inv: any) => ({
+      id: inv.project_id,
+      name: inv.project_name || 'Invited Project',
+      invitedBy: 'Collaborator'
+    }));
+};
