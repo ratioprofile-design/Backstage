@@ -211,27 +211,7 @@ const AppContent: React.FC = () => {
     };
   }, []);
 
-  useEffect(() => {
-    if (!userRole || userRole.length === 0) return;
-    if (userRole.includes('director') || userRole.includes('producer') || userRole.includes('ad')) return;
 
-    const allowed = new Set<string>();
-    if (userRole.includes('writer')) {
-      allowed.add('board');
-      allowed.add('script');
-      allowed.add('casting');
-    }
-    if (userRole.includes('cinematographer')) {
-      allowed.add('board');
-      allowed.add('shotlist');
-      allowed.add('storyboard');
-      allowed.add('schedule');
-    }
-
-    if (!allowed.has(currentView)) {
-      setCurrentView('board');
-    }
-  }, [userRole, currentView]);
 
   const showAuth = isSupabaseConfigured && !supabaseUser;
 

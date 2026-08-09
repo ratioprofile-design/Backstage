@@ -144,12 +144,7 @@ export const CastingView: React.FC<{ onNavigateToView?: (view: 'characterdesign'
   // Default View: Pipeline (Hero operational view)
   const [activeViewMode, setActiveViewMode] = useState<'pipeline' | 'matrix' | 'comparison' | 'dossier'>('pipeline');
 
-  const isCastingRestricted = userRole
-      ? userRole.includes('writer') && 
-        !userRole.includes('director') && 
-        !userRole.includes('producer') && 
-        !userRole.includes('ad')
-      : false;
+  const isCastingRestricted = false;
 
   React.useEffect(() => {
     if (isCastingRestricted) {

@@ -83,29 +83,8 @@ const AppHeader: React.FC<AppHeaderProps> = ({
       { id: 'statistics', label: 'Statistics' }
     ];
 
-    if (!userRole || userRole.length === 0) return list.filter(v => !v.hidden);
-
-    // If roles include director, producer, or AD, they get everything
-    if (userRole.includes('director') || userRole.includes('producer') || userRole.includes('ad')) {
-      return list.filter(v => !v.hidden);
-    }
-
-    // Otherwise, build the union of writer and cinematographer
-    const allowedIds = new Set<string>();
-    if (userRole.includes('writer')) {
-      allowedIds.add('board');
-      allowedIds.add('script');
-      allowedIds.add('casting');
-    }
-    if (userRole.includes('cinematographer')) {
-      allowedIds.add('board');
-      allowedIds.add('shotlist');
-      allowedIds.add('storyboard');
-      allowedIds.add('schedule');
-    }
-
-    return list.filter(v => allowedIds.has(v.id) && !v.hidden);
-  }, [userRole, isStoryboardFeatureEnabled]);
+    return list.filter(v => !v.hidden);
+  }, [isStoryboardFeatureEnabled]);
 
   // Handle saved confirmation effect
   useEffect(() => {
