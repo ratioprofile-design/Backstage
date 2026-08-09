@@ -94,6 +94,8 @@ export interface ProjectMetadata {
   name: string;
   lastModified: number;
   created: number;
+  isInvited?: boolean;
+  invitedBy?: string;
 }
 
 export type ViewMode = 'board' | 'script' | 'characters' | 'casting' | 'characterdesign' | 'breakdown' | 'crew' | 'shotlist' | 'storyboard' | 'schedule' | 'statistics' | 'backstage' | 'goals' | 'inbox' | 'continuity' | 'locations';

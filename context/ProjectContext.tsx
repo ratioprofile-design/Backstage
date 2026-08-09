@@ -7,7 +7,7 @@ import {
   BoardLayer
 } from '../types';
 import { INITIAL_STATE } from '../constants';
-import { supabase, upsertProject, fetchProjectData, fetchUserProjects, isSupabaseConfigured } from '../services/supabase';
+import { supabase, upsertProject, fetchProjectData, fetchUserProjects, fetchInvitedProjects, isSupabaseConfigured } from '../services/supabase';
 import { createAuto5ScenesDataset, createAutoScenesDataset } from '../services/sampleGenerator';
 import { isTauri, getTauriFs, getTauriDialog, getTauriWindow } from '../utils/desktop';
 import { addRecentFile } from '../utils/recentFiles';
@@ -307,13 +307,34 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const refreshProjectList = async (userId: string) => {
     try {
       const dbProjects = await fetchUserProjects(userId);
-      const mapped: ProjectMetadata[] = dbProjects.map(p => ({
+      const email = supabaseUser?.email || '';
+      const invited = email ? await fetchInvitedProjects(email) : [];
+
+      const ownedMapped: ProjectMetadata[] = dbProjects.map(p => ({
         id: p.id,
         name: p.name,
         lastModified: new Date(p.updated_at).getTime(),
         created: new Date(p.updated_at).getTime()
       }));
-      setProjectList(mapped);
+
+      const invitedMapped: ProjectMetadata[] = invited.map((inv: any) => ({
+        id: inv.id,
+        name: `${inv.name} (Invited by ${inv.invitedBy})`,
+        lastModified: Date.now(),
+        created: Date.now(),
+        isInvited: true,
+        invitedBy: inv.invitedBy
+      }));
+
+      // Combine owned and invited projects, removing any duplicates
+      const combined = [...ownedMapped];
+      invitedMapped.forEach(p => {
+        if (!combined.some(c => c.id === p.id)) {
+          combined.push(p);
+        }
+      });
+
+      setProjectList(combined);
     } catch (err: any) {
       if (err.code === '42P01') setSchemaError("TABLE_MISSING");
       else if (err.code === '42703' || err.message?.includes('data')) setSchemaError("COLUMN_MISSING");
