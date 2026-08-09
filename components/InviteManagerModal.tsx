@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Mail, Trash2, UserPlus, CheckSquare, Square, X, Key, Users, Check, User } from 'lucide-react';
 import { useProject } from '../context/ProjectContext';
 
@@ -59,10 +59,36 @@ export const InviteManagerModal: React.FC<InviteManagerModalProps> = ({ isOpen, 
   const [requestStatus, setRequestStatus] = useState<'idle' | 'sending' | 'success'>('idle');
 
   // Filter profiles based on typed text
-  const filteredProfiles = MOCK_PROFILES.filter(p => 
-    p.email.toLowerCase().includes(inviteEmail.toLowerCase()) ||
-    p.name.toLowerCase().includes(inviteEmail.toLowerCase())
-  );
+  const filteredProfiles = useMemo(() => {
+    const search = inviteEmail.trim().toLowerCase();
+    if (!search) return [];
+
+    const matches = MOCK_PROFILES.filter(p => 
+      p.email.toLowerCase().includes(search) ||
+      p.name.toLowerCase().includes(search)
+    );
+
+    // If it's a valid email format, or they are typing an email, add a dynamic profile option
+    if (search.includes('@') && !matches.some(p => p.email.toLowerCase() === search)) {
+      const parts = search.split('@');
+      const namePart = parts[0] ? (parts[0].charAt(0).toUpperCase() + parts[0].slice(1)) : 'Guest';
+      const cleanName = namePart.replace(/[._-]/g, ' ');
+      matches.push({
+        name: cleanName,
+        email: inviteEmail.trim().toLowerCase(),
+        defaultRole: 'writer'
+      });
+    } else if (inviteEmail.trim().length > 3 && !search.includes('@') && !matches.some(p => p.email.toLowerCase() === search)) {
+      // Allow inviting simple name/id as a local profile too
+      matches.push({
+        name: inviteEmail.trim(),
+        email: `${inviteEmail.trim().toLowerCase()}@backstage.com`,
+        defaultRole: 'writer'
+      });
+    }
+
+    return matches;
+  }, [inviteEmail]);
 
   // Load collaborators on open
   useEffect(() => {
