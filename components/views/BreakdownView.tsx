@@ -1,2094 +1,1118 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useProject } from '../../context/ProjectContext';
 import { useAiKeyStatus } from '../../context/AiKeyStatusContext';
-import { BreakdownData, BreakdownItem, Beat, Shot, AppTask, TaskSubtask, ViewMode } from '../../types';
+import { 
+  BreakdownData, 
+  BreakdownItem, 
+  BreakdownCategory, 
+  CATEGORY_REGISTRY, 
+  Beat, 
+  AppTask, 
+  TaskSubtask, 
+  ViewMode 
+} from '../../types';
 import { generateBreakdown } from '../../services/gemini';
-import { isSameCharacterName, getHighlightSearchTerms } from '../../utils/characterUtils';
-import { 
-    detectDepartmentForItem, 
-    generateDefaultSubtasks, 
-    enrichBreakdownItem, 
-    enrichBreakdownData, 
-    syncBreakdownToDepartmentsAndContinuity 
-} from '../../utils/breakdownSync';
-import { 
-    ListChecks, Users, Package, Mic2, Shirt, Wand2, Flame, MapPin, 
-    Search, LayoutGrid, List as ListIcon, Eye, 
-    Sparkles, Loader2, Trash2, Hash,
-    Lock, Unlock, Download, FileSpreadsheet,
-    Plus, X, Film, Camera, Aperture, FileText, ChevronDown, ChevronRight,
-    Check, ExternalLink, ArrowRight, Video, Layers, AlertCircle, Copy, Share2, Send, Printer,
-    Truck, CheckCircle2, Sliders, RefreshCw, Zap
-} from 'lucide-react';
+import { batchBreakdownManager, BatchProgressState } from '../../services/batchBreakdownService';
+import { saveBreakdownToVault } from '../../services/documentsStorage';
+import { syncBreakdownToDepartmentsAndContinuity } from '../../utils/breakdownSync';
+import confetti from 'canvas-confetti';
 import * as XLSX from 'xlsx';
+import {
+  Sparkles,
+  Plus,
+  Trash2,
+  ChevronLeft,
+  ChevronRight,
+  Printer,
+  CheckSquare,
+  Square,
+  Play,
+  Pause,
+  XCircle,
+  Clock,
+  Layers,
+  Filter,
+  CheckCircle2,
+  ListFilter,
+  Check,
+  FileText,
+  Film,
+  Download,
+  Share2,
+  RefreshCw,
+  FolderOpen,
+  LayoutGrid,
+  List as ListIcon,
+  Search,
+  Zap,
+  ArrowRight,
+  Eye,
+  Sliders,
+  AlertCircle,
+  X,
+  UserCheck,
+  Users,
+  Flame,
+  Car,
+  Package,
+  Shirt,
+  Palette,
+  Cat,
+  Volume2,
+  Home,
+  TreePine,
+  Camera,
+  AlertTriangle,
+} from 'lucide-react';
 
 export interface BreakdownViewProps {
-    allTasks?: AppTask[];
-    onUpdateTask?: (updatedTask: AppTask) => void;
-    onAddTask?: (newTask: AppTask) => void;
-    onNavigateToView?: (view: ViewMode) => void;
+  allTasks?: AppTask[];
+  onUpdateTask?: (updatedTask: AppTask) => void;
+  onAddTask?: (newTask: AppTask) => void;
+  onNavigateToView?: (view: ViewMode) => void;
 }
 
-const CATEGORIES = [
-    { id: 'all', label: 'Total Manifest', icon: ListChecks, color: 'text-zinc-300', bg: 'bg-zinc-500/20', border: 'border-zinc-500/30', lightColor: 'text-slate-800', lightBg: 'bg-slate-100', lightBorder: 'border-slate-300' },
-    { id: 'cast', label: 'Cast & Extras', icon: Users, color: 'text-amber-400', bg: 'bg-amber-500/20', border: 'border-amber-500/30', lightColor: 'text-amber-800', lightBg: 'bg-amber-50', lightBorder: 'border-amber-300' },
-    { id: 'props', label: 'Props', icon: Package, color: 'text-rose-400', bg: 'bg-rose-500/20', border: 'border-rose-500/30', lightColor: 'text-rose-800', lightBg: 'bg-rose-50', lightBorder: 'border-rose-300' },
-    { id: 'costume', label: 'Wardrobe', icon: Shirt, color: 'text-pink-400', bg: 'bg-pink-500/20', border: 'border-pink-500/30', lightColor: 'text-pink-800', lightBg: 'bg-pink-50', lightBorder: 'border-pink-300' },
-    { id: 'vfx', label: 'Visual Effects', icon: Wand2, color: 'text-emerald-400', bg: 'bg-emerald-500/20', border: 'border-emerald-500/30', lightColor: 'text-emerald-800', lightBg: 'bg-emerald-50', lightBorder: 'border-emerald-300' },
-    { id: 'practical', label: 'Special Effects', icon: Flame, color: 'text-orange-400', bg: 'bg-orange-500/20', border: 'border-orange-500/30', lightColor: 'text-orange-800', lightBg: 'bg-orange-50', lightBorder: 'border-orange-300' },
-    { id: 'sound', label: 'Sound / SFX', icon: Mic2, color: 'text-sky-400', bg: 'bg-sky-500/20', border: 'border-sky-500/30', lightColor: 'text-sky-800', lightBg: 'bg-sky-50', lightBorder: 'border-sky-300' },
-    { id: 'location', label: 'Locations', icon: MapPin, color: 'text-purple-400', bg: 'bg-purple-500/20', border: 'border-purple-500/30', lightColor: 'text-purple-800', lightBg: 'bg-purple-50', lightBorder: 'border-purple-300' },
+const ALL_15_CATEGORIES: BreakdownCategory[] = [
+  'CAST',
+  'EXTRAS',
+  'STUNTS',
+  'VEHICLES',
+  'PROPS',
+  'SFX',
+  'WARDROBE',
+  'MAKEUP',
+  'ANIMALS',
+  'SOUND',
+  'SET_DRESSING',
+  'GREENERY',
+  'SPECIAL_EQUIPMENT',
+  'LIGHTING_GRIP',
+  'SAFETY',
 ];
 
-const BreakdownView: React.FC<BreakdownViewProps> = ({
-    allTasks = [],
-    onUpdateTask,
-    onAddTask,
-    onNavigateToView
+const getCategoryIcon = (iconName: string) => {
+  switch (iconName) {
+    case 'UserCheck': return <UserCheck size={14} />;
+    case 'Users': return <Users size={14} />;
+    case 'Flame': return <Flame size={14} />;
+    case 'Car': return <Car size={14} />;
+    case 'Package': return <Package size={14} />;
+    case 'Sparkles': return <Sparkles size={14} />;
+    case 'Shirt': return <Shirt size={14} />;
+    case 'Palette': return <Palette size={14} />;
+    case 'Cat': return <Cat size={14} />;
+    case 'Volume2': return <Volume2 size={14} />;
+    case 'Home': return <Home size={14} />;
+    case 'TreePine': return <TreePine size={14} />;
+    case 'Camera': return <Camera size={14} />;
+    case 'Zap': return <Zap size={14} />;
+    case 'AlertTriangle': return <AlertTriangle size={14} />;
+    default: return <Package size={14} />;
+  }
+};
+
+export const BreakdownView: React.FC<BreakdownViewProps> = ({
+  allTasks = [],
+  onUpdateTask,
+  onAddTask,
+  onNavigateToView,
 }) => {
-    const { 
-        beats, 
-        updateBeat, 
-        breakdownLanguage, 
-        breakdownLockedOnly, 
-        setBreakdownLockedOnly, 
-        scriptConfig, 
-        scratchpadConfig,
-        generatedShots,
-        projectList = [],
-        currentProjectId = null,
-        appTheme,
-        generalAiModel,
+  const {
+    beats,
+    updateBeat,
+    breakdownLanguage,
+    appTheme,
+    generalAiModel,
+    openrouterKey,
+    currentProjectId,
+    projectList = [],
+  } = useProject();
+  const { aiAvailable } = useAiKeyStatus();
+
+  const isLight =
+    appTheme === 'light' ||
+    (appTheme === 'system' &&
+      typeof window !== 'undefined' &&
+      window.matchMedia('(prefers-color-scheme: light)').matches);
+
+  const isTamil = breakdownLanguage === 'tamil';
+
+  // Navigation state: selected scene index
+  const [selectedSceneIndex, setSelectedSceneIndex] = useState<number>(0);
+  const [viewMode, setViewMode] = useState<'sheet' | 'manifest'>('sheet');
+  const [manifestFilterCategory, setManifestFilterCategory] = useState<string>('ALL');
+  const [searchTerm, setSearchTerm] = useState<string>('');
+
+  // Single scene analyzing state
+  const [isAnalyzingSingle, setIsAnalyzingSingle] = useState<boolean>(false);
+
+  // Modal states
+  const [activeAddCategory, setActiveAddCategory] = useState<BreakdownCategory | null>(null);
+  const [newItemName, setNewItemName] = useState<string>('');
+  const [newItemDesc, setNewItemDesc] = useState<string>('');
+  const [newItemCount, setNewItemCount] = useState<number>(1);
+
+  // Batch Selection Modal state
+  const [isBatchModalOpen, setIsBatchModalOpen] = useState<boolean>(false);
+  const [selectedBeatIds, setSelectedBeatIds] = useState<Set<number>>(
+    () => new Set(beats.map((b) => b.id))
+  );
+  const [batchFilter, setBatchFilter] = useState<'ALL' | 'UNBROKEN' | 'BROKEN'>('ALL');
+
+  // Background Batch Progress State
+  const [batchState, setBatchState] = useState<BatchProgressState>(() =>
+    batchBreakdownManager.getState()
+  );
+
+  // Toast / notification
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(null), 3000);
+  };
+
+  // Sync state
+  const [isSyncing, setIsSyncing] = useState<boolean>(false);
+
+  // Script Drawer toggle
+  const [showScriptDrawer, setShowScriptDrawer] = useState<boolean>(false);
+
+  useEffect(() => {
+    return batchBreakdownManager.subscribe((state) => {
+      setBatchState(state);
+    });
+  }, []);
+
+  // Ensure selected index is valid
+  useEffect(() => {
+    if (selectedSceneIndex >= beats.length && beats.length > 0) {
+      setSelectedSceneIndex(beats.length - 1);
+    }
+  }, [beats.length, selectedSceneIndex]);
+
+  const currentBeat = beats[selectedSceneIndex] || beats[0];
+
+  // Helper: Extract items for a specific category from a Beat's breakdownData
+  const getBeatCategoryItems = (beat: Beat, category: BreakdownCategory): BreakdownItem[] => {
+    if (!beat.breakdownData) return [];
+    const bd = beat.breakdownData;
+
+    // 1. Direct 15 category key
+    const list = (bd as any)[category];
+    if (Array.isArray(list) && list.length > 0) {
+      return list.map((item, idx) => {
+        if (typeof item === 'string') {
+          return { id: `item-${category}-${idx}`, category, name: item, count: 1 };
+        }
+        return {
+          id: item.id || `item-${category}-${idx}`,
+          category: item.category || category,
+          name: item.name || 'Unknown Item',
+          nameTa: item.nameTa,
+          description: item.description,
+          descriptionTa: item.descriptionTa,
+          count: item.count || 1,
+          source: item.source,
+          departmentId: item.departmentId,
+        };
+      });
+    }
+
+    // 2. Check unified items array
+    if (Array.isArray(bd.items)) {
+      const matched = bd.items.filter((i) => i.category === category);
+      if (matched.length > 0) return matched;
+    }
+
+    // 3. Fallback to legacy keys
+    if (category === 'PROPS' && Array.isArray(bd.props)) {
+      return bd.props.map((i: any) => (typeof i === 'string' ? { name: i, count: 1 } : i));
+    }
+    if (category === 'SOUND' && Array.isArray(bd.sound)) {
+      return bd.sound.map((i: any) => (typeof i === 'string' ? { name: i, count: 1 } : i));
+    }
+    if (category === 'WARDROBE' && Array.isArray(bd.costume)) {
+      return bd.costume.map((i: any) => (typeof i === 'string' ? { name: i, count: 1 } : i));
+    }
+    if (category === 'SFX' && (Array.isArray(bd.vfx) || Array.isArray(bd.practical))) {
+      return [...(bd.vfx || []), ...(bd.practical || [])].map((i: any) => (typeof i === 'string' ? { name: i, count: 1 } : i));
+    }
+    if (category === 'CAST' && Array.isArray(bd.cast)) {
+      return bd.cast.map((i: any) => (typeof i === 'string' ? { name: i, count: 1 } : i));
+    }
+    if (category === 'SET_DRESSING' && Array.isArray(bd.location)) {
+      return bd.location.map((i: any) => (typeof i === 'string' ? { name: i, count: 1 } : i));
+    }
+
+    return [];
+  };
+
+  // Check if beat has any breakdown items
+  const hasBreakdown = (beat: Beat): boolean => {
+    if (!beat.breakdownData) return false;
+    const bd = beat.breakdownData;
+    if (Array.isArray(bd.items) && bd.items.length > 0) return true;
+    for (const cat of ALL_15_CATEGORIES) {
+      const items = (bd as any)[cat];
+      if (Array.isArray(items) && items.length > 0) return true;
+    }
+    if (Array.isArray(bd.props) && bd.props.length > 0) return true;
+    if (Array.isArray(bd.sound) && bd.sound.length > 0) return true;
+    if (Array.isArray(bd.costume) && bd.costume.length > 0) return true;
+    if (Array.isArray(bd.cast) && bd.cast.length > 0) return true;
+    return false;
+  };
+
+  const currentSceneTotalItems = useMemo(() => {
+    if (!currentBeat) return 0;
+    return ALL_15_CATEGORIES.reduce((acc, cat) => acc + getBeatCategoryItems(currentBeat, cat).length, 0);
+  }, [currentBeat]);
+
+  // Handle Scene Switcher
+  const handleNextScene = () => {
+    if (selectedSceneIndex < beats.length - 1) {
+      setSelectedSceneIndex(selectedSceneIndex + 1);
+    }
+  };
+
+  const handlePrevScene = () => {
+    if (selectedSceneIndex > 0) {
+      setSelectedSceneIndex(selectedSceneIndex - 1);
+    }
+  };
+
+  // Run AI Breakdown on current scene
+  const handleBreakdownCurrentScene = async () => {
+    if (!currentBeat) return;
+    setIsAnalyzingSingle(true);
+    try {
+      const scriptText = currentBeat.content
+        ? currentBeat.content.replace(/<[^>]*>/g, ' ').trim()
+        : `${currentBeat.slug?.prefix || 'INT.'} ${currentBeat.slug?.location || 'LOCATION'} - ${currentBeat.slug?.time || 'DAY'}\n${currentBeat.summary || currentBeat.title || ''}`;
+
+      const res = await generateBreakdown(
+        scriptText,
+        generalAiModel || 'gemini-2.5-flash',
+        isTamil ? 'tamil' : 'english',
         openrouterKey
-    } = useProject();
-    const { aiAvailable } = useAiKeyStatus();
+      );
 
-    const isLight = appTheme === 'light' || (appTheme === 'system' && typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: light)').matches);
-
-    const [selectedCategory, setSelectedCategory] = useState<string>('all');
-    const [searchTerm, setSearchTerm] = useState('');
-    const [viewType, setViewType] = useState<'by-scene' | 'by-category'>('by-scene');
-
-    const [startScene, setStartScene] = useState(1);
-    const [endScene, setEndScene] = useState(beats.length || 1);
-    const [delay, setDelay] = useState(2); 
-
-    const [isAnalyzing, setIsAnalyzing] = useState(false);
-    const [analyzingBeatId, setAnalyzingBeatId] = useState<number | null>(null);
-    const [progress, setProgress] = useState({ current: 0, total: 0, currentScene: '' });
-    const abortRef = useRef(false);
-    const isMounted = useRef(true);
-
-    const [isExporting, setIsExporting] = useState(false);
-
-    // Inspector Drawer State
-    const [activeInspectorBeatId, setActiveInspectorBeatId] = useState<number | null>(null);
-    const [expandedScenes, setExpandedScenes] = useState<Record<number, { script: boolean; shots: boolean }>>({});
-
-    // Inline New Item Inputs per beat & category
-    const [newItemInputs, setNewItemInputs] = useState<Record<string, string>>({});
-
-    // Project Metadata for Print & Copy
-    const activeProjectName = useMemo(() => {
-        const proj = projectList.find(p => p.id === currentProjectId);
-        return proj ? proj.name : 'SEQUENCER PROJECT';
-    }, [projectList, currentProjectId]);
-
-    const [customProjectName, setCustomProjectName] = useState<string>('');
-    const [productionCompany, setProductionCompany] = useState<string>('Apex Pictures');
-    const [directorName, setDirectorName] = useState<string>('Director Name');
-    const [hodName, setHodName] = useState<string>('Dept Head');
-    const [hodDept, setHodDept] = useState<string>('Production / Art Dept');
-    const [includeProjectMetadata, setIncludeProjectMetadata] = useState<boolean>(true);
-    const [includeHodSignoff, setIncludeHodSignoff] = useState<boolean>(true);
-
-    // Screen Real Estate Optimization State (Hide empty category cards by default)
-    const [showEmptyCategories, setShowEmptyCategories] = useState(false);
-
-    // Department Quick List Share Modal State
-    const [isShareModalOpen, setIsShareModalOpen] = useState(false);
-    const [shareCategory, setShareCategory] = useState<string>('props');
-    const [toastMessage, setToastMessage] = useState<string | null>(null);
-
-    const showToast = (msg: string) => {
-        setToastMessage(msg);
-        setTimeout(() => setToastMessage(null), 2500);
-    };
-
-    // Department & Continuity Synchronization States
-    const [isSyncing, setIsSyncing] = useState(false);
-    const [syncStats, setSyncStats] = useState<{ tasksCreated: number; tasksUpdated: number; looksCreated: number; deptsCount: number } | null>(null);
-    const [selectedSyncItem, setSelectedSyncItem] = useState<{
-        beatId: number;
-        sceneNumber: string;
-        category: keyof BreakdownData;
-        itemIndex: number;
-        item: BreakdownItem;
-    } | null>(null);
-    const [editingSubtasks, setEditingSubtasks] = useState<TaskSubtask[]>([]);
-
-    useEffect(() => {
-        if (selectedSyncItem) {
-            setEditingSubtasks(selectedSyncItem.item.subtasks ? JSON.parse(JSON.stringify(selectedSyncItem.item.subtasks)) : []);
-        } else {
-            setEditingSubtasks([]);
-        }
-    }, [selectedSyncItem]);
-
-    const handleSyncAllToDepartmentsAndContinuity = () => {
-        setIsSyncing(true);
-        try {
-            const res = syncBreakdownToDepartmentsAndContinuity(beats, allTasks);
-            setSyncStats(res.stats);
-            showToast(`⚡ Synced: ${res.stats.tasksCreated + res.stats.tasksUpdated} tasks across ${res.stats.deptsCount} departments & ${res.stats.looksCreated} continuity looks!`);
-        } catch (e) {
-            console.error(e);
-            showToast("Sync encountered an error.");
-        } finally {
-            setIsSyncing(false);
-        }
-    };
-
-    const handleSaveSubtasksForSelectedItem = () => {
-        if (!selectedSyncItem) return;
-        const beat = beats.find(b => b.id === selectedSyncItem.beatId);
-        if (!beat || !beat.breakdown) return;
-
-        const currentBreakdown: BreakdownData = { ...beat.breakdown };
-        const catArray = [...(currentBreakdown[selectedSyncItem.category] || [])];
-        const currentItem = catArray[selectedSyncItem.itemIndex];
-        const rawItem: BreakdownItem = typeof currentItem === 'string' ? { name: currentItem } : { ...currentItem };
-
-        const updatedItem: BreakdownItem = {
-            ...rawItem,
-            subtasks: editingSubtasks
-        };
-        catArray[selectedSyncItem.itemIndex] = updatedItem;
-        currentBreakdown[selectedSyncItem.category] = catArray;
-
-        updateBeat(selectedSyncItem.beatId, { breakdown: currentBreakdown });
-
-        const updatedBeats = beats.map(b => b.id === selectedSyncItem.beatId ? { ...b, breakdown: currentBreakdown } : b);
-        syncBreakdownToDepartmentsAndContinuity(updatedBeats, allTasks);
-
-        setSelectedSyncItem(null);
-        showToast(`Saved subtasks and synced ${updatedItem.name} to Department and Continuity!`);
-    };
-
-    // Print Manifest Document Generator
-    const handlePrintBreakdown = (catId: string = shareCategory) => {
-        const textList = generateCategoryTextList(catId);
-        const catLabel = CATEGORIES.find(c => c.id === catId)?.label || 'Production Breakdown';
-        const projTitle = (customProjectName.trim() || activeProjectName);
-        
-        const printWindow = window.open('', '_blank', 'width=850,height=950');
-        if (!printWindow) {
-            showToast('Please allow popups to open print document.');
-            return;
-        }
-
-        const htmlContent = `
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <title>${projTitle} - ${catLabel} Manifest</title>
-                <style>
-                    body {
-                        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-                        padding: 35px;
-                        color: #111;
-                        background: #fff;
-                        line-height: 1.5;
-                    }
-                    .meta-header {
-                        border-bottom: 2px solid #111;
-                        padding-bottom: 12px;
-                        margin-bottom: 16px;
-                    }
-                    .project-title {
-                        font-size: 24px;
-                        font-weight: 900;
-                        text-transform: uppercase;
-                        letter-spacing: 0.5px;
-                    }
-                    .meta-grid {
-                        display: flex;
-                        gap: 20px;
-                        margin-top: 6px;
-                        font-size: 11px;
-                        color: #444;
-                        font-weight: bold;
-                        text-transform: uppercase;
-                    }
-                    .header {
-                        border-bottom: 3px solid #111;
-                        padding-bottom: 10px;
-                        margin-bottom: 20px;
-                        display: flex;
-                        justify-content: space-between;
-                        align-items: flex-end;
-                    }
-                    .title {
-                        font-size: 18px;
-                        font-weight: 900;
-                        text-transform: uppercase;
-                        letter-spacing: 1px;
-                    }
-                    .subtitle {
-                        font-size: 11px;
-                        color: #555;
-                        font-family: monospace;
-                        margin-top: 4px;
-                    }
-                    .content {
-                        font-family: "Courier New", Courier, monospace;
-                        font-size: 12px;
-                        white-space: pre-wrap;
-                        background: #fafafa;
-                        padding: 20px;
-                        border: 1px solid #ddd;
-                        border-radius: 8px;
-                    }
-                    .footer {
-                        margin-top: 30px;
-                        padding-top: 15px;
-                        border-top: 2px solid #222;
-                        display: flex;
-                        justify-content: space-between;
-                        font-size: 11px;
-                        color: #444;
-                        font-weight: bold;
-                    }
-                    .print-btn {
-                        padding: 8px 16px;
-                        background: #111;
-                        color: #fff;
-                        border: none;
-                        border-radius: 6px;
-                        font-size: 12px;
-                        font-weight: bold;
-                        cursor: pointer;
-                    }
-                    @media print {
-                        body { padding: 0; }
-                        .no-print { display: none !important; }
-                        .content { border: none; background: transparent; padding: 0; }
-                    }
-                </style>
-            </head>
-            <body>
-                ${includeProjectMetadata ? `
-                <div class="meta-header">
-                    <div class="project-title">🎬 ${projTitle.toUpperCase()}</div>
-                    <div class="meta-grid">
-                        ${productionCompany.trim() ? `<div>🏢 PRODUCTION: ${productionCompany.toUpperCase()}</div>` : ''}
-                        ${directorName.trim() ? `<div>🎥 DIRECTOR: ${directorName.toUpperCase()}</div>` : ''}
-                        <div>DATE: ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</div>
-                    </div>
-                </div>
-                ` : ''}
-                <div class="header">
-                    <div>
-                        <div class="title">📋 ${catLabel.toUpperCase()} MANIFEST</div>
-                        <div class="subtitle">BACKSTAGE STORY SEQUENCER • PRODUCTION BREAKDOWN LOG</div>
-                    </div>
-                    <div class="no-print">
-                        <button onclick="window.print()" class="print-btn">
-                            🖨️ Print / Save PDF
-                        </button>
-                    </div>
-                </div>
-                <div class="content">${textList}</div>
-                ${includeHodSignoff ? `
-                <div class="footer">
-                    <div><strong>HOD SIGN-OFF:</strong> ${hodName.toUpperCase()} (${hodDept.toUpperCase()})</div>
-                    <div><strong>SIGNATURE:</strong> ________________________</div>
-                    <div><strong>DATE:</strong> ____________</div>
-                    <div><strong>APPROVAL:</strong> [  ] PASS &nbsp;&nbsp; [  ] REV</div>
-                </div>
-                ` : ''}
-                <script>
-                    setTimeout(function() { window.print(); }, 400);
-                </script>
-            </body>
-            </html>
-        `;
-
-        printWindow.document.write(htmlContent);
-        printWindow.document.close();
-    };
-
-    const handlePrintScene = (beat: Beat) => {
-        const sceneNum = beat.sceneNumber || '1';
-        const projTitle = (customProjectName.trim() || activeProjectName);
-        let lines: string[] = [];
-        if (includeProjectMetadata) {
-            lines.push(`🎬 PROJECT: ${projTitle.toUpperCase()}`);
-            if (productionCompany.trim()) lines.push(`🏢 PRODUCTION: ${productionCompany.trim().toUpperCase()}`);
-            if (directorName.trim()) lines.push(`🎥 DIRECTOR: ${directorName.trim().toUpperCase()}`);
-            lines.push(`==================================================`);
-        }
-        lines.push(`📍 SCENE ${sceneNum}: ${beat.slug.prefix || 'INT.'} ${beat.slug.location || 'LOCATION'} - ${beat.slug.time || 'DAY'}`);
-        if (beat.title) lines.push(`Title: ${beat.title}`);
-        lines.push(`--------------------------------------------------`);
-        if (beat.breakdown) {
-            (Object.keys(beat.breakdown) as Array<keyof BreakdownData>).forEach(c => {
-                const items = beat.breakdown![c] || [];
-                if (items.length > 0) {
-                    const label = CATEGORIES.find(cat => cat.id === c)?.label || c;
-                    lines.push(`\n[${label.toUpperCase()}]`);
-                    items.forEach(i => {
-                        const name = typeof i === 'string' ? i : i.name;
-                        lines.push(`  [ ] ${name}`);
-                    });
-                }
-            });
-        }
-        
-        const printWindow = window.open('', '_blank', 'width=800,height=800');
-        if (!printWindow) return;
-
-        printWindow.document.write(`
-            <html>
-            <head>
-                <title>${projTitle} - Scene ${sceneNum} Breakdown</title>
-                <style>
-                    body { font-family: monospace; padding: 35px; font-size: 13px; line-height: 1.6; color: #111; }
-                    .no-print { margin-bottom: 20px; }
-                    button { padding: 8px 16px; background: #000; color: #fff; font-weight: bold; border-radius: 6px; cursor: pointer; border: none; }
-                    @media print { .no-print { display: none; } }
-                </style>
-            </head>
-            <body>
-                <div class="no-print"><button onclick="window.print()">🖨️ Print Scene Sheet</button></div>
-                <pre>${lines.join('\n')}</pre>
-            </body>
-            </html>
-        `);
-        printWindow.document.close();
-    };
-
-    // Generate Shareable Text List for a Category across all scenes or a single scene
-    const generateCategoryTextList = (catId: string) => {
-        const sortedBeats = [...beats].sort((a, b) => a.x - b.x);
-        const catLabel = CATEGORIES.find(c => c.id === catId)?.label || 'Breakdown';
-        const projTitle = (customProjectName.trim() || activeProjectName).toUpperCase();
-        let lines: string[] = [];
-
-        if (includeProjectMetadata) {
-            lines.push(`🎬 PROJECT: ${projTitle}`);
-            if (productionCompany.trim()) lines.push(`🏢 PRODUCTION: ${productionCompany.trim().toUpperCase()}`);
-            if (directorName.trim()) lines.push(`🎥 DIRECTOR: ${directorName.trim().toUpperCase()}`);
-            lines.push(`----------------------------------------`);
-        }
-
-        lines.push(`📋 ${catLabel.toUpperCase()} MANIFEST — PRODUCTION BREAKDOWN`);
-        lines.push(`Date: ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`);
-        lines.push(`========================================`);
-
-        let itemCount = 0;
-        if (catId === 'all') {
-            sortedBeats.forEach((beat, idx) => {
-                const sceneNum = beat.sceneNumber || (idx + 1).toString();
-                const location = beat.slug.location || 'LOCATION';
-                lines.push(`\n📍 SCENE ${sceneNum}: ${beat.slug.prefix || 'INT.'} ${location}`);
-                if (beat.breakdown) {
-                    (Object.keys(beat.breakdown) as Array<keyof BreakdownData>).forEach(c => {
-                        const items = beat.breakdown![c] || [];
-                        if (items.length > 0) {
-                            const cName = CATEGORIES.find(cat => cat.id === c)?.label || c;
-                            lines.push(`  [${cName}]: ` + items.map(i => typeof i === 'string' ? i : i.name).join(', '));
-                            itemCount += items.length;
-                        }
-                    });
-                } else {
-                    lines.push(`  (No breakdown items logged)`);
-                }
-            });
-        } else {
-            sortedBeats.forEach((beat, idx) => {
-                const sceneNum = beat.sceneNumber || (idx + 1).toString();
-                const location = beat.slug.location || 'LOCATION';
-                const items = beat.breakdown?.[catId as keyof BreakdownData] || [];
-                if (items.length > 0) {
-                    lines.push(`\n📍 SCENE ${sceneNum} (${beat.slug.prefix || 'INT.'} ${location}):`);
-                    items.forEach(i => {
-                        const name = typeof i === 'string' ? i : i.name;
-                        lines.push(`   • ${name}`);
-                        itemCount++;
-                    });
-                }
-            });
-            if (itemCount === 0) {
-                lines.push(`\nNo items currently logged under ${catLabel}.`);
-            }
-        }
-
-        if (includeHodSignoff) {
-            lines.push(`\n========================================`);
-            lines.push(`HOD SIGN-OFF (${hodName.toUpperCase()} - ${hodDept.toUpperCase()}): ____________________`);
-            lines.push(`DATE: ____________   STATUS: [  ] APPROVED   [  ] REVISION NEEDED`);
-        }
-
-        lines.push(`\n----------------------------------------`);
-        lines.push(`Total Items Logged: ${itemCount}`);
-        lines.push(`Generated by Backstage Story Sequencer`);
-        return lines.join('\n');
-    };
-
-    // Copy Scene Specific List
-    const copySceneBreakdown = (beat: Beat, sceneNum: string) => {
-        let lines: string[] = [];
-        const projTitle = (customProjectName.trim() || activeProjectName).toUpperCase();
-        if (includeProjectMetadata) {
-            lines.push(`🎬 PROJECT: ${projTitle}`);
-            if (productionCompany.trim()) lines.push(`🏢 PRODUCTION: ${productionCompany.trim().toUpperCase()}`);
-            if (directorName.trim()) lines.push(`🎥 DIRECTOR: ${directorName.trim().toUpperCase()}`);
-            lines.push(`----------------------------------------`);
-        }
-        lines.push(`📍 SCENE ${sceneNum}: ${beat.slug.prefix || 'INT.'} ${beat.slug.location || 'LOCATION'} - ${beat.slug.time || 'DAY'}`);
-        if (beat.title) lines.push(`Title: ${beat.title}`);
-        lines.push(`----------------------------------------`);
-
-        let count = 0;
-        if (beat.breakdown) {
-            (Object.keys(beat.breakdown) as Array<keyof BreakdownData>).forEach(c => {
-                const items = beat.breakdown![c] || [];
-                if (items.length > 0) {
-                    const label = CATEGORIES.find(cat => cat.id === c)?.label || c;
-                    lines.push(`• ${label}: ` + items.map(i => typeof i === 'string' ? i : i.name).join(', '));
-                    count += items.length;
-                }
-            });
-        }
-        if (count === 0) lines.push(`(No breakdown items logged for this scene)`);
-
-        if (includeHodSignoff) {
-            lines.push(`\n========================================`);
-            lines.push(`HOD SIGN-OFF (${hodName.toUpperCase()} - ${hodDept.toUpperCase()}): ____________________`);
-            lines.push(`DATE: ____________   STATUS: [  ] APPROVED   [  ] REVISION NEEDED`);
-        }
-
-        navigator.clipboard.writeText(lines.join('\n'));
-        showToast(`Copied Scene ${sceneNum} breakdown list to clipboard!`);
-    };
-
-    useEffect(() => {
-        isMounted.current = true;
-        setIsAnalyzing(false);
-        return () => { isMounted.current = false; };
-    }, []);
-
-    useEffect(() => {
-        if (!isAnalyzing) {
-            setEndScene(beats.length || 1);
-        }
-    }, [beats.length, isAnalyzing]);
-
-    // Map shots to scenes
-    const getShotsForScene = (sceneNum: string, beatIndex: number) => {
-        return generatedShots.filter(s => {
-            if (!s.scene) return false;
-            const cleanShotScene = s.scene.trim().toLowerCase();
-            const cleanBeatScene = (sceneNum || '').trim().toLowerCase();
-            const fallbackBeatScene = (beatIndex + 1).toString();
-            return cleanShotScene === cleanBeatScene || cleanShotScene === fallbackBeatScene;
+      if (res) {
+        updateBeat(currentBeat.id, { breakdownData: res });
+        confetti({
+          particleCount: 45,
+          spread: 55,
+          origin: { y: 0.7 },
+          colors: ['#f5a623', '#38bdf8', '#10b981', '#f43f5e'],
         });
-    };
-
-    // Calculate aggregated Breakdown Data across all beats
-    const { itemsData, categoryCounts } = useMemo(() => {
-        const itemsMap = new Map<string, { 
-            name: string;
-            category: keyof BreakdownData; 
-            scenes: { id: number; slug: string; source?: string; sceneNum: string; shotCount: number }[];
-            firstBeatId: number;
-            firstSceneNum: string;
-            firstItemIndex: number;
-            breakdownItem: BreakdownItem;
-            classification: ReturnType<typeof detectDepartmentForItem>;
-        }>();
-
-        const counts: Record<string, number> = {};
-        CATEGORIES.forEach(c => counts[c.id] = 0);
-
-        const sortedBeats = [...beats].sort((a, b) => a.x - b.x);
-
-        sortedBeats.forEach((beat, idx) => {
-            if (!beat.breakdown) return;
-            const sceneNum = beat.sceneNumber || (idx + 1).toString();
-            const slug = `${beat.slug.prefix || ''} ${beat.slug.location || ''} - ${beat.slug.time || ''}`.trim();
-            const sceneShots = getShotsForScene(sceneNum, idx);
-            
-            (Object.keys(beat.breakdown) as Array<keyof BreakdownData>).forEach(cat => {
-                const list = beat.breakdown![cat] || [];
-                list.forEach((rawItem, itemIdx) => {
-                    const name = typeof rawItem === 'string' ? rawItem : rawItem.name;
-                    const source = typeof rawItem === 'string' ? undefined : rawItem.source;
-                    const cleanName = (name || '').trim();
-                    if (!cleanName) return;
-
-                    const key = `${cat}:${cleanName.toLowerCase()}`;
-                    const normalizedItem: BreakdownItem = typeof rawItem === 'string'
-                        ? enrichBreakdownItem({ name: rawItem }, cat, sceneNum)
-                        : (rawItem.subtasks ? rawItem : enrichBreakdownItem(rawItem, cat, sceneNum));
-                    const classification = detectDepartmentForItem(cleanName, cat);
-
-                    if (!itemsMap.has(key)) {
-                        itemsMap.set(key, { 
-                            name: cleanName, 
-                            category: cat, 
-                            scenes: [],
-                            firstBeatId: beat.id,
-                            firstSceneNum: sceneNum,
-                            firstItemIndex: itemIdx,
-                            breakdownItem: normalizedItem,
-                            classification
-                        });
-                        counts[cat] = (counts[cat] || 0) + 1;
-                        counts['all'] = (counts['all'] || 0) + 1;
-                    }
-                    
-                    const entry = itemsMap.get(key)!;
-                    if (!entry.scenes.find(s => s.id === beat.id)) {
-                        entry.scenes.push({ id: beat.id, slug, source, sceneNum, shotCount: sceneShots.length });
-                    }
-                });
-            });
-        });
-
-        const list = Array.from(itemsMap.values()).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-        return { itemsData: list, categoryCounts: counts };
-    }, [beats, generatedShots]);
-
-    const filteredData = useMemo(() => {
-        let result = itemsData;
-        if (selectedCategory !== 'all') {
-            result = result.filter((item) => item.category === selectedCategory);
-        }
-        if (searchTerm) {
-            const lower = searchTerm.toLowerCase();
-            result = result.filter((item) => (item.name || '').toLowerCase().includes(lower));
-        }
-        return result;
-    }, [itemsData, selectedCategory, searchTerm]);
-
-    const sceneData = useMemo(() => {
-        const sortedBeats = [...beats].sort((a, b) => a.x - b.x);
-        return sortedBeats.map((beat, idx) => {
-            const sceneNum = beat.sceneNumber || (idx + 1).toString();
-            const shots = getShotsForScene(sceneNum, idx);
-            const hasBreakdown = !!beat.breakdown;
-            const totalItems = hasBreakdown 
-                ? Object.values(beat.breakdown || {}).reduce((acc: number, arr: any) => acc + (arr?.length || 0), 0)
-                : 0;
-            return { beat, hasBreakdown, totalItems, sceneIndex: idx + 1, sceneNum, shots };
-        });
-    }, [beats, generatedShots]);
-
-    // Scenes filtered by active category selection and search term
-    const displayedScenes = useMemo(() => {
-        const totalItemsInSelectedCat = selectedCategory !== 'all' ? (categoryCounts[selectedCategory] || 0) : 0;
-
-        return sceneData.filter(s => {
-            // 1. Category Filter
-            if (selectedCategory !== 'all' && totalItemsInSelectedCat > 0) {
-                const catItems = s.beat.breakdown?.[selectedCategory as keyof BreakdownData] || [];
-                if (catItems.length === 0) return false;
-            }
-
-            // 2. Search Filter
-            if (searchTerm) {
-                const lower = searchTerm.toLowerCase();
-                const locMatch = (s.beat.slug.location || '').toLowerCase().includes(lower);
-                const contentMatch = (s.beat.content || '').toLowerCase().includes(lower);
-                const titleMatch = (s.beat.title || '').toLowerCase().includes(lower);
-                const breakdownMatch = s.beat.breakdown ? Object.values(s.beat.breakdown).some((items: any) => 
-                    Array.isArray(items) && items.some(i => {
-                        const itemName = typeof i === 'string' ? i : i.name;
-                        return isSameCharacterName(itemName, searchTerm) || itemName.toLowerCase().includes(lower);
-                    })
-                ) : false;
-
-                if (!locMatch && !contentMatch && !titleMatch && !breakdownMatch) {
-                    return false;
-                }
-            }
-
-            return true;
-        });
-    }, [sceneData, selectedCategory, categoryCounts, searchTerm]);
-
-    const getCategoryMeta = (cat: string) => CATEGORIES.find(c => c.id === cat);
-
-    // Handle adding new item directly to a beat breakdown category
-    const handleAddItemToBeat = (beatId: number, category: keyof BreakdownData, itemName: string) => {
-        const cleanName = itemName.trim();
-        if (!cleanName) return;
-
-        const beat = beats.find(b => b.id === beatId);
-        if (!beat) return;
-
-        const currentBreakdown: BreakdownData = beat.breakdown ? { ...beat.breakdown } : {
-            sound: [], props: [], costume: [], vfx: [], practical: [], cast: [], location: []
-        };
-
-        const catArray = [...(currentBreakdown[category] || [])];
-        const exists = catArray.some(i => {
-            const itemName = typeof i === 'string' ? i : i.name;
-            if (category === 'cast') {
-                return isSameCharacterName(itemName, cleanName);
-            }
-            return itemName.toLowerCase() === cleanName.toLowerCase();
-        });
-        if (!exists) {
-            const beatObj = beats.find(b => b.id === beatId);
-            const enrichedItem = enrichBreakdownItem({ name: cleanName, source: 'Manual Entry' }, category, beatObj?.content || '');
-            catArray.push(enrichedItem);
-            currentBreakdown[category] = catArray;
-            updateBeat(beatId, { breakdown: currentBreakdown });
-
-            const updatedBeats = beats.map(b => b.id === beatId ? { ...b, breakdown: currentBreakdown } : b);
-            const syncRes = syncBreakdownToDepartmentsAndContinuity(updatedBeats, allTasks);
-            setSyncStats(syncRes.stats);
-        }
-
-        setNewItemInputs(prev => ({ ...prev, [`${beatId}:${category}`]: '' }));
-    };
-
-    // Handle removing an item from a beat breakdown category
-    const handleRemoveItemFromBeat = (beatId: number, category: keyof BreakdownData, itemIndex: number) => {
-        const beat = beats.find(b => b.id === beatId);
-        if (!beat || !beat.breakdown) return;
-
-        const currentBreakdown: BreakdownData = { ...beat.breakdown };
-        const catArray = [...(currentBreakdown[category] || [])];
-        catArray.splice(itemIndex, 1);
-        currentBreakdown[category] = catArray;
-        updateBeat(beatId, { breakdown: currentBreakdown });
-
-        const updatedBeats = beats.map(b => b.id === beatId ? { ...b, breakdown: currentBreakdown } : b);
-        const syncRes = syncBreakdownToDepartmentsAndContinuity(updatedBeats, allTasks);
-        setSyncStats(syncRes.stats);
-    };
-
-    // Analyze Single Beat with AI
-    const handleAnalyzeSingleBeat = async (beat: Beat) => {
-        const div = document.createElement('div');
-        div.innerHTML = beat.content || '';
-        const text = div.textContent || div.innerText || '';
-        if (!text.trim()) {
-            alert("This scene has no script content to analyze.");
-            return;
-        }
-
-        setAnalyzingBeatId(beat.id);
-        try {
-            const result = await generateBreakdown(text, generalAiModel, breakdownLanguage, openrouterKey);
-            if (result && isMounted.current) {
-                updateBeat(beat.id, { breakdown: result });
-                const updatedBeats = beats.map(b => b.id === beat.id ? { ...b, breakdown: result } : b);
-                const syncRes = syncBreakdownToDepartmentsAndContinuity(updatedBeats, allTasks);
-                setSyncStats(syncRes.stats);
-                showToast(`Analyzed Scene ${beat.sceneNumber || ''} & synced to ${syncRes.stats.deptsCount} departments!`);
-            }
-        } catch (err) {
-            console.error(`Failed to analyze beat ${beat.id}`, err);
-        } finally {
-            if (isMounted.current) setAnalyzingBeatId(null);
-        }
-    };
-
-    // Analyze Batch of Scenes with AI
-    const handleAnalyze = async () => {
-        const sortedBeats = [...beats].sort((a, b) => a.x - b.x);
-        const startIndex = Math.max(0, startScene - 1);
-        const endIndex = Math.min(sortedBeats.length, endScene);
-        let targetBeats = sortedBeats.slice(startIndex, endIndex);
-
-        if (breakdownLockedOnly) {
-            targetBeats = targetBeats.filter(b => b.status === 'ready');
-        }
-
-        const validBeats = targetBeats.filter(b => {
-            const div = document.createElement('div');
-            div.innerHTML = b.content || '';
-            return (div.textContent || div.innerText || '').trim().length > 0;
-        });
-
-        if (validBeats.length === 0) {
-            alert(breakdownLockedOnly 
-                ? `No valid LOCKED scenes found in range ${startScene}-${endScene}.` 
-                : `No script content found to analyze in range ${startScene}-${endScene}.`);
-            return;
-        }
-
-        setIsAnalyzing(true);
-        abortRef.current = false;
-        setProgress({ current: 0, total: validBeats.length, currentScene: '' });
-
-        try {
-            for (let i = 0; i < validBeats.length; i++) {
-                if (abortRef.current || !isMounted.current) break;
-                const beat = validBeats[i];
-                const sceneName = beat.slug.location || `Scene ${beat.sceneNumber || '?'}`;
-                if (isMounted.current) {
-                    setProgress({ current: i + 1, total: validBeats.length, currentScene: sceneName });
-                }
-                const div = document.createElement('div');
-                div.innerHTML = beat.content || '';
-                const text = div.textContent || div.innerText || '';
-                try {
-                    const result = await generateBreakdown(text, generalAiModel, breakdownLanguage, openrouterKey);
-                    if (result && isMounted.current) {
-                        updateBeat(beat.id, { breakdown: result });
-                    }
-                } catch (err) {
-                    console.error(`Failed to analyze beat ${beat.id}`, err);
-                }
-                if (i < validBeats.length - 1) {
-                    await new Promise(r => setTimeout(r, delay * 1000));
-                }
-            }
-        } catch (globalErr) {
-            console.error(globalErr);
-        } finally {
-            if (isMounted.current) {
-                setIsAnalyzing(false);
-                const syncRes = syncBreakdownToDepartmentsAndContinuity(beats, allTasks);
-                setSyncStats(syncRes.stats);
-                showToast(`Batch breakdown completed & synced across ${syncRes.stats.deptsCount} departments!`);
-            }
-        }
-    };
-
-    // Export Breakdown Manifest
-    const handleExport = async (format: 'csv' | 'excel') => {
-        setIsExporting(true);
-        try {
-            const exportData = itemsData.map(item => ({
-                Category: item.category.toUpperCase(),
-                Item: item.name,
-                Scenes: item.scenes.map(s => s.sceneNum).join(', '),
-                Source_Text: item.scenes.map(s => s.source || '').filter(Boolean).join(' | '),
-                Total_Scenes: item.scenes.length
-            }));
-            if (exportData.length === 0) { alert("No breakdown data to export."); return; }
-            const fileName = `Breakdown_Manifest_${new Date().toISOString().slice(0,10)}`;
-            if (format === 'csv') {
-                const worksheet = XLSX.utils.json_to_sheet(exportData);
-                const csvOutput = XLSX.utils.sheet_to_csv(worksheet);
-                const blob = new Blob([csvOutput], { type: 'text/csv;charset=utf-8;' });
-                const url = URL.createObjectURL(blob);
-                const link = document.createElement('a');
-                link.href = url;
-                link.setAttribute('download', `${fileName}.csv`);
-                document.body.appendChild(link);
-                link.click();
-                document.body.removeChild(link);
-            } else {
-                const workbook = XLSX.utils.book_new();
-                const worksheet = XLSX.utils.json_to_sheet(exportData);
-                XLSX.utils.book_append_sheet(workbook, worksheet, "Breakdown Manifest");
-                XLSX.writeFile(workbook, `${fileName}.xlsx`);
-            }
-        } catch (e) {
-            console.error("Export failed", e);
-        } finally {
-            setIsExporting(false);
-        }
-    };
-
-    const fontStyle = {
-        fontFamily: scriptConfig.noteFont || 'Courier New, monospace',
-        fontSize: `${scratchpadConfig.fontSize || 14}px`
-    };
-
-    const activeInspectorBeat = activeInspectorBeatId !== null ? beats.find(b => b.id === activeInspectorBeatId) : null;
-    const activeInspectorShots = activeInspectorBeat ? getShotsForScene(activeInspectorBeat.sceneNumber || '1', beats.indexOf(activeInspectorBeat)) : [];
-
-    return (
-        <div className={`flex w-full h-full overflow-hidden font-sans ${isLight ? 'bg-slate-100 text-slate-800' : 'bg-[#121212] text-gray-300'}`}>
-            {/* Sidebar Manifest Categories */}
-            <div className={`w-72 border-r flex flex-col shrink-0 z-20 shadow-xl relative ${isLight ? 'bg-white border-slate-200' : 'bg-[#1a1a1a] border-[#333]'}`}>
-                <div className={`p-5 border-b ${isLight ? 'border-slate-200 bg-slate-50' : 'border-[#333] bg-[#1a1a1a]'}`}>
-                    <div className="flex items-center justify-between mb-1">
-                        <h2 className={`text-xs font-black uppercase tracking-wider flex items-center gap-2 ${isLight ? 'text-slate-900' : 'text-white'}`}>
-                            <ListChecks size={16} className="text-[#f5a623]" /> Breakdown Manifest
-                        </h2>
-                        <span className={`text-[9px] font-mono border px-1.5 py-0.5 rounded uppercase ${isLight ? 'bg-emerald-50 text-emerald-700 border-emerald-300' : 'bg-green-900/30 text-green-400 border-green-700/30'}`}>
-                            Live Sync
-                        </span>
-                    </div>
-                    <p className={`text-[10px] font-medium uppercase ${isLight ? 'text-slate-500' : 'text-[#777]'}`}>Script & Storyboard Assets</p>
-                </div>
-
-                <div className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-1.5">
-                    {CATEGORIES.map(cat => {
-                        const count = categoryCounts[cat.id] || 0;
-                        const isActive = selectedCategory === cat.id;
-                        const CatIcon = cat.icon;
-                        const colorClass = isLight ? cat.lightColor : cat.color;
-                        const bgClass = isLight ? cat.lightBg : cat.bg;
-                        const borderClass = isLight ? cat.lightBorder : cat.border;
-                        return (
-                            <button 
-                                key={cat.id} 
-                                onClick={() => setSelectedCategory(cat.id)} 
-                                className={`w-full text-left px-3.5 py-2.5 rounded-lg flex items-center justify-between transition-all duration-200 group ${
-                                    isActive 
-                                        ? (isLight ? `${bgClass} border ${borderClass} ${colorClass} font-bold shadow-xs` : `${bgClass} border ${borderClass} text-white font-bold shadow-inner`)
-                                        : (isLight ? 'hover:bg-slate-100 text-slate-700' : 'hover:bg-[#222] text-[#888]')
-                                }`}
-                            >
-                                <div className="flex items-center gap-2.5">
-                                    <div className={`p-1.5 rounded-md ${isActive ? (isLight ? bgClass : cat.bg) : (isLight ? 'bg-slate-100 group-hover:bg-slate-200' : 'bg-[#222] group-hover:bg-[#2a2a2a]')} transition-colors`}>
-                                        <CatIcon size={15} className={isActive ? colorClass : (isLight ? 'text-slate-600' : 'text-gray-500')} />
-                                    </div>
-                                    <span className="text-xs font-bold">{cat.label}</span>
-                                </div>
-                                {count > 0 && (
-                                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${isActive ? 'bg-[#f5a623] text-black' : (isLight ? 'bg-slate-200 text-slate-700' : 'bg-[#333] text-gray-400')}`}>
-                                        {count}
-                                    </span>
-                                )}
-                            </button>
-                        );
-                    })}
-                </div>
-
-                {/* Quick Summary Metrics Box */}
-                <div className={`p-4 border-t space-y-2 ${isLight ? 'border-slate-200 bg-slate-50' : 'border-[#333] bg-[#141414]'}`}>
-                    <div className={`text-[10px] font-bold uppercase tracking-wider ${isLight ? 'text-slate-500' : 'text-gray-500'}`}>Sync Overview</div>
-                    <div className="grid grid-cols-2 gap-2 text-center">
-                        <div className={`border rounded-lg p-2 ${isLight ? 'bg-white border-slate-200 shadow-xs' : 'bg-[#1e1e1e] border-[#333]'}`}>
-                            <div className={`text-base font-black ${isLight ? 'text-slate-800' : 'text-white'}`}>{beats.length}</div>
-                            <div className={`text-[9px] uppercase font-bold ${isLight ? 'text-slate-400' : 'text-gray-500'}`}>Scenes</div>
-                        </div>
-                        <div className={`border rounded-lg p-2 ${isLight ? 'bg-white border-slate-200 shadow-xs' : 'bg-[#1e1e1e] border-[#333]'}`}>
-                            <div className="text-base font-black text-[#f5a623]">{generatedShots.length}</div>
-                            <div className={`text-[9px] uppercase font-bold ${isLight ? 'text-slate-400' : 'text-gray-500'}`}>Storyboard Shots</div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            {/* Main Content Workspace */}
-            <div className={`flex-1 flex flex-col min-h-0 overflow-hidden relative ${isLight ? 'bg-slate-100 text-slate-800' : 'bg-[#121212] text-gray-300'}`}>
-                {/* Control Header Bar */}
-                <div className={`h-14 border-b px-4 flex items-center justify-between shrink-0 shadow-sm z-20 gap-4 ${isLight ? 'bg-white border-slate-200' : 'bg-[#111] border-[#222]'}`}>
-                    <div className="flex items-center gap-3">
-                        <div className={`flex items-center gap-2 border rounded-md px-2 py-1 ${isLight ? 'bg-slate-50 border-slate-250' : 'bg-[#000] border-[#333]'}`}>
-                           <span className={`text-[10px] font-bold uppercase mr-1 ${isLight ? 'text-slate-500' : 'text-[#666]'}`}>SCENE</span>
-                           <input type="number" className={`w-8 bg-transparent text-center text-xs font-bold outline-none focus:text-[#f5a623] ${isLight ? 'text-slate-900' : 'text-white'}`} value={startScene} onChange={e => setStartScene(Math.max(1, parseInt(e.target.value)))} min={1} disabled={isAnalyzing} />
-                           <span className={`${isLight ? 'text-slate-400' : 'text-gray-600'} font-bold text-xs`}>-</span>
-                           <input type="number" className={`w-8 bg-transparent text-center text-xs font-bold outline-none focus:text-[#f5a623] ${isLight ? 'text-slate-900' : 'text-white'}`} value={endScene} onChange={e => setEndScene(Math.max(1, parseInt(e.target.value)))} min={1} disabled={isAnalyzing} />
-                        </div>
-
-                        <button 
-                            onClick={() => setBreakdownLockedOnly(!breakdownLockedOnly)} 
-                            disabled={isAnalyzing} 
-                            title={breakdownLockedOnly ? "Analyzing Locked Scenes Only" : "Analyze All Scenes"}
-                            className={`flex items-center justify-center h-8 px-2.5 gap-1.5 rounded-md border text-xs font-bold transition-all ${
-                                breakdownLockedOnly 
-                                    ? (isLight ? 'bg-emerald-50 text-emerald-700 border-emerald-300' : 'bg-green-900/20 text-green-400 border-green-800/50') 
-                                    : (isLight ? 'bg-white border-slate-300 text-slate-600 hover:bg-slate-50 hover:text-slate-950' : 'bg-[#1a1a1a] border-[#333] text-gray-500 hover:text-white hover:bg-[#333]')
-                            }`}
-                        >
-                            {breakdownLockedOnly ? <Lock size={13} /> : <Unlock size={13} />}
-                            <span className="text-[10px] uppercase">{breakdownLockedOnly ? "Locked Only" : "All Drafts"}</span>
-                        </button>
-
-                        <button 
-                            onClick={handleAnalyze} 
-                            disabled={isAnalyzing || !aiAvailable} 
-                            className={`flex items-center gap-2 border px-3.5 py-1.5 rounded-md text-xs font-bold uppercase transition-all disabled:opacity-50 ${
-                                isLight 
-                                    ? 'bg-slate-100 hover:bg-[#f5a623] hover:text-black text-slate-700 border-slate-300' 
-                                    : 'bg-[#222] hover:bg-[#f5a623] hover:text-black text-gray-300 border-[#333]'
-                            }`}
-                        >
-                            {isAnalyzing ? <Loader2 className="animate-spin" size={14} /> : <Wand2 size={14} className="text-[#f5a623]" />} 
-                            {isAnalyzing ? 'Analyzing Script...' : 'AI Analyze All'}
-                        </button>
-                    </div>
-
-                    <div className="flex items-center gap-3">
-                        <div className={`hidden lg:flex items-center gap-2 border px-3 py-1 rounded-md ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-[#1a1a1a] border-[#333]'}`}>
-                            <FileText size={12} className="text-green-500" />
-                            <span className={`text-[10px] font-bold uppercase ${isLight ? 'text-slate-600' : 'text-gray-400'}`}>Script & Storyboard Synced</span>
-                            <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span>
-                        </div>
-
-                        <div className={`flex rounded-md border p-0.5 gap-1 ${isLight ? 'bg-slate-100 border-slate-300' : 'bg-[#222] border-[#333]'}`}>
-                            <button onClick={handleSyncAllToDepartmentsAndContinuity} disabled={isSyncing} className="px-2.5 py-1 bg-amber-500 hover:bg-amber-400 text-black font-bold rounded text-[10px] uppercase transition-all flex items-center gap-1.5 shadow-sm" title="Sync all breakdown items and subtasks to Crew Departments and Continuity page">
-                                <Zap size={12} className={isSyncing ? 'animate-spin' : ''} />
-                                <span>{isSyncing ? 'Syncing...' : '⚡ Sync to Crew & Continuity'}</span>
-                            </button>
-                            <button onClick={() => { setShareCategory(selectedCategory === 'all' ? 'props' : selectedCategory); setIsShareModalOpen(true); }} className={`px-2.5 py-1 font-bold rounded text-[10px] uppercase transition-all flex items-center gap-1.5 ${isLight ? 'bg-slate-200 hover:bg-slate-300 text-slate-800' : 'bg-[#28282e] hover:bg-[#383840] text-gray-200'}`} title="Get formatted list to send to department person">
-                                <Share2 size={12} /> Send / Copy List
-                            </button>
-                            <button onClick={() => handlePrintBreakdown(selectedCategory === 'all' ? 'props' : selectedCategory)} className={`px-2.5 py-1 font-bold rounded text-[10px] uppercase transition-all flex items-center gap-1.5 ${isLight ? 'bg-slate-200 hover:bg-slate-350 text-slate-800' : 'bg-[#28282e] hover:bg-[#383840] text-gray-200'}`} title="Print Breakdown Manifest">
-                                <Printer size={12} className={isLight ? 'text-amber-600' : 'text-amber-400'} /> Print
-                            </button>
-                            <button onClick={() => handleExport('excel')} className={`px-2.5 py-1 rounded text-[10px] font-bold uppercase transition-all flex items-center gap-1.5 ${isLight ? 'text-slate-600 hover:text-slate-900' : 'text-gray-400 hover:text-white'}`}><FileSpreadsheet size={12} className="text-green-500" /> Excel</button>
-                            <button onClick={() => handleExport('csv')} className={`px-2.5 py-1 rounded text-[10px] font-bold uppercase transition-all flex items-center gap-1.5 ${isLight ? 'text-slate-600 hover:text-slate-900' : 'text-gray-400 hover:text-white'}`}><Download size={12} /> CSV</button>
-                        </div>
-
-                        <div className={`flex rounded-md p-1 border gap-1 ${isLight ? 'bg-slate-100 border-slate-300' : 'bg-[#000] border-[#333]'}`}>
-                           <button onClick={() => setViewType('by-scene')} className={`p-1.5 rounded transition-colors ${viewType === 'by-scene' ? (isLight ? 'bg-slate-300 text-slate-900' : 'bg-[#333] text-white') : (isLight ? 'text-slate-500 hover:text-slate-800' : 'text-gray-500 hover:text-gray-300')}`} title="Scene View with Storyboard"><ListIcon size={14} /></button>
-                           <button onClick={() => setViewType('by-category')} className={`p-1.5 rounded transition-colors ${viewType === 'by-category' ? (isLight ? 'bg-slate-300 text-slate-900' : 'bg-[#333] text-white') : (isLight ? 'text-slate-500 hover:text-slate-800' : 'text-gray-500 hover:text-gray-300')}`} title="Manifest Asset View"><LayoutGrid size={14} /></button>
-                           {viewType === 'by-scene' && (
-                              <button 
-                                 onClick={() => setShowEmptyCategories(!showEmptyCategories)} 
-                                 className={`px-2 py-1 rounded text-[10px] font-bold uppercase border transition-all ${
-                                    showEmptyCategories 
-                                       ? (isLight ? 'bg-amber-100 text-amber-800 border-amber-300' : 'bg-amber-950/40 text-amber-400 border-amber-800/50') 
-                                       : (isLight ? 'bg-white text-slate-600 border-slate-300 hover:text-slate-900' : 'bg-[#181818] text-gray-400 border-[#333] hover:text-white')
-                                  }`}
-                                 title={showEmptyCategories ? "Showing all categories (including empty)" : "Hiding empty categories to optimize screen space"}
-                              >
-                                  {showEmptyCategories ? "Full Grid" : "Compact"}
-                              </button>
-                           )}
-                        </div>
-                    </div>
-
-                    <div className="relative w-56">
-                        <Search className={`absolute left-2.5 top-2.5 ${isLight ? 'text-slate-400' : 'text-[#555]'}`} size={13} />
-                        <input 
-                            type="text" 
-                            placeholder="Search Breakdown..." 
-                            value={searchTerm} 
-                            onChange={(e) => setSearchTerm(e.target.value)} 
-                            className={`w-full border rounded-md pl-8 pr-3 py-1.5 text-xs outline-none focus:border-[#f5a623] ${
-                                isLight 
-                                    ? 'bg-white border-slate-300 text-slate-900 placeholder-slate-400' 
-                                    : 'bg-[#000] border-[#333] text-white placeholder-gray-600'
-                            }`} 
-                        />
-                    </div>
-                </div>
-
-                {/* Progress Bar during Batch AI Analysis */}
-                {isAnalyzing && (
-                    <div className={`px-8 py-3 flex items-center gap-4 shrink-0 shadow-lg z-20 border-b ${isLight ? 'bg-white border-slate-200' : 'bg-[#1a1a1a] border-[#f5a623]/30'}`}>
-                        <div className="text-[10px] font-bold text-[#f5a623] uppercase animate-pulse flex items-center gap-2 shrink-0 min-w-[200px]">
-                            <Loader2 size={14} className="animate-spin" /> Processing: <span className={`${isLight ? 'text-slate-900' : 'text-white'} truncate max-w-[200px]`}>{progress.currentScene || `Scene ${startScene + progress.current - 1}`}</span>
-                        </div>
-                        <div className={`flex-1 h-1.5 rounded-full overflow-hidden ${isLight ? 'bg-slate-250' : 'bg-[#333]'}`}>
-                            <div className="h-full bg-[#f5a623] transition-all duration-300" style={{ width: `${(progress.current / progress.total) * 100}%` }} />
-                        </div>
-                        <button onClick={() => { abortRef.current = true; }} className={`text-[10px] font-bold uppercase px-2.5 py-1 rounded ${isLight ? 'text-red-600 bg-red-50 border border-red-200 hover:bg-red-100' : 'text-red-400 hover:text-red-300 bg-red-950/40 border border-red-900/50'}`}>
-                            Stop
-                        </button>
-                    </div>
-                )}
-
-                {/* Main View Area */}
-                <div className="flex-1 flex overflow-hidden">
-                    <div className="flex-1 overflow-y-auto custom-scrollbar p-6">
-                        {selectedCategory !== 'all' && (
-                            <div className={`max-w-6xl mx-auto mb-4 rounded-xl px-4 py-2.5 flex items-center justify-between shadow-md border ${
-                                isLight 
-                                    ? 'bg-amber-50/50 border-amber-200 text-slate-800' 
-                                    : 'bg-[#1c1c22] border-[#f5a623]/30 text-white'
-                            }`}>
-                                <div className="flex items-center gap-2.5 text-xs font-bold">
-                                    <span className={`uppercase text-[10px] tracking-wider font-mono ${isLight ? 'text-slate-500' : 'text-gray-400'}`}>Active Filter:</span>
-                                    {(() => {
-                                        const cat = CATEGORIES.find(c => c.id === selectedCategory);
-                                        if (!cat) return null;
-                                        const Icon = cat.icon;
-                                        const colorClass = isLight ? cat.lightColor : cat.color;
-                                        const bgClass = isLight ? cat.lightBg : cat.bg;
-                                        const borderClass = isLight ? cat.lightBorder : cat.border;
-                                        return (
-                                            <span className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-bold ${bgClass} ${borderClass} ${colorClass}`}>
-                                                <Icon size={14} />
-                                                {cat.label} ({categoryCounts[selectedCategory] || 0} items)
-                                            </span>
-                                        );
-                                    })()}
-                                </div>
-                                <button 
-                                    onClick={() => setSelectedCategory('all')} 
-                                    className={`text-[10px] font-bold uppercase px-2.5 py-1 rounded-md transition-colors flex items-center gap-1 ${
-                                        isLight 
-                                            ? 'text-slate-650 hover:text-slate-900 bg-slate-200 hover:bg-slate-300' 
-                                            : 'text-gray-400 hover:text-white bg-[#282828] hover:bg-[#333]'
-                                    }`}
-                                >
-                                    <X size={12} /> Reset Category Filter
-                                </button>
-                            </div>
-                        )}
-
-                        {viewType === 'by-scene' ? (
-                            <div className="space-y-6 max-w-6xl mx-auto animate-in fade-in duration-300">
-                                {displayedScenes.map((item) => {
-                                    const isScriptOpen = expandedScenes[item.beat.id]?.script;
-                                    const isShotsOpen = expandedScenes[item.beat.id]?.shots;
-                                    const isBeingAnalyzed = analyzingBeatId === item.beat.id;
-
-                                    const activeCatsForScene = CATEGORIES.filter(c => c.id !== 'all' && (item.beat.breakdown?.[c.id as keyof BreakdownData]?.length || 0) > 0);
-
-                                    const visibleCategories = selectedCategory === 'all'
-                                        ? (showEmptyCategories 
-                                            ? CATEGORIES.filter(c => c.id !== 'all')
-                                            : (activeCatsForScene.length > 0 ? activeCatsForScene : CATEGORIES.filter(c => c.id !== 'all')))
-                                        : CATEGORIES.filter(c => c.id === selectedCategory);
-
-                                    return (
-                                        <div key={item.beat.id} className={`border rounded-xl overflow-hidden hover:border-[#444] transition-all group shadow-md ${
-                                            isLight ? 'bg-white border-slate-200 hover:border-slate-350' : 'bg-[#1a1a1a] border-[#333]'
-                                        }`}>
-                                            {/* Scene Header Strip */}
-                                            <div className={`px-5 py-3.5 border-b flex flex-wrap justify-between items-center gap-4 ${
-                                                isLight ? 'bg-slate-50 border-slate-200' : 'bg-[#222] border-[#333]'
-                                            }`}>
-                                                <div className="flex items-center gap-4">
-                                                    <div className={`flex flex-col items-center justify-center min-w-[48px] h-12 rounded-lg border shadow-inner px-2 ${
-                                                        isLight ? 'bg-slate-200 border-slate-300' : 'bg-[#141414] border-[#333]'
-                                                    }`}>
-                                                        <span className={`text-[8px] font-bold uppercase tracking-wider ${isLight ? 'text-slate-500' : 'text-[#666]'}`}>SCENE</span>
-                                                        <span className={`text-base font-black ${isLight ? 'text-slate-900' : 'text-white'}`}>{item.beat.sceneNumber || item.sceneIndex}</span>
-                                                    </div>
-                                                    <div>
-                                                        <h4 className={`text-sm font-bold transition-colors ${isLight ? 'text-slate-900 group-hover:text-slate-950' : 'text-gray-200 group-hover:text-white'}`} style={fontStyle}>
-                                                            {item.beat.slug.prefix || 'INT.'} {item.beat.slug.location || 'UNKNOWN LOCATION'} {item.beat.slug.time ? `- ${item.beat.slug.time}` : ''}
-                                                        </h4>
-                                                        {/* Department Summary Badges in Header */}
-                                                        <div className="flex items-center gap-1.5 flex-wrap mt-1">
-                                                            {activeCatsForScene.map(cat => {
-                                                                const count = item.beat.breakdown?.[cat.id as keyof BreakdownData]?.length || 0;
-                                                                const CatIcon = cat.icon;
-                                                                const colorClass = isLight ? cat.lightColor : cat.color;
-                                                                const bgClass = isLight ? cat.lightBg : cat.bg;
-                                                                const borderClass = isLight ? cat.lightBorder : cat.border;
-                                                                return (
-                                                                    <span key={cat.id} className={`text-[9px] font-bold px-2 py-0.5 rounded-md border flex items-center gap-1 ${bgClass} ${borderClass} ${colorClass}`}>
-                                                                        <CatIcon size={10} />
-                                                                        <span>{cat.label.split(' ')[0]}: {count}</span>
-                                                                    </span>
-                                                                );
-                                                            })}
-                                                            {activeCatsForScene.length === 0 && (
-                                                                <span className={`text-[10px] font-mono italic ${isLight ? 'text-slate-400' : 'text-gray-500'}`}>No breakdown items logged</span>
-                                                            )}
-                                                        </div>
-                                                    </div>
-                                                </div>
-
-                                                <div className="flex items-center gap-2">
-                                                    {/* Copy Scene Breakdown */}
-                                                    <button 
-                                                        onClick={() => copySceneBreakdown(item.beat, (item.beat.sceneNumber || item.sceneIndex).toString())}
-                                                        className={`p-1.5 border rounded transition-colors ${
-                                                            isLight 
-                                                                ? 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-600 hover:text-slate-900' 
-                                                                : 'bg-[#181818] hover:bg-[#333] border-[#333] text-gray-400 hover:text-white'
-                                                        }`}
-                                                        title="Copy Scene Breakdown List"
-                                                    >
-                                                        <Copy size={13} />
-                                                    </button>
-
-                                                    {/* Print Scene Breakdown */}
-                                                    <button 
-                                                        onClick={() => handlePrintScene(item.beat)}
-                                                        className={`p-1.5 border rounded transition-colors ${
-                                                            isLight 
-                                                                ? 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-600 hover:text-slate-900' 
-                                                                : 'bg-[#181818] hover:bg-[#333] border-[#333] text-gray-400 hover:text-white'
-                                                        }`}
-                                                        title="Print Scene Breakdown Sheet"
-                                                    >
-                                                        <Printer size={13} className={isLight ? 'text-amber-600' : 'text-amber-400'} />
-                                                    </button>
-                                                    {/* Toggle Script Snippet */}
-                                                    <button 
-                                                        onClick={() => setExpandedScenes(prev => ({
-                                                            ...prev,
-                                                            [item.beat.id]: { ...prev[item.beat.id], script: !isScriptOpen }
-                                                        }))}
-                                                        className={`px-2.5 py-1 rounded text-[10px] font-bold uppercase border flex items-center gap-1.5 transition-colors ${
-                                                            isScriptOpen 
-                                                                ? (isLight ? 'bg-blue-50 text-blue-700 border-blue-300' : 'bg-blue-950/40 text-blue-400 border-blue-800/40') 
-                                                                : (isLight ? 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-600 hover:text-slate-900' : 'bg-[#181818] text-gray-400 border-[#333] hover:text-white')
-                                                        }`}
-                                                    >
-                                                        <FileText size={12} />
-                                                        <span>Script</span>
-                                                        <ChevronDown size={12} className={`transition-transform ${isScriptOpen ? 'rotate-180' : ''}`} />
-                                                    </button>
-
-                                                    {/* Toggle Storyboard Shots */}
-                                                    <button 
-                                                        onClick={() => setExpandedScenes(prev => ({
-                                                            ...prev,
-                                                            [item.beat.id]: { ...prev[item.beat.id], shots: !isShotsOpen }
-                                                        }))}
-                                                        className={`px-2.5 py-1 rounded text-[10px] font-bold uppercase border flex items-center gap-1.5 transition-colors ${
-                                                            isShotsOpen 
-                                                                ? (isLight ? 'bg-purple-50 text-purple-700 border-purple-300' : 'bg-purple-950/40 text-purple-400 border-purple-800/40') 
-                                                                : (isLight ? 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-600 hover:text-slate-900' : 'bg-[#181818] text-gray-400 border-[#333] hover:text-white')
-                                                        }`}
-                                                    >
-                                                        <Camera size={12} />
-                                                        <span>Storyboard ({item.shots.length})</span>
-                                                        <ChevronDown size={12} className={`transition-transform ${isShotsOpen ? 'rotate-180' : ''}`} />
-                                                    </button>
-
-                                                    {/* Single Scene AI Re-Analyze */}
-                                                    <button 
-                                                        onClick={() => handleAnalyzeSingleBeat(item.beat)}
-                                                        disabled={isBeingAnalyzed || isAnalyzing || !aiAvailable}
-                                                        title="Re-Analyze Breakdown for this scene"
-                                                        className={`px-2.5 py-1 border rounded text-[10px] font-bold uppercase flex items-center gap-1 transition-all disabled:opacity-50 ${
-                                                            isLight 
-                                                                ? 'bg-slate-100 hover:bg-[#f5a623] hover:text-black border-slate-300 text-slate-600' 
-                                                                : 'bg-[#181818] hover:bg-[#f5a623] hover:text-black border-[#333] text-gray-400'
-                                                        }`}
-                                                    >
-                                                        {isBeingAnalyzed ? <Loader2 size={12} className="animate-spin text-[#f5a623]" /> : <Wand2 size={12} className="text-[#f5a623]" />}
-                                                        <span>{isBeingAnalyzed ? 'Analyzing...' : 'Re-Break'}</span>
-                                                    </button>
-
-                                                    {/* Inspect Drawer Toggle */}
-                                                    <button 
-                                                        onClick={() => setActiveInspectorBeatId(activeInspectorBeatId === item.beat.id ? null : item.beat.id)}
-                                                        className={`p-1.5 rounded border transition-colors ${
-                                                            activeInspectorBeatId === item.beat.id 
-                                                                ? 'bg-[#f5a623] text-black border-[#f5a623]' 
-                                                                : (isLight ? 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-600 hover:text-slate-900' : 'bg-[#181818] text-gray-400 border-[#333] hover:text-white')
-                                                        }`}
-                                                        title="Open Scene Inspector"
-                                                    >
-                                                        <Eye size={13} />
-                                                    </button>
-                                                </div>
-                                            </div>
-
-                                            {/* Expandable Script Section */}
-                                            {isScriptOpen && (
-                                                <div className={`p-4 border-b text-xs font-mono leading-relaxed max-h-60 overflow-y-auto custom-scrollbar border-l-2 border-l-blue-500 ${
-                                                    isLight ? 'bg-slate-50 border-slate-200 text-slate-700' : 'bg-[#141414] border-[#2a2a2a] text-gray-300'
-                                                }`}>
-                                                    <div className="text-[9px] font-bold uppercase text-blue-500 mb-2 tracking-widest flex items-center gap-1">
-                                                        <FileText size={10} /> Script Content (Scene {item.sceneNum})
-                                                    </div>
-                                                    <div 
-                                                        className={`prose max-w-none text-xs ${isLight ? 'prose-slate text-slate-800' : 'prose-invert text-gray-300'}`}
-                                                        dangerouslySetInnerHTML={{ __html: item.beat.content || `<em class="${isLight ? 'text-slate-400' : 'text-gray-600'}">No script content written for this scene.</em>` }}
-                                                    />
-                                                </div>
-                                            )}
-
-                                            {/* Expandable Storyboard Shots Section */}
-                                            {isShotsOpen && (
-                                                <div className={`p-4 border-b border-l-2 border-l-purple-500 ${isLight ? 'bg-slate-100 border-slate-200' : 'bg-[#111] border-[#2a2a2a]'}`}>
-                                                    <div className="text-[9px] font-bold uppercase text-purple-400 mb-3 tracking-widest flex items-center gap-1.5">
-                                                        <Camera size={11} /> Storyboard Shot Division ({item.shots.length} Shots)
-                                                    </div>
-                                                    {item.shots.length > 0 ? (
-                                                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
-                                                            {item.shots.map((shot, sIdx) => (
-                                                                <div key={shot.id || sIdx} className={`border rounded-lg overflow-hidden flex flex-col group/shot hover:border-purple-500/50 transition-colors ${isLight ? 'bg-white border-slate-250' : 'bg-[#1a1a1a] border-[#333]'}`}>
-                                                                    <div className="h-20 bg-black relative flex items-center justify-center overflow-hidden">
-                                                                        {shot.imageUrl ? (
-                                                                            <img src={shot.imageUrl} className="w-full h-full object-cover" />
-                                                                        ) : (
-                                                                            <Film size={20} className={isLight ? 'text-slate-400' : 'text-gray-700'} />
-                                                                        )}
-                                                                        <div className="absolute top-1 left-1 bg-black/70 text-white font-mono text-[8px] font-bold px-1 rounded border border-white/20">
-                                                                            SHOT #{sIdx + 1}
-                                                                        </div>
-                                                                    </div>
-                                                                    <div className="p-2 space-y-1">
-                                                                        <div className={`text-[10px] font-bold truncate ${isLight ? 'text-slate-900' : 'text-gray-200'}`}>{shot.shotSize || 'Wide'} • {shot.angle || 'Eye Level'}</div>
-                                                                        {(shot.lens || shot.movement) && (
-                                                                            <div className="text-[8px] font-mono text-[#f5a623] truncate">
-                                                                                {shot.lens} {shot.movement ? `(${shot.movement})` : ''}
-                                                                            </div>
-                                                                        )}
-                                                                        <div className={`text-[9px] line-clamp-2 leading-tight ${isLight ? 'text-slate-500' : 'text-gray-400'}`}>{shot.subject || shot.description || 'No camera notes'}</div>
-                                                                    </div>
-                                                                </div>
-                                                            ))}
-                                                        </div>
-                                                    ) : (
-                                                        <div className="text-[11px] text-gray-500 italic py-2">
-                                                            No storyboard shots created for this scene yet. Go to Storyboard tab to divide shots.
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            )}
-
-                                            {/* Categories Breakdown Content */}
-                                            <div className={`p-5 grid gap-5 ${selectedCategory === 'all' ? 'grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4' : 'grid-cols-1 md:grid-cols-2'}`}>
-                                                {visibleCategories.map(cat => {
-                                                    const items = item.beat.breakdown?.[cat.id as keyof BreakdownData] || [];
-                                                    const inputKey = `${item.beat.id}:${cat.id}`;
-                                                    const inputValue = newItemInputs[inputKey] || '';
-
-                                                    return (
-                                                        <div key={cat.id} className={`rounded-lg p-3 flex flex-col border ${
-                                                            isLight ? 'bg-slate-50 border-slate-200' : 'bg-[#151515] border-[#2a2a2a]'
-                                                        }`}>
-                                                            <div className={`text-[10px] font-bold uppercase flex items-center justify-between pb-2 mb-2 border-b ${
-                                                                isLight ? `${cat.lightColor} border-slate-200` : `${cat.color} border-[#282828]`
-                                                            }`}>
-                                                                <span className="flex items-center gap-1.5">{(() => { const CatIcon = cat.icon; return <CatIcon size={13} className={isLight ? cat.lightColor : cat.color} />; })()} {cat.label}</span>
-                                                                <span className={`text-[9px] font-mono ${isLight ? 'text-slate-500 font-bold' : 'text-gray-600'}`}>({items.length})</span>
-                                                            </div>
-
-                                                            {/* Item Chips List */}
-                                                            <div className="flex-1 space-y-1.5 mb-2 max-h-48 overflow-y-auto custom-scrollbar">
-                                                                {items.map((i, idx) => {
-                                                                    const rawItem: BreakdownItem = typeof i === 'string' ? { name: i } : i;
-                                                                    const name = rawItem.name;
-                                                                    const classification = detectDepartmentForItem(name, cat.id);
-                                                                    const subtasks = rawItem.subtasks && rawItem.subtasks.length > 0
-                                                                        ? rawItem.subtasks
-                                                                        : generateDefaultSubtasks(name, cat.id, classification.departmentId).subtasks;
-                                                                    const completedCount = subtasks.filter(s => s.completed).length;
-
-                                                                    return (
-                                                                        <div 
-                                                                            key={idx} 
-                                                                            onClick={() => setSelectedSyncItem({
-                                                                                beatId: item.beat.id,
-                                                                                sceneNumber: (item.beat.sceneNumber || item.sceneIndex).toString(),
-                                                                                category: cat.id as keyof BreakdownData,
-                                                                                itemIndex: idx,
-                                                                                item: { ...rawItem, subtasks }
-                                                                            })}
-                                                                            className={`text-[11px] p-2 flex flex-col gap-1.5 group/item transition-all border rounded-lg cursor-pointer ${
-                                                                                isLight 
-                                                                                    ? 'text-slate-800 bg-white hover:bg-amber-50/50 hover:border-amber-400/80 border-slate-250 shadow-2xs' 
-                                                                                    : 'text-gray-300 bg-[#1a1a1d] hover:bg-[#222226] hover:border-amber-500/60 border-[#2c2c30]'
-                                                                            }`} 
-                                                                            style={fontStyle}
-                                                                        >
-                                                                            <div className="flex items-center justify-between gap-1">
-                                                                                <span className="truncate pr-1 font-bold text-xs group-hover/item:text-amber-400 transition-colors leading-snug">{name}</span>
-                                                                                <div className="flex items-center gap-1 shrink-0">
-                                                                                    <button 
-                                                                                        onClick={(e) => {
-                                                                                            e.stopPropagation();
-                                                                                            setSelectedSyncItem({
-                                                                                                beatId: item.beat.id,
-                                                                                                sceneNumber: (item.beat.sceneNumber || item.sceneIndex).toString(),
-                                                                                                category: cat.id as keyof BreakdownData,
-                                                                                                itemIndex: idx,
-                                                                                                item: { ...rawItem, subtasks }
-                                                                                            });
-                                                                                        }}
-                                                                                        className="text-gray-400 hover:text-amber-400 p-0.5 rounded transition-colors"
-                                                                                        title="Open Department Subtasks & Continuity Inspector"
-                                                                                    >
-                                                                                        <Sliders size={11} />
-                                                                                    </button>
-                                                                                    <button 
-                                                                                        onClick={(e) => {
-                                                                                            e.stopPropagation();
-                                                                                            handleRemoveItemFromBeat(item.beat.id, cat.id as keyof BreakdownData, idx);
-                                                                                        }}
-                                                                                        className="opacity-0 group-hover/item:opacity-100 text-gray-500 hover:text-red-400 p-0.5 transition-opacity"
-                                                                                        title="Remove item"
-                                                                                    >
-                                                                                        <X size={10} />
-                                                                                    </button>
-                                                                                </div>
-                                                                            </div>
-
-                                                                            {/* Department badge & Subtask progress */}
-                                                                            <div className="flex items-center gap-1 flex-wrap text-[9px] font-mono">
-                                                                                <span className={`px-1.5 py-0.5 rounded border flex items-center gap-1 font-bold ${
-                                                                                    classification.isVehicle 
-                                                                                        ? 'bg-cyan-950/40 text-cyan-300 border-cyan-700/40' 
-                                                                                        : 'bg-amber-950/30 text-amber-300 border-amber-800/30'
-                                                                                }`}>
-                                                                                    {classification.isVehicle ? <Truck size={9} /> : <Layers size={9} />}
-                                                                                    <span>{classification.departmentName}</span>
-                                                                                </span>
-
-                                                                                <span className={`px-1.5 py-0.5 rounded border flex items-center gap-1 ${
-                                                                                    completedCount === subtasks.length && subtasks.length > 0
-                                                                                        ? 'bg-emerald-950/30 text-emerald-400 border-emerald-800/30'
-                                                                                        : (isLight ? 'bg-slate-100 text-slate-600 border-slate-250' : 'bg-[#252528] text-gray-400 border-[#333]')
-                                                                                }`}>
-                                                                                    <CheckCircle2 size={8} className={completedCount > 0 ? 'text-emerald-400' : 'text-gray-500'} />
-                                                                                    <span>{completedCount}/{subtasks.length} subtasks</span>
-                                                                                </span>
-                                                                            </div>
-                                                                        </div>
-                                                                    );
-                                                                })}
-                                                                {items.length === 0 && (
-                                                                    <div className={`text-[10px] italic py-1 ${isLight ? 'text-slate-400' : 'text-gray-600'}`}>No items logged</div>
-                                                                )}
-                                                            </div>
-
-                                                            {/* Quick In-line Item Input */}
-                                                            <div className={`mt-auto pt-2 flex items-center gap-1 border-t ${isLight ? 'border-slate-200' : 'border-[#222]'}`}>
-                                                                <input 
-                                                                    type="text" 
-                                                                    placeholder={`+ Add ${cat.label.split(' ')[0]}...`}
-                                                                    value={inputValue}
-                                                                    onChange={(e) => setNewItemInputs(prev => ({ ...prev, [inputKey]: e.target.value }))}
-                                                                    onKeyDown={(e) => {
-                                                                        if (e.key === 'Enter') {
-                                                                            e.preventDefault();
-                                                                            handleAddItemToBeat(item.beat.id, cat.id as keyof BreakdownData, inputValue);
-                                                                        }
-                                                                    }}
-                                                                    className={`w-full rounded px-2 py-1 text-[10px] outline-none focus:border-[#f5a623] border ${
-                                                                        isLight 
-                                                                            ? 'bg-white border-slate-350 text-slate-900 placeholder-slate-400' 
-                                                                            : 'bg-[#0a0a0a] border-[#2a2a2a] text-white placeholder-gray-650'
-                                                                    }`}
-                                                                />
-                                                                <button 
-                                                                    onClick={() => handleAddItemToBeat(item.beat.id, cat.id as keyof BreakdownData, inputValue)}
-                                                                    className={`p-1 rounded transition-colors ${
-                                                                        isLight 
-                                                                            ? 'bg-slate-200 hover:bg-[#f5a623] hover:text-black text-slate-600' 
-                                                                            : 'bg-[#252525] hover:bg-[#f5a623] hover:text-black text-gray-400'
-                                                                    }`}
-                                                                    title="Add"
-                                                                >
-                                                                    <Plus size={12} />
-                                                                </button>
-                                                            </div>
-                                                        </div>
-                                                    );
-                                                })}
-                                            </div>
-                                        </div>
-                                    );
-                                })}
-                                {displayedScenes.length === 0 && (
-                                    <div className={`h-96 flex flex-col items-center justify-center border-2 border-dashed rounded-2xl ${
-                                        isLight 
-                                            ? 'bg-white border-slate-300 text-slate-400' 
-                                            : 'bg-[#161616] border-[#222] text-[#333]'
-                                    }`}>
-                                        <Sparkles size={48} className="mb-4 opacity-10 text-[#f5a623]" />
-                                        <p className={`text-sm font-bold uppercase tracking-widest ${isLight ? 'text-slate-600' : 'text-[#555]'}`}>No Scenes Found</p>
-                                        <p className={`text-xs mt-1 ${isLight ? 'text-slate-500' : 'text-gray-600'}`}>
-                                            {selectedCategory !== 'all' 
-                                                ? `No scenes contain items logged under "${CATEGORIES.find(c => c.id === selectedCategory)?.label}".` 
-                                                : 'No scenes match your current filter.'}
-                                        </p>
-                                        <button 
-                                            onClick={() => { setSelectedCategory('all'); setSearchTerm(''); }}
-                                            className={`mt-4 px-3.5 py-1.5 text-xs font-bold rounded-lg uppercase transition-colors ${
-                                                isLight 
-                                                    ? 'bg-slate-200 hover:bg-slate-300 text-slate-800' 
-                                                    : 'bg-[#252525] hover:bg-[#333] text-gray-300'
-                                            }`}
-                                        >
-                                            Reset Filters
-                                        </button>
-                                    </div>
-                                )}
-                            </div>
-                        ) : (
-                            /* Category Manifest View */
-                            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-5 animate-in fade-in duration-300 max-w-7xl mx-auto">
-                                {filteredData.map((item, idx) => {
-                                    const catMeta = getCategoryMeta(item.category);
-                                    const colorClass = isLight ? (catMeta?.lightColor || 'text-slate-800') : (catMeta?.color || 'text-gray-200');
-                                    const bgClass = isLight ? (catMeta?.lightBg || 'bg-slate-100') : (catMeta?.bg || 'bg-[#222]');
-                                    const borderClass = isLight ? (catMeta?.lightBorder || 'border-slate-200') : (catMeta?.border || 'border-[#333]');
-                                    return (
-                                        <div key={idx} className={`border rounded-xl p-5 flex flex-col hover:border-amber-500/50 transition-all group shadow-sm ${
-                                            isLight ? 'bg-white border-slate-200 hover:shadow-md' : 'bg-[#1a1a1a] border-[#333]'
-                                        }`}>
-                                            <div className="flex justify-between items-start mb-3">
-                                                <div className="flex items-center gap-3">
-                                                    <div className={`p-2 rounded-lg ${bgClass} border ${borderClass}`}>
-                                                        {catMeta && (() => { const CatMetaIcon = catMeta.icon; return <CatMetaIcon size={18} className={colorClass} />; })()}
-                                                    </div>
-                                                    <div>
-                                                        <h3 className={`text-sm font-bold transition-colors ${isLight ? 'text-slate-800 group-hover:text-slate-950' : 'text-gray-200 group-hover:text-white'}`} style={fontStyle}>
-                                                            {item.name}
-                                                        </h3>
-                                                        <div className={`text-[10px] font-bold uppercase mt-0.5 ${colorClass}`}>{catMeta?.label}</div>
-                                                    </div>
-                                                </div>
-                                                <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full border ${
-                                                    isLight ? 'bg-slate-100 text-slate-650 border-slate-200' : 'bg-[#252525] text-gray-400 border-[#333]'
-                                                }`}>
-                                                    {item.scenes.length} Scene{item.scenes.length === 1 ? '' : 's'}
-                                                </span>
-                                            </div>
-
-                                            {/* Department & Subtasks Badges */}
-                                            {(() => {
-                                                const subtasks = item.breakdownItem?.subtasks || [];
-                                                const completedCount = subtasks.filter(s => s.completed).length;
-                                                const dept = item.classification;
-
-                                                return (
-                                                    <div className="flex flex-wrap items-center gap-1.5 my-2">
-                                                        <span className={`text-[9px] font-bold uppercase px-2 py-0.5 rounded border flex items-center gap-1 ${
-                                                            dept.isVehicle 
-                                                                ? 'bg-amber-500/10 text-amber-400 border-amber-500/30' 
-                                                                : (isLight ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-blue-950/30 text-blue-300 border-blue-800/30')
-                                                        }`}>
-                                                            {dept.isVehicle ? <Truck size={10} /> : <Sliders size={10} />}
-                                                            <span>Dept: {dept.departmentName}</span>
-                                                        </span>
-
-                                                        <button 
-                                                            onClick={() => setSelectedSyncItem({
-                                                                beatId: item.firstBeatId,
-                                                                sceneNumber: item.firstSceneNum,
-                                                                category: item.category,
-                                                                itemIndex: item.firstItemIndex,
-                                                                item: item.breakdownItem
-                                                            })}
-                                                            className={`text-[9px] font-bold uppercase px-2 py-0.5 rounded border flex items-center gap-1 transition-all ${
-                                                                completedCount === subtasks.length && subtasks.length > 0
-                                                                    ? 'bg-emerald-950/30 text-emerald-400 border-emerald-800/30'
-                                                                    : (isLight ? 'bg-slate-100 hover:bg-amber-100 text-slate-650 hover:text-amber-800 border-slate-250' : 'bg-[#252528] hover:bg-[#333] text-gray-300 hover:text-[#f5a623] border-[#333]')
-                                                            }`}
-                                                            title="Inspect subtasks & department sync"
-                                                        >
-                                                            <CheckCircle2 size={10} className={completedCount > 0 ? 'text-emerald-400' : 'text-gray-500'} />
-                                                            <span>{completedCount}/{subtasks.length} Subtasks</span>
-                                                        </button>
-
-                                                        {item.classification.continuityDept && (
-                                                            <span className={`text-[9px] font-bold uppercase px-2 py-0.5 rounded border ${
-                                                                isLight ? 'bg-purple-50 text-purple-700 border-purple-200' : 'bg-purple-950/30 text-purple-300 border-purple-800/30'
-                                                            }`}>
-                                                                Continuity: {item.classification.continuityDept}
-                                                            </span>
-                                                        )}
-                                                    </div>
-                                                );
-                                            })()}
-
-                                            <div className="space-y-1.5 mt-2">
-                                                <div className={`text-[9px] font-bold uppercase ${isLight ? 'text-slate-500' : 'text-gray-500'}`}>Occurrences</div>
-                                                <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto custom-scrollbar">
-                                                    {item.scenes.map((scene, sIdx) => (
-                                                        <div key={sIdx} className={`text-[9px] font-bold px-2 py-1 rounded border flex items-center gap-1 ${
-                                                            isLight ? 'bg-slate-50 text-slate-700 border-slate-200' : 'bg-[#222] text-gray-300 border-[#333]'
-                                                        }`} title={scene.slug}>
-                                                            <span>SC {scene.sceneNum}</span>
-                                                            {scene.shotCount > 0 && (
-                                                                <span className={`text-[8px] px-1 rounded ${
-                                                                    isLight ? 'bg-purple-100 text-purple-700' : 'bg-purple-950 text-purple-300'
-                                                                }`}>
-                                                                    {scene.shotCount} shots
-                                                                </span>
-                                                            )}
-                                                        </div>
-                                                    ))}
-                                                </div>
-                                            </div>
-                                        </div>
-                                    );
-                                })}
-                                {filteredData.length === 0 && (
-                                    <div className={`col-span-full h-96 flex flex-col items-center justify-center border-2 border-dashed rounded-2xl ${
-                                        isLight 
-                                            ? 'bg-white border-slate-300 text-slate-400' 
-                                            : 'bg-[#161616] border-[#222] text-[#333]'
-                                    }`}>
-                                        <Sparkles size={48} className="mb-4 opacity-10 text-[#f5a623]" />
-                                        <p className={`text-sm font-bold uppercase tracking-widest ${isLight ? 'text-slate-600' : 'text-[#555]'}`}>Manifest Empty</p>
-                                        <p className={`text-xs mt-1 ${isLight ? 'text-slate-500' : 'text-gray-600'}`}>Run AI Analyze or add breakdown items manually to scenes.</p>
-                                    </div>
-                                )}
-                            </div>
-                        )}
-                    </div>
-
-                    {/* Right Inspector Drawer for Detailed Scene Syncing */}
-                    {activeInspectorBeat && (
-                        <div className={`w-96 border-l flex flex-col shrink-0 z-30 shadow-2xl animate-in slide-in-from-right duration-200 ${
-                            isLight ? 'bg-slate-50 border-slate-200' : 'bg-[#161616] border-[#333]'
-                        }`}>
-                            <div className={`p-4 border-b flex items-center justify-between ${
-                                isLight ? 'bg-white border-slate-200' : 'bg-[#1d1d1d] border-[#333]'
-                            }`}>
-                                <div className="flex items-center gap-2">
-                                    <Layers size={16} className="text-[#f5a623]" />
-                                    <div>
-                                        <h3 className={`text-xs font-black uppercase ${isLight ? 'text-slate-900' : 'text-white'}`}>
-                                            Scene {activeInspectorBeat.sceneNumber || (beats.indexOf(activeInspectorBeat) + 1)} Inspector
-                                        </h3>
-                                        <p className={`text-[9px] truncate max-w-[200px] ${isLight ? 'text-slate-500' : 'text-gray-500'}`}>
-                                            {activeInspectorBeat.slug.location || 'Location'}
-                                        </p>
-                                    </div>
-                                </div>
-                                <button 
-                                    onClick={() => setActiveInspectorBeatId(null)}
-                                    className={`p-1 rounded hover:bg-[#333] transition-colors ${isLight ? 'text-slate-500 hover:text-slate-950 hover:bg-slate-200' : 'text-gray-500 hover:text-white'}`}
-                                >
-                                    <X size={16} />
-                                </button>
-                            </div>
-
-                            <div className="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-6">
-                                {/* Storyboard Shots for Active Scene */}
-                                <div>
-                                    <h4 className="text-[10px] font-bold text-purple-500 uppercase tracking-wider mb-2 flex items-center justify-between">
-                                        <span className="flex items-center gap-1.5"><Camera size={12} /> Storyboard Division</span>
-                                        <span className="text-[9px] font-mono text-gray-500">{activeInspectorShots.length} Shots</span>
-                                    </h4>
-                                    {activeInspectorShots.length > 0 ? (
-                                        <div className="space-y-2">
-                                            {activeInspectorShots.map((shot, sIdx) => (
-                                                <div key={shot.id || sIdx} className={`p-2.5 rounded-lg flex gap-3 border ${
-                                                    isLight ? 'bg-white border-slate-200' : 'bg-[#1e1e1e] border-[#333]'
-                                                }`}>
-                                                    <div className="w-16 h-12 bg-black rounded border border-[#333] overflow-hidden shrink-0 relative flex items-center justify-center">
-                                                        {shot.imageUrl ? (
-                                                            <img src={shot.imageUrl} className="w-full h-full object-cover" />
-                                                        ) : (
-                                                            <Film size={14} className="text-gray-600" />
-                                                        )}
-                                                    </div>
-                                                    <div className="flex-1 min-w-0">
-                                                        <div className={`text-[10px] font-bold truncate ${isLight ? 'text-slate-900' : 'text-white'}`}>Shot #{sIdx + 1}: {shot.shotSize || 'Wide'}</div>
-                                                        <div className="text-[9px] text-[#f5a623] font-mono truncate">{shot.lens} • {shot.movement}</div>
-                                                        <div className={`text-[9px] truncate ${isLight ? 'text-slate-500' : 'text-gray-400'}`}>{shot.subject || shot.description}</div>
-                                                    </div>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    ) : (
-                                        <div className={`text-[10px] italic p-3 rounded border ${
-                                            isLight ? 'bg-white border-slate-200 text-slate-400' : 'bg-[#1e1e1e] border-[#333] text-gray-500'
-                                        }`}>
-                                            No storyboard shots assigned to this scene.
-                                        </div>
-                                    )}
-                                </div>
-
-                                {/* Formatted Script Text */}
-                                <div>
-                                    <h4 className="text-[10px] font-bold text-blue-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                                        <FileText size={12} /> Full Script
-                                    </h4>
-                                    <div 
-                                        className={`p-3 rounded-lg border text-xs font-mono leading-relaxed max-h-72 overflow-y-auto custom-scrollbar prose ${
-                                            isLight ? 'bg-white border-slate-200 text-slate-800 prose-slate' : 'bg-[#111] border-[#333] text-gray-300 prose-invert'
-                                        }`}
-                                        dangerouslySetInnerHTML={{ __html: activeInspectorBeat.content || '<em>No script content.</em>' }}
-                                    />
-                                </div>
-                            </div>
-                        </div>
-                    )}
-                    {/* Toast Feedback Notification */}
-                    {toastMessage && (
-                        <div className={`fixed bottom-6 right-6 z-50 border border-[#f5a623] px-4 py-3 rounded-xl shadow-2xl flex items-center gap-3 animate-in fade-in slide-in-from-bottom-3 duration-200 ${
-                            isLight ? 'bg-white text-slate-900 shadow-slate-200/50' : 'bg-[#1e1e24] text-white shadow-black/50'
-                        }`}>
-                            <Check size={18} className="text-emerald-400" />
-                            <span className="text-xs font-bold font-mono">{toastMessage}</span>
-                        </div>
-                    )}
-
-                    {/* Department Quick List Share / Copy Modal */}
-                    {isShareModalOpen && (
-                        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
-                            <div className={`border rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl flex flex-col max-h-[85vh] ${
-                                isLight ? 'bg-white border-slate-305 text-slate-800' : 'bg-[#18181b] border border-[#333]'
-                            }`}>
-                                {/* Modal Header */}
-                                <div className={`p-4 border-b flex items-center justify-between ${
-                                    isLight ? 'bg-slate-50 border-slate-205' : 'bg-[#202024] border-[#333]'
-                                }`}>
-                                    <div className="flex items-center gap-2.5">
-                                        <Share2 size={18} className="text-[#f5a623]" />
-                                        <div>
-                                            <h3 className={`text-sm font-black uppercase tracking-wider ${isLight ? 'text-slate-900' : 'text-white'}`}>
-                                                Send / Copy Department Manifest List
-                                            </h3>
-                                            <p className={`text-[11px] ${isLight ? 'text-slate-500' : 'text-gray-400'}`}>
-                                                Copy formatted list to send directly to props master, costume designer, sound team, etc.
-                                            </p>
-                                        </div>
-                                    </div>
-                                    <button 
-                                        onClick={() => setIsShareModalOpen(false)}
-                                        className={`p-1 rounded-lg transition-colors ${
-                                            isLight ? 'text-slate-500 hover:text-slate-805 hover:bg-slate-205' : 'text-gray-400 hover:text-white hover:bg-[#333]'
-                                        }`}
-                                    >
-                                        <X size={18} />
-                                    </button>
-                                </div>
-
-                                {/* Project Metadata Header Customization Bar */}
-                                <div className={`px-4 py-2.5 border-b flex flex-wrap items-center gap-3 ${
-                                    isLight ? 'bg-slate-100 border-slate-205' : 'bg-[#161619] border-[#28282e]'
-                                }`}>
-                                    <div className="flex items-center gap-2">
-                                        <label className="text-[10px] font-mono font-bold text-amber-500 uppercase tracking-wider flex items-center gap-1.5 cursor-pointer">
-                                            <input 
-                                                type="checkbox" 
-                                                checked={includeProjectMetadata} 
-                                                onChange={(e) => setIncludeProjectMetadata(e.target.checked)}
-                                                className={`rounded accent-[#f5a623] cursor-pointer ${isLight ? 'border-slate-350' : 'border-gray-700'}`}
-                                            />
-                                            Header Metadata:
-                                        </label>
-                                    </div>
-
-                                    {includeProjectMetadata && (
-                                        <div className="flex items-center gap-2 flex-1 flex-wrap">
-                                            <div className={`flex items-center gap-1.5 border px-2 py-1 rounded-lg ${
-                                                isLight ? 'bg-white border-slate-250' : 'bg-[#0e0e11] border-[#333]'
-                                            }`}>
-                                                <span className="text-[9px] font-mono text-gray-500 uppercase">Project:</span>
-                                                <input 
-                                                    type="text" 
-                                                    value={customProjectName} 
-                                                    onChange={(e) => setCustomProjectName(e.target.value)}
-                                                    placeholder={activeProjectName}
-                                                    className={`bg-transparent text-xs font-bold outline-none w-28 focus:w-36 transition-all ${
-                                                        isLight ? 'text-slate-900 placeholder-slate-400' : 'text-white placeholder-gray-600'
-                                                    }`}
-                                                />
-                                            </div>
-                                            <div className={`flex items-center gap-1.5 border px-2 py-1 rounded-lg ${
-                                                isLight ? 'bg-white border-slate-250' : 'bg-[#0e0e11] border-[#333]'
-                                            }`}>
-                                                <span className="text-[9px] font-mono text-gray-500 uppercase">Production:</span>
-                                                <input 
-                                                    type="text" 
-                                                    value={productionCompany} 
-                                                    onChange={(e) => setProductionCompany(e.target.value)}
-                                                    placeholder="Apex Pictures"
-                                                    className={`bg-transparent text-xs font-bold outline-none w-28 focus:w-36 transition-all ${
-                                                        isLight ? 'text-slate-900 placeholder-slate-400' : 'text-white placeholder-gray-600'
-                                                    }`}
-                                                />
-                                            </div>
-                                            <div className={`flex items-center gap-1.5 border px-2 py-1 rounded-lg ${
-                                                isLight ? 'bg-white border-slate-250' : 'bg-[#0e0e11] border-[#333]'
-                                            }`}>
-                                                <span className="text-[9px] font-mono text-gray-500 uppercase">Director:</span>
-                                                <input 
-                                                    type="text" 
-                                                    value={directorName} 
-                                                    onChange={(e) => setDirectorName(e.target.value)}
-                                                    placeholder="Director Name"
-                                                    className={`bg-transparent text-xs font-bold outline-none w-24 focus:w-32 transition-all ${
-                                                        isLight ? 'text-slate-900 placeholder-slate-400' : 'text-white placeholder-gray-600'
-                                                    }`}
-                                                />
-                                            </div>
-
-                                            <div className={`h-4 w-px mx-1 ${isLight ? 'bg-slate-300' : 'bg-[#333]'}`}></div>
-
-                                            <label className="text-[10px] font-mono font-bold text-cyan-500 uppercase tracking-wider flex items-center gap-1.5 cursor-pointer ml-1">
-                                                <input 
-                                                    type="checkbox" 
-                                                    checked={includeHodSignoff} 
-                                                    onChange={(e) => setIncludeHodSignoff(e.target.checked)}
-                                                    className={`rounded accent-cyan-500 cursor-pointer ${isLight ? 'border-slate-350' : 'border-gray-700'}`}
-                                                />
-                                                HOD Sign-off:
-                                            </label>
-
-                                            {includeHodSignoff && (
-                                                <>
-                                                    <div className={`flex items-center gap-1.5 border px-2 py-1 rounded-lg ${
-                                                        isLight ? 'bg-white border-slate-250' : 'bg-[#0e0e11] border-[#333]'
-                                                    }`}>
-                                                        <span className="text-[9px] font-mono text-gray-500 uppercase">HOD:</span>
-                                                        <input 
-                                                            type="text" 
-                                                            value={hodName} 
-                                                            onChange={(e) => setHodName(e.target.value)}
-                                                            placeholder="Dept Head"
-                                                            className={`bg-transparent text-xs font-bold outline-none w-24 focus:w-32 transition-all ${
-                                                                isLight ? 'text-slate-900 placeholder-slate-400' : 'text-white placeholder-gray-600'
-                                                            }`}
-                                                        />
-                                                    </div>
-                                                    <div className={`flex items-center gap-1.5 border px-2 py-1 rounded-lg ${
-                                                        isLight ? 'bg-white border-slate-250' : 'bg-[#0e0e11] border-[#333]'
-                                                    }`}>
-                                                        <span className="text-[9px] font-mono text-gray-500 uppercase">Dept:</span>
-                                                        <input 
-                                                            type="text" 
-                                                            value={hodDept} 
-                                                            onChange={(e) => setHodDept(e.target.value)}
-                                                            placeholder="Camera / Art"
-                                                            className={`bg-transparent text-xs font-bold outline-none w-24 focus:w-32 transition-all ${
-                                                                isLight ? 'text-slate-900 placeholder-slate-400' : 'text-white placeholder-gray-600'
-                                                            }`}
-                                                        />
-                                                    </div>
-                                                </>
-                                            )}
-                                        </div>
-                                    )}
-                                </div>
-
-                                {/* Modal Category Picker */}
-                                <div className={`p-4 border-b flex items-center gap-2 overflow-x-auto custom-scrollbar ${
-                                    isLight ? 'bg-slate-50 border-slate-205' : 'bg-[#121214] border-[#28282e]'
-                                }`}>
-                                    {CATEGORIES.map(cat => {
-                                        const CatIcon = cat.icon;
-                                        const isSel = shareCategory === cat.id;
-                                        return (
-                                            <button
-                                                key={cat.id}
-                                                onClick={() => setShareCategory(cat.id)}
-                                                className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 shrink-0 transition-all ${
-                                                    isSel 
-                                                        ? 'bg-[#f5a623] text-black shadow' 
-                                                        : (isLight ? 'bg-slate-200 text-slate-650 hover:text-slate-900 hover:bg-slate-250' : 'bg-[#222226] text-gray-400 hover:text-white hover:bg-[#2c2c32]')
-                                                }`}
-                                            >
-                                                <CatIcon size={14} />
-                                                <span>{cat.label}</span>
-                                            </button>
-                                        );
-                                    })}
-                                </div>
-
-                                {/* Text Area Preview */}
-                                <div className={`p-4 flex-1 overflow-y-auto custom-scrollbar ${
-                                    isLight ? 'bg-slate-100' : 'bg-[#0d0d0f]'
-                                }`}>
-                                    <div className="flex items-center justify-between mb-2">
-                                        <span className={`text-[10px] font-mono font-bold uppercase ${isLight ? 'text-slate-500' : 'text-gray-500'}`}>
-                                            Formatted Plain Text (Ready to Copy/Send)
-                                        </span>
-                                        <span className="text-[10px] text-emerald-500 font-mono font-bold">
-                                            Auto-Synced with Script Breakdown
-                                        </span>
-                                    </div>
-                                    <textarea 
-                                        readOnly
-                                        value={generateCategoryTextList(shareCategory)}
-                                        className={`w-full h-64 border text-xs font-mono p-3.5 rounded-xl outline-none select-all custom-scrollbar leading-relaxed ${
-                                            isLight ? 'bg-white border-slate-350 text-slate-800' : 'bg-[#141417] border-[#26262a] text-gray-200'
-                                        }`}
-                                    />
-                                </div>
-
-                                {/* Modal Actions */}
-                                <div className={`p-4 border-t flex items-center justify-between ${
-                                    isLight ? 'bg-slate-50 border-slate-205 text-slate-650' : 'bg-[#1a1a1e] border-[#333] text-gray-400'
-                                }`}>
-                                    <div className="text-[11px] font-mono font-bold">
-                                        Tip: Paste this list into WhatsApp, Email, or Slack
-                                    </div>
-                                    <div className="flex items-center gap-2">
-                                        <button 
-                                            onClick={() => handlePrintBreakdown(shareCategory)}
-                                            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border ${
-                                                isLight ? 'text-slate-700 bg-slate-200 hover:bg-slate-250 border-slate-300' : 'text-gray-200 bg-[#282830] hover:bg-[#383842] border-[#444]'
-                                            }`}
-                                        >
-                                            <Printer size={14} className={isLight ? 'text-amber-600' : 'text-amber-400'} />
-                                            <span>Print List / PDF</span>
-                                        </button>
-                                        <button 
-                                            onClick={() => setIsShareModalOpen(false)}
-                                            className={`px-4 py-2 rounded-xl text-xs font-bold transition-colors ${
-                                                isLight ? 'text-slate-500 hover:text-slate-800 bg-slate-100 hover:bg-slate-200' : 'text-gray-400 hover:text-white bg-[#26262a] hover:bg-[#333]'
-                                            }`}
-                                        >
-                                            Close
-                                        </button>
-                                        <button 
-                                            onClick={() => {
-                                                const text = generateCategoryTextList(shareCategory);
-                                                navigator.clipboard.writeText(text);
-                                                showToast(`Copied ${CATEGORIES.find(c => c.id === shareCategory)?.label} list to clipboard!`);
-                                                setIsShareModalOpen(false);
-                                            }}
-                                            className="px-5 py-2 rounded-xl text-xs font-black text-black bg-[#f5a623] hover:bg-[#e0951a] transition-all shadow-lg flex items-center gap-2"
-                                        >
-                                            <Copy size={14} />
-                                            <span>Copy List to Clipboard</span>
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-
-                    {/* Department & Continuity Sync Inspector Modal */}
-                    {selectedSyncItem && (
-                        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[200] flex items-center justify-center p-4">
-                            <div className={`border rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh] ${
-                                isLight ? 'bg-white border-slate-300' : 'bg-[#151518] border-[#303036]'
-                            }`}>
-                                {/* Modal Header */}
-                                <div className={`p-4 border-b flex items-center justify-between ${
-                                    isLight ? 'bg-slate-50 border-slate-200' : 'bg-[#1a1a1f] border-[#292930]'
-                                }`}>
-                                    <div className="flex items-center gap-3">
-                                        <div className="w-9 h-9 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400">
-                                            {detectDepartmentForItem(selectedSyncItem.item.name, selectedSyncItem.category).isVehicle ? <Truck size={18} /> : <Sliders size={18} />}
-                                        </div>
-                                        <div>
-                                            <div className="flex items-center gap-2">
-                                                <h3 className={`text-base font-black tracking-wide ${isLight ? 'text-slate-900' : 'text-white'}`}>
-                                                    {selectedSyncItem.item.name}
-                                                </h3>
-                                                <span className={`text-[10px] font-mono uppercase px-2 py-0.5 rounded border ${
-                                                    isLight ? 'bg-slate-200 text-slate-700 border-slate-300' : 'bg-[#222] text-gray-400 border-[#333]'
-                                                }`}>
-                                                    Scene {selectedSyncItem.sceneNumber} • {CATEGORIES.find(c => c.id === selectedSyncItem.category)?.label}
-                                                </span>
-                                            </div>
-                                            <p className={`text-[11px] mt-0.5 ${isLight ? 'text-slate-500' : 'text-gray-400'}`}>
-                                                Live Department Synchronization & Continuity Tracking
-                                            </p>
-                                        </div>
-                                    </div>
-                                    <button
-                                        onClick={() => setSelectedSyncItem(null)}
-                                        className={`p-1.5 rounded-lg transition-colors ${
-                                            isLight ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-200' : 'text-gray-400 hover:text-white hover:bg-[#25252a]'
-                                        }`}
-                                    >
-                                        <X size={18} />
-                                    </button>
-                                </div>
-
-                                <div className="flex-1 overflow-y-auto custom-scrollbar p-5 space-y-5">
-                                    {/* Department Routing Banner */}
-                                    {(() => {
-                                        const classification = detectDepartmentForItem(selectedSyncItem.item.name, selectedSyncItem.category);
-                                        return (
-                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                                {/* Assigned Department */}
-                                                <div className={`p-3.5 rounded-xl border flex flex-col justify-between gap-3 ${
-                                                    isLight ? 'bg-amber-50/60 border-amber-200' : 'bg-[#1c1c22] border-amber-500/30'
-                                                }`}>
-                                                    <div>
-                                                        <div className="text-[10px] font-mono uppercase font-bold text-amber-500 flex items-center gap-1.5">
-                                                            <Truck size={13} />
-                                                            <span>Target Production Department</span>
-                                                        </div>
-                                                        <div className={`text-sm font-black mt-1 ${isLight ? 'text-slate-900' : 'text-white'}`}>
-                                                            {classification.departmentName} Department
-                                                        </div>
-                                                        <div className={`text-[11px] font-mono mt-0.5 ${isLight ? 'text-slate-600' : 'text-gray-400'}`}>
-                                                            Synced to Crew department task workspace
-                                                        </div>
-                                                    </div>
-                                                    {onNavigateToView && (
-                                                        <button
-                                                            onClick={() => {
-                                                                setSelectedSyncItem(null);
-                                                                onNavigateToView('crew');
-                                                            }}
-                                                            className="self-start text-[10px] font-bold uppercase tracking-wider text-amber-400 hover:text-amber-300 flex items-center gap-1 hover:underline"
-                                                        >
-                                                            <span>Open in Crew Page</span>
-                                                            <ExternalLink size={11} />
-                                                        </button>
-                                                    )}
-                                                </div>
-
-                                                {/* Continuity Page Sync */}
-                                                <div className={`p-3.5 rounded-xl border flex flex-col justify-between gap-3 ${
-                                                    isLight ? 'bg-purple-50/60 border-purple-200' : 'bg-[#1e1c24] border-purple-500/30'
-                                                }`}>
-                                                    <div>
-                                                        <div className="text-[10px] font-mono uppercase font-bold text-purple-400 flex items-center gap-1.5">
-                                                            <CheckCircle2 size={13} />
-                                                            <span>Continuity Page Sync</span>
-                                                        </div>
-                                                        <div className={`text-sm font-black mt-1 ${isLight ? 'text-slate-900' : 'text-white'}`}>
-                                                            {classification.continuityDept ? `${classification.continuityDept.toUpperCase()} Continuity Look` : 'Tracked Element'}
-                                                        </div>
-                                                        <div className={`text-[11px] font-mono mt-0.5 ${isLight ? 'text-slate-600' : 'text-gray-400'}`}>
-                                                            Tracked across timeline scenes & scrub inspector
-                                                        </div>
-                                                    </div>
-                                                    {onNavigateToView && (
-                                                        <button
-                                                            onClick={() => {
-                                                                setSelectedSyncItem(null);
-                                                                onNavigateToView('continuity');
-                                                            }}
-                                                            className="self-start text-[10px] font-bold uppercase tracking-wider text-purple-400 hover:text-purple-300 flex items-center gap-1 hover:underline"
-                                                        >
-                                                            <span>View in Continuity Page</span>
-                                                            <ExternalLink size={11} />
-                                                        </button>
-                                                    )}
-                                                </div>
-                                            </div>
-                                        );
-                                    })()}
-
-                                    {/* Subtasks Checklist Manager */}
-                                    <div className="space-y-3">
-                                        <div className="flex items-center justify-between">
-                                            <div>
-                                                <h4 className={`text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 ${isLight ? 'text-slate-900' : 'text-white'}`}>
-                                                    <CheckCircle2 size={14} className="text-amber-400" />
-                                                    <span>Department Subtasks & Specifications</span>
-                                                </h4>
-                                                <p className={`text-[11px] ${isLight ? 'text-slate-500' : 'text-gray-400'}`}>
-                                                    Detailed parameters required by crew (e.g. numberplate, model year, color, damage).
-                                                </p>
-                                            </div>
-                                            <button
-                                                onClick={() => {
-                                                    const newSub: TaskSubtask = {
-                                                        id: `sub-${Date.now()}`,
-                                                        title: 'Custom Subtask Requirement',
-                                                        completed: false,
-                                                        value: ''
-                                                    };
-                                                    setEditingSubtasks(prev => [...prev, newSub]);
-                                                }}
-                                                className="text-[10px] font-bold uppercase px-2.5 py-1 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 flex items-center gap-1 transition-colors"
-                                            >
-                                                <Plus size={12} /> Add Subtask
-                                            </button>
-                                        </div>
-
-                                        {/* Progress Bar */}
-                                        <div className="space-y-1">
-                                            <div className="flex items-center justify-between text-[10px] font-mono">
-                                                <span className={isLight ? 'text-slate-600' : 'text-gray-400'}>
-                                                    Progress: {editingSubtasks.filter(s => s.completed).length} of {editingSubtasks.length} subtasks completed
-                                                </span>
-                                                <span className="font-bold text-amber-400">
-                                                    {editingSubtasks.length > 0 ? Math.round((editingSubtasks.filter(s => s.completed).length / editingSubtasks.length) * 100) : 0}%
-                                                </span>
-                                            </div>
-                                            <div className={`w-full h-1.5 rounded-full overflow-hidden ${isLight ? 'bg-slate-200' : 'bg-[#252528]'}`}>
-                                                <div 
-                                                    className="h-full bg-amber-400 transition-all duration-300"
-                                                    style={{ width: `${editingSubtasks.length > 0 ? (editingSubtasks.filter(s => s.completed).length / editingSubtasks.length) * 100 : 0}%` }}
-                                                />
-                                            </div>
-                                        </div>
-
-                                        {/* Subtasks List */}
-                                        <div className="space-y-2">
-                                            {editingSubtasks.map((sub, sIdx) => (
-                                                <div 
-                                                    key={sub.id || sIdx}
-                                                    className={`p-3 rounded-xl border space-y-2 transition-all ${
-                                                        isLight ? 'bg-slate-50 border-slate-200' : 'bg-[#17171b] border-[#2a2a30]'
-                                                    }`}
-                                                >
-                                                    <div className="flex items-center gap-2.5">
-                                                        <input
-                                                            type="checkbox"
-                                                            checked={sub.completed}
-                                                            onChange={(e) => {
-                                                                const val = e.target.checked;
-                                                                setEditingSubtasks(prev => prev.map((item, idx) => idx === sIdx ? { ...item, completed: val } : item));
-                                                            }}
-                                                            className="accent-amber-400 rounded cursor-pointer shrink-0"
-                                                        />
-                                                        <input
-                                                            type="text"
-                                                            value={sub.title}
-                                                            placeholder="Subtask Requirement..."
-                                                            onChange={(e) => {
-                                                                const val = e.target.value;
-                                                                setEditingSubtasks(prev => prev.map((item, idx) => idx === sIdx ? { ...item, title: val } : item));
-                                                            }}
-                                                            className={`flex-1 bg-transparent border-b outline-none text-xs font-bold ${
-                                                                isLight ? 'border-slate-300 text-slate-900 focus:border-amber-500' : 'border-[#333] text-white focus:border-amber-400'
-                                                            }`}
-                                                        />
-                                                        <button
-                                                            onClick={() => {
-                                                                setEditingSubtasks(prev => prev.filter((_, idx) => idx !== sIdx));
-                                                            }}
-                                                            className="text-gray-400 hover:text-red-400 p-1 transition-colors"
-                                                            title="Delete subtask"
-                                                        >
-                                                            <X size={14} />
-                                                        </button>
-                                                    </div>
-
-                                                    <div className="flex items-center gap-2 pl-6">
-                                                        <span className={`text-[10px] font-mono font-bold uppercase shrink-0 ${isLight ? 'text-slate-500' : 'text-gray-500'}`}>
-                                                            Spec / Detail:
-                                                        </span>
-                                                        <input
-                                                            type="text"
-                                                            value={sub.value || ''}
-                                                            placeholder="e.g. TN 09 BK 7721 / 2023 Fortuner / Matte Black / Front bumper dent"
-                                                            onChange={(e) => {
-                                                                const val = e.target.value;
-                                                                setEditingSubtasks(prev => prev.map((item, idx) => idx === sIdx ? { ...item, value: val } : item));
-                                                            }}
-                                                            className={`flex-1 font-mono text-[11px] px-2.5 py-1 rounded-lg border outline-none font-semibold ${
-                                                                isLight 
-                                                                    ? 'bg-white border-slate-300 text-amber-700 focus:border-amber-500' 
-                                                                    : 'bg-[#101014] border-[#303036] text-amber-300 focus:border-amber-400'
-                                                            }`}
-                                                        />
-                                                    </div>
-                                                </div>
-                                            ))}
-
-                                            {editingSubtasks.length === 0 && (
-                                                <div className={`p-4 rounded-xl border border-dashed text-center text-xs font-mono italic ${
-                                                    isLight ? 'bg-slate-50 border-slate-300 text-slate-400' : 'bg-[#18181c] border-[#333] text-gray-500'
-                                                }`}>
-                                                    No subtasks configured. Click "+ Add Subtask" to add one.
-                                                </div>
-                                            )}
-                                        </div>
-                                    </div>
-                                </div>
-
-                                {/* Modal Footer */}
-                                <div className={`p-4 border-t flex items-center justify-between ${
-                                    isLight ? 'bg-slate-50 border-slate-200' : 'bg-[#1a1a1f] border-[#292930]'
-                                }`}>
-                                    <div className={`text-[11px] font-mono ${isLight ? 'text-slate-500' : 'text-gray-400'}`}>
-                                        ⚡ Changes propagate across Crew departments and Continuity
-                                    </div>
-                                    <div className="flex items-center gap-2">
-                                        <button
-                                            onClick={() => setSelectedSyncItem(null)}
-                                            className={`px-4 py-2 rounded-xl text-xs font-bold transition-colors ${
-                                                isLight ? 'text-slate-600 bg-slate-200 hover:bg-slate-300' : 'text-gray-400 bg-[#26262a] hover:bg-[#333] hover:text-white'
-                                            }`}
-                                        >
-                                            Cancel
-                                        </button>
-                                        <button
-                                            onClick={handleSaveSubtasksForSelectedItem}
-                                            className="px-5 py-2 rounded-xl text-xs font-black text-black bg-amber-400 hover:bg-amber-300 transition-all shadow-lg flex items-center gap-1.5"
-                                        >
-                                            <Check size={14} />
-                                            <span>Save & Sync</span>
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-                </div>
-            </div>
-        </div>
+        showToast(isTamil ? `காட்சி ${currentBeat.sceneNumber || `#${currentBeat.id}`} குறிப்புகள் பகுப்பாய்வு செய்யப்பட்டது!` : `Scene ${currentBeat.sceneNumber || `#${currentBeat.id}`} breakdown extracted!`);
+      }
+    } catch (e: any) {
+      console.error(e);
+      showToast('AI Breakdown failed. Check API Key.');
+    } finally {
+      setIsAnalyzingSingle(false);
+    }
+  };
+
+  // Batch Breakdown Triggers
+  const handleStartBatchAll = () => {
+    batchBreakdownManager.startBatch(
+      beats,
+      isTamil ? 'tamil' : 'english',
+      generalAiModel || 'gemini-2.5-flash',
+      openrouterKey,
+      (updatedBeat) => {
+        updateBeat(updatedBeat.id, { breakdownData: updatedBeat.breakdownData });
+      }
     );
+    setIsBatchModalOpen(false);
+  };
+
+  const handleStartBatchSelected = () => {
+    const targetBeats = beats.filter((b) => selectedBeatIds.has(b.id));
+    if (targetBeats.length === 0) return;
+    batchBreakdownManager.startBatch(
+      targetBeats,
+      isTamil ? 'tamil' : 'english',
+      generalAiModel || 'gemini-2.5-flash',
+      openrouterKey,
+      (updatedBeat) => {
+        updateBeat(updatedBeat.id, { breakdownData: updatedBeat.breakdownData });
+      }
+    );
+    setIsBatchModalOpen(false);
+  };
+
+  const handleStartBatchUnbroken = () => {
+    const unbroken = beats.filter((b) => !hasBreakdown(b));
+    if (unbroken.length === 0) {
+      showToast(isTamil ? 'அனைத்து காட்சிகளுக்கும் ஏற்கனவே குறிப்புகள் உள்ளன!' : 'All scenes already have breakdown items!');
+      return;
+    }
+    batchBreakdownManager.startBatch(
+      unbroken,
+      isTamil ? 'tamil' : 'english',
+      generalAiModel || 'gemini-2.5-flash',
+      openrouterKey,
+      (updatedBeat) => {
+        updateBeat(updatedBeat.id, { breakdownData: updatedBeat.breakdownData });
+      }
+    );
+    setIsBatchModalOpen(false);
+  };
+
+  // Add Item to current scene
+  const handleSaveItem = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newItemName.trim() || !activeAddCategory || !currentBeat) return;
+
+    const newItem: BreakdownItem = {
+      id: `item-${activeAddCategory}-${Date.now()}`,
+      category: activeAddCategory,
+      name: newItemName.trim(),
+      nameTa: isTamil ? newItemName.trim() : undefined,
+      description: newItemDesc.trim() || undefined,
+      descriptionTa: isTamil && newItemDesc.trim() ? newItemDesc.trim() : undefined,
+      count: Number(newItemCount) || 1,
+      isCustom: true,
+      source: 'Manual entry',
+    };
+
+    const currentData = currentBeat.breakdownData || {
+      props: [],
+      sound: [],
+      costume: [],
+      vfx: [],
+      practical: [],
+      cast: [],
+      location: [],
+      items: [],
+    };
+
+    const existingCatItems = getBeatCategoryItems(currentBeat, activeAddCategory);
+    const updatedCatItems = [...existingCatItems, newItem];
+
+    const updatedData: BreakdownData = {
+      ...currentData,
+      [activeAddCategory]: updatedCatItems,
+      items: [...(currentData.items || []).filter((i) => i.category !== activeAddCategory), ...updatedCatItems],
+    };
+
+    updateBeat(currentBeat.id, { breakdownData: updatedData });
+    setNewItemName('');
+    setNewItemDesc('');
+    setNewItemCount(1);
+    setActiveAddCategory(null);
+    showToast(`Added to ${CATEGORY_REGISTRY[activeAddCategory].nameEn}`);
+  };
+
+  // Delete Item from current scene
+  const handleDeleteItem = (category: BreakdownCategory, itemIndex: number) => {
+    if (!currentBeat || !currentBeat.breakdownData) return;
+    const catItems = getBeatCategoryItems(currentBeat, category);
+    const updatedCatItems = catItems.filter((_, idx) => idx !== itemIndex);
+
+    const currentData = currentBeat.breakdownData;
+    const updatedData: BreakdownData = {
+      ...currentData,
+      [category]: updatedCatItems,
+      items: (currentData.items || []).filter((i, idx) => !(i.category === category && idx === itemIndex)),
+    };
+
+    updateBeat(currentBeat.id, { breakdownData: updatedData });
+  };
+
+  // Save 1st AD Breakdown sheet to Vault
+  const handleSaveToVault = () => {
+    if (!currentBeat) return;
+    const sceneNum = currentBeat.sceneNumber || `#${currentBeat.id}`;
+    const sceneTitle = currentBeat.title || `${currentBeat.slug?.prefix || 'INT.'} ${currentBeat.slug?.location || 'LOCATION'}`;
+
+    saveBreakdownToVault(sceneTitle, sceneNum, currentSceneTotalItems);
+    confetti({ particleCount: 30, spread: 45, origin: { y: 0.6 } });
+    showToast(`✓ Saved Scene ${sceneNum} Breakdown Sheet directly to Document Vault!`);
+  };
+
+  // Department & Continuity sync
+  const handleSyncDepartments = () => {
+    setIsSyncing(true);
+    try {
+      const res = syncBreakdownToDepartmentsAndContinuity(beats, allTasks);
+      showToast(`⚡ Synced: ${res.stats.tasksCreated + res.stats.tasksUpdated} tasks across ${res.stats.deptsCount} departments & ${res.stats.looksCreated} continuity looks!`);
+    } catch (e) {
+      console.error(e);
+      showToast('Sync encountered an error.');
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  // Export Excel
+  const handleExportExcel = () => {
+    try {
+      const rows: any[] = [];
+      beats.forEach((b) => {
+        const sceneNum = b.sceneNumber || `#${b.id}`;
+        const loc = `${b.slug?.prefix || 'INT.'} ${b.slug?.location || 'LOCATION'} - ${b.slug?.time || 'DAY'}`;
+        ALL_15_CATEGORIES.forEach((cat) => {
+          const items = getBeatCategoryItems(b, cat);
+          items.forEach((item) => {
+            rows.push({
+              'Scene Number': sceneNum,
+              'Heading': loc,
+              'Category': CATEGORY_REGISTRY[cat].nameEn,
+              'Category (Tamil)': CATEGORY_REGISTRY[cat].nameTa,
+              'Item Name': item.name,
+              'Count': item.count || 1,
+              'Description': item.description || '',
+              'Script Reference': item.source || '',
+            });
+          });
+        });
+      });
+
+      if (rows.length === 0) {
+        showToast('No breakdown items found to export.');
+        return;
+      }
+
+      const worksheet = XLSX.utils.json_to_sheet(rows);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Production Breakdown');
+      XLSX.writeFile(workbook, `Production_Breakdown_${new Date().toISOString().slice(0, 10)}.xlsx`);
+      showToast('Exported Production Breakdown spreadsheet!');
+    } catch (e) {
+      console.error(e);
+      showToast('Export failed.');
+    }
+  };
+
+  // Compute Scene Statistics
+  const totalBrokenScenes = beats.filter((b) => hasBreakdown(b)).length;
+  const unbrokenScenesCount = beats.length - totalBrokenScenes;
+
+  // Scene details calculation
+  const sceneWordCount = currentBeat?.content ? currentBeat.content.replace(/<[^>]*>/g, ' ').trim().split(/\s+/).length : 0;
+  const estimatedEighths = Math.max(1, Math.round(sceneWordCount / 28));
+  const pagesString = estimatedEighths >= 8 ? `${Math.floor(estimatedEighths / 8)} ${estimatedEighths % 8}/8` : `${estimatedEighths}/8`;
+  const estimatedSeconds = Math.round((estimatedEighths / 8) * 60);
+
+  return (
+    <div className={`w-full h-full flex flex-col font-sans overflow-hidden ${isLight ? 'bg-slate-50 text-slate-900' : 'bg-[#0f0f13] text-gray-100'}`}>
+      {/* Toast Notification */}
+      {toastMessage && (
+        <div className="fixed bottom-6 right-6 z-50 px-4 py-2.5 rounded-xl bg-slate-950/90 text-white border border-white/10 shadow-2xl backdrop-blur-md text-xs font-semibold flex items-center gap-2 animate-in fade-in slide-in-from-bottom-3">
+          <CheckCircle2 size={15} className="text-amber-400" />
+          <span>{toastMessage}</span>
+        </div>
+      )}
+
+      {/* 1. Live Background Batch Breakdown Progress Banner */}
+      {batchState.isRunning && (
+        <div className="no-print p-3.5 px-6 bg-[#090d16] text-white border-b border-sky-500/20 shadow-xl flex items-center justify-between flex-wrap gap-3 z-30 shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="w-7 h-7 rounded-lg bg-sky-500/20 flex items-center justify-center text-sky-400 shrink-0">
+              <Sparkles size={15} className="animate-spin" />
+            </div>
+            <div>
+              <div className="text-xs font-black tracking-tight">
+                {isTamil
+                  ? `AI மொத்த குறிப்பு பிரித்தெடுத்தல்: காட்சி ${batchState.completedCount} / ${batchState.totalScenes} (${batchState.percent}%)`
+                  : `AI Batch Breakdown in Progress: Scene ${batchState.completedCount} of ${batchState.totalScenes} (${batchState.percent}%)`}
+              </div>
+              <div className="text-[11px] text-slate-400 font-mono">
+                {isTamil
+                  ? `பகுப்பாய்வு செய்யப்படும் காட்சி: காட்சி ${batchState.currentSceneNumber} (${batchState.currentSceneLocation})`
+                  : `Analyzing: Scene ${batchState.currentSceneNumber} • ${batchState.currentSceneLocation}`}
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3">
+            {batchState.estimatedSecondsRemaining > 0 && (
+              <div className="flex items-center gap-1.5 text-xs text-sky-400 font-mono font-bold">
+                <Clock size={13} />
+                <span>~{batchState.estimatedSecondsRemaining}s left</span>
+              </div>
+            )}
+
+            <div className="flex items-center gap-1.5">
+              {batchState.isPaused ? (
+                <button
+                  onClick={() => batchBreakdownManager.resume()}
+                  className="px-2.5 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-black text-xs font-bold flex items-center gap-1 transition-all shadow-xs"
+                >
+                  <Play size={12} />
+                  <span>Resume</span>
+                </button>
+              ) : (
+                <button
+                  onClick={() => batchBreakdownManager.pause()}
+                  className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold flex items-center gap-1 transition-all border border-white/10"
+                >
+                  <Pause size={12} />
+                  <span>Pause</span>
+                </button>
+              )}
+
+              <button
+                onClick={() => batchBreakdownManager.cancel()}
+                className="px-2.5 py-1 rounded bg-rose-600/80 hover:bg-rose-600 text-white text-xs font-bold flex items-center gap-1 transition-all"
+              >
+                <XCircle size={12} />
+                <span>Cancel</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Progress bar line */}
+          <div className="w-full h-1 bg-slate-800 rounded-full overflow-hidden mt-1">
+            <div
+              className="h-full bg-sky-400 transition-all duration-300 rounded-full"
+              style={{ width: `${batchState.percent}%` }}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* 2. Top Header Toolbar */}
+      <div className={`p-3 px-6 border-b flex items-center justify-between flex-wrap gap-3 shrink-0 ${isLight ? 'bg-white border-slate-200 shadow-xs' : 'bg-[#14141a] border-[#222]'}`}>
+        {/* Left: Scene Switcher / Pagination */}
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1">
+            <button
+              onClick={handlePrevScene}
+              disabled={selectedSceneIndex === 0}
+              className="p-1.5 rounded-lg border border-inherit disabled:opacity-30 hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
+              title="Previous Scene"
+            >
+              <ChevronLeft size={15} />
+            </button>
+
+            <select
+              value={selectedSceneIndex}
+              onChange={(e) => setSelectedSceneIndex(Number(e.target.value))}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold border outline-none cursor-pointer max-w-[340px] truncate ${
+                isLight ? 'bg-slate-50 border-slate-300 text-slate-900' : 'bg-[#1c1c24] border-white/10 text-white'
+              }`}
+            >
+              {beats.map((b, idx) => {
+                const broken = hasBreakdown(b);
+                const sNum = b.sceneNumber || `#${b.id}`;
+                const sLoc = `${b.slug?.prefix || 'INT.'} ${b.slug?.location || 'LOCATION'}`;
+                return (
+                  <option key={b.id} value={idx}>
+                    {broken ? '✓ ' : '○ '}
+                    Scene {sNum}: {sLoc}
+                  </option>
+                );
+              })}
+            </select>
+
+            <button
+              onClick={handleNextScene}
+              disabled={selectedSceneIndex === beats.length - 1}
+              className="p-1.5 rounded-lg border border-inherit disabled:opacity-30 hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
+              title="Next Scene"
+            >
+              <ChevronRight size={15} />
+            </button>
+          </div>
+
+          <span className="text-xs font-mono text-gray-400 pl-1">
+            {selectedSceneIndex + 1} / {beats.length || 1}
+          </span>
+        </div>
+
+        {/* Right: Actions (Breakdown Current, Breakdown All, Sync, Save to Vault, Print) */}
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* AI Breakdown All / Batch Modal Button */}
+          <button
+            onClick={() => setIsBatchModalOpen(true)}
+            disabled={batchState.isRunning}
+            className="px-3 py-1.5 rounded-lg text-xs font-bold bg-sky-600 hover:bg-sky-500 text-white flex items-center gap-1.5 transition-all shadow-sm border border-sky-400/30 disabled:opacity-50"
+            title="Breakdown each and every scene automatically in the background"
+          >
+            <Sparkles size={13} />
+            <span>AI Breakdown All ({beats.length})</span>
+          </button>
+
+          {/* AI Breakdown Current Scene */}
+          <button
+            onClick={handleBreakdownCurrentScene}
+            disabled={isAnalyzingSingle || batchState.isRunning}
+            className="px-3 py-1.5 rounded-lg text-xs font-bold bg-amber-500 hover:bg-amber-400 text-black flex items-center gap-1.5 transition-all shadow-sm border border-amber-600 disabled:opacity-50"
+            title="Run AI breakdown on this active scene"
+          >
+            <Sparkles size={13} />
+            <span>{isAnalyzingSingle ? 'Analyzing Scene...' : 'Breakdown Scene'}</span>
+          </button>
+
+          {/* Save to Vault */}
+          <button
+            onClick={handleSaveToVault}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold border flex items-center gap-1.5 transition-colors ${
+              isLight ? 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-800' : 'bg-[#1c1c24] hover:bg-[#282834] border-white/10 text-slate-200'
+            }`}
+            title="Save this 1st AD Breakdown Sheet to the Document Vault"
+          >
+            <FolderOpen size={13} className="text-amber-400" />
+            <span>Save to Vault</span>
+          </button>
+
+          {/* Sync to Departments & Continuity */}
+          <button
+            onClick={handleSyncDepartments}
+            disabled={isSyncing}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold border flex items-center gap-1.5 transition-colors ${
+              isLight ? 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-800' : 'bg-[#1c1c24] hover:bg-[#282834] border-white/10 text-slate-200'
+            }`}
+            title="Synchronize breakdown items into department tasks and continuity looks"
+          >
+            <Zap size={13} className="text-emerald-400" />
+            <span>{isSyncing ? 'Syncing...' : 'Sync Depts'}</span>
+          </button>
+
+          {/* Export Excel */}
+          <button
+            onClick={handleExportExcel}
+            className={`p-1.5 rounded-lg border flex items-center gap-1 transition-colors ${
+              isLight ? 'border-slate-300 hover:bg-slate-100 text-slate-700' : 'border-white/10 hover:bg-white/10 text-gray-300'
+            }`}
+            title="Export Breakdown to Excel Spreadsheet"
+          >
+            <Download size={14} />
+          </button>
+
+          {/* Print Sheet */}
+          <button
+            onClick={() => window.print()}
+            className={`p-1.5 rounded-lg border flex items-center gap-1 transition-colors ${
+              isLight ? 'border-slate-300 hover:bg-slate-100 text-slate-700' : 'border-white/10 hover:bg-white/10 text-gray-300'
+            }`}
+            title="Print B&W 1st AD Breakdown Sheet"
+          >
+            <Printer size={14} />
+          </button>
+        </div>
+      </div>
+
+      {/* 3. Main Scene Overview & Breakdown Grid */}
+      <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6">
+        {currentBeat ? (
+          <>
+            {/* Scene Header Card (Classic 1st AD Top Summary) */}
+            <div className={`p-5 rounded-2xl border transition-all ${
+              isLight ? 'bg-white border-slate-200 shadow-sm' : 'bg-[#14141a] border-[#222] shadow-lg'
+            }`}>
+              <div className="flex items-start justify-between flex-wrap gap-4">
+                <div className="flex-1 min-w-[280px]">
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <span className="px-2.5 py-0.5 rounded-md text-[11px] font-black uppercase font-mono bg-amber-500 text-black shadow-xs">
+                      SCENE {currentBeat.sceneNumber || `#${currentBeat.id}`}
+                    </span>
+                    <span className="text-[11px] font-mono text-gray-400 font-bold">
+                      SHOOT DAY {currentBeat.boardId ? currentBeat.boardId + 1 : 1}
+                    </span>
+                  </div>
+
+                  <h1 className="text-base md:text-lg font-black tracking-tight">
+                    {currentBeat.slug?.prefix || 'INT.'} {currentBeat.slug?.location || 'LOCATION'} — {currentBeat.slug?.time || 'DAY'}
+                  </h1>
+
+                  <p className={`text-xs mt-1 leading-relaxed ${isLight ? 'text-slate-600' : 'text-gray-400'}`}>
+                    {currentBeat.summary || (currentBeat.content ? currentBeat.content.replace(/<[^>]*>/g, ' ').slice(0, 160) + '...' : 'No scene synopsis added.')}
+                  </p>
+                </div>
+
+                {/* Metadata counters */}
+                <div className="flex items-center gap-5 border-l border-inherit pl-5 text-xs font-mono">
+                  <div>
+                    <span className="text-[10px] text-gray-400 block uppercase font-bold">Page Length</span>
+                    <strong className="text-sm font-black text-amber-500">{pagesString} pgs</strong>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-gray-400 block uppercase font-bold">Screen Time</span>
+                    <strong className="text-sm font-black">~{estimatedSeconds}s</strong>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-gray-400 block uppercase font-bold">Total Items</span>
+                    <strong className="text-sm font-black text-emerald-400">{currentSceneTotalItems}</strong>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* 15-Category Production Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3.5">
+              {ALL_15_CATEGORIES.map((catKey) => {
+                const meta = CATEGORY_REGISTRY[catKey];
+                const items = getBeatCategoryItems(currentBeat, catKey);
+
+                return (
+                  <div
+                    key={catKey}
+                    className={`rounded-xl border flex flex-col transition-all duration-150 overflow-hidden ${
+                      items.length > 0
+                        ? isLight
+                          ? 'bg-white border-slate-300 shadow-xs'
+                          : 'bg-[#16161e] border-white/10 shadow-sm'
+                        : isLight
+                        ? 'bg-slate-50/60 border-slate-200/80 opacity-80'
+                        : 'bg-[#121217] border-white/5 opacity-60'
+                    }`}
+                  >
+                    {/* Category Card Header */}
+                    <div
+                      className="p-2.5 px-3 flex items-center justify-between border-b"
+                      style={{
+                        backgroundColor: meta.bgColor,
+                        borderColor: meta.borderColor + '40',
+                      }}
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span style={{ color: meta.color }} className="shrink-0">
+                          {getCategoryIcon(meta.iconName)}
+                        </span>
+                        <div className="truncate">
+                          <span className="text-xs font-bold truncate block leading-tight" style={{ color: isLight ? '#0f172a' : '#f8fafc' }}>
+                            {isTamil ? meta.nameTa : meta.nameEn}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {/* Count Badge */}
+                        <span
+                          className="px-1.5 py-0.2 rounded text-[10px] font-mono font-bold"
+                          style={{
+                            backgroundColor: meta.color + '30',
+                            color: meta.color,
+                          }}
+                        >
+                          {items.length}
+                        </span>
+
+                        {/* + Add Item button */}
+                        <button
+                          onClick={() => {
+                            setActiveAddCategory(catKey);
+                            setNewItemName('');
+                            setNewItemDesc('');
+                            setNewItemCount(1);
+                          }}
+                          className="p-1 rounded hover:bg-black/10 dark:hover:bg-white/10 transition-colors"
+                          title={`Add item to ${meta.nameEn}`}
+                        >
+                          <Plus size={13} />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Category Items List */}
+                    <div className="p-2.5 flex-1 min-h-[90px] max-h-[220px] overflow-y-auto space-y-1.5">
+                      {items.length > 0 ? (
+                        items.map((item, idx) => (
+                          <div
+                            key={item.id || idx}
+                            className={`p-1.5 px-2 rounded-lg border text-xs flex items-center justify-between group transition-all ${
+                              isLight ? 'bg-slate-50 hover:bg-white border-slate-200' : 'bg-[#1c1c24] hover:bg-[#23232e] border-white/5'
+                            }`}
+                          >
+                            <div className="flex-1 min-w-0 pr-1.5">
+                              <div className="flex items-center gap-1.5">
+                                <span className="font-bold truncate text-[11.5px]">
+                                  {item.name}
+                                </span>
+                                {(item.count || 1) > 1 && (
+                                  <span className="text-[9.5px] font-mono px-1 rounded bg-black/10 dark:bg-white/10 opacity-70">
+                                    x{item.count}
+                                  </span>
+                                )}
+                              </div>
+                              {item.description && (
+                                <p className="text-[10px] text-gray-400 truncate mt-0.5">
+                                  {item.description}
+                                </p>
+                              )}
+                            </div>
+
+                            <button
+                              onClick={() => handleDeleteItem(catKey, idx)}
+                              className="opacity-0 group-hover:opacity-100 p-1 rounded text-red-400 hover:text-red-300 transition-opacity shrink-0"
+                              title="Delete Item"
+                            >
+                              <Trash2 size={11} />
+                            </button>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="h-full flex items-center justify-center text-center p-3 text-[10.5px] text-gray-400 italic">
+                          No {meta.nameEn.toLowerCase()} noted
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        ) : (
+          <div className="flex flex-col items-center justify-center py-20 text-gray-400">
+            <Film size={48} className="mb-3 opacity-30" />
+            <p className="font-bold">No screenplay scenes found in this project.</p>
+          </div>
+        )}
+      </div>
+
+      {/* 4. Modal: Add Item to Category */}
+      {activeAddCategory && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className={`w-full max-w-md p-6 rounded-2xl border shadow-2xl ${
+            isLight ? 'bg-white border-slate-200 text-slate-900' : 'bg-[#181822] border-white/10 text-white'
+          }`}>
+            <div className="flex items-center justify-between pb-3 mb-4 border-b border-inherit">
+              <div className="flex items-center gap-2">
+                <span style={{ color: CATEGORY_REGISTRY[activeAddCategory].color }}>
+                  {getCategoryIcon(CATEGORY_REGISTRY[activeAddCategory].iconName)}
+                </span>
+                <h2 className="text-sm font-black">
+                  Add to {CATEGORY_REGISTRY[activeAddCategory].nameEn}
+                </h2>
+              </div>
+              <button
+                onClick={() => setActiveAddCategory(null)}
+                className="p-1 rounded hover:bg-black/10 dark:hover:bg-white/10 text-gray-400"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveItem} className="space-y-4">
+              <div>
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-1">
+                  Item Name *
+                </label>
+                <input
+                  type="text"
+                  autoFocus
+                  required
+                  placeholder="e.g. Vintage Machete / Black Scorpio SUV..."
+                  value={newItemName}
+                  onChange={(e) => setNewItemName(e.target.value)}
+                  className={`w-full px-3 py-2 text-xs rounded-xl border outline-none font-medium ${
+                    isLight ? 'bg-slate-50 border-slate-300 text-slate-900' : 'bg-[#121218] border-white/10 text-white'
+                  }`}
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-1">
+                    Count / Quantity
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    value={newItemCount}
+                    onChange={(e) => setNewItemCount(Math.max(1, parseInt(e.target.value) || 1))}
+                    className={`w-full px-3 py-2 text-xs rounded-xl border outline-none font-mono ${
+                      isLight ? 'bg-slate-50 border-slate-300 text-slate-900' : 'bg-[#121218] border-white/10 text-white'
+                    }`}
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-1">
+                    Department
+                  </label>
+                  <div className={`px-3 py-2 text-xs rounded-xl border font-semibold truncate ${
+                    isLight ? 'bg-slate-100 border-slate-300 text-slate-600' : 'bg-[#121218] border-white/10 text-gray-400'
+                  }`}>
+                    {CATEGORY_REGISTRY[activeAddCategory].nameEn}
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-1">
+                  Usage Description / Notes (Optional)
+                </label>
+                <textarea
+                  rows={2}
+                  placeholder="e.g. Hero handles in climax, blunted edges required..."
+                  value={newItemDesc}
+                  onChange={(e) => setNewItemDesc(e.target.value)}
+                  className={`w-full p-2.5 text-xs rounded-xl border outline-none resize-none ${
+                    isLight ? 'bg-slate-50 border-slate-300 text-slate-900' : 'bg-[#121218] border-white/10 text-white'
+                  }`}
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setActiveAddCategory(null)}
+                  className="px-3 py-2 text-xs font-bold rounded-xl text-gray-400 hover:bg-black/5 dark:hover:bg-white/5"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 text-xs font-bold rounded-xl bg-amber-500 hover:bg-amber-400 text-black transition-all shadow-sm"
+                >
+                  Add Item
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* 5. Modal: Batch Breakdown Selection */}
+      {isBatchModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className={`w-full max-w-xl p-6 rounded-2xl border shadow-2xl flex flex-col max-h-[85vh] ${
+            isLight ? 'bg-white border-slate-200 text-slate-900' : 'bg-[#181822] border-white/10 text-white'
+          }`}>
+            <div className="flex items-center justify-between pb-3 mb-3 border-b border-inherit shrink-0">
+              <div className="flex items-center gap-2">
+                <Sparkles size={16} className="text-sky-400" />
+                <h2 className="text-sm font-black">AI Batch Breakdown Manager</h2>
+              </div>
+              <button
+                onClick={() => setIsBatchModalOpen(false)}
+                className="p-1 rounded hover:bg-black/10 dark:hover:bg-white/10 text-gray-400"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <p className="text-xs text-gray-400 mb-4 shrink-0">
+              Select which scenes you want to break down automatically in the background. You can continue writing and editing while the background AI queue runs.
+            </p>
+
+            {/* Filter Pills */}
+            <div className="flex items-center justify-between gap-2 mb-3 shrink-0">
+              <div className="flex items-center gap-1.5">
+                {(['ALL', 'UNBROKEN', 'BROKEN'] as const).map((filter) => (
+                  <button
+                    key={filter}
+                    onClick={() => setBatchFilter(filter)}
+                    className={`px-2.5 py-1 text-[11px] font-bold rounded-lg border transition-all ${
+                      batchFilter === filter
+                        ? 'bg-sky-500/20 text-sky-400 border-sky-400/40'
+                        : isLight
+                        ? 'bg-slate-100 border-slate-200 text-slate-600'
+                        : 'bg-[#121218] border-white/5 text-gray-400'
+                    }`}
+                  >
+                    {filter === 'ALL' && `All (${beats.length})`}
+                    {filter === 'UNBROKEN' && `Unbroken (${unbrokenScenesCount})`}
+                    {filter === 'BROKEN' && `Broken (${totalBrokenScenes})`}
+                  </button>
+                ))}
+              </div>
+
+              <button
+                onClick={() => {
+                  if (selectedBeatIds.size === beats.length) {
+                    setSelectedBeatIds(new Set());
+                  } else {
+                    setSelectedBeatIds(new Set(beats.map((b) => b.id)));
+                  }
+                }}
+                className="text-[11px] font-bold text-sky-400 hover:underline"
+              >
+                {selectedBeatIds.size === beats.length ? 'Deselect All' : 'Select All'}
+              </button>
+            </div>
+
+            {/* Scene Checkbox List */}
+            <div className="flex-1 overflow-y-auto border border-inherit rounded-xl p-2 space-y-1 my-2">
+              {beats
+                .filter((b) => {
+                  const broken = hasBreakdown(b);
+                  if (batchFilter === 'UNBROKEN') return !broken;
+                  if (batchFilter === 'BROKEN') return broken;
+                  return true;
+                })
+                .map((b) => {
+                  const isChecked = selectedBeatIds.has(b.id);
+                  const broken = hasBreakdown(b);
+                  return (
+                    <div
+                      key={b.id}
+                      onClick={() => {
+                        const next = new Set(selectedBeatIds);
+                        if (next.has(b.id)) next.delete(b.id);
+                        else next.add(b.id);
+                        setSelectedBeatIds(next);
+                      }}
+                      className={`p-2 rounded-lg border cursor-pointer flex items-center justify-between transition-colors ${
+                        isChecked
+                          ? isLight ? 'bg-sky-50 border-sky-300' : 'bg-sky-500/10 border-sky-500/30'
+                          : isLight ? 'bg-slate-50 border-slate-200 hover:bg-white' : 'bg-[#121218] border-white/5 hover:bg-white/5'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <div className={`w-4 h-4 rounded flex items-center justify-center border ${
+                          isChecked ? 'bg-sky-500 border-sky-600 text-white' : 'border-gray-500'
+                        }`}>
+                          {isChecked && <Check size={11} strokeWidth={3} />}
+                        </div>
+                        <div className="truncate">
+                          <span className="font-bold text-xs">
+                            Scene {b.sceneNumber || `#${b.id}`}: {b.slug?.prefix || 'INT.'} {b.slug?.location || 'LOCATION'}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 shrink-0 text-[10px] font-mono">
+                        <span className={broken ? 'text-emerald-400 font-bold' : 'text-gray-400'}>
+                          {broken ? '✓ Broken' : '○ Empty'}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+            </div>
+
+            {/* Batch Action Buttons */}
+            <div className="flex items-center justify-between pt-3 border-t border-inherit shrink-0">
+              <button
+                type="button"
+                onClick={handleStartBatchUnbroken}
+                disabled={unbrokenScenesCount === 0}
+                className="px-3 py-2 text-xs font-bold rounded-xl border border-sky-500/30 text-sky-400 hover:bg-sky-500/10 disabled:opacity-40 transition-colors"
+              >
+                Breakdown Unbroken ({unbrokenScenesCount})
+              </button>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsBatchModalOpen(false)}
+                  className="px-3 py-2 text-xs font-bold rounded-xl text-gray-400 hover:bg-black/5 dark:hover:bg-white/5"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleStartBatchSelected}
+                  disabled={selectedBeatIds.size === 0}
+                  className="px-4 py-2 text-xs font-bold rounded-xl bg-sky-600 hover:bg-sky-500 text-white disabled:opacity-40 shadow-sm transition-all flex items-center gap-1.5"
+                >
+                  <Sparkles size={13} />
+                  <span>Start Batch ({selectedBeatIds.size})</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 };
 
 export default BreakdownView;

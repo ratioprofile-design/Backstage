@@ -31,6 +31,16 @@ export function transcodeBaminiToUnicode(raw: string): string {
   text = text.replace(/&gh/g, 'ரூபாய்');
   text = text.replace(/&/g, 'ரூ');
   text = text.replace(/\$/g, 'கூ');
+  text = text.replace(/Ngh;fs;/g, 'பேர்கள்');
+  text = text.replace(/Ngh;fs/g, 'பேர்கள்');
+  text = text.replace(/Ngh;/g, 'பேர்');
+  text = text.replace(/Njh;T/g, 'தேர்வு');
+  text = text.replace(/Njh;t/g, 'தேர்வு');
+  text = text.replace(/தோ;வு/g, 'தேர்வு');
+  text = text.replace(/nrQ;rp/g, 'செஞ்சி');
+  text = text.replace(/Q;/g, 'ஞ்');
+  text = text.replace(/Q/g, 'ஞ்');
+  text = text.replace(/Nef/g, 'நகை');
   text = text.replace(/NghyP\];ir/g, 'போலீஸை');
   text = text.replace(/NghyP\];fpl;l/g, 'போலீஸ்கிட்ட');
   text = text.replace(/NghyP\];fspd;/g, 'போலீஸ்களின்');
@@ -48,6 +58,7 @@ export function transcodeBaminiToUnicode(raw: string): string {
   text = text.replace(/\[;/g, 'ஜ்');
   text = text.replace(/\\;/g, 'ஹ்');
   text = text.replace(/F;/g, 'க்ஷ்');
+
 
   // Character ~ (Bamini Sha / Sh)
   text = text.replace(/~;/g, 'ஷ்');
@@ -433,10 +444,23 @@ export type FontEncoding = 'BAMINI' | 'TAM' | 'TAB' | 'TSCII' | 'AUTO';
  */
 export function isLegacyBamini(text: string): boolean {
   if (!text) return false;
-  const unicodeCount = (text.match(/[\u0B80-\u0BFF]/g) || []).length;
-  if (unicodeCount > 30) return false;
-  const baminiFingerprints = /(fhl;rp|ntsp|kJiu|Nfh|kPzh|mk;kd;|tPjp|,uth|jp|gp|f;|r;|j;|k;|g;|e;|u;|d;|y;|s;|ebfh;fs;|fl;ilia|nrk;kuj;ij|uq;fh|RNu~;)/;
-  return baminiFingerprints.test(text);
+  // If already predominantly Tamil Unicode, not Bamini
+  const unicodeTamilCount = (text.match(/[\u0B80-\u0BFF]/g) || []).length;
+  if (unicodeTamilCount > 50 && unicodeTamilCount > text.length * 0.25) return false;
+
+  // Key Bamini words and frequent morphemes
+  const baminiWords = /(fhl;rp|ntsp|kJiu|Nfh|kPzh|mk;kd;|tPjp|,uth|jp|gp|ebfh;fs;|fl;ilia|nrk;kuj;ij|uq;fh|RNu~;|ghj;jpuk;|ghh;f;f|Neuk;|Jizebfh;fs;|thf;fpa|mjdhy;|,Ug;g|fpwJ|ghh;j;J|nra;j|vd;w|jhnd|cz;ik|nfhz;L|te;j|nghpa)/i;
+  if (baminiWords.test(text)) return true;
+
+  // Density test of Bamini consonant dot markers ([bcdfghjklmnpqrstvwxyz];)
+  const dotMarkerMatches = (text.match(/[a-zA-Z];/g) || []).length;
+  const vowelCombos = (text.match(/(?:N[a-zA-Z]|n[a-zA-Z]|i[a-zA-Z]|(?:f|g|r|j|e|k|l|z|a|u|y|t|h|o|s|w|d)[hpP])/g) || []).length;
+  
+  if (dotMarkerMatches >= 3 || (dotMarkerMatches >= 1 && vowelCombos >= 4)) {
+    return true;
+  }
+
+  return false;
 }
 
 /**
@@ -449,3 +473,44 @@ export function convertToUnicode(text: string, encoding: FontEncoding | boolean 
   }
   return transcodeBaminiToUnicode(text);
 }
+
+/**
+ * Safely transcodes Bamini encoded text inside HTML documents while preserving
+ * all HTML tags, attributes, formatting, and DOM structures intact.
+ */
+export function transcodeHtmlBaminiToUnicode(html: string): string {
+  if (!html) return '';
+  if (typeof DOMParser !== 'undefined') {
+    try {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(html, 'text/html');
+      
+      const walkTextNodes = (node: Node) => {
+        if (node.nodeType === Node.TEXT_NODE && node.nodeValue) {
+          node.nodeValue = transcodeBaminiToUnicode(node.nodeValue);
+        } else if (node.nodeType === Node.ELEMENT_NODE) {
+          // Avoid script and style tags
+          const tag = (node as HTMLElement).tagName?.toLowerCase();
+          if (tag !== 'script' && tag !== 'style') {
+            for (let i = 0; i < node.childNodes.length; i++) {
+              walkTextNodes(node.childNodes[i]);
+            }
+          }
+        }
+      };
+
+      walkTextNodes(doc.body);
+      return doc.body.innerHTML;
+    } catch (e) {
+      console.warn('DOMParser failed for HTML Bamini transcoding, falling back to regex', e);
+    }
+  }
+
+  // Regex fallback: transcode only text outside HTML tags
+  return html.replace(/(>|^)([^<]+)(<|$)/g, (_match, prefix, textNode, suffix) => {
+    if (!textNode || !textNode.trim()) return `${prefix}${textNode}${suffix}`;
+    const converted = transcodeBaminiToUnicode(textNode);
+    return `${prefix}${converted}${suffix}`;
+  });
+}
+

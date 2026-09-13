@@ -12,6 +12,8 @@
     "fs:allow-exists",
     "dialog:allow-open",
     "dialog:allow-save",
-    "log:default"
+    "log:default",
+    "core:window:default",
+    "core:webview:default"
   ]
 }

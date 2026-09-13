@@ -582,23 +582,16 @@ export async function generateBreakdown(
   language: 'english' | 'tamil' = 'english',
   openRouterApiKey?: string
 ): Promise<BreakdownData | null> {
-  const langInstruction = language === 'tamil' 
+  const isTamil = language === 'tamil';
+  const langInstruction = isTamil 
     ? `CRITICAL LANGUAGE REQUIREMENT FOR TAMIL:
-For EVERY SINGLE breakdown item across all categories (cast, props, sound, costume, vfx, practical, location), you MUST provide the Tamil name followed ALWAYS by its English name/meaning in brackets right next to it.
-Format: "Tamil Name (English Name / Meaning)"
-Examples:
-- "அபிராமி (Abhirami)"
-- "மரக் குச்சி (Wooden Stick)"
-- "இடி முழக்கம் (Thunderclap)"
-- "கிழிந்த மஞ்சள் பாவாடை (Torn Yellow Dress)"
-- "கனமழை (Heavy Rain)"
-- "இராமேஸ்வரம் பாலம் (Rameswaram Bridge)"
+For EVERY SINGLE breakdown item, provide "name" in Tamil, "nameTa" in Tamil, and "nameEn" in English.
+Provide "description" in Tamil and "descriptionEn" in English if relevant.
+Example: {"name": "அபிராமி (Abhirami)", "nameTa": "அபிராமி", "nameEn": "Abhirami", "description": "நாயகனின் தங்கை", "count": 1}` 
+    : 'Provide item names and descriptions clearly in English.';
 
-EVERY single item name MUST have the English name / translation in parentheses next to the Tamil name.` 
-    : 'Provide item names and descriptions in English.';
-
-  const prompt = `You are a professional assistant director and script breakdown supervisor. 
-Analyze the following scene text from a screenplay and extract all production breakdown items into categories.
+  const prompt = `You are a professional 1st Assistant Director and production script breakdown supervisor. 
+Analyze the following scene text from a screenplay and extract all production breakdown items into the 15 standard film production categories.
 
 Language requirement:
 ${langInstruction}
@@ -606,40 +599,55 @@ ${langInstruction}
 Scene Text:
 """${scriptText}"""
 
-Return ONLY a raw JSON Object with the following keys. Each key must contain an array of objects with "name" (string, the name of the item/character/element) and "source" (string, the exact line or phrase from the script where it appears):
-- "cast": Characters, actors, extras, voices appearing in this scene
-- "props": Physical objects handled or used by characters (weapons, tools, documents, food, phones, vehicles)
-- "sound": Sound effects (SFX), background ambient noise, music cues mentioned or implied
-- "costume": Wardrobe, outfits, makeup, prosthetic details, special clothing mentioned
-- "vfx": Visual effects, CGI elements, green screen requirements, digital enhancements
-- "practical": Practical special effects (SFX), fire, rain, smoke, explosions, squibs, dust clouds
-- "location": Specific physical set requirements, landmarks, environmental condition or real-world location elements
+Extract all relevant items for each of the following 15 production categories:
+1. "CAST": Speaking principal and supporting characters appearing in this scene
+2. "EXTRAS": Non-speaking background actors, crowd, atmosphere
+3. "STUNTS": Stunts, combat choreography, falls, high-risk physical action
+4. "VEHICLES": Picture cars, motorcycles, boats, aircraft, police vans, chases
+5. "PROPS": Handheld physical props handled or used by characters (weapons, phones, tools, letters, luggage)
+6. "SFX": Practical physical special effects (rain, fire, explosions, bullet squibs, fog/smoke, sparks)
+7. "WARDROBE": Costumes, specific wardrobe items, changes, bloodied/damaged clothing
+8. "MAKEUP": Special makeup, wounds, prosthetics, scars, mud/sweat, hair changes
+9. "ANIMALS": Animals, pets, horses, dogs, animal handlers
+10. "SOUND": Sound effects (SFX), room tone, off-screen audio cues, playback music
+11. "SET_DRESSING": Furniture, curtains, wall art, signs, lamps, ambient set elements
+12. "GREENERY": Plants, foliage, flowers, trees, garden dressing
+13. "SPECIAL_EQUIPMENT": Camera cranes, underwater housing, drone rigs, Steadicam, techno-jib
+14. "LIGHTING_GRIP": Specific practical lamps, torches, sodium lights, neon signs, generators
+15. "SAFETY": Safety hazards, permits, fire marshal requirements, paramedic standby, weapon blunting
 
-Example JSON format:
-${language === 'tamil' ? `{
-  "cast": [{"name": "அபிராமி (Abhirami)", "source": "அபிராமி (7) சேற்றில் ஓடுகிறாள்"}],
-  "props": [{"name": "மரக் குச்சி (Wooden Stick)", "source": "கையில் மரக் குச்சி வைத்திருக்கிறாள்"}],
-  "sound": [{"name": "இடி முழக்கம் (Thunderclap)", "source": "பயங்கர இடி முழக்கம் கேட்கிறது"}],
-  "costume": [{"name": "கிழிந்த மஞ்சள் பாவாடை (Torn Yellow Dress)", "source": "மஞ்சள் பாவாடை கிழிந்துள்ளது"}],
-  "vfx": [{"name": "ராட்சச கடல் அலை (Giant Tidal Wave)", "source": "பெரிய அலை வருகிறது"}],
-  "practical": [{"name": "கனமழை (Heavy Rain)", "source": "கனமழை பெய்கிறது"}],
-  "location": [{"name": "இராமேஸ்வரம் பாலம் (Rameswaram Bridge)", "source": "EXT. RAMESWARAM BRIDGE - DAY"}]
-}` : `{
-  "cast": [{"name": "KAVYA", "source": "KAVYA (7) runs through the mud"}],
-  "props": [{"name": "Wooden Stick", "source": "clutching a worn wooden stick"}],
-  "sound": [{"name": "Thunderclap", "source": "A DEAFENING THUNDERCLAP echoes"}],
-  "costume": [{"name": "Torn Yellow Dress", "source": "her yellow dress torn at the knee"}],
-  "vfx": [{"name": "Giant Tidal Wave", "source": "massive ocean wall looming"}],
-  "practical": [{"name": "Heavy Torrential Rain", "source": "rain pours down relentlessly"}],
-  "location": [{"name": "Rameswaram Bridge", "source": "EXT. RAMESWARAM BRIDGE - DAY"}]
-}`}
+Return ONLY a raw JSON Object with the category keys in UPPERCASE (or lowercase). Each category should be an array of objects with:
+- "name": string (item name)
+- "nameTa": string (Tamil name, if Tamil language)
+- "description": string (brief usage description or context)
+- "count": number (estimated count, default 1)
+- "source": string (the exact line or phrase from the script where it appears)
+
+Example JSON:
+{
+  "CAST": [{"name": "KAVYA", "nameTa": "காவ்யா", "description": "Lead protagonist", "count": 1, "source": "KAVYA (7) runs through the mud"}],
+  "EXTRAS": [{"name": "Temple Devotees", "nameTa": "கோயில் பக்தர்கள்", "description": "Background crowd", "count": 25, "source": "Crowd of worshippers"}],
+  "STUNTS": [{"name": "Balcony Jump", "nameTa": "பால்கனி தாண்டுதல்", "description": "Protagonist dives into awning", "count": 1, "source": "leaps from the 2nd floor"}],
+  "VEHICLES": [{"name": "Black Scorpio SUV", "nameTa": "கருப்பு ஸ்கார்பியோ கார்", "description": "Antagonist getaway vehicle", "count": 1, "source": "A black Scorpio screeches"}],
+  "PROPS": [{"name": "Wooden Stick", "nameTa": "மரக் குச்சி", "description": "Handheld weapon", "count": 1, "source": "clutching a worn wooden stick"}],
+  "SFX": [{"name": "Heavy Torrential Rain", "nameTa": "கனமழை விளைவு", "description": "Overhead rain towers", "count": 1, "source": "rain pours down relentlessly"}],
+  "WARDROBE": [{"name": "Torn Yellow Dress", "nameTa": "கிழிந்த மஞ்சள் பாவாடை", "description": "Mud-stained and torn at knee", "count": 1, "source": "her yellow dress torn at the knee"}],
+  "MAKEUP": [{"name": "Forehead Laceration", "nameTa": "நெற்றி காயம்", "description": "Bleeding cut from fall", "count": 1, "source": "blood dripping down temple"}],
+  "ANIMALS": [],
+  "SOUND": [{"name": "Thunderclap", "nameTa": "இடி முழக்கம்", "description": "Deafening sonic crack", "count": 1, "source": "A DEAFENING THUNDERCLAP echoes"}],
+  "SET_DRESSING": [{"name": "Old Wooden Altar", "nameTa": "பழைய மர பூஜை பீடம்", "description": "Carved temple structure", "count": 1, "source": "beside the ancient wooden altar"}],
+  "GREENERY": [],
+  "SPECIAL_EQUIPMENT": [{"name": "Low-angle Tracking Gimbal", "nameTa": "டிராக்கிங் கிம்பல்", "description": "Running footstep chase shot", "count": 1, "source": "Camera tracks low"}],
+  "LIGHTING_GRIP": [{"name": "Sodium Amber Floodlight", "nameTa": "மஞ்சள் விளக்கு", "description": "Backlighting the rain", "count": 2, "source": "amber streetlight glow"}],
+  "SAFETY": [{"name": "Wet Stone Anti-Slip Matting", "nameTa": "வழுக்காத விரிப்பு", "description": "Slip prevention on temple floor", "count": 1, "source": "slippery stone floor"}]
+}
 `;
 
   try {
       const text = await callTextModel(prompt, model, true, openRouterApiKey);
-      const data = safeJSONParse(text);
+      const data = safeJSONParse(text) || {};
 
-      const normalize = (arr: any[]) => {
+      const normalize = (arr: any[], categoryKey: any) => {
           if (!Array.isArray(arr)) {
               if (arr && typeof arr === 'object') {
                   const possibleArray = Object.values(arr).find(v => Array.isArray(v));
@@ -649,25 +657,101 @@ ${language === 'tamil' ? `{
                   return [];
               }
           }
-          return arr.map(item => {
-              if (typeof item === 'string') return { name: item, source: item };
+          return arr.map((item, idx) => {
+              if (typeof item === 'string') {
+                return { 
+                  id: `item-${categoryKey}-${Date.now()}-${idx}`,
+                  category: categoryKey,
+                  name: item, 
+                  source: item,
+                  count: 1 
+                };
+              }
               if (item && typeof item === 'object') {
                   const name = item.name || item.item || item.title || item.element || 'Unknown';
                   const source = item.source || item.line || item.reference || name;
-                  return { name: String(name), source: String(source) };
+                  return { 
+                    id: item.id || `item-${categoryKey}-${Date.now()}-${idx}`,
+                    category: categoryKey,
+                    name: String(name), 
+                    nameTa: item.nameTa ? String(item.nameTa) : undefined,
+                    description: item.description ? String(item.description) : undefined,
+                    descriptionTa: item.descriptionTa ? String(item.descriptionTa) : undefined,
+                    count: typeof item.count === 'number' ? item.count : 1,
+                    source: String(source) 
+                  };
               }
-              return { name: String(item), source: String(item) };
+              return { 
+                id: `item-${categoryKey}-${Date.now()}-${idx}`,
+                category: categoryKey,
+                name: String(item), 
+                source: String(item),
+                count: 1 
+              };
           });
       };
 
-      const rawBreakdown = {
-          props: normalize(data.props),
-          sound: normalize(data.sound),
-          costume: normalize(data.costume),
-          vfx: normalize(data.vfx),
-          practical: normalize(data.practical),
-          cast: normalize(data.cast),
-          location: normalize(data.location)
+      const castList = normalize(data.CAST || data.cast || [], 'CAST');
+      const extrasList = normalize(data.EXTRAS || data.extras || [], 'EXTRAS');
+      const stuntsList = normalize(data.STUNTS || data.stunts || [], 'STUNTS');
+      const vehiclesList = normalize(data.VEHICLES || data.vehicles || [], 'VEHICLES');
+      const propsList = normalize(data.PROPS || data.props || [], 'PROPS');
+      const sfxList = normalize(data.SFX || data.sfx || data.practical || [], 'SFX');
+      const wardrobeList = normalize(data.WARDROBE || data.wardrobe || data.costume || [], 'WARDROBE');
+      const makeupList = normalize(data.MAKEUP || data.makeup || [], 'MAKEUP');
+      const animalsList = normalize(data.ANIMALS || data.animals || [], 'ANIMALS');
+      const soundList = normalize(data.SOUND || data.sound || [], 'SOUND');
+      const setDressingList = normalize(data.SET_DRESSING || data.set_dressing || data.setDressing || [], 'SET_DRESSING');
+      const greeneryList = normalize(data.GREENERY || data.greenery || [], 'GREENERY');
+      const specialEquipList = normalize(data.SPECIAL_EQUIPMENT || data.special_equipment || data.specialEquipment || [], 'SPECIAL_EQUIPMENT');
+      const lightingList = normalize(data.LIGHTING_GRIP || data.lighting_grip || data.lightingGrip || [], 'LIGHTING_GRIP');
+      const safetyList = normalize(data.SAFETY || data.safety || [], 'SAFETY');
+
+      const allItems = [
+        ...castList,
+        ...extrasList,
+        ...stuntsList,
+        ...vehiclesList,
+        ...propsList,
+        ...sfxList,
+        ...wardrobeList,
+        ...makeupList,
+        ...animalsList,
+        ...soundList,
+        ...setDressingList,
+        ...greeneryList,
+        ...specialEquipList,
+        ...lightingList,
+        ...safetyList,
+      ];
+
+      const rawBreakdown: BreakdownData = {
+          // 15 Standard categories
+          CAST: castList,
+          EXTRAS: extrasList,
+          STUNTS: stuntsList,
+          VEHICLES: vehiclesList,
+          PROPS: propsList,
+          SFX: sfxList,
+          WARDROBE: wardrobeList,
+          MAKEUP: makeupList,
+          ANIMALS: animalsList,
+          SOUND: soundList,
+          SET_DRESSING: setDressingList,
+          GREENERY: greeneryList,
+          SPECIAL_EQUIPMENT: specialEquipList,
+          LIGHTING_GRIP: lightingList,
+          SAFETY: safetyList,
+          // Legacy keys for backward compatibility
+          props: propsList,
+          sound: soundList,
+          costume: wardrobeList,
+          vfx: normalize(data.vfx || data.VFX || [], 'SFX'),
+          practical: sfxList,
+          cast: [...castList, ...extrasList],
+          location: normalize(data.location || data.LOCATION || [], 'SET_DRESSING'),
+          // Unified items list
+          items: allItems,
       };
 
       return enrichBreakdownData(rawBreakdown, scriptText);

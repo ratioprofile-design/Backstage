@@ -214,7 +214,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   // Navigation Layout State ('horizontal' | 'vertical')
   const [navLayout, setNavLayoutState] = useState<'horizontal' | 'vertical'>(() => {
-    return (localStorage.getItem('app_nav_layout') as any) || INITIAL_STATE.navLayout || 'horizontal';
+    return (localStorage.getItem('app_nav_layout') as any) || INITIAL_STATE.navLayout || 'vertical';
   });
 
   const setNavLayout = useCallback((layout: 'horizontal' | 'vertical') => {

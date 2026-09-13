@@ -178,7 +178,7 @@ export const INITIAL_STATE: ProjectState = {
   appTheme: 'dark',
   appAccentColor: '#f5a623',
   appLanguage: 'english',
-  navLayout: 'horizontal',
+  navLayout: 'vertical',
 
   panX: 0,
   panY: 0,

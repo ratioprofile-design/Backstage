@@ -163,7 +163,56 @@ export function getProductionDocuments(): ProductionDocument[] {
 export function saveProductionDocuments(docs: ProductionDocument[]): void {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(docs));
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('backstage_documents_updated', { detail: docs }));
+    }
   } catch (e) {
     console.error('Failed to save production documents:', e);
   }
 }
+
+export function addProductionDocument(
+  doc: Omit<ProductionDocument, 'id' | 'uploadedAt' | 'annotations'> & {
+    id?: string;
+    uploadedAt?: string;
+    annotations?: any[];
+  }
+): ProductionDocument {
+  const currentDocs = getProductionDocuments();
+  const newDoc: ProductionDocument = {
+    id: doc.id || `doc-${Date.now()}`,
+    title: doc.title,
+    titleTa: doc.titleTa,
+    category: doc.category,
+    fileName: doc.fileName || `${doc.title.replace(/\s+/g, '_')}.pdf`,
+    fileSize: doc.fileSize || '1.1 MB',
+    pageCount: doc.pageCount || 1,
+    uploadedAt: doc.uploadedAt || new Date().toISOString(),
+    pdfDataUrl: doc.pdfDataUrl,
+    imageDataUrl: doc.imageDataUrl,
+    htmlContent: doc.htmlContent,
+    textContent: doc.textContent,
+    builtInType: doc.builtInType,
+    annotations: doc.annotations || [],
+    author: doc.author,
+  };
+
+  const updated = [newDoc, ...currentDocs];
+  saveProductionDocuments(updated);
+  return newDoc;
+}
+
+export function saveBreakdownToVault(sceneTitle: string, sceneNumber: string, itemsCount: number, htmlPreview?: string): ProductionDocument {
+  return addProductionDocument({
+    title: `Scene ${sceneNumber} Breakdown Sheet (${sceneTitle})`,
+    titleTa: `காட்சி ${sceneNumber} குறிப்பு தாள்`,
+    category: 'BREAKDOWN',
+    fileName: `Breakdown_Scene_${sceneNumber}.pdf`,
+    fileSize: '840 KB',
+    pageCount: 1,
+    builtInType: 'breakdown',
+    htmlContent: htmlPreview,
+    author: '1st AD Breakdown Supervisor',
+  });
+}
+

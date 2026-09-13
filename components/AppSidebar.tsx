@@ -5,7 +5,7 @@ import {
   Film, LayoutGrid, FileText, Users, Layers, Clock, Video, Image as ImageIcon,
   Calendar, CalendarCheck, Files, ClipboardList, TrendingUp,
   PanelLeftClose, PanelLeft, Settings, Sun, Moon, Sparkles, Inbox,
-  RotateCcw, RotateCw, Target, CheckCircle2, Layout, Save, Check,
+  RotateCcw, RotateCw, Target, CheckCircle2, Check,
   User, Cloud, CloudOff, Wifi, WifiOff, LogOut, LogIn, Users as UsersIcon
 } from 'lucide-react';
 import { useAiKeyStatus } from '../context/AiKeyStatusContext';
@@ -41,7 +41,7 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
     undo, redo, canUndo, canRedo,
     appTheme, setAppTheme, appAccentColor = '#f5a623',
     navLayout, setNavLayout,
-    saveProject, saveProjectAs, hasUnsavedChanges, isSaving, currentUser, isCloudMode,
+    hasUnsavedChanges, isSaving, currentUser, isCloudMode,
     cloudOffline, supabaseUser, logout
   } = useProject();
 
@@ -78,18 +78,6 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
   }, [projectList, currentProjectId]);
 
   const isCloudActive = isCloudMode;
-
-  const handleSaveClick = async () => {
-    if (isCloudActive) {
-      saveProject();
-    } else {
-      if (!fileHandle) {
-        await saveProjectAs();
-      } else {
-        saveProject();
-      }
-    }
-  };
 
   const navItems = useMemo(() => {
     const list = [
@@ -129,15 +117,6 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
     const percent = Math.min(100, Math.round((currentTotal / (targetTotal || 1)) * 100));
     return { percent, isDone: currentTotal >= targetTotal };
   }, [writingGoal, beats]);
-
-  const saveTitle = useMemo(() => {
-    if (isSaving) return "Writing to Disk...";
-    if (showSavedConfirmation) return "Successfully Saved";
-    if (isCloudActive && cloudOffline) return "Offline — Saved Locally";
-    if (isCloudActive) return hasUnsavedChanges ? "Syncing to Production" : "Synced to Production";
-    if (fileHandle) return hasUnsavedChanges ? `Save changes to ${fileHandle.name}` : `${fileHandle.name} is up to date`;
-    return "Click to save project";
-  }, [isSaving, showSavedConfirmation, isCloudActive, cloudOffline, hasUnsavedChanges, fileHandle]);
 
   return (
     <>
@@ -290,72 +269,21 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
 
         {/* Bottom Utility Bar */}
         <div
-          className={`pt-2 pb-3 px-2 border-t space-y-1.5 ${
+          className={`pt-2 pb-2.5 px-2 border-t space-y-2 ${
             isLight ? 'border-gray-200 bg-gray-50/70' : 'border-[#26262a] bg-[#0c0c0e]'
           }`}
         >
-          {/* Quick Layout Switcher Card / Button */}
-          {!isCollapsed ? (
-            <button
-              onClick={() => setNavLayout('horizontal')}
-              className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded text-[11px] font-semibold uppercase tracking-wider transition-all border ${
-                isLight
-                  ? 'bg-white border-gray-200 text-gray-700 hover:border-amber-500 hover:text-amber-600'
-                  : 'bg-[#18181c] border-[#2f2f35] text-gray-300 hover:border-amber-500/60 hover:text-amber-400'
-              }`}
-              title="Switch to Horizontal Top Bar navigation"
-            >
-              <span className="flex items-center gap-2">
-                <Layout size={13} style={{ color: appAccentColor }} />
-                Top Bar Mode
-              </span>
-              <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400">
-                SWITCH
-              </span>
-            </button>
-          ) : (
-            <button
-              onClick={() => setNavLayout('horizontal')}
-              className={`w-full h-8 flex items-center justify-center rounded transition-colors ${
-                isLight
-                  ? 'text-gray-500 hover:text-gray-900 hover:bg-gray-200'
-                  : 'text-gray-400 hover:text-amber-400 hover:bg-[#1f1f24]'
-              }`}
-              title="Switch to Horizontal Top Bar navigation"
-            >
-              <Layout size={15} />
-            </button>
-          )}
-
-          {/* Action Icons Row (Save, Inbox, Ask Anything, Goal, Theme, Undo/Redo, Settings) */}
-          <div className={`flex items-center ${isCollapsed ? 'flex-col gap-1' : 'justify-between gap-1'} pt-1`}>
-            {/* SAVE BUTTON */}
-            <button
-              onClick={handleSaveClick}
-              className={`p-1.5 rounded transition-colors relative ${
-                hasUnsavedChanges
-                  ? 'text-amber-400 bg-amber-500/10 hover:bg-amber-500/20'
-                  : isLight
-                    ? 'text-gray-500 hover:text-gray-900 hover:bg-gray-200'
-                    : 'text-gray-400 hover:text-white hover:bg-[#222]'
-              }`}
-              title={saveTitle}
-            >
-              <Save size={15} />
-              {hasUnsavedChanges && (
-                <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-amber-400" />
-              )}
-            </button>
-
+          {/* Action Icons Row (Inbox, Ask Anything, Goal, Theme, Undo/Redo, Settings) */}
+          <div className={`flex items-center ${isCollapsed ? 'flex-col gap-1.5' : 'justify-between gap-1'} px-0.5`}>
             {/* INBOX */}
             <button
               onClick={() => onOpenInbox?.()}
-              className={`relative p-1.5 rounded transition-colors ${
+              className={`relative p-1.5 rounded-lg transition-colors ${
                 currentView === 'inbox'
                   ? 'text-amber-400 bg-amber-500/10'
                   : isLight
-                    ? 'text-gray-500 hover:text-gray-900 hover:bg-gray-200'
-                    : 'text-gray-400 hover:text-white hover:bg-[#222]'
+                    ? 'text-gray-500 hover:text-gray-900 hover:bg-gray-200/80'
+                    : 'text-gray-400 hover:text-white hover:bg-[#1e1e24]'
               }`}
               title="Production Inbox"
             >
@@ -371,7 +299,7 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
             <button
               onClick={() => onAskAnything?.()}
               disabled={!aiAvailable}
-              className={`p-1.5 rounded transition-colors ${
+              className={`p-1.5 rounded-lg transition-colors ${
                 isLight
                   ? 'text-amber-600 hover:text-amber-700 hover:bg-amber-50'
                   : 'text-[#f5a623] hover:text-amber-300 hover:bg-[#252018]'
@@ -384,12 +312,12 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
             {/* WRITING GOAL */}
             <button
               onClick={() => onViewChange('goals')}
-              className={`p-1.5 rounded transition-colors ${
+              className={`p-1.5 rounded-lg transition-colors ${
                 currentView === 'goals'
                   ? 'text-amber-400 bg-amber-500/10'
                   : isLight
-                    ? 'text-gray-500 hover:text-gray-900 hover:bg-gray-200'
-                    : 'text-gray-400 hover:text-white hover:bg-[#222]'
+                    ? 'text-gray-500 hover:text-gray-900 hover:bg-gray-200/80'
+                    : 'text-gray-400 hover:text-white hover:bg-[#1e1e24]'
               }`}
               title="Goals & Deadlines"
             >
@@ -403,10 +331,10 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
             {/* THEME TOGGLE */}
             <button
               onClick={() => setAppTheme(appTheme === 'light' ? 'dark' : 'light')}
-              className={`p-1.5 rounded transition-colors ${
+              className={`p-1.5 rounded-lg transition-colors ${
                 isLight
-                  ? 'text-gray-500 hover:text-gray-900 hover:bg-gray-200'
-                  : 'text-gray-400 hover:text-white hover:bg-[#222]'
+                  ? 'text-gray-500 hover:text-gray-900 hover:bg-gray-200/80'
+                  : 'text-gray-400 hover:text-white hover:bg-[#1e1e24]'
               }`}
               title={`Switch to ${appTheme === 'light' ? 'Dark' : 'Light'} Mode`}
             >
@@ -415,7 +343,7 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
 
             {/* UNDO / REDO (expanded view) */}
             {!isCollapsed && (
-              <div className="flex items-center">
+              <div className="flex items-center gap-0.5">
                 <button
                   onClick={undo}
                   disabled={!canUndo}
@@ -438,12 +366,12 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
             {/* SETTINGS GEAR */}
             <button
               onClick={() => onOpenSettings?.()}
-              className={`p-1.5 rounded transition-colors ${
+              className={`p-1.5 rounded-lg transition-colors ${
                 isLight
-                  ? 'text-gray-500 hover:text-gray-900 hover:bg-gray-200'
-                  : 'text-gray-400 hover:text-white hover:bg-[#222]'
+                  ? 'text-gray-500 hover:text-gray-900 hover:bg-gray-200/80'
+                  : 'text-gray-400 hover:text-white hover:bg-[#1e1e24]'
               }`}
-              title="Settings & Layout Preferences"
+              title="Settings & Preferences"
             >
               <Settings size={15} />
             </button>

@@ -26,6 +26,7 @@ import ScriptArchiveModal from '../ScriptArchiveModal';
 import TamilTranscoderModal from '../TamilTranscoderModal';
 import { Archive } from 'lucide-react';
 import { runLinePaginationPass, estimateBeatHeight } from '../../utils/screenplayPaginationEngine';
+import { isTauri } from '../../utils/desktop';
 
 const DEFAULT_STORYLINE_COLORS = (typeof STORYLINE_COLORS !== 'undefined' && Array.isArray(STORYLINE_COLORS)) 
   ? STORYLINE_COLORS 
@@ -806,10 +807,80 @@ const ContextMenuItem = ({ icon: Icon, label, onClick, danger, submenu, active, 
     );
 };
 
+const GoogleKeepIcon: React.FC<{ size?: number; className?: string }> = ({ size = 14, className = "" }) => (
+  <svg width={size} height={size} viewBox="0 0 48 48" fill="none" className={className}>
+    <rect x="6" y="3" width="36" height="42" rx="6" fill="#FFBB00" />
+    <path
+      d="M24 11C18.48 11 14 15.48 14 21C14 24.36 15.65 27.33 18.2 29.13C18.66 29.46 19 30.01 19 30.6V33C19 33.55 19.45 34 20 34H28C28.55 34 29 33.55 29 33V30.6C29 30.01 29.34 29.46 29.8 29.13C32.35 27.33 34 24.36 34 21C34 15.48 29.52 11 24 11Z"
+      fill="#FFFFFF"
+    />
+    <path
+      d="M21 36H27C27.55 36 28 36.45 28 37C28 37.55 27.55 38 27 38H21C20.45 38 20 37.55 20 37C20 36.45 20.45 36 21 36Z"
+      fill="#FFFFFF"
+    />
+    <path
+      d="M24 14C20.13 14 17 17.13 17 21C17 23.4 18.2 25.5 20.05 26.8C20.65 27.2 21 27.9 21 28.65V31H27V28.65C27 27.9 27.35 27.2 27.95 26.8C29.8 25.5 31 23.4 31 21C31 17.13 27.87 14 24 14Z"
+      fill="#E5A100"
+    />
+  </svg>
+);
+
 const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'casting') => void }> = ({ onNavigateToView }) => {
   const { beats, groups, connections, updateBeat, addBeat, setBeats, setConnections, scriptViewMode, setScriptViewMode, scriptConfig, setScriptConfig, scratchpadConfig, characterData, breakdownLanguage, setBreakdownLanguage, scratchpad, setScratchpad, globalNotes, setGlobalNotes, captureSnapshot, reorderBeats, setActiveBoardId, appTheme, generalAiModel, openrouterKey, userRole } = useProject();
   const { aiAvailable } = useAiKeyStatus();
   const isScriptReadOnly = false;
+
+  const openGoogleKeepCompanion = useCallback(async () => {
+    if (isTauri()) {
+      try {
+        const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow');
+        const existing = await WebviewWindow.getByLabel('google-keep-sidecar');
+        if (existing) {
+          await existing.show();
+          await existing.setFocus();
+          return;
+        }
+
+        const { getCurrentWindow } = await import('@tauri-apps/api/window');
+        const current = getCurrentWindow();
+        const pos = await current.outerPosition();
+        const size = await current.outerSize();
+
+        const width = 420;
+        const height = Math.max(650, size.height - 40);
+        const x = Math.max(0, pos.x + size.width - width - 10);
+        const y = pos.y + 30;
+
+        const keepWin = new WebviewWindow('google-keep-sidecar', {
+          url: 'https://keep.google.com',
+          title: 'Google Keep',
+          width,
+          height,
+          x,
+          y,
+          resizable: true,
+          alwaysOnTop: true,
+        });
+
+        await keepWin.once('tauri://created', () => {
+          console.log('[Tauri] Google Keep window created successfully');
+        });
+        return;
+      } catch (e) {
+        console.warn('Fallback to window.open for Keep in Tauri:', e);
+      }
+    }
+
+    const width = 420;
+    const height = 760;
+    const left = Math.max(0, (typeof window !== 'undefined' ? window.screen.availWidth : 1440) - width - 20);
+    const top = 70;
+    window.open(
+      'https://keep.google.com',
+      'GoogleKeepCompanion',
+      `width=${width},height=${height},left=${left},top=${top},menubar=no,toolbar=no,location=no,status=no,resizable=yes,scrollbars=yes`
+    );
+  }, []);
 
   const isLight = useMemo(() => {
     if (appTheme === 'light') return true;
@@ -829,7 +900,8 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'cast
   const [navMode, setNavMode] = useState<'list' | 'board'>('board');
   const [sidebarWidth, setSidebarWidth] = useState(380); 
   const [activeSidebar, setActiveSidebar] = useState<'none' | 'breakdown' | 'scratchpad' | 'history'>('none');
-  const [scratchpadMode, setScratchpadMode] = useState<'global' | 'scene'>('global');
+  const [scratchpadMode, setScratchpadMode] = useState<'global' | 'scene' | 'keep'>('global');
+  const [keepIframeKey, setKeepIframeKey] = useState(0);
   const [draggedNoteIndex, setDraggedNoteIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null); 
   const [confirmDeleteNoteId, setConfirmDeleteNoteId] = useState<string | null>(null);
@@ -1491,9 +1563,9 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'cast
           return (b.props?.length || 0) + (b.sound?.length || 0) + (b.costume?.length || 0) + (b.vfx?.length || 0) + (b.practical?.length || 0) + (b.cast?.length || 0) + (b.location?.length || 0);
       })()
       : activeSidebar === 'scratchpad'
-          ? (scratchpadMode === 'global' ? (Array.isArray(globalNotes) ? globalNotes.length : 0) : (Array.isArray(activeBeat?.notes) ? activeBeat.notes.length : 0))
+          ? (scratchpadMode === 'keep' ? 'Live' : scratchpadMode === 'global' ? (Array.isArray(globalNotes) ? globalNotes.length : 0) : (Array.isArray(activeBeat?.notes) ? activeBeat.notes.length : 0))
           : (Array.isArray(activeBeat?.versions) ? activeBeat.versions.length : 0);
-  const rightPanelLabel = activeSidebar === 'breakdown' ? 'tags' : activeSidebar === 'scratchpad' ? 'notes' : 'versions';
+  const rightPanelLabel = activeSidebar === 'breakdown' ? 'tags' : activeSidebar === 'scratchpad' ? (scratchpadMode === 'keep' ? 'sync' : 'notes') : 'versions';
 
   return (
     <div className={`flex w-full h-full overflow-hidden font-sans ${isLight ? 'bg-slate-100 text-slate-900' : 'bg-[#0c0c0c] text-white'}`} onClick={() => setScriptContextMenu(null)}>
@@ -1996,7 +2068,21 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'cast
                 <div className={`w-[400px] flex flex-col animate-in slide-in-from-right-10 duration-200 z-30 shadow-2xl relative overflow-hidden border-l ${isLight ? 'bg-slate-50 border-slate-200 text-slate-800' : 'bg-[#0a0a0a] border-[#222] text-white'}`}>
                     <div className={`px-4 py-3 border-b flex items-center justify-between shrink-0 ${isLight ? 'border-slate-200 bg-slate-100/50' : 'border-[#222] bg-[#121216]'}`}>
                         <div className="flex items-center gap-2"><h3 className={`text-xs font-black uppercase tracking-wider flex items-center gap-2 ${isLight ? 'text-slate-800' : 'text-slate-200'}`}>{activeSidebar === 'breakdown' && <><ListChecks size={14} className="text-amber-500" /> Scene Breakdown</>}{activeSidebar === 'scratchpad' && <><StickyNote size={14} className="text-amber-500" /> Note Blocks</>}{activeSidebar === 'history' && <><History size={14} className="text-amber-500" /> Version History</>}</h3><span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border ${isLight ? 'bg-amber-50 border-amber-200 text-amber-800' : 'bg-amber-950/40 border-amber-800/60 text-amber-300'}`}>{rightPanelCount} {rightPanelLabel}</span></div>
-                        <div className="flex gap-2 ml-4">{activeSidebar === 'breakdown' && (<button onClick={() => { setShowSourceHighlights(!showSourceHighlights); clearHighlight(); }} className={`p-1.5 rounded transition-colors ${showSourceHighlights ? (isLight ? 'bg-amber-500 text-slate-950 font-bold' : 'bg-[#f5a623] text-black') : (isLight ? 'text-slate-400 hover:text-slate-800' : 'text-gray-500 hover:text-white')}`} title="Highlight source text in script on hover"><Eye size={14}/></button>)}<button onClick={() => { setActiveSidebar('none'); clearHighlight(); }} className={isLight ? "text-slate-400 hover:text-slate-800" : "text-gray-500 hover:text-white"}><X size={14}/></button></div>
+                        <div className="flex items-center gap-2 ml-4">
+                            {activeSidebar === 'breakdown' && (<button onClick={() => { setShowSourceHighlights(!showSourceHighlights); clearHighlight(); }} className={`p-1.5 rounded transition-colors ${showSourceHighlights ? (isLight ? 'bg-amber-500 text-slate-950 font-bold' : 'bg-[#f5a623] text-black') : (isLight ? 'text-slate-400 hover:text-slate-800' : 'text-gray-500 hover:text-white')}`} title="Highlight source text in script on hover"><Eye size={14}/></button>)}
+                            {activeSidebar === 'scratchpad' && (
+                              <button 
+                                onClick={openGoogleKeepCompanion} 
+                                className={`px-2 py-1 rounded transition-all flex items-center gap-1.5 text-[10px] font-bold border ${isLight ? 'bg-amber-100/70 hover:bg-amber-200 text-amber-950 border-amber-300 shadow-2xs' : 'bg-[#ffbb00]/15 hover:bg-[#ffbb00]/25 text-[#ffbb00] border-[#ffbb00]/30 shadow-2xs'}`} 
+                                title="Open Google Keep in a companion sidecar window"
+                              >
+                                <GoogleKeepIcon size={12} />
+                                <span>Keep</span>
+                                <ExternalLink size={10} className="opacity-70" />
+                              </button>
+                            )}
+                            <button onClick={() => { setActiveSidebar('none'); clearHighlight(); }} className={isLight ? "text-slate-400 hover:text-slate-800" : "text-gray-500 hover:text-white"}><X size={14}/></button>
+                        </div>
                     </div>
                     <div className="flex-1 relative overflow-hidden">
                         {activeSidebar === 'breakdown' && (<div className="absolute inset-0 overflow-y-auto custom-scrollbar p-4">{activeBeat ? (<><div className={`mb-6 pb-4 border-b ${isLight ? 'border-slate-200' : 'border-[#333]'}`}><span className={`text-[9px] uppercase tracking-wider font-bold ${isLight ? 'text-slate-400' : 'text-gray-500'}`}>Scene Breakdown Target</span><h4 className={`text-sm font-black uppercase mt-0.5 mb-4 ${isLight ? 'text-slate-900' : 'text-white'}`}>{activeBeat.slug.location || 'Untitled Scene'}</h4><div className="flex items-center justify-between mb-2"><span className={`text-[10px] font-bold uppercase ${isLight ? 'text-slate-500' : 'text-gray-500'}`}>Output Language</span><div className={`flex rounded border p-0.5 ${isLight ? 'bg-slate-100 border-slate-200' : 'bg-[#111] border-[#333]'}`}><button onClick={() => setBreakdownLanguage('english')} className={`px-2 py-0.5 text-[9px] font-bold uppercase rounded ${breakdownLanguage === 'english' ? (isLight ? 'bg-amber-500 text-slate-950' : 'bg-[#f5a623] text-black') : (isLight ? 'text-slate-600 hover:text-slate-900' : 'text-gray-500 hover:text-white')}`}>ENG</button><button onClick={() => setBreakdownLanguage('tamil')} className={`px-2 py-0.5 text-[9px] font-bold uppercase rounded ${breakdownLanguage === 'tamil' ? (isLight ? 'bg-amber-500 text-slate-950' : 'bg-[#f5a623] text-black') : (isLight ? 'text-slate-600 hover:text-slate-900' : 'text-gray-500 hover:text-white')}`}>TAM</button></div></div><button onClick={handleAnalyzeBreakdown} disabled={isAnalyzing || !aiAvailable} className={`w-full py-2 font-bold text-xs uppercase rounded flex items-center justify-center gap-2 transition-all disabled:opacity-50 ${isLight ? 'bg-amber-500 hover:bg-amber-600 text-slate-950 shadow-xs' : 'bg-[#f5a623] hover:bg-[#e09612] text-black'}`}>{isAnalyzing ? <Sparkles size={14} className="animate-spin" /> : <Sparkles size={14} />} {isAnalyzing ? 'Analyzing...' : 'Auto-Analyze'}</button></div><BreakdownSection title="Location Scenario" category="location" icon={MapIcon} color="text-orange-500" /><BreakdownSection title="Visual Effects" category="vfx" icon={Wand2} color="text-emerald-500" /><BreakdownSection title="Practical Effects" category="practical" icon={Flame} color="text-red-500" /><BreakdownSection title="Props" category="props" icon={Package} color="text-rose-500" /><BreakdownSection title="Sound / SFX" category="sound" icon={Mic2} color="text-sky-500" /><BreakdownSection title="Wardrobe" category="costume" icon={Shirt} color="text-pink-500" /><BreakdownSection title="Cast / Extras" category="cast" icon={Users} color="text-amber-500" /></>) : (<div className={`flex flex-col items-center justify-center h-full gap-2 ${isLight ? 'text-slate-400' : 'text-gray-500'}`}><ListChecks size={32} opacity={0.3} /><span className="text-xs text-center px-4">Select a scene to view or create breakdown items.</span></div>)}</div>)}
@@ -2005,14 +2091,64 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'cast
                             <div className="absolute inset-0 flex flex-col">
                               <div className={`px-4 py-3 border-b ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-[#161616] border-[#333]'}`}>
                                 <div className={`flex p-1 rounded-lg border relative ${isLight ? 'bg-slate-100 border-slate-200' : 'bg-black/40 border-[#333]'}`}>
-                                  <button onClick={() => setScratchpadMode('global')} className={`flex-1 py-1.5 text-[10px] font-bold uppercase rounded-md transition-all relative z-10 flex items-center justify-center gap-2 ${scratchpadMode === 'global' ? (isLight ? 'bg-amber-500 text-slate-950 font-bold shadow-xs' : 'bg-[#f5a623] text-black shadow-sm') : (isLight ? 'text-slate-600 hover:text-slate-900' : 'text-gray-500 hover:text-gray-300')}`}>
-                                    <Globe size={10} /> Global Notes
+                                  <button onClick={() => setScratchpadMode('global')} className={`flex-1 py-1.5 text-[10px] font-bold uppercase rounded-md transition-all relative z-10 flex items-center justify-center gap-1.5 ${scratchpadMode === 'global' ? (isLight ? 'bg-amber-500 text-slate-950 font-bold shadow-xs' : 'bg-[#f5a623] text-black shadow-sm') : (isLight ? 'text-slate-600 hover:text-slate-900' : 'text-gray-500 hover:text-gray-300')}`}>
+                                    <Globe size={10} /> Global
                                   </button>
-                                  <button onClick={() => setScratchpadMode('scene')} className={`flex-1 py-1.5 text-[10px] font-bold uppercase rounded-md transition-all relative z-10 flex items-center justify-center gap-2 ${scratchpadMode === 'scene' ? (isLight ? 'bg-amber-500 text-slate-950 font-bold shadow-xs' : 'bg-[#f5a623] text-black shadow-sm') : (isLight ? 'text-slate-600 hover:text-slate-900' : 'text-gray-500 hover:text-gray-300')}`}>
-                                    <StickyNote size={10} /> Scene Notes
+                                  <button onClick={() => setScratchpadMode('scene')} className={`flex-1 py-1.5 text-[10px] font-bold uppercase rounded-md transition-all relative z-10 flex items-center justify-center gap-1.5 ${scratchpadMode === 'scene' ? (isLight ? 'bg-amber-500 text-slate-950 font-bold shadow-xs' : 'bg-[#f5a623] text-black shadow-sm') : (isLight ? 'text-slate-600 hover:text-slate-900' : 'text-gray-500 hover:text-gray-300')}`}>
+                                    <StickyNote size={10} /> Scene
+                                  </button>
+                                  <button onClick={() => setScratchpadMode('keep')} className={`flex-1 py-1.5 text-[10px] font-bold uppercase rounded-md transition-all relative z-10 flex items-center justify-center gap-1.5 ${scratchpadMode === 'keep' ? (isLight ? 'bg-amber-500 text-slate-950 font-bold shadow-xs' : 'bg-[#ffbb00] text-black shadow-sm') : (isLight ? 'text-slate-600 hover:text-slate-900' : 'text-gray-500 hover:text-gray-300')}`}>
+                                    <GoogleKeepIcon size={11} /> Google Keep
                                   </button>
                                 </div>
                               </div>
+                              {scratchpadMode === 'keep' ? (
+                                <div className="flex-1 flex flex-col h-full overflow-hidden relative">
+                                  <div className={`px-3 py-2 border-b flex items-center justify-between shrink-0 ${isLight ? 'bg-white border-slate-200' : 'bg-[#141416] border-[#222]'}`}>
+                                    <div className="flex items-center gap-2">
+                                      <GoogleKeepIcon size={14} />
+                                      <span className={`text-[11px] font-bold uppercase tracking-wider ${isLight ? 'text-slate-800' : 'text-slate-200'}`}>Google Keep Live</span>
+                                    </div>
+                                    <div className="flex items-center gap-1.5">
+                                      <button
+                                        onClick={() => setKeepIframeKey(prev => prev + 1)}
+                                        className={`p-1.5 rounded transition-colors ${isLight ? 'text-slate-500 hover:text-slate-800 hover:bg-slate-100' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
+                                        title="Reload Google Keep"
+                                      >
+                                        <RotateCcw size={12} />
+                                      </button>
+                                      <button
+                                        onClick={openGoogleKeepCompanion}
+                                        className={`px-2 py-1 rounded text-[10px] font-bold flex items-center gap-1 border transition-all ${isLight ? 'bg-amber-50 hover:bg-amber-100 text-amber-900 border-amber-200' : 'bg-[#ffbb00]/10 hover:bg-[#ffbb00]/20 text-[#ffbb00] border-[#ffbb00]/30'}`}
+                                        title="Open in companion popup window"
+                                      >
+                                        <span>Pop Out</span>
+                                        <ExternalLink size={10} />
+                                      </button>
+                                    </div>
+                                  </div>
+
+                                  <div className="flex-1 relative w-full h-full bg-white">
+                                    <iframe
+                                      key={keepIframeKey}
+                                      src="https://keep.google.com"
+                                      className="w-full h-full border-none"
+                                      title="Google Keep"
+                                      allow="clipboard-read; clipboard-write; microphone"
+                                    />
+                                  </div>
+
+                                  <div className={`p-2.5 border-t text-[10px] shrink-0 leading-tight ${isLight ? 'bg-amber-50/90 border-amber-200 text-amber-950' : 'bg-[#18150f] border-amber-500/20 text-amber-300'}`}>
+                                    <div className="flex items-start gap-1.5">
+                                      <AlertCircle size={12} className="shrink-0 mt-0.5 text-amber-600" />
+                                      <div className="flex-1 space-y-0.5">
+                                        <div><strong>Notice blank or "refused to connect"?</strong> Google blocks embedding on websites by default.</div>
+                                        <div>Like the <em>Black Menu</em> extension, install <a href="https://chromewebstore.google.com/detail/ignore-x-frame-headers/gleekbfimigapmdooioggjaehnhdmach" target="_blank" rel="noreferrer" className="underline font-bold text-amber-600 hover:text-amber-500">Ignore X-Frame Headers</a> to view directly inside this panel, or use <button onClick={openGoogleKeepCompanion} className="underline font-bold text-amber-600 hover:text-amber-500">Pop Out</button>.</div>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                              ) : (
                               <div className={`flex-1 p-4 overflow-y-auto custom-scrollbar ${isLight ? 'bg-slate-50' : 'bg-[#111]'}`}>
                                 {scratchpadMode === 'scene' && activeBeat && (
                                   <div className={`mb-4 pb-3 border-b ${isLight ? 'border-slate-200' : 'border-[#222]'}`}>
@@ -2021,9 +2157,20 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'cast
                                   </div>
                                 )}
                                 {scratchpadMode === 'global' && (
-                                  <div className={`mb-4 pb-3 border-b ${isLight ? 'border-slate-200' : 'border-[#222]'}`}>
-                                    <span className={`text-[9px] uppercase tracking-wider font-bold ${isLight ? 'text-slate-400' : 'text-gray-500'}`}>Global Note Target</span>
-                                    <h4 className={`text-xs font-black uppercase mt-0.5 ${isLight ? 'text-slate-800' : 'text-white'}`}>Entire Screenplay</h4>
+                                  <div className={`mb-4 pb-3 border-b flex items-center justify-between ${isLight ? 'border-slate-200' : 'border-[#222]'}`}>
+                                    <div>
+                                      <span className={`text-[9px] uppercase tracking-wider font-bold ${isLight ? 'text-slate-400' : 'text-gray-500'}`}>Global Note Target</span>
+                                      <h4 className={`text-xs font-black uppercase mt-0.5 ${isLight ? 'text-slate-800' : 'text-white'}`}>Entire Screenplay</h4>
+                                    </div>
+                                    <button 
+                                      onClick={openGoogleKeepCompanion}
+                                      className={`px-2 py-1 rounded text-[10px] font-bold flex items-center gap-1.5 border transition-all ${isLight ? 'bg-white hover:bg-amber-50 text-slate-700 hover:text-amber-900 border-slate-200 hover:border-amber-300 shadow-2xs' : 'bg-[#18181b] hover:bg-[#222] text-zinc-300 hover:text-[#ffbb00] border-zinc-800 hover:border-[#ffbb00]/40 shadow-2xs'}`}
+                                      title="Open Google Keep sidecar companion"
+                                    >
+                                      <GoogleKeepIcon size={13} />
+                                      <span>Keep Sidecar</span>
+                                      <ExternalLink size={10} className="opacity-60" />
+                                    </button>
                                   </div>
                                 )}
                                 {(scratchpadMode === 'global' ? (Array.isArray(globalNotes) ? globalNotes : []) : (Array.isArray(activeBeat?.notes) ? activeBeat.notes : [])).map((note, index) => {
@@ -2118,30 +2265,42 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'cast
                                     <span className="text-xs text-center px-4">Select a scene to add notes.</span>
                                   </div>
                                 ) : (
-                                  <div className="flex gap-2 mt-2">
+                                  <div className="flex flex-col gap-2 mt-2">
+                                    <div className="flex gap-2">
+                                      <button 
+                                        onClick={() => addNote()} 
+                                        className={`flex-1 py-3 border border-dashed rounded-none text-xs font-bold uppercase transition-all flex items-center justify-center gap-2 ${isLight ? 'border-slate-300 hover:border-amber-500 text-slate-600 hover:text-amber-600 hover:bg-amber-50/50' : 'border-[#333] hover:border-[#f5a623] hover:bg-[#f5a623]/10 text-gray-500 hover:text-[#f5a623]'}`}
+                                      >
+                                        <Plus size={14} /> Add Note
+                                      </button>
+                                      <button 
+                                        onClick={toggleRecording} 
+                                        className={`px-4 border border-dashed rounded-none text-xs font-bold uppercase transition-all flex items-center justify-center gap-2 ${isRecording ? 'border-red-500/50 bg-red-500/10 text-red-500 hover:bg-red-500/20' : (isLight ? 'border-slate-300 hover:border-amber-500 text-slate-600 hover:text-amber-600 hover:bg-amber-50/50' : 'border-[#333] hover:border-[#f5a623] hover:bg-[#f5a623]/10 text-gray-500 hover:text-[#f5a623]')}`} 
+                                        title={isRecording ? "Stop Recording" : "Record Voice Idea"}
+                                      >
+                                        {isRecording ? (
+                                          <>
+                                            <Square size={14} className="text-red-500 animate-pulse" />
+                                            <span className="text-[10px] font-mono text-red-500">{Math.floor(recordingDuration / 60)}:{(recordingDuration % 60).toString().padStart(2, '0')}</span>
+                                          </>
+                                        ) : (
+                                          <Mic2 size={14} />
+                                        )}
+                                      </button>
+                                    </div>
                                     <button 
-                                      onClick={() => addNote()} 
-                                      className={`flex-1 py-3 border border-dashed rounded-none text-xs font-bold uppercase transition-all flex items-center justify-center gap-2 ${isLight ? 'border-slate-300 hover:border-amber-500 text-slate-600 hover:text-amber-600 hover:bg-amber-50/50' : 'border-[#333] hover:border-[#f5a623] hover:bg-[#f5a623]/10 text-gray-500 hover:text-[#f5a623]'}`}
+                                      onClick={openGoogleKeepCompanion}
+                                      className={`py-2 px-3 border border-dashed rounded-none text-[11px] font-bold uppercase transition-all flex items-center justify-center gap-2 ${isLight ? 'border-amber-200 hover:border-amber-400 bg-amber-50/50 hover:bg-amber-100/60 text-amber-900' : 'border-[#ffbb00]/20 hover:border-[#ffbb00]/40 bg-[#ffbb00]/5 hover:bg-[#ffbb00]/10 text-[#ffbb00]'}`}
+                                      title="Open Google Keep in a companion sidecar window"
                                     >
-                                      <Plus size={14} /> Add Note
-                                    </button>
-                                    <button 
-                                      onClick={toggleRecording} 
-                                      className={`px-4 border border-dashed rounded-none text-xs font-bold uppercase transition-all flex items-center justify-center gap-2 ${isRecording ? 'border-red-500/50 bg-red-500/10 text-red-500 hover:bg-red-500/20' : (isLight ? 'border-slate-300 hover:border-amber-500 text-slate-600 hover:text-amber-600 hover:bg-amber-50/50' : 'border-[#333] hover:border-[#f5a623] hover:bg-[#f5a623]/10 text-gray-500 hover:text-[#f5a623]')}`} 
-                                      title={isRecording ? "Stop Recording" : "Record Voice Idea"}
-                                    >
-                                      {isRecording ? (
-                                        <>
-                                          <Square size={14} className="text-red-500 animate-pulse" />
-                                          <span className="text-[10px] font-mono text-red-500">{Math.floor(recordingDuration / 60)}:{(recordingDuration % 60).toString().padStart(2, '0')}</span>
-                                        </>
-                                      ) : (
-                                        <Mic2 size={14} />
-                                      )}
+                                      <GoogleKeepIcon size={13} />
+                                      <span>Launch Google Keep Sidecar</span>
+                                      <ExternalLink size={11} className="opacity-60" />
                                     </button>
                                   </div>
                                 )}
                               </div>
+                              )}
                             </div>
                           </SidebarErrorBoundary>
                         )}

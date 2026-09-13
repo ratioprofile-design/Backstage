@@ -601,8 +601,180 @@ export interface Shot {
   reasoning?: string;
 }
 
+export type BreakdownCategory =
+  | 'CAST'
+  | 'EXTRAS'
+  | 'STUNTS'
+  | 'VEHICLES'
+  | 'PROPS'
+  | 'SFX'
+  | 'WARDROBE'
+  | 'MAKEUP'
+  | 'ANIMALS'
+  | 'SOUND'
+  | 'SET_DRESSING'
+  | 'GREENERY'
+  | 'SPECIAL_EQUIPMENT'
+  | 'LIGHTING_GRIP'
+  | 'SAFETY';
+
+export interface CategoryMeta {
+  key: BreakdownCategory;
+  nameEn: string;
+  nameTa: string;
+  color: string;
+  bgColor: string;
+  borderColor: string;
+  iconName: string;
+}
+
+export const CATEGORY_REGISTRY: Record<BreakdownCategory, CategoryMeta> = {
+  CAST: {
+    key: 'CAST',
+    nameEn: 'Cast / Speaking',
+    nameTa: 'நடிகர்கள்',
+    color: '#f87171',
+    bgColor: 'rgba(239, 68, 68, 0.15)',
+    borderColor: '#ef4444',
+    iconName: 'UserCheck',
+  },
+  EXTRAS: {
+    key: 'EXTRAS',
+    nameEn: 'Extras / Atmosphere',
+    nameTa: 'துணை நடிகர்கள் / கூட்டம்',
+    color: '#fde047',
+    bgColor: 'rgba(234, 179, 8, 0.15)',
+    borderColor: '#eab308',
+    iconName: 'Users',
+  },
+  STUNTS: {
+    key: 'STUNTS',
+    nameEn: 'Stunts & Action',
+    nameTa: 'சண்டைப் பயிற்சி / ஆக்ஷன்',
+    color: '#fb923c',
+    bgColor: 'rgba(249, 115, 22, 0.15)',
+    borderColor: '#f97316',
+    iconName: 'Flame',
+  },
+  VEHICLES: {
+    key: 'VEHICLES',
+    nameEn: 'Vehicles / Picture Cars',
+    nameTa: 'வாகனங்கள் / கார்கள்',
+    color: '#f472b6',
+    bgColor: 'rgba(236, 72, 153, 0.15)',
+    borderColor: '#ec4899',
+    iconName: 'Car',
+  },
+  PROPS: {
+    key: 'PROPS',
+    nameEn: 'Props / Hand Props',
+    nameTa: 'பொருட்கள் (Props)',
+    color: '#c084fc',
+    bgColor: 'rgba(168, 85, 247, 0.15)',
+    borderColor: '#a855f7',
+    iconName: 'Package',
+  },
+  SFX: {
+    key: 'SFX',
+    nameEn: 'Special Effects (SFX)',
+    nameTa: 'சிறப்பு விளைவுகள் (SFX)',
+    color: '#60a5fa',
+    bgColor: 'rgba(59, 130, 246, 0.15)',
+    borderColor: '#3b82f6',
+    iconName: 'Sparkles',
+  },
+  WARDROBE: {
+    key: 'WARDROBE',
+    nameEn: 'Costumes / Wardrobe',
+    nameTa: 'உடைகள் / ஆடை வடிவமைப்பு',
+    color: '#fbbf24',
+    bgColor: 'rgba(245, 158, 11, 0.15)',
+    borderColor: '#f59e0b',
+    iconName: 'Shirt',
+  },
+  MAKEUP: {
+    key: 'MAKEUP',
+    nameEn: 'Makeup & Hair / Prosthetics',
+    nameTa: 'ஒப்பனை & சிகை அலங்காரம்',
+    color: '#d97706',
+    bgColor: 'rgba(217, 119, 6, 0.15)',
+    borderColor: '#d97706',
+    iconName: 'Palette',
+  },
+  ANIMALS: {
+    key: 'ANIMALS',
+    nameEn: 'Animals & Handlers',
+    nameTa: 'விலங்குகள் & கையாளுபவர்கள்',
+    color: '#a3e635',
+    bgColor: 'rgba(132, 204, 22, 0.15)',
+    borderColor: '#84cc16',
+    iconName: 'Cat',
+  },
+  SOUND: {
+    key: 'SOUND',
+    nameEn: 'Sound & Music Playback',
+    nameTa: 'ஒலி & இசை குறிப்புகள்',
+    color: '#2dd4bf',
+    bgColor: 'rgba(20, 184, 166, 0.15)',
+    borderColor: '#14b8a6',
+    iconName: 'Volume2',
+  },
+  SET_DRESSING: {
+    key: 'SET_DRESSING',
+    nameEn: 'Set Dressing',
+    nameTa: 'அரங்கு அலங்காரம் (Set Dressing)',
+    color: '#e879f9',
+    bgColor: 'rgba(217, 70, 239, 0.15)',
+    borderColor: '#d946ef',
+    iconName: 'Home',
+  },
+  GREENERY: {
+    key: 'GREENERY',
+    nameEn: 'Greenery & Plants',
+    nameTa: 'தாவரங்கள் & பசுமை',
+    color: '#4ade80',
+    bgColor: 'rgba(34, 197, 94, 0.15)',
+    borderColor: '#22c55e',
+    iconName: 'TreePine',
+  },
+  SPECIAL_EQUIPMENT: {
+    key: 'SPECIAL_EQUIPMENT',
+    nameEn: 'Camera & Special Rigs',
+    nameTa: 'கேமரா & சிறப்பு கருவிகள் (Gimbal/Crane)',
+    color: '#38bdf8',
+    bgColor: 'rgba(14, 165, 233, 0.15)',
+    borderColor: '#0ea5e9',
+    iconName: 'Camera',
+  },
+  LIGHTING_GRIP: {
+    key: 'LIGHTING_GRIP',
+    nameEn: 'Lighting & Grip',
+    nameTa: 'விளக்குகள் & கிரிப் (Lighting)',
+    color: '#facc15',
+    bgColor: 'rgba(250, 204, 21, 0.15)',
+    borderColor: '#facc15',
+    iconName: 'Zap',
+  },
+  SAFETY: {
+    key: 'SAFETY',
+    nameEn: 'Safety, Permits & Hazards',
+    nameTa: 'பாதுகாப்பு & அனுமதி நெறிகள்',
+    color: '#f43f5e',
+    bgColor: 'rgba(244, 63, 94, 0.15)',
+    borderColor: '#f43f5e',
+    iconName: 'AlertTriangle',
+  },
+};
+
 export interface BreakdownItem {
+  id?: string;
+  category?: BreakdownCategory;
   name: string;
+  nameTa?: string;
+  description?: string;
+  descriptionTa?: string;
+  count?: number;
+  isCustom?: boolean;
   source?: string; // The exact text in the script this was derived from
   departmentId?: string; // Target department ID e.g. 'transportation', 'props', 'costume'
   subtasks?: TaskSubtask[]; // Subtasks associated with this item
@@ -611,13 +783,31 @@ export interface BreakdownItem {
 }
 
 export interface BreakdownData {
-  sound: (string | BreakdownItem)[];
-  props: (string | BreakdownItem)[];
-  costume: (string | BreakdownItem)[];
-  vfx: (string | BreakdownItem)[];
-  practical: (string | BreakdownItem)[]; // Physical effects (Smoke, Squibs, Stunts)
-  cast: (string | BreakdownItem)[]; // Extras/Non-speaking
-  location: (string | BreakdownItem)[]; // Location notes/Optimal Scenario
+  sound?: (string | BreakdownItem)[];
+  props?: (string | BreakdownItem)[];
+  costume?: (string | BreakdownItem)[];
+  vfx?: (string | BreakdownItem)[];
+  practical?: (string | BreakdownItem)[]; // Physical effects (Smoke, Squibs, Stunts)
+  cast?: (string | BreakdownItem)[]; // Extras/Non-speaking
+  location?: (string | BreakdownItem)[]; // Location notes/Optimal Scenario
+  // 15 Standard Production Categories
+  CAST?: (string | BreakdownItem)[];
+  EXTRAS?: (string | BreakdownItem)[];
+  STUNTS?: (string | BreakdownItem)[];
+  VEHICLES?: (string | BreakdownItem)[];
+  PROPS?: (string | BreakdownItem)[];
+  SFX?: (string | BreakdownItem)[];
+  WARDROBE?: (string | BreakdownItem)[];
+  MAKEUP?: (string | BreakdownItem)[];
+  ANIMALS?: (string | BreakdownItem)[];
+  SOUND?: (string | BreakdownItem)[];
+  SET_DRESSING?: (string | BreakdownItem)[];
+  GREENERY?: (string | BreakdownItem)[];
+  SPECIAL_EQUIPMENT?: (string | BreakdownItem)[];
+  LIGHTING_GRIP?: (string | BreakdownItem)[];
+  SAFETY?: (string | BreakdownItem)[];
+  // Dynamic list of items
+  items?: BreakdownItem[];
 }
 
 export type BeatStatus = 'not-ready' | 'ready';
@@ -652,6 +842,7 @@ export interface Beat {
   tint?: string; // Card background tint
   shots?: Shot[]; // Array of storyboard shots for this scene
   breakdown?: BreakdownData; // Pre-production breakdown tags
+  breakdownData?: BreakdownData; // Alias for pre-production breakdown tags
   status?: BeatStatus; // Readiness status
   versions?: BeatVersion[]; // History of changes
   boardId?: number; // Target Board Page
@@ -833,7 +1024,14 @@ export interface DiffResult {
   pageShiftEighths: number;
 }
 
-export type AnnotationType = 'highlight' | 'pen' | 'text' | 'rect' | 'note';
+export type AnnotationType = 'highlight' | 'pen' | 'text' | 'rect' | 'note' | 'comment';
+
+export interface CommentReply {
+  id: string;
+  author: string;
+  text: string;
+  createdAt: string;
+}
 
 export interface DocumentAnnotation {
   id: string;
@@ -851,20 +1049,32 @@ export interface DocumentAnnotation {
   text?: string;
   author?: string;
   createdAt: string;
+  selectedText?: string;
+  status?: 'open' | 'resolved';
+  replies?: CommentReply[];
 }
+
+export type DocumentFormat = 'pdf' | 'docx' | 'image' | 'sheet' | 'text' | 'breakdown' | 'callsheet' | 'lookbook' | 'script' | 'safety' | 'permit' | 'contract' | 'other';
 
 export interface ProductionDocument {
   id: string;
+  projectId?: string;
   title: string;
   titleTa?: string;
-  category: 'SCRIPT' | 'LOOKBOOK' | 'CALLSHEET' | 'PERMIT' | 'SAFETY' | 'CONTRACT' | 'OTHER';
+  category: 'SCRIPT' | 'LOOKBOOK' | 'CALLSHEET' | 'BREAKDOWN' | 'SCHEDULE' | 'STORYBOARD' | 'PERMIT' | 'SAFETY' | 'CONTRACT' | 'OTHER';
   fileName: string;
   fileSize?: string;
+  fileType?: DocumentFormat;
   pageCount: number;
   uploadedAt: string;
   pdfDataUrl?: string;
-  builtInType?: 'lookbook' | 'callsheet' | 'safety' | 'permit' | 'contract' | 'script';
+  imageDataUrl?: string;
+  htmlContent?: string;
+  textContent?: string;
+  sheetData?: any[][];
+  builtInType?: 'lookbook' | 'callsheet' | 'safety' | 'permit' | 'contract' | 'script' | 'breakdown' | 'schedule' | 'storyboard' | 'excalidraw';
   annotations: DocumentAnnotation[];
+  author?: string;
 }
 
 export interface CastCallItem {
