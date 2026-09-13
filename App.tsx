@@ -3,6 +3,8 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ProjectProvider, useProject } from './context/ProjectContext';
 import { AiKeyStatusProvider } from './context/AiKeyStatusContext';
 import AppHeader from './components/AppHeader';
+import { AppSidebar } from './components/AppSidebar';
+import { SettingsModal } from './components/SettingsModal';
 import BoardView from './components/views/BoardView';
 import ScriptView from './components/views/ScriptView';
 import CastingView from './components/views/CastingView';
@@ -16,6 +18,9 @@ import BreakdownView from './components/views/BreakdownView';
 import CrewView from './components/views/CrewView';
 import ShotListView from './components/views/ShotListView';
 import ContinuityView from './components/views/ContinuityView';
+import DoodMatrixView from './components/views/DoodMatrixView';
+import DocumentVaultView from './components/views/DocumentVaultView';
+import CallSheetView from './components/views/CallSheetView';
 import EditorModal from './components/EditorModal';
 import PrintPreviewModal from './components/PrintPreviewModal';
 import NewProjectModal from './components/NewProjectModal';
@@ -187,7 +192,7 @@ const StyleInjector: React.FC = () => {
 
 const AppContent: React.FC = () => {
   console.log('[probe] AppContent mounted, supabase user =', useProject ? 'n/a' : 'n/a');
-  const { currentUser, currentProjectId, undo, redo, isInitialLoading, saveProject, saveProjectAs, loadProject, closeProject, setAppTheme, filePath, setFilePath, supabaseUser, isCloudMode, logout, selectProject, deleteProject, projectList, userRole, updateUserRole } = useProject();
+  const { currentUser, currentProjectId, undo, redo, isInitialLoading, saveProject, saveProjectAs, loadProject, closeProject, setAppTheme, filePath, setFilePath, supabaseUser, isCloudMode, logout, selectProject, deleteProject, projectList, userRole, updateUserRole, navLayout = 'horizontal' } = useProject();
   const [currentView, setCurrentView] = useState<ViewMode>('board');
   const [openBeatIds, setOpenBeatIds] = useState<number[]>([]);
   const [showPrintPreview, setShowPrintPreview] = useState(false);
@@ -197,6 +202,18 @@ const AppContent: React.FC = () => {
   const [recentFiles, setRecentFiles] = useState<RecentFile[]>(() => getRecentFiles());
   const [refreshKey, setRefreshKey] = useState(0);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(() => {
+    return localStorage.getItem('sidebar_collapsed') === 'true';
+  });
+
+  const handleToggleSidebar = useCallback(() => {
+    setIsSidebarCollapsed(prev => {
+      const next = !prev;
+      localStorage.setItem('sidebar_collapsed', String(next));
+      return next;
+    });
+  }, []);
 
   useEffect(() => {
     const handleOnline = () => setIsOnline(true);
@@ -213,7 +230,16 @@ const AppContent: React.FC = () => {
 
 
 
-  const showAuth = isSupabaseConfigured && !supabaseUser;
+  const [loadingTimedOut, setLoadingTimedOut] = useState(false);
+  const [showAuthModal, setShowAuthModal] = useState(false);
+
+  // Safety fallback: if session restoration takes more than 1s, proceed into workspace
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setLoadingTimedOut(true);
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, []);
 
   // Open a project file from an absolute path (native menu "Open File..." / recent files / welcome screen)
   const openPath = useCallback(async (path: string): Promise<boolean> => {
@@ -384,6 +410,27 @@ const AppContent: React.FC = () => {
     });
   };
 
+  // Sync inbox tasks when updated via breakdown sync or other views
+  useEffect(() => {
+    const handleTasksUpdated = () => {
+      try {
+        const saved = localStorage.getItem('app_inbox_tasks');
+        if (saved) {
+          setInboxTasks(JSON.parse(saved));
+        }
+      } catch (e) {
+        console.error('Failed to reload inbox tasks', e);
+      }
+    };
+
+    window.addEventListener('app_tasks_updated', handleTasksUpdated);
+    window.addEventListener('storage', handleTasksUpdated);
+    return () => {
+      window.removeEventListener('app_tasks_updated', handleTasksUpdated);
+      window.removeEventListener('storage', handleTasksUpdated);
+    };
+  }, []);
+
   // Global Keyboard Shortcuts for Undo/Redo
   useEffect(() => {
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
@@ -424,9 +471,13 @@ const AppContent: React.FC = () => {
       });
   };
 
-  if (isInitialLoading) {
+  if (isInitialLoading && !loadingTimedOut) {
       return (
-          <div className="fixed inset-0 bg-[#050505] flex flex-col items-center justify-center font-sans">
+          <div 
+            onClick={() => setLoadingTimedOut(true)}
+            className="fixed inset-0 bg-[#050505] flex flex-col items-center justify-center font-sans cursor-pointer select-none"
+            title="Click to enter workspace immediately"
+          >
               <div className="relative mb-8">
                   <div className="w-16 h-16 bg-[#111] border border-white/10 rounded-2xl flex items-center justify-center animate-pulse">
                       <Film className="text-[#f5a623]" size={32} />
@@ -436,43 +487,10 @@ const AppContent: React.FC = () => {
                   <Loader2 className="animate-spin text-gray-600" size={14} />
                   <span className="text-[10px] font-black text-gray-500 uppercase tracking-[0.4em]">Restoring Session...</span>
               </div>
+              <span className="text-[10px] text-gray-600 hover:text-amber-400 mt-4 underline decoration-gray-800 transition-colors">
+                  Click to continue immediately
+              </span>
           </div>
-      );
-  }
-
-  if (!isOnline && !supabaseUser) {
-      return (
-          <div className="fixed inset-0 bg-[#050505] flex flex-col items-center justify-center font-sans px-6 text-center">
-              <div className="w-16 h-16 bg-red-500/10 border border-red-500/20 rounded-2xl flex items-center justify-center mb-6">
-                  <Cloud className="text-red-500 animate-pulse" size={32} />
-              </div>
-              <h1 className="text-xl font-bold text-white mb-2">Internet Connection Required</h1>
-              <p className="text-sm text-gray-400 max-w-sm mb-6 leading-relaxed">
-                  Backstage is currently offline. You can only use the application offline if you have already signed in. Please connect to the internet to sign in and activate offline mode.
-              </p>
-              <div className="text-[10px] font-black text-gray-500 uppercase tracking-widest flex items-center gap-2">
-                  <Loader2 className="animate-spin text-gray-600" size={12} />
-                  <span className="text-gray-500">Waiting for network connection...</span>
-              </div>
-          </div>
-      );
-  }
-
-  if (showAuth) {
-      return (
-          <>
-              <StyleInjector />
-              <AuthScreen />
-          </>
-      );
-  }
-
-  if (userRole === null) {
-      return (
-          <>
-              <StyleInjector />
-              <RoleSelectorModal onSelectRoles={(roles) => updateUserRole(roles)} />
-          </>
       );
   }
 
@@ -495,56 +513,120 @@ const AppContent: React.FC = () => {
               cloudProjects={projectList}
               onOpenCloudProject={(id) => { selectProject(id); setShowWelcome(false); }}
               onDeleteCloudProject={(id) => { if (supabaseUser) deleteProject(id); }}
-              onOpenAuth={() => {}}
+              onOpenAuth={() => setShowAuthModal(true)}
           />
+      );
+  }
+
+  if (showAuthModal) {
+      return (
+          <>
+              <StyleInjector />
+              <div className="fixed inset-0 z-[800] bg-black/85 backdrop-blur-md flex items-center justify-center p-4">
+                <div className="relative w-full max-w-md">
+                  <button 
+                    onClick={() => setShowAuthModal(false)}
+                    className="absolute -top-10 right-0 px-3 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-xs font-bold text-white transition-all"
+                  >
+                    ✕ Close
+                  </button>
+                  <AuthScreen />
+                </div>
+              </div>
+          </>
+      );
+  }
+
+  if (userRole === null) {
+      return (
+          <>
+              <StyleInjector />
+              <RoleSelectorModal onSelectRoles={(roles) => updateUserRole(roles)} />
+          </>
       );
   }
 
   return (
     <>
       <StyleInjector />
-      <div className="print:hidden">
-        <AppHeader 
-            currentView={currentView} 
+      <div className="flex h-screen w-screen overflow-hidden bg-[#0c0c0c] text-white">
+        {/* VERTICAL SIDEBAR NAVIGATION */}
+        {navLayout === 'vertical' && (
+          <AppSidebar
+            currentView={currentView}
             onViewChange={setCurrentView}
-            onRefresh={handleRefresh}
-            onPrint={() => setShowPrintPreview(true)}
+            isCollapsed={isSidebarCollapsed}
+            onToggleCollapse={handleToggleSidebar}
+            onOpenSettings={() => setIsSettingsOpen(true)}
             onOpenInbox={() => setIsInboxOpen(true)}
             unreadCount={inboxTasks.filter(t => !t.isRead).length}
-            onOpenAuth={() => {}}
             onAskAnything={() => setShowAssistant(true)}
-        />
+            onPrint={() => setShowPrintPreview(true)}
+          />
+        )}
+
+        {/* MAIN COLUMN (HEADER [HORIZONTAL ONLY] + ACTIVE VIEW CONTENT) */}
+        <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden relative">
+          {navLayout === 'horizontal' && (
+            <div className="print:hidden shrink-0">
+              <AppHeader 
+                  currentView={currentView} 
+                  onViewChange={setCurrentView}
+                  onRefresh={handleRefresh}
+                  onPrint={() => setShowPrintPreview(true)}
+                  onOpenInbox={() => setIsInboxOpen(true)}
+                  unreadCount={inboxTasks.filter(t => !t.isRead).length}
+                  onOpenAuth={() => setShowAuthModal(true)}
+                  onAskAnything={() => setShowAssistant(true)}
+                  onOpenSettings={() => setIsSettingsOpen(true)}
+              />
+            </div>
+          )}
+          
+          <main className="flex-1 w-full h-full min-h-0 relative print:hidden print:mt-0 print:h-auto overflow-hidden">
+            {currentView === 'board' && <div className="w-full h-full"><BoardView key={`board-${refreshKey}`} onEditBeat={handleEditBeat} /></div>}
+            {currentView === 'script' && <div className="w-full h-full"><ScriptView key={`script-${refreshKey}`} onNavigateToView={(v) => setCurrentView(v)} /></div>}
+            {currentView === 'casting' && <div className="w-full h-full"><CastingView key={`casting-${refreshKey}`} onNavigateToView={(v) => setCurrentView(v)} /></div>}
+            {currentView === 'characterdesign' && <div className="w-full h-full"><CharacterDesignView key={`characterdesign-${refreshKey}`} onNavigateToView={(v) => setCurrentView(v)} /></div>}
+            {currentView === 'breakdown' && (
+              <div className="w-full h-full">
+                <BreakdownView 
+                  key={`breakdown-${refreshKey}`} 
+                  allTasks={inboxTasks}
+                  onUpdateTask={handleUpdateTask}
+                  onAddTask={handleAddTask}
+                  onNavigateToView={(v: any) => setCurrentView(v)}
+                />
+              </div>
+            )}
+            {currentView === 'continuity' && <div className="w-full h-full"><ContinuityView key={`continuity-${refreshKey}`} /></div>}
+            {currentView === 'crew' && (
+              <div className="w-full h-full">
+                <CrewView 
+                  key={`crew-${refreshKey}`} 
+                  allTasks={inboxTasks}
+                  onUpdateTask={handleUpdateTask}
+                  onAddTask={handleAddTask}
+                  onDeleteTask={handleDeleteTask}
+                />
+              </div>
+            )}
+            {currentView === 'shotlist' && <div className="w-full h-full"><ShotListView key={`shotlist-${refreshKey}`} onNavigateToStoryboard={() => setCurrentView('storyboard')} /></div>}
+            {currentView === 'storyboard' && <div className="w-full h-full"><StoryboardView key={`story-${refreshKey}`} /></div>}
+            {currentView === 'schedule' && <div className="w-full h-full"><ScheduleView key={`schedule-${refreshKey}`} /></div>}
+            {currentView === 'dood' && <div className="w-full h-full"><DoodMatrixView key={`dood-${refreshKey}`} /></div>}
+            {currentView === 'documents' && <div className="w-full h-full"><DocumentVaultView key={`documents-${refreshKey}`} /></div>}
+            {currentView === 'callsheet' && <div className="w-full h-full"><CallSheetView key={`callsheet-${refreshKey}`} /></div>}
+            {currentView === 'statistics' && <div className="w-full h-full"><StatisticsView key={`stats-${refreshKey}`} /></div>}
+            {currentView === 'backstage' && <div className="w-full h-full"><BackstageView key={`backstage-${refreshKey}`} onNavigateToBoard={() => setCurrentView('board')} /></div>}
+            {currentView === 'goals' && <div className="w-full h-full"><GoalView key={`goals-${refreshKey}`} /></div>}
+            {currentView === 'inbox' && <div className="w-full h-full"><InboxView key={`inbox-${refreshKey}`} tasks={inboxTasks} onNavigateToView={setCurrentView} onUpdateTask={handleUpdateTask} onAddTask={handleAddTask} onDeleteTask={handleDeleteTask} /></div>}
+            {!['board', 'script', 'casting', 'characterdesign', 'characters', 'breakdown', 'continuity', 'crew', 'shotlist', 'storyboard', 'schedule', 'statistics', 'backstage', 'inbox', 'goals', 'dood', 'documents', 'callsheet'].includes(currentView) && (
+              <div className="w-full h-full"><BoardView key={`fallback-${refreshKey}`} onEditBeat={handleEditBeat} /></div>
+            )}
+          </main>
+        </div>
       </div>
-      
-      <main className={`w-full relative print:hidden print:mt-0 print:h-auto overflow-y-auto overflow-x-hidden h-[calc(100vh-50px)] mt-[50px]`}>
-        {currentView === 'board' && <div className="w-full h-full"><BoardView key={`board-${refreshKey}`} onEditBeat={handleEditBeat} /></div>}
-        {currentView === 'script' && <ScriptView key={`script-${refreshKey}`} onNavigateToView={(v) => setCurrentView(v)} />}
-        {currentView === 'casting' && <div className="w-full h-full"><CastingView key={`casting-${refreshKey}`} onNavigateToView={(v) => setCurrentView(v)} /></div>}
-        {currentView === 'characterdesign' && <CharacterDesignView key={`characterdesign-${refreshKey}`} onNavigateToView={(v) => setCurrentView(v)} />}
-        {currentView === 'breakdown' && <div className="w-full h-full"><BreakdownView key={`breakdown-${refreshKey}`} /></div>}
-        {currentView === 'continuity' && <div className="w-full h-full"><ContinuityView key={`continuity-${refreshKey}`} /></div>}
-        {currentView === 'crew' && (
-          <div className="w-full h-full">
-            <CrewView 
-              key={`crew-${refreshKey}`} 
-              allTasks={inboxTasks}
-              onUpdateTask={handleUpdateTask}
-              onAddTask={handleAddTask}
-              onDeleteTask={handleDeleteTask}
-            />
-          </div>
-        )}
-        {currentView === 'shotlist' && <div className="w-full h-full"><ShotListView key={`shotlist-${refreshKey}`} onNavigateToStoryboard={() => setCurrentView('storyboard')} /></div>}
-        {currentView === 'storyboard' && <div className="w-full h-full"><StoryboardView key={`story-${refreshKey}`} /></div>}
-        {currentView === 'schedule' && <div className="w-full h-full"><ScheduleView key={`schedule-${refreshKey}`} /></div>}
-        {currentView === 'statistics' && <div className="w-full h-full"><StatisticsView key={`stats-${refreshKey}`} /></div>}
-        {currentView === 'backstage' && <div className="w-full h-full"><BackstageView key={`backstage-${refreshKey}`} onNavigateToBoard={() => setCurrentView('board')} /></div>}
-        {currentView === 'goals' && <div className="w-full h-full"><GoalView key={`goals-${refreshKey}`} /></div>}
-        {currentView === 'inbox' && <div className="w-full h-full"><InboxView key={`inbox-${refreshKey}`} tasks={inboxTasks} onNavigateToView={setCurrentView} onUpdateTask={handleUpdateTask} onAddTask={handleAddTask} onDeleteTask={handleDeleteTask} /></div>}
-        {!['board', 'script', 'casting', 'characterdesign', 'characters', 'breakdown', 'continuity', 'crew', 'shotlist', 'storyboard', 'schedule', 'statistics', 'backstage', 'inbox', 'goals'].includes(currentView) && (
-          <div className="w-full h-full"><BoardView key={`fallback-${refreshKey}`} onEditBeat={handleEditBeat} /></div>
-        )}
-      </main>
 
       {currentView === 'board' && (
         <div className="fixed inset-0 pointer-events-none z-[1000] overflow-hidden">
@@ -587,6 +669,12 @@ const AppContent: React.FC = () => {
       />
 
       <AIAssistantModal isOpen={showAssistant} onClose={() => setShowAssistant(false)} />
+
+      <SettingsModal
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+        onNavigateToBackstage={() => setCurrentView('backstage')}
+      />
     </>
   );
 };

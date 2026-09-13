@@ -979,6 +979,7 @@ const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScri
                                 id={editorId}
                                 initialHtml={contentRef.current} 
                                 onSave={handleContentChange}
+                                onSaveImmediate={handleContentChange}
                                 suggestions={uniqueCharacters} 
                                 onActiveFormatChange={setActiveFormat}
                                 readOnly={isReadOnly}

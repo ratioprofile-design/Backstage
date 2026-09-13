@@ -36,7 +36,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [cloudOffline, setCloudOffline] = useState(false);
   const [userRole, setUserRole] = useState<('writer' | 'director' | 'producer' | 'ad' | 'cinematographer')[] | null>(() => {
     const raw = localStorage.getItem('user_role');
-    if (!raw) return null;
+    if (!raw) return ['writer'];
     try {
       return JSON.parse(raw);
     } catch {
@@ -171,8 +171,34 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const setAppTheme = useCallback((theme: 'dark' | 'light' | 'system') => {
     setAppThemeState(theme);
     localStorage.setItem('app_theme', theme);
+
+    // Synchronize screenplay paperTheme when switching app theme
+    // When switching to dark mode, paper style switches to dark mode
+    // When switching to light mode, paper style switches to white
+    const isDark = theme === 'dark' || (theme === 'system' && typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    const targetPaper: 'dark' | 'white' = isDark ? 'dark' : 'white';
+
+    setScriptConfig(prev => ({
+      ...prev,
+      paperTheme: targetPaper,
+    }));
+
     setHasUnsavedChanges(true);
   }, []);
+
+  // Listen for OS theme changes when theme is set to 'system'
+  useEffect(() => {
+    if (appTheme !== 'system' || typeof window === 'undefined') return;
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    const handler = (e: MediaQueryListEvent) => {
+      setScriptConfig(prev => ({
+        ...prev,
+        paperTheme: e.matches ? 'dark' : 'white',
+      }));
+    };
+    mediaQuery.addEventListener('change', handler);
+    return () => mediaQuery.removeEventListener('change', handler);
+  }, [appTheme]);
 
   const setAppAccentColor = useCallback((color: string) => {
     setAppAccentColorState(color);
@@ -186,6 +212,17 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setHasUnsavedChanges(true);
   }, []);
 
+  // Navigation Layout State ('horizontal' | 'vertical')
+  const [navLayout, setNavLayoutState] = useState<'horizontal' | 'vertical'>(() => {
+    return (localStorage.getItem('app_nav_layout') as any) || INITIAL_STATE.navLayout || 'horizontal';
+  });
+
+  const setNavLayout = useCallback((layout: 'horizontal' | 'vertical') => {
+    setNavLayoutState(layout);
+    localStorage.setItem('app_nav_layout', layout);
+    setHasUnsavedChanges(true);
+  }, []);
+
   // Monitor Supabase Auth
   useEffect(() => {
     console.log('[ctx] auth effect running, isSupabaseConfigured=', isSupabaseConfigured);
@@ -194,16 +231,35 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
         return;
     }
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      console.log('[ctx] getSession result:', session ? `session for ${session.user.email}` : 'no session');
-      if (session) {
-        setSupabaseUser(session.user);
-        setCurrentUser(session.user.email || 'Cloud User');
-        setCloudOffline(false);
-        refreshProjectList(session.user.id);
+    let isMounted = true;
+
+    // Safety timeout: release splash screen within 1s even if network or auth hangs
+    const safetyTimer = setTimeout(() => {
+      if (isMounted) {
+        console.log('[ctx] getSession safety timer fired, releasing initial loading');
+        setIsInitialLoading(false);
       }
-      setIsInitialLoading(false);
-    });
+    }, 1000);
+
+    supabase.auth.getSession()
+      .then(({ data: { session } }) => {
+        clearTimeout(safetyTimer);
+        if (!isMounted) return;
+        console.log('[ctx] getSession result:', session ? `session for ${session.user.email}` : 'no session');
+        if (session) {
+          setSupabaseUser(session.user);
+          setCurrentUser(session.user.email || 'Cloud User');
+          setCloudOffline(false);
+          refreshProjectList(session.user.id).catch(e => console.warn('[ctx] refreshProjectList failed:', e));
+        }
+        setIsInitialLoading(false);
+      })
+      .catch(err => {
+        clearTimeout(safetyTimer);
+        if (!isMounted) return;
+        console.warn('[ctx] getSession error, falling back to offline mode:', err);
+        setIsInitialLoading(false);
+      });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       console.log('[ctx] onAuthStateChange event=', _event, 'session=', session ? `yes ${session.user.email}` : 'no');
@@ -211,7 +267,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
         setSupabaseUser(session.user);
         setCurrentUser(session.user.email || 'Cloud User');
         setCloudOffline(false);
-        refreshProjectList(session.user.id);
+        refreshProjectList(session.user.id).catch(e => console.warn('[ctx] refreshProjectList failed:', e));
       } else {
         setSupabaseUser(null);
         if (isSupabaseConfigured) {
@@ -221,7 +277,11 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       }
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      isMounted = false;
+      clearTimeout(safetyTimer);
+      subscription.unsubscribe();
+    };
   }, []);
 
   const applyProjectState = useCallback((data: any) => {
@@ -264,6 +324,10 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (cleanData.appTheme) setAppThemeState(cleanData.appTheme);
     if (cleanData.appAccentColor) setAppAccentColorState(cleanData.appAccentColor);
     if (cleanData.appLanguage) setAppLanguageState(cleanData.appLanguage);
+    if (cleanData.navLayout) {
+      setNavLayoutState(cleanData.navLayout);
+      localStorage.setItem('app_nav_layout', cleanData.navLayout);
+    }
     
     // Reset the flag after a brief timeout to allow state to settle
     setTimeout(() => { isRemoteUpdateRef.current = false; setHasUnsavedChanges(false); }, 50);
@@ -902,7 +966,8 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const value: ProjectContextType = {
     beats, groups, connections, annotations, characterData, generatedShots, scratchpad, globalNotes, panX, panY, scale, nextId, nextAnnoId, activeBoardId, isTamilMode, tamilFontScale, tamilFontFamily, userDictionary, isOsInputMode, osInputShortcut, scriptConfig, scriptViewMode, scratchpadConfig, storyboardConfig, isStoryboardFeatureEnabled,     breakdownLanguage, breakdownLockedOnly, isPdfDropEnabled, isRedoEnabled, writingGoal, geminiApiKey: '', openrouterKey, setOpenrouterKey, generalAiModel, setGeneralAiModel, dailyStats, sessionStartCount, lastSessionDate, boardLayerOrder, characterDesignLocked, setCharacterDesignLocked: setCharacterDesignLockedWrapped, appTheme, appAccentColor, appLanguage, currentUser, currentProjectId, projectList, hasUnsavedChanges, schemaError, isSaving, fileHandle, filePath, setFilePath,   isInitialLoading, isCloudMode: !!supabaseUser, supabaseUser, cloudOffline, login, logout, selectProject, createProject, deleteProject, closeProject, clearSchemaError: () => { setSchemaError(null); if (supabaseUser) refreshProjectList(supabaseUser.id); }, setBeats: setBeatsWrapped, setGroups: setGroupsWrapped, setConnections: setConnectionsWrapped, setAnnotations: setAnnotationsWrapped, setCharacterData: setCharacterDataWrapped, setGeneratedShots, setScratchpad: setScratchpadWrapped, setGlobalNotes: setGlobalNotesWrapped, updateGeneratedShot: (id, u) => { setGeneratedShots(p => p.map(s => s.id === id ? { ...s, ...u } : s)); setHasUnsavedChanges(true); }, addGeneratedShot: (i) => { const n = { id: `shot-${Date.now()}`, shotSize: 'WIDE', angle: 'EYE LEVEL', description: '', subject: '', scene: '?', imageHistory: [] }; const s = [...generatedShots]; s.splice(i + 1, 0, n); setGeneratedShots(s); captureSnapshot(); }, removeGeneratedShot: (id) => { setGeneratedShots(p => p.filter(s => s.id !== id)); captureSnapshot(); }, moveGeneratedShot: (f, t) => { const s = [...generatedShots]; const [m] = s.splice(f, 1); s.splice(t, 0, m); setGeneratedShots(s); captureSnapshot(); }, setPan: (x, y) => { setPanX(x); setPanY(y); }, setScale, updateBeat, addBeat, reorderBeats, addGroup: (g) => { const id = nextId; setNextId(p => p + 1); setGroups(p => [...p, { ...g, id, boardId: activeBoardId }]); captureSnapshot(); }, updateGroup: (id, u) => { setGroups(p => p.map(g => g.id === id ? { ...g, ...u } : g)); setHasUnsavedChanges(true); }, removeGroup: (id) => { setGroups(p => p.filter(g => g.id !== id)); captureSnapshot(); }, loadProject: applyProjectState, saveProject, saveProjectAs, setActiveBoardId, setTamilMode, setTamilFontScale, setTamilFontFamily, learnTamilWord: (e, t) => { setUserDictionary(p => { const c = p[e.toLowerCase()] || []; if (!c.includes(t)) return { ...p, [e.toLowerCase()]: [t, ...c] }; return p; }); }, setOsInputMode, setOsInputShortcut, setScriptConfig, setScriptViewMode, setScratchpadConfig, setStoryboardConfig, setStoryboardFeatureEnabled, setAppTheme, setAppAccentColor, setAppLanguage, setBreakdownLanguage, setBreakdownLockedOnly, setPdfDropEnabled, setRedoEnabled, setWritingGoal, setGeminiApiKey: () => {}, setBoardLayerOrder, setNextId, undo, redo, canUndo: historyIndexRef.current > 0, canRedo: historyIndexRef.current < historyRef.current.length - 1, captureSnapshot, downloadProject, autoGenerate5Scenes, autoGenerateScenes,
     userRole, updateUserRole, grokKey, setGrokKey,
-    collaborators, setCollaborators: setCollaboratorsWrapped
+    collaborators, setCollaborators: setCollaboratorsWrapped,
+    navLayout, setNavLayout
   };
 
   return <ProjectContext.Provider value={value}>{children}</ProjectContext.Provider>;

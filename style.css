@@ -1,16 +1,94 @@
 
-/* --- BACKSTAGE STORY SEQUENCER CORE STYLES --- */
+/* --- BACKSTAGE STORY SEQUENCER — UNIFIED DESIGN SYSTEM --- */
 
-/* 1. CUSTOM SCROLLBARS & HIDDEN SCROLLBARS */
+/* ==========================================
+   0. DESIGN TOKENS (Dark = default, Light = .light-theme)
+   ========================================== */
+:root {
+  /* Backgrounds */
+  --bg-base: #0a0a0a;
+  --bg-surface: #141414;
+  --bg-elevated: #1e1e1e;
+  --bg-overlay: #252525;
+  --bg-inset: #0e0e0e;
+
+  /* Borders */
+  --border-subtle: #1e1e1e;
+  --border-default: #2a2a2a;
+  --border-strong: #3a3a3a;
+
+  /* Text */
+  --text-primary: #e5e7eb;
+  --text-secondary: #9ca3af;
+  --text-muted: #6b7280;
+
+  /* Accent (overridable via --app-accent) */
+  --app-accent: #f5a623;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 10px 30px rgba(0, 0, 0, 0.5);
+
+  /* Scrollbar */
+  --scrollbar-thumb: #333;
+  --scrollbar-thumb-hover: #444;
+  --scrollbar-track: transparent;
+}
+
+.light-theme {
+  /* Backgrounds */
+  --bg-base: #ffffff;
+  --bg-surface: #f8f9fa;
+  --bg-elevated: #ffffff;
+  --bg-overlay: #f1f3f5;
+  --bg-inset: #e9ecef;
+
+  /* Borders */
+  --border-subtle: #e9ecef;
+  --border-default: #dee2e6;
+  --border-strong: #ced4da;
+
+  /* Text */
+  --text-primary: #111827;
+  --text-secondary: #4b5563;
+  --text-muted: #9ca3af;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 10px 30px rgba(0, 0, 0, 0.1);
+
+  /* Scrollbar */
+  --scrollbar-thumb: #cbd5e1;
+  --scrollbar-thumb-hover: #94a3b8;
+  --scrollbar-track: #f1f5f9;
+}
+
+
+/* ==========================================
+   0b. GLOBAL SHARP EDGES — border-radius: 0
+   ========================================== */
+*, *::before, *::after {
+  border-radius: 0 !important;
+}
+
+
+/* ==========================================
+   1. CUSTOM SCROLLBARS & HIDDEN SCROLLBARS
+   ========================================== */
 .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
-.custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-.custom-scrollbar::-webkit-scrollbar-thumb { background: #333; border-radius: 10px; }
-.custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #444; }
+.custom-scrollbar::-webkit-scrollbar-track { background: var(--scrollbar-track); }
+.custom-scrollbar::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); }
+.custom-scrollbar::-webkit-scrollbar-thumb:hover { background: var(--scrollbar-thumb-hover); }
 
 .scrollbar-none::-webkit-scrollbar { display: none; width: 0; height: 0; }
 .scrollbar-none { -ms-overflow-style: none; scrollbar-width: none; }
 
-/* 2. SCREENPLAY FORMATTING ENGINE */
+
+/* ==========================================
+   2. SCREENPLAY FORMATTING ENGINE
+   ========================================== */
 .script-body {
   line-height: 1.15;
   outline: none;
@@ -120,7 +198,10 @@
   text-decoration: var(--dec-lyrics);
 }
 
-/* 3. FADE/ZOOM ANIMATIONS FOR OVERLAYS */
+
+/* ==========================================
+   3. ANIMATIONS
+   ========================================== */
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 @keyframes zoomIn { from { transform: scale(0.95); opacity: 0; } to { transform: scale(1); opacity: 1; } }
 @keyframes slideUp { from { transform: translateY(10px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
@@ -130,9 +211,12 @@
 .zoom-in { animation-name: zoomIn; }
 .slide-in-from-bottom-2 { animation-name: slideUp; }
 
-/* 4. MISC PROJECT SPECIFIC UI */
+
+/* ==========================================
+   4. PROJECT-SPECIFIC UI
+   ========================================== */
 .board-wrapper {
-  background-image: radial-gradient(circle at 2px 2px, #2a2a2a 1px, transparent 0);
+  background-image: radial-gradient(circle at 2px 2px, var(--border-default) 1px, transparent 0);
   background-size: 50px 50px;
 }
 
@@ -142,25 +226,29 @@
 
 #selection-lasso {
   position: fixed;
-  border: 1px solid rgba(245, 166, 35, 0.8);
-  background-color: rgba(245, 166, 35, 0.15);
+  border: 1px solid var(--app-accent, #f5a623) !important;
+  background-color: color-mix(in srgb, var(--app-accent, #f5a623) 15%, transparent) !important;
   display: none;
   pointer-events: none;
   z-index: 9999;
 }
 
 
-/* 5. ELEGANT LIGHT THEME ENGINE OVERRIDES */
+/* ==========================================
+   5. UNIFIED LIGHT THEME — TOKEN-BASED
+   ========================================== */
+
+/* Base overrides */
 .light-theme,
 .light-theme body,
 .light-theme #root,
 .light-theme main {
-  background-color: #f8fafc !important;
-  color: #1e293b !important;
+  background-color: var(--bg-base) !important;
+  color: var(--text-primary) !important;
   color-scheme: light;
 }
 
-/* Deep dark canvas background overrides in light theme across all pages */
+/* --- Deep dark canvas backgrounds -> --bg-base --- */
 .light-theme .bg-\[\#000\],
 .light-theme .bg-\[\#000000\],
 .light-theme .bg-black,
@@ -192,10 +280,10 @@
 .light-theme .bg-neutral-950,
 .light-theme .bg-zinc-950,
 .light-theme .bg-slate-950 {
-  background-color: #f8fafc !important;
+  background-color: var(--bg-base) !important;
 }
 
-/* Panel, Card, Sidebar, Table, Board & Modal backgrounds in light theme */
+/* --- Panel/Card/Sidebar backgrounds -> --bg-elevated --- */
 .light-theme .bg-\[\#111\],
 .light-theme .bg-\[\#111111\],
 .light-theme .bg-\[\#111113\],
@@ -291,344 +379,341 @@
 .light-theme .bg-zinc-800,
 .light-theme .bg-slate-900,
 .light-theme .bg-slate-800 {
-  background-color: #ffffff !important;
+  background-color: var(--bg-elevated) !important;
 }
 
-/* Sub-containers & Overlay Backdrops in Light Theme */
+/* --- Sub-containers & overlay backdrops --- */
 .light-theme .bg-black\/50,
 .light-theme .bg-black\/40,
 .light-theme .bg-black\/30,
 .light-theme .bg-black\/20,
 .light-theme .bg-white\/5,
 .light-theme .bg-white\/10 {
-  background-color: rgba(241, 245, 249, 0.7) !important;
+  background-color: var(--bg-overlay) !important;
 }
 
-/* Header & Nav overrides */
+/* --- Header & Nav --- */
 .light-theme header,
 .light-theme nav {
-  background-color: #ffffff !important;
-  border-color: #e2e8f0 !important;
-  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.03) !important;
+  background-color: var(--bg-elevated) !important;
+  border-color: var(--border-default) !important;
+  box-shadow: var(--shadow-sm) !important;
 }
 
-/* BEATBOARD CANVAS & BEATS IN LIGHT THEME */
+/* --- Beatboard canvas --- */
 .light-theme .board-wrapper,
 .light-theme #viewport {
-  background-color: #f1f5f9 !important;
-  background-image: radial-gradient(circle at 1.5px 1.5px, #cbd5e1 1px, transparent 0) !important;
+  background-color: var(--bg-surface) !important;
+  background-image: radial-gradient(circle at 1.5px 1.5px, var(--border-strong) 1px, transparent 0) !important;
   background-size: 24px 24px !important;
-  color: #1e293b !important;
+  color: var(--text-primary) !important;
 }
 
+/* --- Beat cards --- */
 .light-theme .beat-card {
-  background-color: #ffffff !important;
-  border-color: #e2e8f0 !important;
-  box-shadow: 0 4px 16px -2px rgba(0, 0, 0, 0.06), 0 2px 4px -1px rgba(0, 0, 0, 0.03) !important;
-  color: #1e293b !important;
+  background-color: var(--bg-elevated) !important;
+  border-color: var(--border-default) !important;
+  box-shadow: var(--shadow-md) !important;
+  color: var(--text-primary) !important;
 }
 
 .light-theme .beat-card:hover {
-  border-color: #cbd5e1 !important;
-  box-shadow: 0 8px 24px -4px rgba(0, 0, 0, 0.09) !important;
+  border-color: var(--border-strong) !important;
+  box-shadow: var(--shadow-lg) !important;
 }
 
 .light-theme .beat-card.selected {
-  border-color: #f5a623 !important;
-  box-shadow: 0 0 0 2px #f5a623, 0 8px 25px rgba(245, 166, 35, 0.2) !important;
+  border-color: var(--app-accent) !important;
+  box-shadow: 0 0 0 2px var(--app-accent), 0 8px 25px color-mix(in srgb, var(--app-accent) 20%, transparent) !important;
 }
 
 .light-theme .beat-card.creating {
-  border-color: #f5a623 !important;
-  box-shadow: 0 0 20px rgba(245, 166, 35, 0.25) !important;
+  border-color: var(--app-accent) !important;
+  box-shadow: 0 0 20px color-mix(in srgb, var(--app-accent) 25%, transparent) !important;
 }
 
 .light-theme .beat-title {
-  color: #0f172a !important;
+  color: var(--text-primary) !important;
   font-weight: 700 !important;
   text-shadow: none !important;
 }
 
 .light-theme .beat-slug-preview {
-  color: #475569 !important;
-  border-bottom-color: #f1f5f9 !important;
+  color: var(--text-secondary) !important;
+  border-bottom-color: var(--border-subtle) !important;
 }
 
 .light-theme .beat-preview {
-  color: #334155 !important;
+  color: var(--text-secondary) !important;
 }
 
 .light-theme .beat-footer {
-  background-color: #f8fafc !important;
-  border-top-color: #f1f5f9 !important;
+  background-color: var(--bg-surface) !important;
+  border-top-color: var(--border-subtle) !important;
 }
 
 .light-theme .beat-status,
 .light-theme .beat-version {
-  color: #64748b !important;
+  color: var(--text-muted) !important;
 }
 
 .light-theme .title-input,
 .light-theme .summary-input {
-  background-color: #ffffff !important;
-  color: #0f172a !important;
-  border-color: #f5a623 !important;
+  background-color: var(--bg-elevated) !important;
+  color: var(--text-primary) !important;
+  border-color: var(--app-accent) !important;
 }
 
 .light-theme .input-handle-visual {
-  background-color: #f1f5f9 !important;
-  border-color: #cbd5e1 !important;
+  background-color: var(--bg-surface) !important;
+  border-color: var(--border-strong) !important;
 }
 
-/* Groups / Sequences on Beatboard in light theme */
+/* --- Groups / Sequences on Beatboard --- */
 .light-theme .group-container {
-  background-color: rgba(255, 255, 255, 0.9) !important;
-  border-color: #e2e8f0 !important;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.04) !important;
+  background-color: var(--bg-elevated) !important;
+  border-color: var(--border-default) !important;
+  box-shadow: var(--shadow-md) !important;
 }
 
 .light-theme .group-header {
-  background-color: #f8fafc !important;
-  color: #0f172a !important;
+  background-color: var(--bg-surface) !important;
+  color: var(--text-primary) !important;
 }
 
 .light-theme .group-input {
-  color: #0f172a !important;
+  color: var(--text-primary) !important;
 }
 
-/* Text Annotations on Beatboard in light theme */
+/* --- Text Annotations --- */
 .light-theme .text-annotation-card {
-  color: #1e293b !important;
+  color: var(--text-primary) !important;
 }
 
 .light-theme .text-annotation-card:hover {
-  border-color: #cbd5e1 !important;
-  background: rgba(255, 255, 255, 0.9) !important;
+  border-color: var(--border-strong) !important;
+  background: var(--bg-elevated) !important;
 }
 
 .light-theme .text-annotation-card.editing {
-  background-color: #ffffff !important;
-  border-color: #f5a623 !important;
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.08) !important;
+  background-color: var(--bg-elevated) !important;
+  border-color: var(--app-accent) !important;
+  box-shadow: var(--shadow-lg) !important;
 }
 
 .light-theme .text-annotation-input,
 .light-theme .text-annotation-display {
-  color: #1e293b !important;
+  color: var(--text-primary) !important;
 }
 
-/* Context Menu & Dropdowns in light theme */
+/* --- Context Menu & Dropdowns --- */
 .light-theme #context-menu {
-  background-color: #ffffff !important;
-  border-color: #e2e8f0 !important;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08) !important;
+  background-color: var(--bg-elevated) !important;
+  border-color: var(--border-default) !important;
+  box-shadow: var(--shadow-lg) !important;
 }
 
 .light-theme .ctx-item {
-  color: #334155 !important;
+  color: var(--text-secondary) !important;
 }
 
 .light-theme .ctx-item:hover {
-  background-color: #f1f5f9 !important;
-  color: #0f172a !important;
+  background-color: var(--bg-surface) !important;
+  color: var(--text-primary) !important;
 }
 
 .light-theme .ctx-divider {
-  background-color: #f1f5f9 !important;
+  background-color: var(--border-subtle) !important;
 }
 
 .light-theme .ctx-label {
-  color: #64748b !important;
+  color: var(--text-muted) !important;
 }
 
-/* Zoom Controls, Toolbar, Minimap & Switcher on Beatboard in light theme */
+/* --- Zoom Controls, Toolbar, Minimap --- */
 .light-theme .zoom-controls button,
 .light-theme .toolbar-toggle,
 .light-theme .toolbar-panel {
-  background-color: #ffffff !important;
-  color: #1e293b !important;
-  border-color: #e2e8f0 !important;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05) !important;
+  background-color: var(--bg-elevated) !important;
+  color: var(--text-primary) !important;
+  border-color: var(--border-default) !important;
+  box-shadow: var(--shadow-sm) !important;
 }
 
 .light-theme .zoom-controls button:hover,
 .light-theme .toolbar-toggle:hover {
-  background-color: #f8fafc !important;
-  border-color: #f5a623 !important;
-  color: #d97706 !important;
+  background-color: var(--bg-surface) !important;
+  border-color: var(--app-accent) !important;
+  color: var(--app-accent) !important;
 }
 
 .light-theme .tool-btn {
-  color: #64748b !important;
+  color: var(--text-muted) !important;
 }
 
 .light-theme .tool-btn:hover {
-  background-color: #f1f5f9 !important;
-  color: #0f172a !important;
+  background-color: var(--bg-surface) !important;
+  color: var(--text-primary) !important;
 }
 
 .light-theme .tool-btn.active {
-  background-color: rgba(245, 166, 35, 0.12) !important;
-  color: #d97706 !important;
-  border-color: rgba(245, 166, 35, 0.4) !important;
+  background-color: color-mix(in srgb, var(--app-accent) 12%, transparent) !important;
+  color: var(--app-accent) !important;
+  border-color: color-mix(in srgb, var(--app-accent) 40%, transparent) !important;
 }
 
 .light-theme .board-switcher {
-  background-color: #ffffff !important;
-  border-color: #e2e8f0 !important;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05) !important;
+  background-color: var(--bg-elevated) !important;
+  border-color: var(--border-default) !important;
+  box-shadow: var(--shadow-sm) !important;
 }
 
 .light-theme .board-tab {
-  color: #64748b !important;
+  color: var(--text-muted) !important;
 }
 
 .light-theme .board-tab:hover {
-  color: #0f172a !important;
-  background-color: #f1f5f9 !important;
+  color: var(--text-primary) !important;
+  background-color: var(--bg-surface) !important;
 }
 
 .light-theme .board-tab.active {
-  background-color: rgba(245, 166, 35, 0.12) !important;
-  color: #d97706 !important;
-  border-color: rgba(245, 166, 35, 0.3) !important;
+  background-color: color-mix(in srgb, var(--app-accent) 12%, transparent) !important;
+  color: var(--app-accent) !important;
+  border-color: color-mix(in srgb, var(--app-accent) 30%, transparent) !important;
 }
 
 .light-theme .minimap-container {
-  background-color: #ffffff !important;
-  border-color: #e2e8f0 !important;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06) !important;
+  background-color: var(--bg-elevated) !important;
+  border-color: var(--border-default) !important;
+  box-shadow: var(--shadow-md) !important;
 }
 
 .light-theme .scrub-timeline-container {
-  background-color: #ffffff !important;
-  border-color: #f5a623 !important;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08) !important;
+  background-color: var(--bg-elevated) !important;
+  border-color: var(--app-accent) !important;
+  box-shadow: var(--shadow-lg) !important;
 }
 
 .light-theme .scrub-track {
-  background-color: #e2e8f0 !important;
+  background-color: var(--border-default) !important;
 }
 
-/* ----------------------------------------------------
-   SPECIFIC VIEW & SIDE PANEL OPTIMIZATIONS FOR LIGHT THEME
-   ---------------------------------------------------- */
-
-/* 1. SCRIPT VIEW & SIDE PANELS */
+/* --- Script view & side panels --- */
 .light-theme .script-sidebar,
 .light-theme .side-panel,
 .light-theme .scratchpad-panel,
 .light-theme .outline-panel {
-  background-color: #ffffff !important;
-  border-color: #e2e8f0 !important;
-  color: #1e293b !important;
+  background-color: var(--bg-elevated) !important;
+  border-color: var(--border-default) !important;
+  color: var(--text-primary) !important;
 }
 
 .light-theme .script-sidebar-header,
 .light-theme .side-panel-header {
-  background-color: #f8fafc !important;
-  border-bottom-color: #e2e8f0 !important;
-  color: #0f172a !important;
+  background-color: var(--bg-surface) !important;
+  border-bottom-color: var(--border-default) !important;
+  color: var(--text-primary) !important;
 }
 
 .light-theme .scratchpad-note {
-  background-color: #ffffff !important;
-  border-color: #e2e8f0 !important;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04) !important;
+  background-color: var(--bg-elevated) !important;
+  border-color: var(--border-default) !important;
+  box-shadow: var(--shadow-sm) !important;
 }
 
 .light-theme .sidebar-tab-button {
-  color: #64748b !important;
+  color: var(--text-muted) !important;
 }
 
 .light-theme .sidebar-tab-button:hover,
 .light-theme .sidebar-tab-button.active {
-  color: #0f172a !important;
-  background-color: #f1f5f9 !important;
+  color: var(--text-primary) !important;
+  background-color: var(--bg-surface) !important;
 }
 
-/* 2. CASTING VIEW */
+/* --- Casting view --- */
 .light-theme .casting-card,
 .light-theme .actor-card,
 .light-theme .deal-sheet-panel,
 .light-theme .character-breakdown-card {
-  background-color: #ffffff !important;
-  border-color: #e2e8f0 !important;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04) !important;
+  background-color: var(--bg-elevated) !important;
+  border-color: var(--border-default) !important;
+  box-shadow: var(--shadow-sm) !important;
 }
 
 .light-theme .audition-badge,
 .light-theme .casting-tag {
-  background-color: #f1f5f9 !important;
-  color: #334155 !important;
-  border-color: #e2e8f0 !important;
+  background-color: var(--bg-surface) !important;
+  color: var(--text-secondary) !important;
+  border-color: var(--border-default) !important;
 }
 
-/* 3. CREW VIEW */
+/* --- Crew view --- */
 .light-theme .crew-card,
 .light-theme .department-panel,
 .light-theme .hod-card,
 .light-theme .callsheet-builder {
-  background-color: #ffffff !important;
-  border-color: #e2e8f0 !important;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04) !important;
+  background-color: var(--bg-elevated) !important;
+  border-color: var(--border-default) !important;
+  box-shadow: var(--shadow-sm) !important;
 }
 
 .light-theme .crew-table th {
-  background-color: #f8fafc !important;
-  color: #334155 !important;
-  border-bottom-color: #e2e8f0 !important;
+  background-color: var(--bg-surface) !important;
+  color: var(--text-secondary) !important;
+  border-bottom-color: var(--border-default) !important;
 }
 
 .light-theme .crew-table td {
-  border-bottom-color: #f1f5f9 !important;
+  border-bottom-color: var(--border-subtle) !important;
 }
 
 .light-theme .crew-table tr:hover {
-  background-color: #f8fafc !important;
+  background-color: var(--bg-surface) !important;
 }
 
-/* 4. SHOT DIVISION (SHOT LIST VIEW) */
+/* --- Shot list view --- */
 .light-theme .shot-table,
 .light-theme .shot-card,
 .light-theme .camera-setup-card {
-  background-color: #ffffff !important;
-  border-color: #e2e8f0 !important;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04) !important;
+  background-color: var(--bg-elevated) !important;
+  border-color: var(--border-default) !important;
+  box-shadow: var(--shadow-sm) !important;
 }
 
 .light-theme .shot-table th {
-  background-color: #f8fafc !important;
-  color: #334155 !important;
-  border-bottom-color: #e2e8f0 !important;
+  background-color: var(--bg-surface) !important;
+  color: var(--text-secondary) !important;
+  border-bottom-color: var(--border-default) !important;
 }
 
 .light-theme .shot-table tr:hover {
-  background-color: #f8fafc !important;
+  background-color: var(--bg-surface) !important;
 }
 
 .light-theme .lens-badge,
 .light-theme .angle-badge {
-  background-color: #f1f5f9 !important;
-  color: #334155 !important;
-  border-color: #e2e8f0 !important;
+  background-color: var(--bg-surface) !important;
+  color: var(--text-secondary) !important;
+  border-color: var(--border-default) !important;
 }
 
-/* 5. SCHEDULING VIEW */
+/* --- Scheduling view --- */
 .light-theme .stripboard-canvas {
-  background-color: #f1f5f9 !important;
+  background-color: var(--bg-surface) !important;
 }
 
 .light-theme .day-break-banner {
-  background-color: #f5a623 !important;
+  background-color: var(--app-accent) !important;
   color: #000000 !important;
   font-weight: 700 !important;
 }
 
 .light-theme .scene-strip-day {
-  background-color: #ffffff !important;
-  color: #0f172a !important;
-  border-color: #e2e8f0 !important;
+  background-color: var(--bg-elevated) !important;
+  color: var(--text-primary) !important;
+  border-color: var(--border-default) !important;
 }
 
 .light-theme .scene-strip-night {
@@ -639,49 +724,48 @@
 
 .light-theme .unscheduled-pool,
 .light-theme .availability-matrix {
-  background-color: #ffffff !important;
-  border-color: #e2e8f0 !important;
+  background-color: var(--bg-elevated) !important;
+  border-color: var(--border-default) !important;
 }
 
-/* 6. STATISTICS VIEW */
+/* --- Statistics view --- */
 .light-theme .stats-card,
 .light-theme .chart-container {
-  background-color: #ffffff !important;
-  border-color: #e2e8f0 !important;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04) !important;
+  background-color: var(--bg-elevated) !important;
+  border-color: var(--border-default) !important;
+  box-shadow: var(--shadow-sm) !important;
 }
 
 .light-theme .recharts-default-tooltip {
-  background-color: #ffffff !important;
-  border-color: #e2e8f0 !important;
-  color: #0f172a !important;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08) !important;
-  border-radius: 8px !important;
+  background-color: var(--bg-elevated) !important;
+  border-color: var(--border-default) !important;
+  color: var(--text-primary) !important;
+  box-shadow: var(--shadow-md) !important;
 }
 
 .light-theme .recharts-tooltip-item {
-  color: #0f172a !important;
+  color: var(--text-primary) !important;
 }
 
 .light-theme .recharts-cartesian-grid line {
-  stroke: #f1f5f9 !important;
+  stroke: var(--border-subtle) !important;
 }
 
 .light-theme .recharts-text {
-  fill: #64748b !important;
+  fill: var(--text-muted) !important;
 }
 
-/* MODALS & DIALOGS IN LIGHT THEME */
+/* --- Modals & Dialogs --- */
 .light-theme [role="dialog"],
 .light-theme .modal-container,
 .light-theme .modal-content {
-  background-color: #ffffff !important;
-  border-color: #e2e8f0 !important;
-  color: #0f172a !important;
-  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.1) !important;
+  background-color: var(--bg-elevated) !important;
+  border-color: var(--border-default) !important;
+  color: var(--text-primary) !important;
+  box-shadow: var(--shadow-lg) !important;
 }
 
-/* Soft Contextual Text Overrides (preserves colored buttons/badges) */
+/* --- Text color overrides for light theme --- */
 .light-theme p,
 .light-theme span,
 .light-theme label,
@@ -704,7 +788,7 @@
 .light-theme .text-slate-200:not(button *, [class*="bg-"] *),
 .light-theme .text-neutral-100:not(button *, [class*="bg-"] *),
 .light-theme .text-neutral-200:not(button *, [class*="bg-"] *) {
-  color: #0f172a !important;
+  color: var(--text-primary) !important;
 }
 
 .light-theme .text-gray-300:not(button *, [class*="bg-"] *),
@@ -715,24 +799,24 @@
 .light-theme .text-slate-400:not(button *, [class*="bg-"] *),
 .light-theme .text-neutral-300:not(button *, [class*="bg-"] *),
 .light-theme .text-neutral-400:not(button *, [class*="bg-"] *) {
-  color: #475569 !important;
+  color: var(--text-secondary) !important;
 }
 
 .light-theme .text-gray-500,
 .light-theme .text-zinc-500,
 .light-theme .text-slate-500,
 .light-theme .text-neutral-500 {
-  color: #64748b !important;
+  color: var(--text-muted) !important;
 }
 
 .light-theme .text-gray-600,
 .light-theme .text-zinc-600,
 .light-theme .text-slate-600,
 .light-theme .text-neutral-600 {
-  color: #475569 !important;
+  color: var(--text-secondary) !important;
 }
 
-/* Borders in light theme across all pages */
+/* --- Border overrides --- */
 .light-theme .border-\[\#111\],
 .light-theme .border-\[\#222\],
 .light-theme .border-\[\#242426\],
@@ -782,60 +866,94 @@
 .light-theme .border-neutral-800,
 .light-theme .border-slate-800,
 .light-theme .border-zinc-800 {
-  border-color: #e2e8f0 !important;
+  border-color: var(--border-default) !important;
 }
 
-/* Inputs, Textareas, and Selects in light theme */
-.light-theme input,
-.light-theme textarea,
-.light-theme select {
-  background-color: #ffffff !important;
-  color: #0f172a !important;
-  border-color: #cbd5e1 !important;
+/* --- Inputs, Textareas, Selects --- */
+.light-theme input:not(.slug-input):not(.bg-transparent):not([class*="bg-transparent"]):not([type="checkbox"]):not([type="radio"]),
+.light-theme textarea:not(.slug-input):not(.bg-transparent):not([class*="bg-transparent"]),
+.light-theme select:not(.slug-input):not(.bg-transparent):not([class*="bg-transparent"]) {
+  background-color: var(--bg-elevated) !important;
+  color: var(--text-primary) !important;
+  border-color: var(--border-strong) !important;
 }
 
-.light-theme input:focus,
-.light-theme textarea:focus,
-.light-theme select:focus {
-  border-color: #f5a623 !important;
-  box-shadow: 0 0 0 2px rgba(245, 166, 35, 0.15) !important;
+.light-theme input:not(.slug-input):not(.bg-transparent):not([class*="bg-transparent"]):focus,
+.light-theme textarea:not(.slug-input):not(.bg-transparent):not([class*="bg-transparent"]):focus,
+.light-theme select:not(.slug-input):not(.bg-transparent):not([class*="bg-transparent"]):focus {
+  border-color: var(--app-accent) !important;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--app-accent) 15%, transparent) !important;
 }
 
 .light-theme option {
-  background-color: #ffffff !important;
-  color: #0f172a !important;
+  background-color: var(--bg-elevated) !important;
+  color: var(--text-primary) !important;
 }
 
 .light-theme input::placeholder,
 .light-theme textarea::placeholder {
-  color: #94a3b8 !important;
+  color: var(--text-muted) !important;
 }
 
-/* Scrollbars in light theme */
+/* --- Screenplay Slugline Inputs (Always seamless with script paper) --- */
+.slug-input,
+.slug-input input,
+input.slug-input,
+.slugline-banner input,
+.beat-block input[id^="beat-"] {
+  background: transparent !important;
+  background-color: transparent !important;
+  border: none !important;
+  border-bottom: 1px solid transparent !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  outline: none !important;
+  color: inherit !important;
+  padding: 1px 2px !important;
+  -webkit-appearance: none !important;
+  appearance: none !important;
+}
+
+.slug-input input:hover,
+input.slug-input:hover,
+.slugline-banner input:hover,
+.beat-block input[id^="beat-"]:hover {
+  background-color: rgba(255, 255, 255, 0.04) !important;
+  border-bottom: 1px solid rgba(245, 166, 35, 0.4) !important;
+}
+
+.slug-input input:focus,
+input.slug-input:focus,
+.slugline-banner input:focus,
+.beat-block input[id^="beat-"]:focus {
+  background-color: rgba(245, 166, 35, 0.08) !important;
+  border-bottom: 2px solid var(--app-accent, #f5a623) !important;
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+/* --- Scrollbars (light) --- */
 .light-theme ::-webkit-scrollbar-thumb {
-  background-color: #cbd5e1 !important;
-  border-radius: 4px !important;
+  background-color: var(--scrollbar-thumb) !important;
 }
 
 .light-theme ::-webkit-scrollbar-thumb:hover {
-  background-color: #94a3b8 !important;
+  background-color: var(--scrollbar-thumb-hover) !important;
 }
 
 .light-theme ::-webkit-scrollbar-track {
-  background-color: #f1f5f9 !important;
+  background-color: var(--scrollbar-track) !important;
 }
 
-/* Script view paper shadow in light mode */
+/* --- Script paper shadow --- */
 .light-theme .sc-paper-preview {
-  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.08), 0 8px 10px -6px rgba(0, 0, 0, 0.04) !important;
+  box-shadow: var(--shadow-md) !important;
 }
+
 
 /* ==========================================
-   GLOBAL ACCENT COLOR SYSTEM & DYNAMIC OVERRIDES
+   6. ACCENT COLOR SYSTEM & DYNAMIC OVERRIDES
    ========================================== */
-:root {
-  --app-accent: #f5a623;
-}
 
 /* Selection Highlights */
 ::selection {
@@ -853,19 +971,11 @@
   outline-color: var(--app-accent, #f5a623) !important;
 }
 
-input:focus, textarea:focus, select:focus {
+input:not(.slug-input):not(.bg-transparent):focus, 
+textarea:not(.slug-input):not(.bg-transparent):focus, 
+select:not(.slug-input):not(.bg-transparent):focus {
   border-color: var(--app-accent, #f5a623) !important;
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--app-accent, #f5a623) 25%, transparent) !important;
-}
-
-/* Canvas Selection Lasso */
-#selection-lasso {
-  position: fixed;
-  border: 1px solid var(--app-accent, #f5a623) !important;
-  background-color: color-mix(in srgb, var(--app-accent, #f5a623) 15%, transparent) !important;
-  display: none;
-  pointer-events: none;
-  z-index: 9999;
 }
 
 /* Card Selection Highlights */
@@ -913,11 +1023,10 @@ input:focus, textarea:focus, select:focus {
 
 
 /* ==========================================
-   CONTINUITY STUDIO — DEDICATED LIGHT THEME
+   7. CONTINUITY STUDIO — LIGHT THEME
    ========================================== */
 
-
-/* Force white text on blue/accent elements and all elements with text-white class in light theme */
+/* Force white text on blue/accent elements */
 .light-theme .continuity-studio-wrapper .text-white,
 .light-theme .continuity-studio-wrapper .text-white *,
 .light-theme .bg-\[\#2962ff\],
@@ -929,83 +1038,72 @@ input:focus, textarea:focus, select:focus {
   color: #ffffff !important;
 }
 
-/* Timeline ruler columns in light mode */
 .light-theme .continuity-ruler-col {
-  border-color: #e2e8f0 !important;
-  color: #475569 !important;
+  border-color: var(--border-default) !important;
+  color: var(--text-secondary) !important;
 }
 
-/* Track row baseline in light mode */
 .light-theme .continuity-track-row {
-  border-color: #e2e8f0 !important;
+  border-color: var(--border-default) !important;
 }
 
 .light-theme .continuity-track-row:hover {
-  background-color: rgba(241, 245, 249, 0.8) !important;
+  background-color: var(--bg-overlay) !important;
 }
 
-/* Timeline left sticky sidebar cells */
 .light-theme .continuity-sidebar-cell {
-  background-color: #ffffff !important;
-  border-color: #e2e8f0 !important;
-  color: #1e293b !important;
+  background-color: var(--bg-elevated) !important;
+  border-color: var(--border-default) !important;
+  color: var(--text-primary) !important;
 }
 
-/* Department header rows */
 .light-theme .continuity-dept-header {
-  background-color: #f1f5f9 !important;
-  border-color: #e2e8f0 !important;
-  color: #0f172a !important;
+  background-color: var(--bg-surface) !important;
+  border-color: var(--border-default) !important;
+  color: var(--text-primary) !important;
 }
 
 .light-theme .continuity-dept-header:hover {
-  background-color: #e2e8f0 !important;
+  background-color: var(--bg-overlay) !important;
 }
 
-/* Minimap in light mode */
 .light-theme .continuity-minimap {
-  background-color: #e2e8f0 !important;
-  border-color: #cbd5e1 !important;
+  background-color: var(--bg-overlay) !important;
+  border-color: var(--border-strong) !important;
 }
 
-/* Inspector drawer */
 .light-theme .continuity-inspector {
-  background-color: #ffffff !important;
-  border-color: #e2e8f0 !important;
+  background-color: var(--bg-elevated) !important;
+  border-color: var(--border-default) !important;
   box-shadow: -4px 0 20px rgba(0, 0, 0, 0.06) !important;
 }
 
-/* Inspector tab nav */
 .light-theme .continuity-inspector-tabs {
-  background-color: #f1f5f9 !important;
-  border-color: #e2e8f0 !important;
+  background-color: var(--bg-surface) !important;
+  border-color: var(--border-default) !important;
 }
 
-/* Inspector sub-panels */
 .light-theme .continuity-inspector-panel {
-  background-color: #f8fafc !important;
-  border-color: #e2e8f0 !important;
+  background-color: var(--bg-surface) !important;
+  border-color: var(--border-default) !important;
 }
 
-/* Polaroid / look image no-photo placeholder in light mode */
 .light-theme .continuity-no-photo {
-  background-color: #e2e8f0 !important;
-  color: #94a3b8 !important;
+  background-color: var(--bg-overlay) !important;
+  color: var(--text-muted) !important;
 }
 
-/* Dept Deck cards in light mode */
 .light-theme .continuity-deck-card {
-  background-color: #ffffff !important;
-  border-color: #e2e8f0 !important;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04) !important;
+  background-color: var(--bg-elevated) !important;
+  border-color: var(--border-default) !important;
+  box-shadow: var(--shadow-sm) !important;
 }
 
 .light-theme .continuity-deck-card:hover {
-  background-color: #f8fafc !important;
-  border-color: #cbd5e1 !important;
+  background-color: var(--bg-surface) !important;
+  border-color: var(--border-strong) !important;
 }
 
-/* Look span bars - keep their vivid background, just tweak shadow */
 .light-theme .look-box-item {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15) !important;
 }
@@ -1014,49 +1112,46 @@ input:focus, textarea:focus, select:focus {
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.2) !important;
 }
 
-/* Audit section positive states */
 .light-theme .continuity-audit-ok {
   background-color: rgba(16, 185, 129, 0.08) !important;
   border-color: rgba(16, 185, 129, 0.3) !important;
   color: #065f46 !important;
 }
 
-/* Audit conflicts */
 .light-theme .continuity-audit-conflict {
   background-color: rgba(239, 68, 68, 0.08) !important;
   border-color: rgba(239, 68, 68, 0.3) !important;
   color: #7f1d1d !important;
 }
 
-/* Sequence cards */
 .light-theme .continuity-sequence-card {
-  background-color: #ffffff !important;
-  border-color: #e2e8f0 !important;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04) !important;
+  background-color: var(--bg-elevated) !important;
+  border-color: var(--border-default) !important;
+  box-shadow: var(--shadow-sm) !important;
 }
 
-/* Scene stepper mini controls */
 .light-theme .continuity-stepper-btn {
-  background-color: #e2e8f0 !important;
-  color: #1e293b !important;
+  background-color: var(--bg-overlay) !important;
+  color: var(--text-primary) !important;
   border: none !important;
 }
 
 .light-theme .continuity-stepper-btn:hover {
-  background-color: #cbd5e1 !important;
+  background-color: var(--border-strong) !important;
 }
 
-/* Scrollbar fine-tuning in continuity view for light mode */
 .light-theme .continuity-scroll::-webkit-scrollbar-thumb {
-  background-color: #cbd5e1 !important;
+  background-color: var(--scrollbar-thumb) !important;
 }
 
 .light-theme .continuity-scroll::-webkit-scrollbar-track {
-  background-color: #f8fafc !important;
+  background-color: var(--bg-surface) !important;
 }
 
 
-/* Print Overrides */
+/* ==========================================
+   8. PRINT OVERRIDES
+   ========================================== */
 @media print {
   @page { margin: 1in; }
   body { background: white !important; color: black !important; overflow: visible !important; height: auto !important; width: auto !important; }
@@ -1064,4 +1159,3 @@ input:focus, textarea:focus, select:focus {
   .no-print, header, .ui-layer { display: none !important; }
   .bible-page { box-shadow: none !important; margin: 0 !important; border: none !important; }
 }
-

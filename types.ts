@@ -98,7 +98,7 @@ export interface ProjectMetadata {
   invitedBy?: string;
 }
 
-export type ViewMode = 'board' | 'script' | 'characters' | 'casting' | 'characterdesign' | 'breakdown' | 'crew' | 'shotlist' | 'storyboard' | 'schedule' | 'statistics' | 'backstage' | 'goals' | 'inbox' | 'continuity' | 'locations';
+export type ViewMode = 'board' | 'script' | 'characters' | 'casting' | 'characterdesign' | 'breakdown' | 'crew' | 'shotlist' | 'storyboard' | 'schedule' | 'statistics' | 'backstage' | 'goals' | 'inbox' | 'continuity' | 'locations' | 'dood' | 'documents' | 'callsheet';
 
 export interface ContinuityItem {
   id: string;
@@ -139,6 +139,14 @@ export interface TaskModificationHistory {
   comment?: string;
 }
 
+export interface TaskSubtask {
+  id: string;
+  title: string;
+  completed: boolean;
+  value?: string; // e.g., "TN 09 BK 7721" or "2023 Toyota Fortuner" or "Matte Black" or "Front Bumper Dent"
+  category?: string; // 'numberplate' | 'modelYear' | 'color' | 'damage' | etc.
+}
+
 export interface AppTask {
   id: string;
   title: string;
@@ -153,6 +161,10 @@ export interface AppTask {
   notes?: string;
   history: TaskModificationHistory[];
   isRead?: boolean;
+  subtasks?: TaskSubtask[];
+  sourceBreakdownItem?: string;
+  sourceCategory?: string;
+  details?: Record<string, string>;
 }
 
 export type BoardLayer = 'beats' | 'groups' | 'connections' | 'annotations' | 'text';
@@ -298,6 +310,7 @@ export interface ProjectState {
   appTheme?: 'dark' | 'light' | 'system';
   appAccentColor?: string;
   appLanguage?: 'english' | 'tamil' | 'spanish' | 'french' | 'german' | 'hindi';
+  navLayout?: 'horizontal' | 'vertical';
 
   // Board Layers
   boardLayerOrder: BoardLayer[];
@@ -399,6 +412,8 @@ export interface ProjectContextType extends ProjectState {
   setAppTheme: (theme: 'dark' | 'light' | 'system') => void;
   setAppAccentColor: (color: string) => void;
   setAppLanguage: (lang: 'english' | 'tamil' | 'spanish' | 'french' | 'german' | 'hindi') => void;
+  navLayout: 'horizontal' | 'vertical';
+  setNavLayout: (layout: 'horizontal' | 'vertical') => void;
 
   // Breakdown Configuration
   setBreakdownLanguage: (lang: 'english' | 'tamil') => void;
@@ -589,6 +604,10 @@ export interface Shot {
 export interface BreakdownItem {
   name: string;
   source?: string; // The exact text in the script this was derived from
+  departmentId?: string; // Target department ID e.g. 'transportation', 'props', 'costume'
+  subtasks?: TaskSubtask[]; // Subtasks associated with this item
+  details?: Record<string, string>; // Key-value details (e.g. numberplate, modelYear, color, damage)
+  continuityDept?: 'costume' | 'makeup' | 'vehicle' | 'props'; // Target continuity category
 }
 
 export interface BreakdownData {
@@ -781,5 +800,126 @@ export interface LocationMapping {
   nearbyChangingDress: AmenityChangingDress[];
   nearbyPowerSupply: AmenityPowerSupply[];
   closestEmergency: AmenityEmergency[];
+}
+
+// --- CINE INTEGRATION TYPES ---
+export type RevisionColor = 'WHITE' | 'BLUE' | 'PINK' | 'YELLOW' | 'GREEN' | 'GOLDENROD';
+
+export interface ScriptVersion {
+  id: string;
+  versionNumber: number;
+  versionName: string;
+  versionNameTa?: string;
+  revisionColor: RevisionColor;
+  status: 'DRAFT' | 'REVISED' | 'LOCKED' | 'SHOOTING';
+  author: string;
+  createdAt: string;
+  scriptContent: string;
+  sceneCount: number;
+  pageCountEighths: number;
+  scenes?: any[];
+}
+
+export interface DiffResult {
+  sceneId: string;
+  sceneNumber: string;
+  status: 'ADDED' | 'REMOVED' | 'MODIFIED' | 'UNCHANGED';
+  titleA?: string;
+  titleB?: string;
+  textA?: string;
+  textB?: string;
+  addedItems: any[];
+  removedItems: any[];
+  pageShiftEighths: number;
+}
+
+export type AnnotationType = 'highlight' | 'pen' | 'text' | 'rect' | 'note';
+
+export interface DocumentAnnotation {
+  id: string;
+  documentId: string;
+  pageNumber: number;
+  type: AnnotationType;
+  color: string;
+  strokeWidth?: number;
+  opacity?: number;
+  points?: Array<{ x: number; y: number }>;
+  x?: number;
+  y?: number;
+  width?: number;
+  height?: number;
+  text?: string;
+  author?: string;
+  createdAt: string;
+}
+
+export interface ProductionDocument {
+  id: string;
+  title: string;
+  titleTa?: string;
+  category: 'SCRIPT' | 'LOOKBOOK' | 'CALLSHEET' | 'PERMIT' | 'SAFETY' | 'CONTRACT' | 'OTHER';
+  fileName: string;
+  fileSize?: string;
+  pageCount: number;
+  uploadedAt: string;
+  pdfDataUrl?: string;
+  builtInType?: 'lookbook' | 'callsheet' | 'safety' | 'permit' | 'contract' | 'script';
+  annotations: DocumentAnnotation[];
+}
+
+export interface CastCallItem {
+  id: string;
+  castNumber: number;
+  characterName: string;
+  characterNameTa?: string;
+  actorName: string;
+  status?: 'SW' | 'W' | 'H' | 'WF' | 'SWF';
+  pickupTime: string;
+  makeupTime: string;
+  onSetTime: string;
+  notes?: string;
+}
+
+export interface ExtrasCallItem {
+  id: string;
+  groupName: string;
+  count: number;
+  callTime: string;
+  wardrobeNotes?: string;
+}
+
+export interface CallSheet {
+  id: string;
+  productionTitle: string;
+  shootDay: number;
+  totalShootDays: number;
+  date: string;
+  callTime: string;
+  breakfastTime?: string;
+  estimatedWrap?: string;
+  director: string;
+  producer: string;
+  firstAd: string;
+  cinematographer: string;
+  productionDesigner?: string;
+  stuntCoordinator?: string;
+  soundMixer?: string;
+  generalCrewCall: string;
+  weather: string;
+  sunriseSunset: string;
+  hospitalName: string;
+  hospitalAddress: string;
+  hospitalEmergencyPhone: string;
+  locationName: string;
+  locationAddress: string;
+  parkingInstructions: string;
+  scheduledScenes: string[];
+  castCalls: CastCallItem[];
+  extrasCalls?: ExtrasCallItem[];
+  stuntSfxNotes?: string;
+  cameraNotes?: string;
+  cateringNotes?: string;
+  tomorrowPreview?: string;
+  advancedScheduleNotes: string;
 }
 

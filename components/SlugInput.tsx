@@ -126,7 +126,7 @@ export const SlugInput = ({
   };
 
   return (
-    <div ref={containerRef} className={`relative ${className}`}>
+    <div ref={containerRef} className={`relative flex items-center ${className}`}>
       <input 
         id={id}
         value={value}
@@ -135,23 +135,30 @@ export const SlugInput = ({
         readOnly={readOnly}
         onFocus={handleOpen}
         onMouseDown={handleOpen} // Force open on click
-        className={`uppercase bg-transparent outline-none w-full transition-colors print:border-none print:bg-transparent leading-tight placeholder:opacity-40 ${readOnly ? 'cursor-default opacity-80' : 'hover:bg-current/10 focus:bg-current/15 rounded px-1'}`}
-        style={style}
+        className={`slug-input uppercase bg-transparent outline-none w-full transition-colors print:border-none print:bg-transparent leading-tight placeholder:opacity-40 font-screenplay ${readOnly ? 'cursor-default opacity-80' : 'cursor-text'}`}
+        style={{
+          backgroundColor: 'transparent',
+          color: 'inherit',
+          border: 'none',
+          outline: 'none',
+          boxShadow: 'none',
+          ...style
+        }}
         placeholder={placeholder}
         autoComplete="off"
       />
       {!readOnly && isOpen && (
         <div 
-          className={`absolute top-full ${align === 'right' ? 'right-0' : 'left-0'} min-w-full w-max bg-white dark:bg-[#1a1a1e] border border-slate-200 dark:border-slate-700/80 shadow-2xl z-[9999] max-h-60 overflow-y-auto mt-1 rounded-md p-1 print:hidden text-left backdrop-blur-md ${dropdownClassName || ''}`}
+          className={`absolute top-full ${align === 'right' ? 'right-0' : 'left-0'} min-w-full w-max bg-white dark:bg-[#1a1a1e] border border-slate-200 dark:border-slate-700/80 shadow-2xl z-[9999] max-h-60 overflow-y-auto mt-1 rounded-none p-1 print:hidden text-left backdrop-blur-md ${dropdownClassName || ''}`}
           style={dropdownStyle}
         >
           {filtered.map((s, i) => (
             <div 
               key={s}
-              className={`px-3 py-1.5 cursor-pointer text-xs font-extrabold whitespace-nowrap transition-colors ${
+              className={`px-3 py-1.5 cursor-pointer text-xs font-extrabold whitespace-nowrap transition-colors rounded-none ${
                 i === selectedIndex 
-                  ? 'bg-amber-400 text-slate-950 font-black rounded' 
-                  : 'hover:bg-slate-500/10 rounded'
+                  ? 'bg-amber-400 text-slate-950 font-black' 
+                  : 'hover:bg-slate-500/10'
               }`}
               onMouseDown={(e) => { e.preventDefault(); handleSelect(s); if(onNext) onNext(); }}
             >

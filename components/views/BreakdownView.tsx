@@ -1,18 +1,33 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useProject } from '../../context/ProjectContext';
 import { useAiKeyStatus } from '../../context/AiKeyStatusContext';
-import { BreakdownData, BreakdownItem, Beat, Shot } from '../../types';
+import { BreakdownData, BreakdownItem, Beat, Shot, AppTask, TaskSubtask, ViewMode } from '../../types';
 import { generateBreakdown } from '../../services/gemini';
 import { isSameCharacterName, getHighlightSearchTerms } from '../../utils/characterUtils';
+import { 
+    detectDepartmentForItem, 
+    generateDefaultSubtasks, 
+    enrichBreakdownItem, 
+    enrichBreakdownData, 
+    syncBreakdownToDepartmentsAndContinuity 
+} from '../../utils/breakdownSync';
 import { 
     ListChecks, Users, Package, Mic2, Shirt, Wand2, Flame, MapPin, 
     Search, LayoutGrid, List as ListIcon, Eye, 
     Sparkles, Loader2, Trash2, Hash,
     Lock, Unlock, Download, FileSpreadsheet,
     Plus, X, Film, Camera, Aperture, FileText, ChevronDown, ChevronRight,
-    Check, ExternalLink, ArrowRight, Video, Layers, AlertCircle, Copy, Share2, Send, Printer
+    Check, ExternalLink, ArrowRight, Video, Layers, AlertCircle, Copy, Share2, Send, Printer,
+    Truck, CheckCircle2, Sliders, RefreshCw, Zap
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
+
+export interface BreakdownViewProps {
+    allTasks?: AppTask[];
+    onUpdateTask?: (updatedTask: AppTask) => void;
+    onAddTask?: (newTask: AppTask) => void;
+    onNavigateToView?: (view: ViewMode) => void;
+}
 
 const CATEGORIES = [
     { id: 'all', label: 'Total Manifest', icon: ListChecks, color: 'text-zinc-300', bg: 'bg-zinc-500/20', border: 'border-zinc-500/30', lightColor: 'text-slate-800', lightBg: 'bg-slate-100', lightBorder: 'border-slate-300' },
@@ -25,7 +40,12 @@ const CATEGORIES = [
     { id: 'location', label: 'Locations', icon: MapPin, color: 'text-purple-400', bg: 'bg-purple-500/20', border: 'border-purple-500/30', lightColor: 'text-purple-800', lightBg: 'bg-purple-50', lightBorder: 'border-purple-300' },
 ];
 
-const BreakdownView: React.FC = () => {
+const BreakdownView: React.FC<BreakdownViewProps> = ({
+    allTasks = [],
+    onUpdateTask,
+    onAddTask,
+    onNavigateToView
+}) => {
     const { 
         beats, 
         updateBeat, 
@@ -93,6 +113,66 @@ const BreakdownView: React.FC = () => {
     const showToast = (msg: string) => {
         setToastMessage(msg);
         setTimeout(() => setToastMessage(null), 2500);
+    };
+
+    // Department & Continuity Synchronization States
+    const [isSyncing, setIsSyncing] = useState(false);
+    const [syncStats, setSyncStats] = useState<{ tasksCreated: number; tasksUpdated: number; looksCreated: number; deptsCount: number } | null>(null);
+    const [selectedSyncItem, setSelectedSyncItem] = useState<{
+        beatId: number;
+        sceneNumber: string;
+        category: keyof BreakdownData;
+        itemIndex: number;
+        item: BreakdownItem;
+    } | null>(null);
+    const [editingSubtasks, setEditingSubtasks] = useState<TaskSubtask[]>([]);
+
+    useEffect(() => {
+        if (selectedSyncItem) {
+            setEditingSubtasks(selectedSyncItem.item.subtasks ? JSON.parse(JSON.stringify(selectedSyncItem.item.subtasks)) : []);
+        } else {
+            setEditingSubtasks([]);
+        }
+    }, [selectedSyncItem]);
+
+    const handleSyncAllToDepartmentsAndContinuity = () => {
+        setIsSyncing(true);
+        try {
+            const res = syncBreakdownToDepartmentsAndContinuity(beats, allTasks);
+            setSyncStats(res.stats);
+            showToast(`⚡ Synced: ${res.stats.tasksCreated + res.stats.tasksUpdated} tasks across ${res.stats.deptsCount} departments & ${res.stats.looksCreated} continuity looks!`);
+        } catch (e) {
+            console.error(e);
+            showToast("Sync encountered an error.");
+        } finally {
+            setIsSyncing(false);
+        }
+    };
+
+    const handleSaveSubtasksForSelectedItem = () => {
+        if (!selectedSyncItem) return;
+        const beat = beats.find(b => b.id === selectedSyncItem.beatId);
+        if (!beat || !beat.breakdown) return;
+
+        const currentBreakdown: BreakdownData = { ...beat.breakdown };
+        const catArray = [...(currentBreakdown[selectedSyncItem.category] || [])];
+        const currentItem = catArray[selectedSyncItem.itemIndex];
+        const rawItem: BreakdownItem = typeof currentItem === 'string' ? { name: currentItem } : { ...currentItem };
+
+        const updatedItem: BreakdownItem = {
+            ...rawItem,
+            subtasks: editingSubtasks
+        };
+        catArray[selectedSyncItem.itemIndex] = updatedItem;
+        currentBreakdown[selectedSyncItem.category] = catArray;
+
+        updateBeat(selectedSyncItem.beatId, { breakdown: currentBreakdown });
+
+        const updatedBeats = beats.map(b => b.id === selectedSyncItem.beatId ? { ...b, breakdown: currentBreakdown } : b);
+        syncBreakdownToDepartmentsAndContinuity(updatedBeats, allTasks);
+
+        setSelectedSyncItem(null);
+        showToast(`Saved subtasks and synced ${updatedItem.name} to Department and Continuity!`);
     };
 
     // Print Manifest Document Generator
@@ -422,6 +502,11 @@ const BreakdownView: React.FC = () => {
             name: string;
             category: keyof BreakdownData; 
             scenes: { id: number; slug: string; source?: string; sceneNum: string; shotCount: number }[];
+            firstBeatId: number;
+            firstSceneNum: string;
+            firstItemIndex: number;
+            breakdownItem: BreakdownItem;
+            classification: ReturnType<typeof detectDepartmentForItem>;
         }>();
 
         const counts: Record<string, number> = {};
@@ -437,16 +522,29 @@ const BreakdownView: React.FC = () => {
             
             (Object.keys(beat.breakdown) as Array<keyof BreakdownData>).forEach(cat => {
                 const list = beat.breakdown![cat] || [];
-                list.forEach(rawItem => {
+                list.forEach((rawItem, itemIdx) => {
                     const name = typeof rawItem === 'string' ? rawItem : rawItem.name;
                     const source = typeof rawItem === 'string' ? undefined : rawItem.source;
                     const cleanName = (name || '').trim();
                     if (!cleanName) return;
 
                     const key = `${cat}:${cleanName.toLowerCase()}`;
+                    const normalizedItem: BreakdownItem = typeof rawItem === 'string'
+                        ? enrichBreakdownItem({ name: rawItem }, cat, sceneNum)
+                        : (rawItem.subtasks ? rawItem : enrichBreakdownItem(rawItem, cat, sceneNum));
+                    const classification = detectDepartmentForItem(cleanName, cat);
 
                     if (!itemsMap.has(key)) {
-                        itemsMap.set(key, { name: cleanName, category: cat, scenes: [] });
+                        itemsMap.set(key, { 
+                            name: cleanName, 
+                            category: cat, 
+                            scenes: [],
+                            firstBeatId: beat.id,
+                            firstSceneNum: sceneNum,
+                            firstItemIndex: itemIdx,
+                            breakdownItem: normalizedItem,
+                            classification
+                        });
                         counts[cat] = (counts[cat] || 0) + 1;
                         counts['all'] = (counts['all'] || 0) + 1;
                     }
@@ -544,9 +642,15 @@ const BreakdownView: React.FC = () => {
             return itemName.toLowerCase() === cleanName.toLowerCase();
         });
         if (!exists) {
-            catArray.push({ name: cleanName, source: 'Manual Entry' });
+            const beatObj = beats.find(b => b.id === beatId);
+            const enrichedItem = enrichBreakdownItem({ name: cleanName, source: 'Manual Entry' }, category, beatObj?.content || '');
+            catArray.push(enrichedItem);
             currentBreakdown[category] = catArray;
             updateBeat(beatId, { breakdown: currentBreakdown });
+
+            const updatedBeats = beats.map(b => b.id === beatId ? { ...b, breakdown: currentBreakdown } : b);
+            const syncRes = syncBreakdownToDepartmentsAndContinuity(updatedBeats, allTasks);
+            setSyncStats(syncRes.stats);
         }
 
         setNewItemInputs(prev => ({ ...prev, [`${beatId}:${category}`]: '' }));
@@ -562,6 +666,10 @@ const BreakdownView: React.FC = () => {
         catArray.splice(itemIndex, 1);
         currentBreakdown[category] = catArray;
         updateBeat(beatId, { breakdown: currentBreakdown });
+
+        const updatedBeats = beats.map(b => b.id === beatId ? { ...b, breakdown: currentBreakdown } : b);
+        const syncRes = syncBreakdownToDepartmentsAndContinuity(updatedBeats, allTasks);
+        setSyncStats(syncRes.stats);
     };
 
     // Analyze Single Beat with AI
@@ -579,6 +687,10 @@ const BreakdownView: React.FC = () => {
             const result = await generateBreakdown(text, generalAiModel, breakdownLanguage, openrouterKey);
             if (result && isMounted.current) {
                 updateBeat(beat.id, { breakdown: result });
+                const updatedBeats = beats.map(b => b.id === beat.id ? { ...b, breakdown: result } : b);
+                const syncRes = syncBreakdownToDepartmentsAndContinuity(updatedBeats, allTasks);
+                setSyncStats(syncRes.stats);
+                showToast(`Analyzed Scene ${beat.sceneNumber || ''} & synced to ${syncRes.stats.deptsCount} departments!`);
             }
         } catch (err) {
             console.error(`Failed to analyze beat ${beat.id}`, err);
@@ -641,7 +753,12 @@ const BreakdownView: React.FC = () => {
         } catch (globalErr) {
             console.error(globalErr);
         } finally {
-            if (isMounted.current) setIsAnalyzing(false);
+            if (isMounted.current) {
+                setIsAnalyzing(false);
+                const syncRes = syncBreakdownToDepartmentsAndContinuity(beats, allTasks);
+                setSyncStats(syncRes.stats);
+                showToast(`Batch breakdown completed & synced across ${syncRes.stats.deptsCount} departments!`);
+            }
         }
     };
 
@@ -804,7 +921,11 @@ const BreakdownView: React.FC = () => {
                         </div>
 
                         <div className={`flex rounded-md border p-0.5 gap-1 ${isLight ? 'bg-slate-100 border-slate-300' : 'bg-[#222] border-[#333]'}`}>
-                            <button onClick={() => { setShareCategory(selectedCategory === 'all' ? 'props' : selectedCategory); setIsShareModalOpen(true); }} className="px-2.5 py-1 bg-[#f5a623] hover:bg-[#e0951a] text-black font-bold rounded text-[10px] uppercase transition-all flex items-center gap-1.5 shadow-sm" title="Get formatted list to send to department person">
+                            <button onClick={handleSyncAllToDepartmentsAndContinuity} disabled={isSyncing} className="px-2.5 py-1 bg-amber-500 hover:bg-amber-400 text-black font-bold rounded text-[10px] uppercase transition-all flex items-center gap-1.5 shadow-sm" title="Sync all breakdown items and subtasks to Crew Departments and Continuity page">
+                                <Zap size={12} className={isSyncing ? 'animate-spin' : ''} />
+                                <span>{isSyncing ? 'Syncing...' : '⚡ Sync to Crew & Continuity'}</span>
+                            </button>
+                            <button onClick={() => { setShareCategory(selectedCategory === 'all' ? 'props' : selectedCategory); setIsShareModalOpen(true); }} className={`px-2.5 py-1 font-bold rounded text-[10px] uppercase transition-all flex items-center gap-1.5 ${isLight ? 'bg-slate-200 hover:bg-slate-300 text-slate-800' : 'bg-[#28282e] hover:bg-[#383840] text-gray-200'}`} title="Get formatted list to send to department person">
                                 <Share2 size={12} /> Send / Copy List
                             </button>
                             <button onClick={() => handlePrintBreakdown(selectedCategory === 'all' ? 'props' : selectedCategory)} className={`px-2.5 py-1 font-bold rounded text-[10px] uppercase transition-all flex items-center gap-1.5 ${isLight ? 'bg-slate-200 hover:bg-slate-350 text-slate-800' : 'bg-[#28282e] hover:bg-[#383840] text-gray-200'}`} title="Print Breakdown Manifest">
@@ -1123,27 +1244,85 @@ const BreakdownView: React.FC = () => {
                                                             </div>
 
                                                             {/* Item Chips List */}
-                                                            <div className="flex-1 space-y-1.5 mb-2 max-h-36 overflow-y-auto custom-scrollbar">
+                                                            <div className="flex-1 space-y-1.5 mb-2 max-h-48 overflow-y-auto custom-scrollbar">
                                                                 {items.map((i, idx) => {
-                                                                    const name = typeof i === 'string' ? i : i.name;
+                                                                    const rawItem: BreakdownItem = typeof i === 'string' ? { name: i } : i;
+                                                                    const name = rawItem.name;
+                                                                    const classification = detectDepartmentForItem(name, cat.id);
+                                                                    const subtasks = rawItem.subtasks && rawItem.subtasks.length > 0
+                                                                        ? rawItem.subtasks
+                                                                        : generateDefaultSubtasks(name, cat.id, classification.departmentId).subtasks;
+                                                                    const completedCount = subtasks.filter(s => s.completed).length;
+
                                                                     return (
                                                                         <div 
                                                                             key={idx} 
-                                                                            className={`text-[11px] px-2 py-1 flex items-center justify-between group/item transition-colors border rounded ${
+                                                                            onClick={() => setSelectedSyncItem({
+                                                                                beatId: item.beat.id,
+                                                                                sceneNumber: (item.beat.sceneNumber || item.sceneIndex).toString(),
+                                                                                category: cat.id as keyof BreakdownData,
+                                                                                itemIndex: idx,
+                                                                                item: { ...rawItem, subtasks }
+                                                                            })}
+                                                                            className={`text-[11px] p-2 flex flex-col gap-1.5 group/item transition-all border rounded-lg cursor-pointer ${
                                                                                 isLight 
-                                                                                    ? 'text-slate-800 bg-white hover:bg-slate-100 border-slate-200' 
-                                                                                    : 'text-gray-300 bg-[#1e1e1e] hover:bg-[#252525] border-[#303030]'
+                                                                                    ? 'text-slate-800 bg-white hover:bg-amber-50/50 hover:border-amber-400/80 border-slate-250 shadow-2xs' 
+                                                                                    : 'text-gray-300 bg-[#1a1a1d] hover:bg-[#222226] hover:border-amber-500/60 border-[#2c2c30]'
                                                                             }`} 
                                                                             style={fontStyle}
                                                                         >
-                                                                            <span className="truncate pr-1">{name}</span>
-                                                                            <button 
-                                                                                onClick={() => handleRemoveItemFromBeat(item.beat.id, cat.id as keyof BreakdownData, idx)}
-                                                                                className="opacity-0 group-hover/item:opacity-100 text-gray-500 hover:text-red-400 p-0.5 transition-opacity"
-                                                                                title="Remove item"
-                                                                            >
-                                                                                <X size={10} />
-                                                                            </button>
+                                                                            <div className="flex items-center justify-between gap-1">
+                                                                                <span className="truncate pr-1 font-bold text-xs group-hover/item:text-amber-400 transition-colors leading-snug">{name}</span>
+                                                                                <div className="flex items-center gap-1 shrink-0">
+                                                                                    <button 
+                                                                                        onClick={(e) => {
+                                                                                            e.stopPropagation();
+                                                                                            setSelectedSyncItem({
+                                                                                                beatId: item.beat.id,
+                                                                                                sceneNumber: (item.beat.sceneNumber || item.sceneIndex).toString(),
+                                                                                                category: cat.id as keyof BreakdownData,
+                                                                                                itemIndex: idx,
+                                                                                                item: { ...rawItem, subtasks }
+                                                                                            });
+                                                                                        }}
+                                                                                        className="text-gray-400 hover:text-amber-400 p-0.5 rounded transition-colors"
+                                                                                        title="Open Department Subtasks & Continuity Inspector"
+                                                                                    >
+                                                                                        <Sliders size={11} />
+                                                                                    </button>
+                                                                                    <button 
+                                                                                        onClick={(e) => {
+                                                                                            e.stopPropagation();
+                                                                                            handleRemoveItemFromBeat(item.beat.id, cat.id as keyof BreakdownData, idx);
+                                                                                        }}
+                                                                                        className="opacity-0 group-hover/item:opacity-100 text-gray-500 hover:text-red-400 p-0.5 transition-opacity"
+                                                                                        title="Remove item"
+                                                                                    >
+                                                                                        <X size={10} />
+                                                                                    </button>
+                                                                                </div>
+                                                                            </div>
+
+                                                                            {/* Department badge & Subtask progress */}
+                                                                            <div className="flex items-center gap-1 flex-wrap text-[9px] font-mono">
+                                                                                <span className={`px-1.5 py-0.5 rounded border flex items-center gap-1 font-bold ${
+                                                                                    classification.isVehicle 
+                                                                                        ? 'bg-cyan-950/40 text-cyan-300 border-cyan-700/40' 
+                                                                                        : 'bg-amber-950/30 text-amber-300 border-amber-800/30'
+                                                                                }`}>
+                                                                                    {classification.isVehicle ? <Truck size={9} /> : <Layers size={9} />}
+                                                                                    <span>{classification.departmentName}</span>
+                                                                                </span>
+
+                                                                                <span className={`px-1.5 py-0.5 rounded border flex items-center gap-1 ${
+                                                                                    completedCount === subtasks.length && subtasks.length > 0
+                                                                                        ? 'bg-emerald-950/30 text-emerald-400 border-emerald-800/30'
+                                                                                        : (isLight ? 'bg-slate-100 text-slate-600 border-slate-250' : 'bg-[#252528] text-gray-400 border-[#333]')
+                                                                                }`}>
+                                                                                    <CheckCircle2 size={8} className={completedCount > 0 ? 'text-emerald-400' : 'text-gray-500'} />
+                                                                                    <span>{completedCount}/{subtasks.length} subtasks</span>
+                                                                                </span>
+                                                                            </div>
                                                                         </div>
                                                                     );
                                                                 })}
@@ -1246,6 +1425,53 @@ const BreakdownView: React.FC = () => {
                                                     {item.scenes.length} Scene{item.scenes.length === 1 ? '' : 's'}
                                                 </span>
                                             </div>
+
+                                            {/* Department & Subtasks Badges */}
+                                            {(() => {
+                                                const subtasks = item.breakdownItem?.subtasks || [];
+                                                const completedCount = subtasks.filter(s => s.completed).length;
+                                                const dept = item.classification;
+
+                                                return (
+                                                    <div className="flex flex-wrap items-center gap-1.5 my-2">
+                                                        <span className={`text-[9px] font-bold uppercase px-2 py-0.5 rounded border flex items-center gap-1 ${
+                                                            dept.isVehicle 
+                                                                ? 'bg-amber-500/10 text-amber-400 border-amber-500/30' 
+                                                                : (isLight ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-blue-950/30 text-blue-300 border-blue-800/30')
+                                                        }`}>
+                                                            {dept.isVehicle ? <Truck size={10} /> : <Sliders size={10} />}
+                                                            <span>Dept: {dept.departmentName}</span>
+                                                        </span>
+
+                                                        <button 
+                                                            onClick={() => setSelectedSyncItem({
+                                                                beatId: item.firstBeatId,
+                                                                sceneNumber: item.firstSceneNum,
+                                                                category: item.category,
+                                                                itemIndex: item.firstItemIndex,
+                                                                item: item.breakdownItem
+                                                            })}
+                                                            className={`text-[9px] font-bold uppercase px-2 py-0.5 rounded border flex items-center gap-1 transition-all ${
+                                                                completedCount === subtasks.length && subtasks.length > 0
+                                                                    ? 'bg-emerald-950/30 text-emerald-400 border-emerald-800/30'
+                                                                    : (isLight ? 'bg-slate-100 hover:bg-amber-100 text-slate-650 hover:text-amber-800 border-slate-250' : 'bg-[#252528] hover:bg-[#333] text-gray-300 hover:text-[#f5a623] border-[#333]')
+                                                            }`}
+                                                            title="Inspect subtasks & department sync"
+                                                        >
+                                                            <CheckCircle2 size={10} className={completedCount > 0 ? 'text-emerald-400' : 'text-gray-500'} />
+                                                            <span>{completedCount}/{subtasks.length} Subtasks</span>
+                                                        </button>
+
+                                                        {item.classification.continuityDept && (
+                                                            <span className={`text-[9px] font-bold uppercase px-2 py-0.5 rounded border ${
+                                                                isLight ? 'bg-purple-50 text-purple-700 border-purple-200' : 'bg-purple-950/30 text-purple-300 border-purple-800/30'
+                                                            }`}>
+                                                                Continuity: {item.classification.continuityDept}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                );
+                                            })()}
 
                                             <div className="space-y-1.5 mt-2">
                                                 <div className={`text-[9px] font-bold uppercase ${isLight ? 'text-slate-500' : 'text-gray-500'}`}>Occurrences</div>
@@ -1594,6 +1820,265 @@ const BreakdownView: React.FC = () => {
                                         >
                                             <Copy size={14} />
                                             <span>Copy List to Clipboard</span>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Department & Continuity Sync Inspector Modal */}
+                    {selectedSyncItem && (
+                        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[200] flex items-center justify-center p-4">
+                            <div className={`border rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh] ${
+                                isLight ? 'bg-white border-slate-300' : 'bg-[#151518] border-[#303036]'
+                            }`}>
+                                {/* Modal Header */}
+                                <div className={`p-4 border-b flex items-center justify-between ${
+                                    isLight ? 'bg-slate-50 border-slate-200' : 'bg-[#1a1a1f] border-[#292930]'
+                                }`}>
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-9 h-9 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400">
+                                            {detectDepartmentForItem(selectedSyncItem.item.name, selectedSyncItem.category).isVehicle ? <Truck size={18} /> : <Sliders size={18} />}
+                                        </div>
+                                        <div>
+                                            <div className="flex items-center gap-2">
+                                                <h3 className={`text-base font-black tracking-wide ${isLight ? 'text-slate-900' : 'text-white'}`}>
+                                                    {selectedSyncItem.item.name}
+                                                </h3>
+                                                <span className={`text-[10px] font-mono uppercase px-2 py-0.5 rounded border ${
+                                                    isLight ? 'bg-slate-200 text-slate-700 border-slate-300' : 'bg-[#222] text-gray-400 border-[#333]'
+                                                }`}>
+                                                    Scene {selectedSyncItem.sceneNumber} • {CATEGORIES.find(c => c.id === selectedSyncItem.category)?.label}
+                                                </span>
+                                            </div>
+                                            <p className={`text-[11px] mt-0.5 ${isLight ? 'text-slate-500' : 'text-gray-400'}`}>
+                                                Live Department Synchronization & Continuity Tracking
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <button
+                                        onClick={() => setSelectedSyncItem(null)}
+                                        className={`p-1.5 rounded-lg transition-colors ${
+                                            isLight ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-200' : 'text-gray-400 hover:text-white hover:bg-[#25252a]'
+                                        }`}
+                                    >
+                                        <X size={18} />
+                                    </button>
+                                </div>
+
+                                <div className="flex-1 overflow-y-auto custom-scrollbar p-5 space-y-5">
+                                    {/* Department Routing Banner */}
+                                    {(() => {
+                                        const classification = detectDepartmentForItem(selectedSyncItem.item.name, selectedSyncItem.category);
+                                        return (
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                                {/* Assigned Department */}
+                                                <div className={`p-3.5 rounded-xl border flex flex-col justify-between gap-3 ${
+                                                    isLight ? 'bg-amber-50/60 border-amber-200' : 'bg-[#1c1c22] border-amber-500/30'
+                                                }`}>
+                                                    <div>
+                                                        <div className="text-[10px] font-mono uppercase font-bold text-amber-500 flex items-center gap-1.5">
+                                                            <Truck size={13} />
+                                                            <span>Target Production Department</span>
+                                                        </div>
+                                                        <div className={`text-sm font-black mt-1 ${isLight ? 'text-slate-900' : 'text-white'}`}>
+                                                            {classification.departmentName} Department
+                                                        </div>
+                                                        <div className={`text-[11px] font-mono mt-0.5 ${isLight ? 'text-slate-600' : 'text-gray-400'}`}>
+                                                            Synced to Crew department task workspace
+                                                        </div>
+                                                    </div>
+                                                    {onNavigateToView && (
+                                                        <button
+                                                            onClick={() => {
+                                                                setSelectedSyncItem(null);
+                                                                onNavigateToView('crew');
+                                                            }}
+                                                            className="self-start text-[10px] font-bold uppercase tracking-wider text-amber-400 hover:text-amber-300 flex items-center gap-1 hover:underline"
+                                                        >
+                                                            <span>Open in Crew Page</span>
+                                                            <ExternalLink size={11} />
+                                                        </button>
+                                                    )}
+                                                </div>
+
+                                                {/* Continuity Page Sync */}
+                                                <div className={`p-3.5 rounded-xl border flex flex-col justify-between gap-3 ${
+                                                    isLight ? 'bg-purple-50/60 border-purple-200' : 'bg-[#1e1c24] border-purple-500/30'
+                                                }`}>
+                                                    <div>
+                                                        <div className="text-[10px] font-mono uppercase font-bold text-purple-400 flex items-center gap-1.5">
+                                                            <CheckCircle2 size={13} />
+                                                            <span>Continuity Page Sync</span>
+                                                        </div>
+                                                        <div className={`text-sm font-black mt-1 ${isLight ? 'text-slate-900' : 'text-white'}`}>
+                                                            {classification.continuityDept ? `${classification.continuityDept.toUpperCase()} Continuity Look` : 'Tracked Element'}
+                                                        </div>
+                                                        <div className={`text-[11px] font-mono mt-0.5 ${isLight ? 'text-slate-600' : 'text-gray-400'}`}>
+                                                            Tracked across timeline scenes & scrub inspector
+                                                        </div>
+                                                    </div>
+                                                    {onNavigateToView && (
+                                                        <button
+                                                            onClick={() => {
+                                                                setSelectedSyncItem(null);
+                                                                onNavigateToView('continuity');
+                                                            }}
+                                                            className="self-start text-[10px] font-bold uppercase tracking-wider text-purple-400 hover:text-purple-300 flex items-center gap-1 hover:underline"
+                                                        >
+                                                            <span>View in Continuity Page</span>
+                                                            <ExternalLink size={11} />
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        );
+                                    })()}
+
+                                    {/* Subtasks Checklist Manager */}
+                                    <div className="space-y-3">
+                                        <div className="flex items-center justify-between">
+                                            <div>
+                                                <h4 className={`text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 ${isLight ? 'text-slate-900' : 'text-white'}`}>
+                                                    <CheckCircle2 size={14} className="text-amber-400" />
+                                                    <span>Department Subtasks & Specifications</span>
+                                                </h4>
+                                                <p className={`text-[11px] ${isLight ? 'text-slate-500' : 'text-gray-400'}`}>
+                                                    Detailed parameters required by crew (e.g. numberplate, model year, color, damage).
+                                                </p>
+                                            </div>
+                                            <button
+                                                onClick={() => {
+                                                    const newSub: TaskSubtask = {
+                                                        id: `sub-${Date.now()}`,
+                                                        title: 'Custom Subtask Requirement',
+                                                        completed: false,
+                                                        value: ''
+                                                    };
+                                                    setEditingSubtasks(prev => [...prev, newSub]);
+                                                }}
+                                                className="text-[10px] font-bold uppercase px-2.5 py-1 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 flex items-center gap-1 transition-colors"
+                                            >
+                                                <Plus size={12} /> Add Subtask
+                                            </button>
+                                        </div>
+
+                                        {/* Progress Bar */}
+                                        <div className="space-y-1">
+                                            <div className="flex items-center justify-between text-[10px] font-mono">
+                                                <span className={isLight ? 'text-slate-600' : 'text-gray-400'}>
+                                                    Progress: {editingSubtasks.filter(s => s.completed).length} of {editingSubtasks.length} subtasks completed
+                                                </span>
+                                                <span className="font-bold text-amber-400">
+                                                    {editingSubtasks.length > 0 ? Math.round((editingSubtasks.filter(s => s.completed).length / editingSubtasks.length) * 100) : 0}%
+                                                </span>
+                                            </div>
+                                            <div className={`w-full h-1.5 rounded-full overflow-hidden ${isLight ? 'bg-slate-200' : 'bg-[#252528]'}`}>
+                                                <div 
+                                                    className="h-full bg-amber-400 transition-all duration-300"
+                                                    style={{ width: `${editingSubtasks.length > 0 ? (editingSubtasks.filter(s => s.completed).length / editingSubtasks.length) * 100 : 0}%` }}
+                                                />
+                                            </div>
+                                        </div>
+
+                                        {/* Subtasks List */}
+                                        <div className="space-y-2">
+                                            {editingSubtasks.map((sub, sIdx) => (
+                                                <div 
+                                                    key={sub.id || sIdx}
+                                                    className={`p-3 rounded-xl border space-y-2 transition-all ${
+                                                        isLight ? 'bg-slate-50 border-slate-200' : 'bg-[#17171b] border-[#2a2a30]'
+                                                    }`}
+                                                >
+                                                    <div className="flex items-center gap-2.5">
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={sub.completed}
+                                                            onChange={(e) => {
+                                                                const val = e.target.checked;
+                                                                setEditingSubtasks(prev => prev.map((item, idx) => idx === sIdx ? { ...item, completed: val } : item));
+                                                            }}
+                                                            className="accent-amber-400 rounded cursor-pointer shrink-0"
+                                                        />
+                                                        <input
+                                                            type="text"
+                                                            value={sub.title}
+                                                            placeholder="Subtask Requirement..."
+                                                            onChange={(e) => {
+                                                                const val = e.target.value;
+                                                                setEditingSubtasks(prev => prev.map((item, idx) => idx === sIdx ? { ...item, title: val } : item));
+                                                            }}
+                                                            className={`flex-1 bg-transparent border-b outline-none text-xs font-bold ${
+                                                                isLight ? 'border-slate-300 text-slate-900 focus:border-amber-500' : 'border-[#333] text-white focus:border-amber-400'
+                                                            }`}
+                                                        />
+                                                        <button
+                                                            onClick={() => {
+                                                                setEditingSubtasks(prev => prev.filter((_, idx) => idx !== sIdx));
+                                                            }}
+                                                            className="text-gray-400 hover:text-red-400 p-1 transition-colors"
+                                                            title="Delete subtask"
+                                                        >
+                                                            <X size={14} />
+                                                        </button>
+                                                    </div>
+
+                                                    <div className="flex items-center gap-2 pl-6">
+                                                        <span className={`text-[10px] font-mono font-bold uppercase shrink-0 ${isLight ? 'text-slate-500' : 'text-gray-500'}`}>
+                                                            Spec / Detail:
+                                                        </span>
+                                                        <input
+                                                            type="text"
+                                                            value={sub.value || ''}
+                                                            placeholder="e.g. TN 09 BK 7721 / 2023 Fortuner / Matte Black / Front bumper dent"
+                                                            onChange={(e) => {
+                                                                const val = e.target.value;
+                                                                setEditingSubtasks(prev => prev.map((item, idx) => idx === sIdx ? { ...item, value: val } : item));
+                                                            }}
+                                                            className={`flex-1 font-mono text-[11px] px-2.5 py-1 rounded-lg border outline-none font-semibold ${
+                                                                isLight 
+                                                                    ? 'bg-white border-slate-300 text-amber-700 focus:border-amber-500' 
+                                                                    : 'bg-[#101014] border-[#303036] text-amber-300 focus:border-amber-400'
+                                                            }`}
+                                                        />
+                                                    </div>
+                                                </div>
+                                            ))}
+
+                                            {editingSubtasks.length === 0 && (
+                                                <div className={`p-4 rounded-xl border border-dashed text-center text-xs font-mono italic ${
+                                                    isLight ? 'bg-slate-50 border-slate-300 text-slate-400' : 'bg-[#18181c] border-[#333] text-gray-500'
+                                                }`}>
+                                                    No subtasks configured. Click "+ Add Subtask" to add one.
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Modal Footer */}
+                                <div className={`p-4 border-t flex items-center justify-between ${
+                                    isLight ? 'bg-slate-50 border-slate-200' : 'bg-[#1a1a1f] border-[#292930]'
+                                }`}>
+                                    <div className={`text-[11px] font-mono ${isLight ? 'text-slate-500' : 'text-gray-400'}`}>
+                                        ⚡ Changes propagate across Crew departments and Continuity
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <button
+                                            onClick={() => setSelectedSyncItem(null)}
+                                            className={`px-4 py-2 rounded-xl text-xs font-bold transition-colors ${
+                                                isLight ? 'text-slate-600 bg-slate-200 hover:bg-slate-300' : 'text-gray-400 bg-[#26262a] hover:bg-[#333] hover:text-white'
+                                            }`}
+                                        >
+                                            Cancel
+                                        </button>
+                                        <button
+                                            onClick={handleSaveSubtasksForSelectedItem}
+                                            className="px-5 py-2 rounded-xl text-xs font-black text-black bg-amber-400 hover:bg-amber-300 transition-all shadow-lg flex items-center gap-1.5"
+                                        >
+                                            <Check size={14} />
+                                            <span>Save & Sync</span>
                                         </button>
                                     </div>
                                 </div>

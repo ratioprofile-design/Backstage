@@ -5,7 +5,7 @@ import { useProject } from '../context/ProjectContext';
 import {
     Target, Zap, Clock, Film, RotateCcw, RotateCw, CheckCircle2, 
     TrendingUp, Save, Cloud, CloudOff, Wifi, WifiOff, CloudUpload,
-    Loader2, Check, FileCode, Inbox, Sun, Moon, LogIn, LogOut, ChevronDown, Sparkles, User
+    Loader2, Check, FileCode, Inbox, Sun, Moon, LogIn, LogOut, ChevronDown, Sparkles, User, Settings
 } from 'lucide-react';
 import { isSupabaseConfigured } from '../services/supabase';
 import { useAiKeyStatus } from '../context/AiKeyStatusContext';
@@ -22,6 +22,8 @@ interface AppHeaderProps {
   unreadCount?: number;
   onOpenAuth?: () => void;
   onAskAnything?: () => void;
+  onOpenSettings?: () => void;
+  hideViewSwitcher?: boolean;
 }
 
 const AppHeader: React.FC<AppHeaderProps> = ({ 
@@ -31,7 +33,9 @@ const AppHeader: React.FC<AppHeaderProps> = ({
   onOpenInbox,
   unreadCount = 0,
   onOpenAuth,
-  onAskAnything
+  onAskAnything,
+  onOpenSettings,
+  hideViewSwitcher = false
 }) => {
   const { 
       isStoryboardFeatureEnabled, writingGoal, dailyStats, beats,
@@ -84,6 +88,9 @@ const AppHeader: React.FC<AppHeaderProps> = ({
       { id: 'shotlist', label: 'Shot Division' },
       { id: 'storyboard', label: 'Storyboard', hidden: !isStoryboardFeatureEnabled },
       { id: 'schedule', label: 'Production Plan' },
+      { id: 'dood', label: 'DOOD' },
+      { id: 'documents', label: 'Vault' },
+      { id: 'callsheet', label: 'Call Sheet' },
       { id: 'statistics', label: 'Statistics' }
     ];
 
@@ -161,7 +168,7 @@ const AppHeader: React.FC<AppHeaderProps> = ({
 
   return (
     <>
-      <header className={`fixed left-0 w-full h-[50px] bg-[#111] border-b border-[#3d3d3d] flex items-center justify-between px-5 top-0 z-[500] select-none shadow-[0_2px_10px_rgba(0,0,0,0.3)] font-['Helvetica_Neue',Helvetica,Arial,sans-serif]`}>
+      <header className={`w-full h-[50px] bg-[#111] border-b border-[#3d3d3d] flex items-center justify-between px-5 shrink-0 z-[500] select-none shadow-[0_2px_10px_rgba(0,0,0,0.3)] font-['Helvetica_Neue',Helvetica,Arial,sans-serif]`}>
         
         {/* LEFT: Cinematic Logo */}
         <div className="flex items-center gap-4 h-full flex-1">
@@ -218,23 +225,32 @@ const AppHeader: React.FC<AppHeaderProps> = ({
           </button>
         </div>
 
-        {/* CENTER: View Switcher */}
+        {/* CENTER: View Switcher or Active View Title */}
         <div className="flex items-center justify-center gap-[15px] h-full flex-[0_0_auto]">
-          <div className="bg-[#222] border border-[#3d3d3d] rounded-[4px] flex overflow-hidden">
-            {views.map((view) => (
-              <button
-                key={view.id}
-                onClick={() => onViewChange(view.id as ViewMode)}
-                className={`bg-transparent border-none px-3 py-1.5 cursor-pointer text-[12px] font-semibold uppercase transition-all duration-200 border-r border-[#333] last:border-r-0 ${
-                  currentView === view.id 
-                    ? 'bg-[#333] text-[#f5a623]' 
-                    : 'text-[#888] hover:text-[#ccc] hover:bg-[#2a2a2a]'
-                }`}
-              >
-                {view.label}
-              </button>
-            ))}
-          </div>
+          {!hideViewSwitcher ? (
+            <div className="bg-[#222] border border-[#3d3d3d] rounded-[4px] flex overflow-hidden">
+              {views.map((view) => (
+                <button
+                  key={view.id}
+                  onClick={() => onViewChange(view.id as ViewMode)}
+                  className={`bg-transparent border-none px-3 py-1.5 cursor-pointer text-[12px] font-semibold uppercase transition-all duration-200 border-r border-[#333] last:border-r-0 ${
+                    currentView === view.id 
+                      ? 'bg-[#333] text-[#f5a623]' 
+                      : 'text-[#888] hover:text-[#ccc] hover:bg-[#2a2a2a]'
+                  }`}
+                >
+                  {view.label}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 px-3 py-1 bg-[#1a1a1e] border border-[#333] rounded-[4px]">
+              <span className="text-[10px] font-mono uppercase tracking-widest text-gray-500">Active View:</span>
+              <span className="text-[12px] font-black uppercase tracking-wider" style={{ color: appAccentColor || '#f5a623' }}>
+                {views.find(v => v.id === currentView)?.label || (currentView as string).toUpperCase()}
+              </span>
+            </div>
+          )}
           
           {/* UNDO / REDO GROUP */}
           <div className="flex bg-[#222] border border-[#3d3d3d] rounded-[4px] overflow-hidden">
@@ -302,6 +318,15 @@ const AppHeader: React.FC<AppHeaderProps> = ({
             title={`Switch to ${appTheme === 'light' ? 'Dark' : 'Light'} Theme`}
           >
             {appTheme === 'light' ? <Moon size={16} /> : <Sun size={16} />}
+          </button>
+
+          {/* SETTINGS GEAR BUTTON */}
+          <button
+            onClick={() => onOpenSettings?.()}
+            className="w-9 h-9 rounded-[4px] bg-[#222] border border-[#3d3d3d] hover:border-[#f5a623] flex items-center justify-center text-gray-300 hover:text-white transition-all shadow-sm"
+            title="App Settings & Navigation Layout"
+          >
+            <Settings size={16} />
           </button>
 
           {/* COLLABORATORS AVATAR STACK */}

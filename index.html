@@ -14,16 +14,10 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Oswald:wght@400;500;600;700&display=swap" rel="stylesheet">
     
     <style>
-      :root {
-        --page-bg: #050505;
-        --card-bg: #1e1e1e;
-        --accent: #f5a623;
-        --text-main: #e5e7eb;
-      }
       body { 
         margin: 0; 
-        background-color: var(--page-bg); 
-        color: var(--text-main); 
+        background-color: var(--bg-base, #0a0a0a); 
+        color: var(--text-primary, #e5e7eb); 
         overflow: hidden; 
         height: 100vh; 
         width: 100vw; 
@@ -60,6 +54,17 @@
             fontFamily: {
               screenplay: ['"Courier Prime"', 'monospace'],
               sans: ['ui-sans-serif', 'system-ui', 'sans-serif'],
+            },
+            borderRadius: {
+              'none': '0',
+              'sm': '0',
+              'DEFAULT': '0',
+              'md': '0',
+              'lg': '0',
+              'xl': '0',
+              '2xl': '0',
+              '3xl': '0',
+              'full': '0',
             }
           }
         }

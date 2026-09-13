@@ -3,6 +3,7 @@ import React, { useRef, useEffect, useState, forwardRef, useImperativeHandle } f
 import { createPortal } from 'react-dom';
 import { generateTamilSuggestions } from '../services/tamilUtils';
 import { useProject } from '../context/ProjectContext';
+import { parsePastedScreenplay } from '../utils/pasteUtils';
 
 export interface ScriptEditorHandle {
   executeFormat: (type: string) => void;
@@ -31,11 +32,36 @@ const CHARACTER_EXTENSIONS = [
   '(V.O.)', '(O.S.)', '(CONT\'D)', '(ON PHONE)', '(PRE-LAP)', '(FILTERED)'
 ];
 
+const stripPaginationStyles = (html: string): string => {
+  if (!html) return html;
+  return html
+    .replace(/\s*data-page-break="[^"]*"/gi, '')
+    .replace(/\s*style="([^"]*)"/gi, (match, styles) => {
+      const remaining = styles
+        .split(';')
+        .map((s: string) => s.trim())
+        .filter((s: string) => s && !s.toLowerCase().startsWith('margin-top'))
+        .join('; ');
+      return remaining ? ` style="${remaining}"` : '';
+    })
+    .replace(/\s+>/g, '>');
+};
+
 export const ScriptEditor = forwardRef<ScriptEditorHandle, ScriptEditorProps>(({ 
     id, initialHtml, onSave, onSaveImmediate, className, suggestions, onActiveFormatChange, readOnly = false, onFocus, isActive = true
 }, ref) => {
   const editorRef = useRef<HTMLDivElement>(null);
   const { isTamilMode, isOsInputMode, osInputShortcut, userDictionary, learnTamilWord } = useProject();
+
+  const triggerSave = (rawHtml?: string, immediate: boolean = false) => {
+    const htmlToClean = rawHtml !== undefined ? rawHtml : (editorRef.current?.innerHTML || '');
+    const cleanHtml = stripPaginationStyles(htmlToClean);
+    if (immediate && onSaveImmediate) {
+      onSaveImmediate(cleanHtml);
+    } else {
+      onSave(cleanHtml);
+    }
+  };
   
   // Character/Transition Autocomplete State
   const [showAutocomplete, setShowAutocomplete] = useState(false);
@@ -60,14 +86,14 @@ export const ScriptEditor = forwardRef<ScriptEditorHandle, ScriptEditorProps>(({
       focus: () => editorRef.current?.focus()
   }));
 
-  // Sync content from props ONLY if not focused
+  // Sync content from props ONLY if not focused and content actually differs
   useEffect(() => {
     if (
       editorRef.current && 
-      editorRef.current.innerHTML !== initialHtml && 
-      document.activeElement !== editorRef.current
+      !editorRef.current.contains(document.activeElement) &&
+      stripPaginationStyles(editorRef.current.innerHTML) !== stripPaginationStyles(initialHtml || '')
     ) {
-      editorRef.current.innerHTML = initialHtml;
+      editorRef.current.innerHTML = initialHtml || '';
     }
   }, [initialHtml]);
 
@@ -143,13 +169,9 @@ export const ScriptEditor = forwardRef<ScriptEditorHandle, ScriptEditorProps>(({
         isPreviewingRef.current = false;
     }
     
-    // Commit to context immediately so saves always capture the latest keystrokes.
-    // The debounced onSave is only used as a fallback (e.g. views without onSaveImmediate).
-    if (onSaveImmediate) {
-      onSaveImmediate(e.currentTarget.innerHTML);
-    } else {
-      onSave(e.currentTarget.innerHTML);
-    }
+    // Debounce saves during rapid character input to prevent full React state churn.
+    // Immediate save runs on blur, Enter, paste, or format changes.
+    triggerSave(e.currentTarget.innerHTML, false);
     detectFormat();
 
     const block = getCurrentBlock();
@@ -170,44 +192,84 @@ export const ScriptEditor = forwardRef<ScriptEditorHandle, ScriptEditorProps>(({
 
   const handlePaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
     e.preventDefault();
-    const text = e.clipboardData.getData('text/plain');
-    
-    // Use insertText command to paste plain text while preserving undo history
-    const success = document.execCommand('insertText', false, text);
-    
-    if (!success) {
-        // Fallback for browsers that might not support it
+    if (readOnly) return;
+
+    const result = parsePastedScreenplay(e.clipboardData);
+
+    if (result.blocks.length === 0 && !result.inlineHtml) return;
+
+    // 1. Single inline phrase/text snippet pasted within an existing line:
+    if (result.isSingleInline) {
+      const htmlToInsert = result.inlineHtml || (result.blocks[0] ? result.blocks[0].html : '');
+      const success = document.execCommand('insertHTML', false, htmlToInsert);
+      if (!success) {
         const sel = window.getSelection();
-        if (!sel || !sel.rangeCount) return;
-        const range = sel.getRangeAt(0);
-        range.deleteContents();
-        const textNode = document.createTextNode(text);
-        range.insertNode(textNode);
-        
-        // Move caret
-        range.setStartAfter(textNode);
-        range.setEndAfter(textNode);
-        sel.removeAllRanges();
-        sel.addRange(range);
-        
-        // Trigger manual update since execCommand usually triggers input event but this fallback might not be enough for react state
-        if (editorRef.current) {
-            onSave(editorRef.current.innerHTML);
-            detectFormat();
+        if (sel && sel.rangeCount > 0) {
+          const range = sel.getRangeAt(0);
+          range.deleteContents();
+          const tempDiv = document.createElement('div');
+          tempDiv.innerHTML = htmlToInsert;
+          const frag = document.createDocumentFragment();
+          let lastNode: Node | null = null;
+          while (tempDiv.firstChild) {
+            lastNode = tempDiv.firstChild;
+            frag.appendChild(lastNode);
+          }
+          range.insertNode(frag);
+          if (lastNode) {
+            range.setStartAfter(lastNode);
+            range.collapse(true);
+            sel.removeAllRanges();
+            sel.addRange(range);
+          }
         }
+      }
+      if (editorRef.current) {
+        triggerSave(editorRef.current.innerHTML, true);
+        detectFormat();
+      }
+      return;
+    }
+
+    // 2. Multi-block screenplay scene or formatted elements:
+    const newElements: HTMLElement[] = result.blocks.map(b => {
+      const div = document.createElement('div');
+      div.className = `sc-line sc-${b.type}`;
+      div.innerHTML = b.html || '<br>';
+      return div;
+    });
+
+    if (newElements.length === 0) return;
+
+    const currentBlock = getCurrentBlock();
+    if (currentBlock && editorRef.current) {
+      const isCurrentEmpty = (currentBlock.textContent || '').trim() === '';
+      if (isCurrentEmpty) {
+        currentBlock.replaceWith(...newElements);
+      } else {
+        currentBlock.after(...newElements);
+      }
+    } else if (editorRef.current) {
+      editorRef.current.append(...newElements);
+    }
+
+    const lastEl = newElements[newElements.length - 1];
+    if (lastEl) {
+      moveCursorToEnd(lastEl);
+      lastEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+
+    detectFormat();
+    if (editorRef.current) {
+      triggerSave(editorRef.current.innerHTML, true);
     }
   };
 
   const handleBlur = () => {
     if (readOnly) return;
     if (editorRef.current) {
-        const content = editorRef.current.innerHTML;
         // Prioritize immediate save if provided to bypass debounce
-        if (onSaveImmediate) {
-            onSaveImmediate(content);
-        } else {
-            onSave(content);
-        }
+        triggerSave(editorRef.current.innerHTML, true);
     }
     // Delayed hide to allow click events on the popup to fire
     setTimeout(() => { 
@@ -576,7 +638,7 @@ export const ScriptEditor = forwardRef<ScriptEditorHandle, ScriptEditorProps>(({
     sel.addRange(newRange);
 
     setShowTransliteration(false);
-    onSave(editorRef.current?.innerHTML || '');
+    triggerSave();
   };
 
   // Uses Selection API to get screen coordinates of the cursor
@@ -652,7 +714,7 @@ export const ScriptEditor = forwardRef<ScriptEditorHandle, ScriptEditorProps>(({
         }
 
         if (onActiveFormatChange) onActiveFormatChange(type);
-        onSave(editorRef.current?.innerHTML || '');
+        triggerSave();
         editorRef.current?.focus(); // Ensure focus remains
         
         if (createdEmptyParenthetical && block.firstChild) {
@@ -730,7 +792,7 @@ export const ScriptEditor = forwardRef<ScriptEditorHandle, ScriptEditorProps>(({
         
         newDiv.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         detectFormat();
-        onSave(editorRef.current?.innerHTML || '');
+        triggerSave(undefined, true);
         
         if (nextType === 'character') {
             setTimeout(checkAutocomplete, 10);
@@ -809,7 +871,7 @@ export const ScriptEditor = forwardRef<ScriptEditorHandle, ScriptEditorProps>(({
         
         newDiv.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         detectFormat();
-        onSave(editorRef.current?.innerHTML || '');
+        triggerSave();
         
         // Close menus if open
         setShowAutocomplete(false);
@@ -933,7 +995,7 @@ export const ScriptEditor = forwardRef<ScriptEditorHandle, ScriptEditorProps>(({
                  }
 
                  moveCursorToEnd(targetBlock);
-                 onSave(editorRef.current?.innerHTML || '');
+                 triggerSave();
                  return;
              }
          }

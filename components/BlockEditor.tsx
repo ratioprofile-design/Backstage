@@ -2,6 +2,7 @@
 import React, { useRef, useEffect, useState, useMemo } from 'react';
 import { Bold, Italic, Underline, Heading, List, CheckSquare, Quote } from 'lucide-react';
 import { ScratchpadConfig } from '../types';
+import { parsePastedBlocks } from '../utils/pasteUtils';
 
 interface BlockEditorProps {
     value: string;
@@ -53,14 +54,15 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({
 
     useEffect(() => {
         if (editorRef.current && !isLocked.current) {
-            if (editorRef.current.innerHTML !== value) {
-                const isHtml = /<[a-z][\s\S]*>/i.test(value);
-                if (!value || value.trim() === '') {
+            const safeVal = typeof value === 'string' ? value : '';
+            if (editorRef.current.innerHTML !== safeVal) {
+                const isHtml = /<[a-z][\s\S]*>/i.test(safeVal);
+                if (!safeVal || safeVal.trim() === '') {
                     editorRef.current.innerHTML = `<div class="nl-block"><br></div>`;
                 } else if (!isHtml) {
-                    editorRef.current.innerHTML = value.split('\n').map((line: string) => `<div class="nl-block">${line || '<br>'}</div>`).join('');
+                    editorRef.current.innerHTML = safeVal.split('\n').map((line: string) => `<div class="nl-block">${line || '<br>'}</div>`).join('');
                 } else {
-                    editorRef.current.innerHTML = value;
+                    editorRef.current.innerHTML = safeVal;
                 }
             }
         }
@@ -186,6 +188,91 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({
                 emitChange();
             }
         }
+    };
+
+    const handlePaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
+        e.preventDefault();
+        if (readOnly) return;
+
+        const result = parsePastedBlocks(e.clipboardData);
+        if (result.blocks.length === 0 && !result.inlineHtml) return;
+
+        // 1. Single inline phrase/text snippet
+        if (result.isSingleInline) {
+            const htmlToInsert = result.inlineHtml || (result.blocks[0] ? result.blocks[0].html : '');
+            const success = document.execCommand('insertHTML', false, htmlToInsert);
+            if (!success) {
+                const sel = window.getSelection();
+                if (sel && sel.rangeCount > 0) {
+                    const range = sel.getRangeAt(0);
+                    range.deleteContents();
+                    const tempDiv = document.createElement('div');
+                    tempDiv.innerHTML = htmlToInsert;
+                    const frag = document.createDocumentFragment();
+                    let lastNode: Node | null = null;
+                    while (tempDiv.firstChild) {
+                        lastNode = tempDiv.firstChild;
+                        frag.appendChild(lastNode);
+                    }
+                    range.insertNode(frag);
+                    if (lastNode) {
+                        range.setStartAfter(lastNode);
+                        range.collapse(true);
+                        sel.removeAllRanges();
+                        sel.addRange(range);
+                    }
+                }
+            }
+            emitChange();
+            return;
+        }
+
+        // 2. Multi-block paste
+        const newElements: HTMLElement[] = result.blocks.map(b => {
+            const div = document.createElement('div');
+            div.className = b.cls ? `nl-block ${b.cls}` : 'nl-block';
+            div.innerHTML = b.html || '<br>';
+            return div;
+        });
+
+        if (newElements.length === 0) return;
+
+        const sel = window.getSelection();
+        let currentBlock: HTMLElement | null = null;
+        if (sel && sel.anchorNode) {
+            let node: Node | null = sel.anchorNode;
+            if (node.nodeType === 3) node = node.parentNode;
+            let block = node as HTMLElement;
+            while (block && block !== editorRef.current && !block.classList.contains('nl-block')) {
+                block = block.parentElement as HTMLElement;
+            }
+            if (block && block.classList.contains('nl-block')) {
+                currentBlock = block;
+            }
+        }
+
+        if (currentBlock && editorRef.current) {
+            const isCurrentEmpty = (currentBlock.textContent || '').trim() === '';
+            if (isCurrentEmpty) {
+                currentBlock.replaceWith(...newElements);
+            } else {
+                currentBlock.after(...newElements);
+            }
+        } else if (editorRef.current) {
+            editorRef.current.append(...newElements);
+        }
+
+        const lastEl = newElements[newElements.length - 1];
+        if (lastEl) {
+            const range = document.createRange();
+            range.selectNodeContents(lastEl);
+            range.collapse(false);
+            sel?.removeAllRanges();
+            sel?.addRange(range);
+            lastEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+
+        emitChange();
     };
 
     // Construct dynamic CSS variables based on config prop merged with defaults
@@ -336,6 +423,7 @@ export const BlockEditor: React.FC<BlockEditorProps> = ({
                 onKeyDown={handleKeyDown}
                 onClick={handleClick}
                 onFocus={handleFocusInternal}
+                onPaste={handlePaste}
                 className={contentClasses}
                 style={{ backgroundColor: 'transparent', fontFamily: activeFont }}
             />

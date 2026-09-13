@@ -12,16 +12,24 @@ import {
   Check, Clock, MoreHorizontal, MousePointer2, Layers, Link2, AlertCircle, 
   ChevronRight, ChevronDown, Settings, Copy, PlusSquare, ArrowUp, ArrowDown,
   Highlighter, Tag, Scissors, ExternalLink, RefreshCw, FileText, ArrowRight,
-  Volume2, Square
+  Volume2, Square, Hash, BookOpen, Scroll
 } from 'lucide-react';
 import { ScriptEditor, ScriptEditorHandle } from '../ScriptEditor';
 import { SlugInput } from '../SlugInput';
 import { generateBreakdown } from '../../services/gemini';
 import { BreakdownData, BreakdownItem, BeatVersion, Note, Beat, Group, Connection, BeatStatus } from '../../types';
+import { STORYLINE_COLORS, SUPPORTED_LANGUAGES } from '../../constants';
 import { extractScriptCharacterSuggestions } from '../../utils/characterUtils';
 import { BlockEditor } from '../BlockEditor';
 import DiffModal from '../DiffModal';
-import { STORYLINE_COLORS, SUPPORTED_LANGUAGES } from '../../constants';
+import ScriptArchiveModal from '../ScriptArchiveModal';
+import TamilTranscoderModal from '../TamilTranscoderModal';
+import { Archive } from 'lucide-react';
+import { runLinePaginationPass, estimateBeatHeight } from '../../utils/screenplayPaginationEngine';
+
+const DEFAULT_STORYLINE_COLORS = (typeof STORYLINE_COLORS !== 'undefined' && Array.isArray(STORYLINE_COLORS)) 
+  ? STORYLINE_COLORS 
+  : ['#e67e22', '#3498db', '#9b59b6', '#2ecc71', '#e74c3c'];
 // --- CONSTANTS ---
 const A4_WIDTH = 794;  
 const A4_HEIGHT = 1123;
@@ -29,7 +37,7 @@ const MARGIN_LEFT = 144;
 const MARGIN_RIGHT = 96;
 const MARGIN_TOP = 96;
 const MARGIN_BOTTOM = 96;
-const PAGE_GAP = 40; 
+const PAGE_GAP = 20; 
 const BEAT_SPACING = 0; 
 const CONTINUOUS_OVERSCROLL = 400; 
 const SLUG_PREFIXES = ['INT.', 'EXT.', 'INT./EXT.', 'EXT./INT.', 'I./E.', 'E./I.'];
@@ -56,8 +64,49 @@ const HILITE_COLORS = [
 // --- HELPERS ---
 function useDebounce<T extends (...args: any[]) => void>(func: T, delay: number) {
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => { return () => { if (timeoutRef.current) clearTimeout(timeoutRef.current); }; }, []);
   return useCallback((...args: Parameters<T>) => { if (timeoutRef.current) clearTimeout(timeoutRef.current); timeoutRef.current = setTimeout(() => { func(...args); }, delay); }, [func, delay]);
+}
+
+interface SidebarErrorBoundaryProps {
+  children: React.ReactNode;
+  isLight: boolean;
+  onReset?: () => void;
+}
+
+interface SidebarErrorBoundaryState {
+  hasError: boolean;
+}
+
+class SidebarErrorBoundary extends (React.Component as any) {
+  state = { hasError: false };
+
+  constructor(props: any) {
+    super(props);
+  }
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+  componentDidCatch(error: any) {
+    console.error("Sidebar caught an error:", error);
+  }
+  render() {
+    if ((this as any).state.hasError) {
+      return (
+        <div className="p-6 flex flex-col items-center justify-center h-full text-center gap-3">
+          <AlertCircle size={32} className="text-amber-500" />
+          <h4 className="text-xs font-bold uppercase tracking-wider">Sidebar Display Protected</h4>
+          <p className="text-[11px] text-gray-500 max-w-xs">An error occurred while loading this sidebar panel. Click below to reload.</p>
+          <button 
+            onClick={() => { (this as any).setState({ hasError: false }); if ((this as any).props.onReset) (this as any).props.onReset(); }}
+            className="px-3 py-1.5 bg-amber-500 text-black text-[10px] font-bold uppercase rounded hover:bg-amber-400 transition-colors"
+          >
+            Reload Panel
+          </button>
+        </div>
+      );
+    }
+    return (this as any).props.children;
+  }
 }
 
 const calculateGraphOrder = (beats: Beat[], connections: Connection[]) => {
@@ -134,43 +183,8 @@ const BeatEditorBlock: React.FC<BeatEditorBlockProps> = React.memo(({ beat, isAc
     return ( <ScriptEditor ref={editorRefCallback} id={`editor-${beat.id}`} initialHtml={beat.content} onSave={debouncedSave} onSaveImmediate={handleImmediateSave} suggestions={uniqueCharacters} readOnly={isReady} onFocus={onFocus} onActiveFormatChange={setActiveFormat} className="script-body min-h-[1.5em] outline-none" isActive={isActive} /> );
 }, (prev, next) => { return prev.beat.id === next.beat.id && prev.beat.content === next.beat.content && prev.isActive === next.isActive && prev.isReady === next.isReady; });
 
-const runPaginationPass = (container: HTMLElement, paperLayer: HTMLElement, contentLayer: HTMLElement, theme: any, viewMode: 'continuous' | 'page') => {
-    if (!container || !paperLayer || !contentLayer) return;
-    const beats = Array.from(contentLayer.querySelectorAll('.beat-block')) as HTMLElement[];
-    const totalPageHeight = A4_HEIGHT + PAGE_GAP;
-    if (viewMode === 'continuous') {
-        let currentY = MARGIN_TOP;
-        beats.forEach((beat, i) => { const spacing = i === 0 ? 0 : BEAT_SPACING; beat.style.marginTop = `${spacing}px`; currentY += spacing + beat.offsetHeight; });
-        const requiredHeight = Math.max(A4_HEIGHT, currentY + MARGIN_BOTTOM + CONTINUOUS_OVERSCROLL);
-        const existingPages = paperLayer.querySelectorAll('.bg-page');
-        if (existingPages.length !== 1 || paperLayer.dataset.theme !== theme.bg || paperLayer.dataset.mode !== 'continuous') {
-            paperLayer.innerHTML = ''; paperLayer.dataset.theme = theme.bg; paperLayer.dataset.mode = 'continuous';
-            const page = document.createElement('div'); page.className = 'bg-page'; page.style.position = 'absolute'; page.style.left = '0'; page.style.top = '0'; page.style.width = `${A4_WIDTH}px`; page.style.minHeight = `${requiredHeight}px`; page.style.height = '100%'; page.style.backgroundColor = theme.bg; page.style.boxShadow = theme.shadow; page.style.transition = 'background-color 0.3s'; paperLayer.appendChild(page);
-        } else { const page = existingPages[0] as HTMLElement; page.style.minHeight = `${requiredHeight}px`; }
-        return;
-    }
-    let prevBottom = MARGIN_TOP;
-    beats.forEach((beat, i) => {
-        const height = beat.offsetHeight; let targetTop = prevBottom + (i === 0 ? 0 : BEAT_SPACING); let pageIndex = Math.floor(targetTop / totalPageHeight);
-        const pageStart = pageIndex * totalPageHeight; const pageWritableStart = pageStart + MARGIN_TOP; const pageWritableEnd = pageStart + A4_HEIGHT - MARGIN_BOTTOM;
-        if (targetTop < pageWritableStart) { targetTop = pageWritableStart; }
-        if (targetTop + height > pageWritableEnd) { if (targetTop > pageWritableStart) { pageIndex++; const nextPageStart = pageIndex * totalPageHeight; targetTop = nextPageStart + MARGIN_TOP; } }
-        const margin = Math.max(0, targetTop - prevBottom); beat.style.marginTop = `${margin}px`; prevBottom = targetTop + height;
-    });
-    const lastPageNeeded = Math.floor((prevBottom - 1) / totalPageHeight); const requiredPages = Math.max(1, lastPageNeeded + 1);
-    const existingPages = paperLayer.querySelectorAll('.bg-page');
-    if (existingPages.length !== requiredPages || paperLayer.dataset.theme !== theme.bg || paperLayer.dataset.mode !== 'page') {
-        paperLayer.innerHTML = ''; paperLayer.dataset.theme = theme.bg; paperLayer.dataset.mode = 'page';
-        for (let i = 0; i < requiredPages; i++) {
-            const page = document.createElement('div'); page.className = 'bg-page'; page.style.position = 'absolute'; page.style.left = '0'; page.style.top = `${i * totalPageHeight}px`; page.style.width = `${A4_WIDTH}px`; page.style.height = `${A4_HEIGHT}px`; page.style.backgroundColor = theme.bg; page.style.boxShadow = theme.shadow; page.style.transition = 'background-color 0.3s';
-            const num = document.createElement('div'); num.textContent = `${i + 1}.`; num.style.position = 'absolute'; num.style.top = '40px'; num.style.right = '40px'; num.style.fontFamily = 'Courier Prime, monospace'; num.style.fontSize = '12px'; num.style.fontWeight = 'bold'; num.style.color = theme.pageNum; num.style.opacity = '0.5';
-            page.appendChild(num); paperLayer.appendChild(page);
-        }
-    }
-};
-
 const SummaryCardsPanel = ({ 
-    beats, groups, connections, activeBeatId, onBeatClick, updateBeat, setBeats, captureSnapshot, reorderBeats, isLight, onSummaryDoubleClick
+    beats, groups, connections, activeBeatId, onBeatClick, updateBeat, setBeats, captureSnapshot, reorderBeats, isLight, onSummaryDoubleClick, beatPageMap
 }: { 
     beats: Beat[], groups: Group[], connections: Connection[], activeBeatId: number | null, 
     onBeatClick: (id: number) => void, updateBeat: (id: number, data: Partial<Beat>) => void, 
@@ -178,7 +192,8 @@ const SummaryCardsPanel = ({
     captureSnapshot: () => void,
     reorderBeats: (draggedId: number, targetId: number, side: 'top' | 'bottom') => void,
     isLight?: boolean,
-    onSummaryDoubleClick?: (beatId: number) => void
+    onSummaryDoubleClick?: (beatId: number) => void,
+    beatPageMap?: Record<number, number>
 }) => {
     const [searchTerm, setSearchTerm] = useState('');
     const [editingId, setEditingId] = useState<number | null>(null);
@@ -349,7 +364,7 @@ const SummaryCardsPanel = ({
                     const sceneNum = beat.sceneNumber || (idx + 1).toString();
                     const seqData = sequenceInfo[beat.id];
                     const boardNum = (beat.boardId || 0) + 1;
-                    const pageNum = beatPageNumbers[beat.id] || 1;
+                    const pageNum = (beatPageMap && beatPageMap[beat.id]) || beatPageNumbers[beat.id] || 1;
                     const characters = extractCharacters(beat.content);
                     const wordCount = getWordCount(beat.content);
                     const summaryText = beat.summary || '';
@@ -569,7 +584,7 @@ const SummaryCardsPanel = ({
                     <div className="px-3 py-2">
                         <div className={`text-[9px] uppercase mb-1.5 font-bold ${isLight ? 'text-slate-400' : 'text-[#666]'}`}>Tag Color</div>
                         <div className="flex gap-1.5 flex-wrap">
-                            {STORYLINE_COLORS.slice(0, 5).map(c => (
+                            {DEFAULT_STORYLINE_COLORS.slice(0, 5).map(c => (
                                 <button key={c} onClick={() => setColor(contextMenu.beatId, c)} className="w-4 h-4 rounded-full border border-black/10 hover:scale-125 transition-transform" style={{ backgroundColor: c }} />
                             ))}
                         </div>
@@ -792,7 +807,7 @@ const ContextMenuItem = ({ icon: Icon, label, onClick, danger, submenu, active, 
 };
 
 const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'casting') => void }> = ({ onNavigateToView }) => {
-  const { beats, groups, connections, updateBeat, addBeat, setBeats, setConnections, scriptViewMode, scriptConfig, setScriptConfig, scratchpadConfig, characterData, breakdownLanguage, setBreakdownLanguage, scratchpad, setScratchpad, globalNotes, setGlobalNotes, captureSnapshot, reorderBeats, setActiveBoardId, appTheme, generalAiModel, openrouterKey, userRole } = useProject();
+  const { beats, groups, connections, updateBeat, addBeat, setBeats, setConnections, scriptViewMode, setScriptViewMode, scriptConfig, setScriptConfig, scratchpadConfig, characterData, breakdownLanguage, setBreakdownLanguage, scratchpad, setScratchpad, globalNotes, setGlobalNotes, captureSnapshot, reorderBeats, setActiveBoardId, appTheme, generalAiModel, openrouterKey, userRole } = useProject();
   const { aiAvailable } = useAiKeyStatus();
   const isScriptReadOnly = false;
 
@@ -807,6 +822,7 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'cast
   
   const [searchTerm, setSearchTerm] = useState('');
   const [zoom, setZoom] = useState(1.0);
+  const [scriptToast, setScriptToast] = useState<string | null>(null);
   const [activeBeatId, setActiveBeatId] = useState<number | null>(null);
   const [activeFormat, setActiveFormat] = useState('action');
   const [showNav, setShowNav] = useState(true);
@@ -820,8 +836,11 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'cast
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [dragOverCategory, setDragOverCategory] = useState<string | null>(null);
   const [showSourceHighlights, setShowSourceHighlights] = useState(false);
-  const [diffVersion, setDiffVersion] = useState<BeatVersion | null>(null);
   const [showLanguageConfig, setShowLanguageConfig] = useState(false);
+  const [showArchiveModal, setShowArchiveModal] = useState(false);
+  const [showTranscoderModal, setShowTranscoderModal] = useState(false);
+  const [diffVersion, setDiffVersion] = useState<BeatVersion | null>(null);
+  const isConstrained = activeSidebar !== 'none' || (showNav && sidebarWidth >= 300);
   
   const [scriptContextMenu, setScriptContextMenu] = useState<{ x: number, y: number, beatId: number, selectionText?: string } | null>(null);
 
@@ -862,9 +881,9 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'cast
             timestamp: Date.now()
           };
           if (scratchpadMode === 'global') {
-            setGlobalNotes([...globalNotes, newNote]);
+            setGlobalNotes([...(Array.isArray(globalNotes) ? globalNotes : []), newNote]);
           } else if (activeBeat) {
-            const currentNotes = activeBeat.notes || [];
+            const currentNotes = Array.isArray(activeBeat.notes) ? activeBeat.notes : [];
             updateBeat(activeBeat.id, { notes: [...currentNotes, newNote] });
           }
         };
@@ -904,7 +923,6 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'cast
 
   const scrollerRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
-  const paperLayerRef = useRef<HTMLDivElement>(null);
   const editorRefs = useRef<Record<number, ScriptEditorHandle | null>>({});
   const isResizingRef = useRef(false);
   
@@ -1030,7 +1048,110 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'cast
   const uniqueLocations = useMemo(() => { const locs = new Set<string>(); ['HOUSE', 'KITCHEN', 'BEDROOM', 'OFFICE', 'PARK', 'STREET', 'CAR', 'APARTMENT', 'SCHOOL', 'HOSPITAL'].forEach(l => locs.add(l)); beats.forEach(b => { if (b.slug.location && b.slug.location.trim()) { locs.add(b.slug.location.trim()); } }); return Array.from(locs).sort(); }, [beats]);
   const uniqueCharacters = useMemo(() => extractScriptCharacterSuggestions(beats), [beats]);
 
-  useLayoutEffect(() => { const container = scrollerRef.current; const paper = paperLayerRef.current; const content = contentRef.current; if (!container || !paper || !content) return; const run = () => runPaginationPass(container, paper, content, theme, scriptViewMode); run(); const observer = new ResizeObserver(() => window.requestAnimationFrame(run)); const beatEls = content.querySelectorAll('.beat-block'); beatEls.forEach(el => observer.observe(el)); observer.observe(content); return () => observer.disconnect(); }, [sortedBeats, theme, zoom, scriptViewMode]); 
+  // Initial estimate based on text metrics
+  const estimatedInfo = useMemo(() => {
+    let totalH = 0;
+    const map: Record<number, number> = {};
+    sortedBeats.forEach((b) => {
+      const h = estimateBeatHeight(b);
+      const pg = Math.max(1, Math.floor(totalH / 931) + 1);
+      map[b.id] = pg;
+      totalH += h;
+    });
+    const pgs = Math.max(1, Math.ceil(totalH / 931));
+    return { totalPages: pgs, beatPageMap: map };
+  }, [sortedBeats]);
+
+  const [calculatedPages, setCalculatedPages] = useState<number>(estimatedInfo.totalPages);
+  const [calculatedBeatPageMap, setCalculatedBeatPageMap] = useState<Record<number, number>>(estimatedInfo.beatPageMap);
+  const isPaginatingRef = useRef<boolean>(false);
+  const needsRepaginationRef = useRef<boolean>(false);
+  const rafIdRef = useRef<number | null>(null);
+
+  const performPagination = useCallback(() => {
+    if (!contentRef.current) return;
+    if (isPaginatingRef.current) {
+      needsRepaginationRef.current = true;
+      return;
+    }
+    isPaginatingRef.current = true;
+    needsRepaginationRef.current = false;
+
+    try {
+      const res = runLinePaginationPass(contentRef.current);
+      setCalculatedPages(prev => (prev !== res.totalPages ? res.totalPages : prev));
+      setCalculatedBeatPageMap(prev => {
+        const keys = Object.keys(res.beatPageMap);
+        if (keys.length !== Object.keys(prev).length) return res.beatPageMap;
+        for (const k of keys) {
+          if (prev[Number(k)] !== res.beatPageMap[Number(k)]) return res.beatPageMap;
+        }
+        return prev;
+      });
+    } catch (err) {
+      console.error('Pagination pass error:', err);
+    } finally {
+      isPaginatingRef.current = false;
+      if (needsRepaginationRef.current) {
+        needsRepaginationRef.current = false;
+        rafIdRef.current = requestAnimationFrame(performPagination);
+      }
+    }
+  }, []);
+
+  const triggerPagination = useCallback(() => {
+    if (isPaginatingRef.current) {
+      needsRepaginationRef.current = true;
+      return;
+    }
+    if (rafIdRef.current) cancelAnimationFrame(rafIdRef.current);
+    rafIdRef.current = requestAnimationFrame(performPagination);
+  }, [performPagination]);
+
+  useLayoutEffect(() => {
+    triggerPagination();
+  }, [sortedBeats, triggerPagination, zoom, scriptConfig.paperTheme]);
+
+  useEffect(() => {
+    const el = contentRef.current;
+    if (!el) return;
+
+    let prevWidth = el.getBoundingClientRect().width;
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const width = entry.contentRect.width;
+        // Only trigger if container width changed (window/zoom/layout resize),
+        // not when height changes due to internal margin-top pagination breaks.
+        if (Math.abs(width - prevWidth) > 2) {
+          prevWidth = width;
+          triggerPagination();
+        }
+      }
+    });
+    observer.observe(el);
+
+    const mutationObserver = new MutationObserver(() => {
+      triggerPagination();
+    });
+    mutationObserver.observe(el, { childList: true, subtree: true, characterData: true });
+
+    const handleWindowResize = () => triggerPagination();
+    window.addEventListener('resize', handleWindowResize);
+
+    if (document.fonts) {
+      document.fonts.ready.then(() => triggerPagination());
+    }
+
+    return () => {
+      observer.disconnect();
+      mutationObserver.disconnect();
+      window.removeEventListener('resize', handleWindowResize);
+      if (rafIdRef.current) cancelAnimationFrame(rafIdRef.current);
+    };
+  }, [triggerPagination]);
+
+  const totalPages = calculatedPages;
+  const beatPageMap = calculatedBeatPageMap; 
   
   useEffect(() => {
       const handleMouseMove = (e: MouseEvent) => {
@@ -1090,6 +1211,33 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'cast
     }
   };
 
+  const handleAutoRenumberAll = () => {
+    captureSnapshot();
+    setBeats(prev => {
+        return prev.map(b => {
+            const index = sortedBeats.findIndex(sb => sb.id === b.id);
+            const newNum = index !== -1 ? (index + 1).toString() : (b.sceneNumber || '1');
+            return {
+                ...b,
+                sceneNumber: newNum,
+                title: b.title.replace(/^\d+\.\s*/, `${newNum}. `)
+            };
+        });
+    });
+    setScriptToast(`Renumbered all ${sortedBeats.length} scenes (1-${sortedBeats.length})`);
+    setTimeout(() => setScriptToast(null), 3000);
+  };
+
+  const handleSetSceneNumber = (id: number, currentVal: string) => {
+    const input = window.prompt("Enter scene number (e.g. 1, 2A, 10):", currentVal);
+    if (input === null) return;
+    captureSnapshot();
+    const trimmed = input.trim();
+    updateBeat(id, { sceneNumber: trimmed });
+    setScriptToast(trimmed ? `Scene numbered as ${trimmed}` : 'Scene number reset to automatic');
+    setTimeout(() => setScriptToast(null), 3000);
+  };
+
   const handleSlugChange = (id: number, field: string, val: string) => { const beat = beats.find(b => b.id === id); if (beat) updateBeat(id, { slug: { ...beat.slug, [field]: val } }); };
   const handleContentUpdate = useCallback((id: number, content: string) => { updateBeat(id, { content }); }, [updateBeat]);
   const handleFormat = (type: string) => { setActiveFormat(type); if (activeBeatId !== null && editorRefs.current[activeBeatId]) { editorRefs.current[activeBeatId]?.executeFormat(type); } };
@@ -1143,15 +1291,52 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'cast
         color: '#d97706', 
         timestamp: Date.now() 
     }; 
-    if (scratchpadMode === 'global') { setGlobalNotes([...globalNotes, newNote]); } 
-    else if (activeBeat) { const currentNotes = activeBeat.notes || []; updateBeat(activeBeat.id, { notes: [...currentNotes, newNote] }); } 
+    if (scratchpadMode === 'global') { 
+      const currentNotes = Array.isArray(globalNotes) ? globalNotes : [];
+      setGlobalNotes([...currentNotes, newNote]); 
+    } else if (activeBeat) { 
+      const currentNotes = Array.isArray(activeBeat.notes) ? activeBeat.notes : []; 
+      updateBeat(activeBeat.id, { notes: [...currentNotes, newNote] }); 
+    } 
   };
-  const updateNote = (id: string, updates: Partial<Note>) => { if (scratchpadMode === 'global') { setGlobalNotes(globalNotes.map(n => n.id === id ? { ...n, ...updates } : n)); } else if (activeBeat) { const currentNotes = activeBeat.notes || []; updateBeat(activeBeat.id, { notes: currentNotes.map(n => n.id === id ? { ...n, ...updates } : n) }); } };
-  const deleteNote = (id: string) => { if (scratchpadMode === 'global') { setGlobalNotes(globalNotes.filter(n => n.id !== id)); } else if (activeBeat) { const currentNotes = activeBeat.notes || []; updateBeat(activeBeat.id, { notes: currentNotes.filter(n => n.id !== id) }); } setConfirmDeleteNoteId(null); };
+  const updateNote = (id: string, updates: Partial<Note>) => { 
+    if (scratchpadMode === 'global') { 
+      const currentNotes = Array.isArray(globalNotes) ? globalNotes : [];
+      setGlobalNotes(currentNotes.map(n => (n && n.id === id ? { ...n, ...updates } : n))); 
+    } else if (activeBeat) { 
+      const currentNotes = Array.isArray(activeBeat.notes) ? activeBeat.notes : []; 
+      updateBeat(activeBeat.id, { notes: currentNotes.map(n => (n && n.id === id ? { ...n, ...updates } : n)) }); 
+    } 
+  };
+  const deleteNote = (id: string) => { 
+    if (scratchpadMode === 'global') { 
+      const currentNotes = Array.isArray(globalNotes) ? globalNotes : [];
+      setGlobalNotes(currentNotes.filter(n => n && n.id !== id)); 
+    } else if (activeBeat) { 
+      const currentNotes = Array.isArray(activeBeat.notes) ? activeBeat.notes : []; 
+      updateBeat(activeBeat.id, { notes: currentNotes.filter(n => n && n.id !== id) }); 
+    } 
+    setConfirmDeleteNoteId(null); 
+  };
   const handleNoteDragStart = (e: React.DragEvent, index: number) => { setDraggedNoteIndex(index); e.dataTransfer.effectAllowed = 'move'; };
   const handleNoteDragOver = (e: React.DragEvent, index: number) => { e.preventDefault(); setDragOverIndex(index); };
   const handleNoteDragLeave = () => { setDragOverIndex(null); };
-  const handleNoteDrop = (e: React.DragEvent, dropIndex: number) => { e.preventDefault(); setDragOverIndex(null); if (draggedNoteIndex === null || draggedNoteIndex === dropIndex) return; const currentNotes = scratchpadMode === 'global' ? [...globalNotes] : [...(activeBeat?.notes || [])]; const draggedNote = currentNotes[draggedNoteIndex]; currentNotes.splice(draggedNoteIndex, 1); currentNotes.splice(dropIndex, 0, draggedNote); if (scratchpadMode === 'global') { setGlobalNotes(currentNotes); } else if (activeBeat) { updateBeat(activeBeat.id, { notes: currentNotes }); } setDraggedNoteIndex(null); };
+  const handleNoteDrop = (e: React.DragEvent, dropIndex: number) => { 
+    e.preventDefault(); 
+    setDragOverIndex(null); 
+    if (draggedNoteIndex === null || draggedNoteIndex === dropIndex) return; 
+    const currentNotes = scratchpadMode === 'global' ? [...(Array.isArray(globalNotes) ? globalNotes : [])] : [...(Array.isArray(activeBeat?.notes) ? activeBeat.notes : [])]; 
+    const draggedNote = currentNotes[draggedNoteIndex]; 
+    if (!draggedNote) return;
+    currentNotes.splice(draggedNoteIndex, 1); 
+    currentNotes.splice(dropIndex, 0, draggedNote); 
+    if (scratchpadMode === 'global') { 
+      setGlobalNotes(currentNotes); 
+    } else if (activeBeat) { 
+      updateBeat(activeBeat.id, { notes: currentNotes }); 
+    } 
+    setDraggedNoteIndex(null); 
+  };
   const editorStyle = { '--color-action': theme.text, '--color-character': theme.text, '--color-dialogue': theme.text, '--color-parenthetical': theme.text, '--color-transition': theme.text, } as React.CSSProperties;
   
   const FORMAT_BUTTONS = [ 
@@ -1306,8 +1491,8 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'cast
           return (b.props?.length || 0) + (b.sound?.length || 0) + (b.costume?.length || 0) + (b.vfx?.length || 0) + (b.practical?.length || 0) + (b.cast?.length || 0) + (b.location?.length || 0);
       })()
       : activeSidebar === 'scratchpad'
-          ? (scratchpadMode === 'global' ? globalNotes.length : (activeBeat?.notes?.length || 0))
-          : (activeBeat?.versions?.length || 0);
+          ? (scratchpadMode === 'global' ? (Array.isArray(globalNotes) ? globalNotes.length : 0) : (Array.isArray(activeBeat?.notes) ? activeBeat.notes.length : 0))
+          : (Array.isArray(activeBeat?.versions) ? activeBeat.versions.length : 0);
   const rightPanelLabel = activeSidebar === 'breakdown' ? 'tags' : activeSidebar === 'scratchpad' ? 'notes' : 'versions';
 
   return (
@@ -1347,6 +1532,7 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'cast
                             captureSnapshot={captureSnapshot}
                             reorderBeats={reorderBeats}
                             isLight={isLight}
+                            beatPageMap={beatPageMap}
                         />
                     ) : (
                         <LocationNavPanel 
@@ -1378,11 +1564,11 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'cast
                                 <button 
                                     key={btn.id} 
                                     onMouseDown={(e) => { e.preventDefault(); handleFormat(btn.id); }} 
-                                    className={`px-2 py-1.5 text-[10px] font-bold uppercase rounded-xs transition-all duration-200 flex items-center gap-2 min-w-[32px] justify-center ${activeFormat === btn.id ? (isLight ? 'bg-amber-500 text-slate-950 font-bold shadow-xs' : 'bg-[#f5a623] text-black shadow-sm') : (isLight ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-200' : 'text-gray-400 hover:text-white hover:bg-[#222]')}`} 
+                                    className={`px-2 py-1.5 text-[10px] font-bold uppercase rounded-xs transition-all duration-200 flex items-center gap-1.5 min-w-[28px] justify-center ${activeFormat === btn.id ? (isLight ? 'bg-amber-500 text-slate-950 font-bold shadow-xs' : 'bg-[#f5a623] text-black shadow-sm') : (isLight ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-200' : 'text-gray-400 hover:text-white hover:bg-[#222]')}`} 
                                     title={`${btn.id.charAt(0).toUpperCase() + btn.id.slice(1)} (${btn.short})`}
                                 >
                                     <BtnIcon size={12} strokeWidth={2.5} />
-                                    <span className="font-black opacity-80">{btn.label}</span>
+                                    <span className={`font-black opacity-80 ${isConstrained ? 'hidden 2xl:inline' : 'hidden md:inline'}`}>{btn.label}</span>
                                 </button>
                             );
                         })}
@@ -1409,29 +1595,180 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'cast
                                 className={`px-2.5 py-1.5 rounded transition-all flex items-center gap-1.5 text-[10px] font-bold uppercase ${isLight ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-200' : 'text-gray-400 hover:text-white hover:bg-[#222]'}`}
                                 title="Open Writer Casting Page"
                             >
-                                <Users size={13} strokeWidth={2.5} /> Characters
+                                <Users size={13} strokeWidth={2.5} />
+                                <span className={isConstrained ? 'hidden 2xl:inline' : 'hidden xl:inline'}>Characters</span>
                             </button>
                         )}
                     </div>
                 </div>
-                <div className="flex items-center gap-4">
-                    <div className={`flex rounded border p-0.5 ${isLight ? 'bg-slate-100 border-slate-200' : 'bg-[#1a1a1a] border-[#333]'}`}>
-                        <button onClick={() => setActiveSidebar(activeSidebar === 'scratchpad' ? 'none' : 'scratchpad')} className={`px-2.5 py-1.5 rounded flex items-center gap-1.5 text-[10px] font-bold uppercase transition-all ${activeSidebar === 'scratchpad' ? (isLight ? 'bg-white text-amber-600 shadow-xs' : 'bg-[#222] text-[#f5a623] shadow-sm') : (isLight ? 'text-slate-600 hover:text-slate-900' : 'text-gray-500 hover:text-white')}`} title="Scratchpad"><StickyNote size={13} /> Notes</button>
-                        <button onClick={() => setActiveSidebar(activeSidebar === 'breakdown' ? 'none' : 'breakdown')} className={`px-2.5 py-1.5 rounded flex items-center gap-1.5 text-[10px] font-bold uppercase transition-all ${activeSidebar === 'breakdown' ? (isLight ? 'bg-white text-amber-600 shadow-xs' : 'bg-[#222] text-[#f5a623] shadow-sm') : (isLight ? 'text-slate-600 hover:text-slate-900' : 'text-gray-400 hover:text-white')}`} title="Scene Breakdown"><ListChecks size={13} /> Breakdown</button>
-                        <button onClick={() => setActiveSidebar(activeSidebar === 'history' ? 'none' : 'history')} className={`px-2.5 py-1.5 rounded flex items-center gap-1.5 text-[10px] font-bold uppercase transition-all ${activeSidebar === 'history' ? (isLight ? 'bg-white text-amber-600 shadow-xs' : 'bg-[#222] text-[#f5a623] shadow-sm') : (isLight ? 'text-slate-600 hover:text-slate-900' : 'text-gray-400 hover:text-white')}`} title="Version History"><History size={13} /> Version</button>
+                <div className="flex items-center gap-2 shrink-0">
+
+                    {/* Page & Scene Stats Badge */}
+                    <div 
+                        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[10px] font-mono select-none tracking-tight transition-colors ${
+                            isLight 
+                                ? 'bg-slate-100 border-slate-200 text-slate-600 shadow-xs' 
+                                : 'bg-white/[0.04] border-white/10 text-slate-300 shadow-sm'
+                        }`}
+                        title={`Total: ${totalPages} Pages • ${sortedBeats.length} ${sortedBeats.length === 1 ? 'Scene' : 'Scenes'}`}
+                    >
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" />
+                        <span className="font-bold text-slate-900 dark:text-slate-100">P.{totalPages}</span>
+                        <span className="opacity-40">•</span>
+                        <span>{sortedBeats.length} {isConstrained ? 'sc' : (sortedBeats.length === 1 ? 'scene' : 'scenes')}</span>
                     </div>
-                    <div className={`w-[1px] h-4 ${isLight ? 'bg-slate-300' : 'bg-[#333]'}`}></div>
-                    <div className={`flex rounded border p-0.5 ${isLight ? 'bg-slate-100 border-slate-200' : 'bg-[#1a1a1a] border-[#333]'}`}>
-                        <button onClick={() => setPaperTheme('white')} className={`p-1.5 rounded ${scriptConfig.paperTheme === 'white' ? 'bg-white text-slate-900 shadow-xs font-bold' : (isLight ? 'text-slate-500 hover:text-slate-900' : 'text-gray-500 hover:text-white')}`}><Sun size={12}/></button>
-                        <button onClick={() => setPaperTheme('sepia')} className={`p-1.5 rounded ${scriptConfig.paperTheme === 'sepia' ? 'bg-[#fdf6e3] text-[#586e75] font-bold' : (isLight ? 'text-slate-500 hover:text-slate-900' : 'text-gray-500 hover:text-white')}`}><Coffee size={12}/></button>
-                        <button onClick={() => setPaperTheme('dark')} className={`p-1.5 rounded ${scriptConfig.paperTheme === 'dark' ? 'bg-slate-900 text-white font-bold' : (isLight ? 'text-slate-500 hover:text-slate-900' : 'text-gray-500 hover:text-white')}`}><Moon size={12}/></button>
-                        <button onClick={() => setPaperTheme('red')} className={`p-1.5 rounded ${scriptConfig.paperTheme === 'red' ? 'bg-black text-red-500 font-bold' : (isLight ? 'text-slate-500 hover:text-slate-900' : 'text-gray-500 hover:text-white')}`}><Eye size={12}/></button>
+
+                    {/* Studio Drawers (Notes, Breakdown, History) */}
+                    <div className={`flex items-center rounded-lg border p-0.5 gap-0.5 ${
+                        isLight ? 'bg-slate-100 border-slate-200' : 'bg-white/[0.04] border-white/10'
+                    }`}>
+                        <button 
+                            onClick={() => setActiveSidebar(activeSidebar === 'scratchpad' ? 'none' : 'scratchpad')} 
+                            className={`px-2 py-1 rounded-md flex items-center gap-1.5 text-[11px] font-semibold transition-all duration-150 ${
+                                activeSidebar === 'scratchpad' 
+                                    ? (isLight ? 'bg-white text-amber-600 shadow-xs font-bold' : 'bg-[#222] text-[#f5a623] shadow-sm font-bold') 
+                                    : (isLight ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60' : 'text-slate-400 hover:text-white hover:bg-white/5')
+                            }`} 
+                            title="Scene & Project Notes (Scratchpad)"
+                        >
+                            <StickyNote size={13} className={activeSidebar === 'scratchpad' ? 'text-amber-500' : 'opacity-75'} />
+                            <span className={isConstrained ? 'hidden' : 'hidden xl:inline'}>Notes</span>
+                        </button>
+                        <button 
+                            onClick={() => setActiveSidebar(activeSidebar === 'breakdown' ? 'none' : 'breakdown')} 
+                            className={`px-2 py-1 rounded-md flex items-center gap-1.5 text-[11px] font-semibold transition-all duration-150 ${
+                                activeSidebar === 'breakdown' 
+                                    ? (isLight ? 'bg-white text-amber-600 shadow-xs font-bold' : 'bg-[#222] text-[#f5a623] shadow-sm font-bold') 
+                                    : (isLight ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60' : 'text-slate-400 hover:text-white hover:bg-white/5')
+                            }`} 
+                            title="Scene Elements Breakdown"
+                        >
+                            <ListChecks size={13} className={activeSidebar === 'breakdown' ? 'text-amber-500' : 'opacity-75'} />
+                            <span className={isConstrained ? 'hidden' : 'hidden xl:inline'}>Breakdown</span>
+                        </button>
+                        <button 
+                            onClick={() => setActiveSidebar(activeSidebar === 'history' ? 'none' : 'history')} 
+                            className={`px-2 py-1 rounded-md flex items-center gap-1.5 text-[11px] font-semibold transition-all duration-150 ${
+                                activeSidebar === 'history' 
+                                    ? (isLight ? 'bg-white text-amber-600 shadow-xs font-bold' : 'bg-[#222] text-[#f5a623] shadow-sm font-bold') 
+                                    : (isLight ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60' : 'text-slate-400 hover:text-white hover:bg-white/5')
+                            }`} 
+                            title="Beat Snapshot History"
+                        >
+                            <History size={13} className={activeSidebar === 'history' ? 'text-amber-500' : 'opacity-75'} />
+                            <span className={isConstrained ? 'hidden' : 'hidden xl:inline'}>History</span>
+                        </button>
                     </div>
-                    <div className={`w-[1px] h-4 ${isLight ? 'bg-slate-300' : 'bg-[#333]'}`}></div>
-                    <div className={`flex items-center rounded border ${isLight ? 'bg-slate-100 border-slate-200' : 'bg-[#1a1a1a] border-[#333]'}`}>
-                        <button onClick={() => setZoom(Math.max(0.2, zoom - 0.1))} className={`p-1.5 border-r ${isLight ? 'border-slate-200 text-slate-600 hover:text-slate-900' : 'border-[#333] text-gray-400 hover:text-white hover:bg-[#333]'}`}><ZoomOut size={12} /></button>
-                        <button onClick={toggleFitZoom} className={`px-3 py-1 text-[10px] font-bold border-r transition-colors w-16 text-center ${isLight ? 'border-slate-200 text-slate-700 hover:text-slate-900' : 'border-[#333] text-gray-300 hover:text-white hover:bg-[#333]'}`}>{Math.round(zoom * 100)}%</button>
-                        <button onClick={() => setZoom(Math.min(2.0, zoom + 0.1))} className={`p-1.5 border-l ${isLight ? 'border-slate-200 text-slate-600 hover:text-slate-900' : 'border-[#333] text-gray-400 hover:text-white hover:bg-[#333]'}`}><ZoomIn size={12} /></button>
+
+                    {/* Script Production Tools (Revisions & Transcoder) */}
+                    <div className={`flex items-center rounded-lg border p-0.5 gap-0.5 ${
+                        isLight ? 'bg-slate-100 border-slate-200' : 'bg-white/[0.04] border-white/10'
+                    }`}>
+                        <button 
+                            onClick={() => setShowArchiveModal(true)} 
+                            className={`px-2 py-1 rounded-md flex items-center gap-1.5 text-[11px] font-semibold transition-all duration-150 ${
+                                isLight ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60' : 'text-slate-400 hover:text-white hover:bg-white/5'
+                            }`} 
+                            title="Hollywood Script Revisions (White, Blue, Pink...)"
+                        >
+                            <Archive size={13} className="text-amber-500/90" />
+                            <span className={isConstrained ? 'hidden' : 'hidden xl:inline'}>Revisions</span>
+                        </button>
+                        <button 
+                            onClick={() => setShowTranscoderModal(true)} 
+                            className={`px-2 py-1 rounded-md flex items-center gap-1.5 text-[11px] font-semibold transition-all duration-150 ${
+                                isLight ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60' : 'text-slate-400 hover:text-white hover:bg-white/5'
+                            }`} 
+                            title="Tamil / Bamini Transcoder"
+                        >
+                            <Type size={13} className="text-amber-500/90" />
+                            <span className={isConstrained ? 'hidden' : 'hidden xl:inline'}>Tamil</span>
+                        </button>
+                    </div>
+
+                    {/* Paper Theme Icons (Sun, Coffee, Moon, Eye) */}
+                    <div className={`flex items-center rounded-lg border p-0.5 gap-0.5 ${
+                        isLight ? 'bg-slate-100 border-slate-200' : 'bg-white/[0.04] border-white/10'
+                    }`} title="Screenplay Paper Theme">
+                        <button 
+                            onClick={() => setPaperTheme('white')} 
+                            title="White Paper (Standard)" 
+                            className={`p-1.5 rounded-md transition-all ${
+                                scriptConfig.paperTheme === 'white' 
+                                    ? (isLight ? 'bg-white text-amber-600 shadow-xs font-bold' : 'bg-[#222] text-[#f5a623] shadow-sm font-bold') 
+                                    : (isLight ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-200/60' : 'text-slate-400 hover:text-white hover:bg-white/5')
+                            }`}
+                        >
+                            <Sun size={13} />
+                        </button>
+                        <button 
+                            onClick={() => setPaperTheme('sepia')} 
+                            title="Sepia Paper (Warm Daylight)" 
+                            className={`p-1.5 rounded-md transition-all ${
+                                scriptConfig.paperTheme === 'sepia' 
+                                    ? (isLight ? 'bg-[#fdf6e3] text-[#586e75] shadow-xs font-bold' : 'bg-[#2a2419] text-[#e0a84e] shadow-sm font-bold') 
+                                    : (isLight ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-200/60' : 'text-slate-400 hover:text-white hover:bg-white/5')
+                            }`}
+                        >
+                            <Coffee size={13} />
+                        </button>
+                        <button 
+                            onClick={() => setPaperTheme('dark')} 
+                            title="Dark Paper (Midnight)" 
+                            className={`p-1.5 rounded-md transition-all ${
+                                scriptConfig.paperTheme === 'dark' 
+                                    ? (isLight ? 'bg-slate-900 text-white shadow-xs font-bold' : 'bg-[#222] text-[#f5a623] shadow-sm font-bold') 
+                                    : (isLight ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-200/60' : 'text-slate-400 hover:text-white hover:bg-white/5')
+                            }`}
+                        >
+                            <Moon size={13} />
+                        </button>
+                        <button 
+                            onClick={() => setPaperTheme('red')} 
+                            title="Night Red Paper (Astro / Eye Saver)" 
+                            className={`p-1.5 rounded-md transition-all ${
+                                scriptConfig.paperTheme === 'red' 
+                                    ? (isLight ? 'bg-black text-red-500 shadow-xs font-bold' : 'bg-[#2b0c0c] text-red-400 shadow-sm font-bold') 
+                                    : (isLight ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-200/60' : 'text-slate-400 hover:text-white hover:bg-white/5')
+                            }`}
+                        >
+                            <Eye size={13} />
+                        </button>
+                    </div>
+
+                    {/* Modern Zoom Controls */}
+                    <div className={`flex items-center rounded-lg border p-0.5 ${
+                        isLight ? 'bg-slate-100 border-slate-200' : 'bg-white/[0.04] border-white/10'
+                    }`}>
+                        <button 
+                            onClick={() => setZoom(Math.max(0.2, zoom - 0.1))} 
+                            className={`p-1 rounded-md transition-colors ${
+                                isLight ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60' : 'text-slate-400 hover:text-white hover:bg-white/5'
+                            }`}
+                            title="Zoom Out"
+                        >
+                            <ZoomOut size={12} />
+                        </button>
+                        <button 
+                            onClick={() => setZoom(1.0)} 
+                            title="Click to reset zoom to 100%" 
+                            className={`px-1.5 py-0.5 text-[10px] font-mono font-bold tracking-tight rounded-sm transition-colors text-center min-w-[36px] ${
+                                Math.round(zoom * 100) === 100
+                                    ? (isLight ? 'text-slate-700' : 'text-slate-300')
+                                    : (isLight ? 'text-amber-600 font-black' : 'text-amber-400 font-black')
+                            } ${isLight ? 'hover:bg-slate-200/60' : 'hover:bg-white/5'}`}
+                        >
+                            {Math.round(zoom * 100)}%
+                        </button>
+                        <button 
+                            onClick={() => setZoom(Math.min(2.0, zoom + 0.1))} 
+                            className={`p-1 rounded-md transition-colors ${
+                                isLight ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60' : 'text-slate-400 hover:text-white hover:bg-white/5'
+                            }`}
+                            title="Zoom In"
+                        >
+                            <ZoomIn size={12} />
+                        </button>
                     </div>
                 </div>
             </div>
@@ -1440,77 +1777,216 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'cast
         <div className="flex-1 flex overflow-hidden">
             <div ref={scrollerRef} className={`flex-1 overflow-y-auto relative flex flex-col items-center pb-96 custom-scrollbar ${isLight ? 'bg-slate-200/80' : 'bg-[#121212]'}`}>
                 <div className="transition-transform duration-200 origin-top py-10" style={{ transform: `scale(${zoom})` }}>
-                    <div style={{ position: 'relative', width: `${A4_WIDTH}px`, minHeight: `${A4_HEIGHT}px` }}>
-                        <div ref={paperLayerRef} className="absolute top-0 left-0 w-full flex flex-col pointer-events-none z-0"></div>
-                        <div id="script-content-layer" ref={contentRef} className="relative z-10 w-full h-full" style={{ color: theme.text, ...editorStyle, paddingTop: `${MARGIN_TOP}px`, paddingBottom: `${MARGIN_BOTTOM}px`, paddingLeft: `${MARGIN_LEFT}px`, paddingRight: `${MARGIN_RIGHT}px`, }}>
-                            <style>{`
-                                #script-content-layer,
-                                #script-content-layer .script-body,
-                                #script-content-layer .script-body *,
-                                #script-content-layer .sc-line,
-                                #script-content-layer .sc-action,
-                                #script-content-layer .sc-character,
-                                #script-content-layer .sc-dialogue,
-                                #script-content-layer .sc-parenthetical,
-                                #script-content-layer .sc-transition,
-                                #script-content-layer .sc-shot,
-                                #script-content-layer .sc-lyrics {
-                                    color: ${theme.text} !important;
-                                }
-                                #script-content-layer .sc-slug {
-                                    color: ${theme.slug} !important;
-                                }
-                                #script-content-layer .script-body .sc-slugline {
-                                    background-color: ${theme.slugBg} !important;
-                                    color: ${theme.slugText} !important;
-                                }
-                            `}</style>
-                            {sortedBeats.map((beat, i) => {
-                                const isReady = beat.status === 'ready';
-                                const isSandbox = !isSequenceBeat(beat, connectedSet, beatOrder);
-                                const isFirstSandbox = i === sequenceCount;
-                                const displayNumber = isSandbox ? '•' : (beat.sceneNumber || beatOrder[beat.id] || (i + 1).toString());
-
-                                return (
-                                    <React.Fragment key={beat.id}>
-                                        {isFirstSandbox && (
-                                            <div className="w-full py-12 flex items-center justify-center select-none pointer-events-none page-break-avoid">
-                                                <div className={`h-px w-32 mr-4 border-b border-dashed ${isLight ? 'border-slate-400' : 'border-gray-500'}`}></div>
-                                                <span className={`text-[10px] font-mono uppercase tracking-[0.2em] font-bold ${isLight ? 'text-slate-500' : 'text-gray-500'}`}>Unsequenced Fragments</span>
-                                                <div className={`h-px w-32 ml-4 border-b border-dashed ${isLight ? 'border-slate-400' : 'border-gray-500'}`}></div>
-                                            </div>
-                                        )}
-                                        <div id={`beat-${beat.id}`} className={`beat-block group relative ${activeBeatId === beat.id ? 'z-20' : 'z-10'}`} onFocusCapture={() => setActiveBeatId(beat.id)} onClick={() => setActiveBeatId(beat.id)} onContextMenu={(e) => handleScriptContextMenu(e, beat.id)}>
-                                            <div className={`absolute -left-16 top-0.5 w-12 text-right font-mono text-xs font-bold select-none opacity-60 group-hover:opacity-100 transition-opacity ${isSandbox ? (isLight ? 'text-slate-400' : 'text-gray-600') : ''}`} style={{ color: isSandbox ? undefined : (isLight ? '#64748b' : theme.pageNum) }}>{displayNumber}</div>
+                    <div className="flex flex-col items-center">
+                        <style>{`
+                            .screenplay-a4-sheet,
+                            .screenplay-a4-sheet .script-body,
+                            .screenplay-a4-sheet .script-body *,
+                            .screenplay-a4-sheet .sc-line,
+                            .screenplay-a4-sheet .sc-action,
+                            .screenplay-a4-sheet .sc-character,
+                            .screenplay-a4-sheet .sc-dialogue,
+                            .screenplay-a4-sheet .sc-parenthetical,
+                            .screenplay-a4-sheet .sc-transition,
+                            .screenplay-a4-sheet .sc-shot,
+                            .screenplay-a4-sheet .sc-lyrics {
+                                color: ${theme.text} !important;
+                            }
+                            .screenplay-a4-sheet .sc-slug {
+                                color: ${theme.slug} !important;
+                            }
+                            .screenplay-a4-sheet .script-body .sc-slugline {
+                                background-color: ${theme.slugBg} !important;
+                                color: ${theme.slugText} !important;
+                            }
+                        `}</style>
+                        <div 
+                            className="relative"
+                            style={{
+                                width: `${A4_WIDTH}px`,
+                                minHeight: `${totalPages * (A4_HEIGHT + PAGE_GAP) - PAGE_GAP}px`,
+                            }}
+                        >
+                            {/* 1. Backdrop of Physical A4 Sheets with Authentic Screenplay Page Numbers */}
+                            <div 
+                                className="paper-backdrop pointer-events-none absolute left-0 top-0 select-none"
+                                style={{ width: `${A4_WIDTH}px` }}
+                            >
+                                {Array.from({ length: totalPages }).map((_, index) => (
+                                    <div 
+                                        key={`screenplay-paper-sheet-${index + 1}`}
+                                        className="screenplay-paper-sheet transition-[background-color,box-shadow] duration-200"
+                                        style={{
+                                            position: 'absolute',
+                                            left: 0,
+                                            top: `${index * (A4_HEIGHT + PAGE_GAP)}px`,
+                                            width: `${A4_WIDTH}px`,
+                                            height: `${A4_HEIGHT}px`,
+                                            backgroundColor: theme.bg,
+                                            boxShadow: theme.shadow,
+                                            boxSizing: 'border-box',
+                                        }}
+                                    >
+                                        {/* Top-right standard screenplay page number (Starting from Page 2) */}
+                                        {index > 0 && (
                                             <div 
-                                                className={`flex items-center gap-2 my-1.5 px-3 py-1.5 transition-all border-l-2 shadow-2xs ${
-                                                    activeBeatId === beat.id 
-                                                        ? 'shadow-xs font-black' 
-                                                        : 'hover:brightness-95'
-                                                }`}
-                                                style={{
-                                                    backgroundColor: activeBeatId === beat.id ? theme.activeSlugBg : theme.slugBg,
-                                                    borderColor: activeBeatId === beat.id ? theme.activeBorder : (scriptConfig.paperTheme === 'sepia' ? 'rgba(107,114,128,0.25)' : scriptConfig.paperTheme === 'dark' ? 'rgba(148,163,184,0.25)' : scriptConfig.paperTheme === 'red' ? 'rgba(148,163,184,0.25)' : 'rgba(107,114,128,0.25)'),
+                                                className="absolute font-mono text-xs font-bold select-none tracking-widest opacity-60 pointer-events-none"
+                                                style={{ 
+                                                    top: '48px', 
+                                                    right: '96px', 
+                                                    color: theme.pageNum,
+                                                    fontFamily: "'Courier Prime', Courier, monospace"
                                                 }}
                                             >
-                                                <div className="flex-1 flex items-center gap-2 font-black uppercase font-screenplay text-sm tracking-wide">
-                                                    <SlugInput id={`beat-prefix-${beat.id}`} value={beat.slug.prefix} onChange={v => handleSlugChange(beat.id, 'prefix', v)} onNext={() => document.getElementById(`beat-location-${beat.id}`)?.focus()} suggestions={SLUG_PREFIXES} className="w-20 shrink-0 font-black" style={{ color: activeBeatId === beat.id ? theme.activeSlugText : theme.slugText }} placeholder="INT." dropdownStyle={{ backgroundColor: theme.dropdownBg, color: theme.dropdownText, borderColor: theme.dropdownBorder }} readOnly={isReady || isScriptReadOnly} />
-                                                    <SlugInput id={`beat-location-${beat.id}`} value={beat.slug.location} onChange={v => handleSlugChange(beat.id, 'location', v)} onNext={() => document.getElementById(`beat-time-${beat.id}`)?.focus()} suggestions={uniqueLocations} className="flex-1 font-black" style={{ color: activeBeatId === beat.id ? theme.activeSlugText : theme.slugText }} placeholder="LOCATION" dropdownStyle={{ backgroundColor: theme.dropdownBg, color: theme.dropdownText, borderColor: theme.dropdownBorder }} readOnly={isReady || isScriptReadOnly} />
-                                                    <span className="opacity-60 font-black" style={{ color: activeBeatId === beat.id ? theme.activeSlugText : theme.slugText }}>-</span>
-                                                    <SlugInput id={`beat-time-${beat.id}`} value={beat.slug.time} onChange={v => handleSlugChange(beat.id, 'time', v)} onNext={() => editorRefs.current[beat.id]?.focus()} suggestions={SLUG_TIMES} className="w-32 shrink-0 font-black" style={{ color: activeBeatId === beat.id ? theme.activeSlugText : theme.slugText }} placeholder="TIME" dropdownStyle={{ backgroundColor: theme.dropdownBg, color: theme.dropdownText, borderColor: theme.dropdownBorder }} readOnly={isReady || isScriptReadOnly} />
+                                                {index + 1}.
+                                            </div>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+
+                            {/* 2. Live Continuous Screenplay Content Layer */}
+                            <div 
+                                ref={contentRef}
+                                className="relative z-10 w-full"
+                                style={{
+                                    paddingTop: `${MARGIN_TOP}px`,
+                                    paddingBottom: `${MARGIN_BOTTOM}px`,
+                                    paddingLeft: `${MARGIN_LEFT}px`,
+                                    paddingRight: `${MARGIN_RIGHT}px`,
+                                    boxSizing: 'border-box',
+                                    color: theme.text,
+                                    ...editorStyle,
+                                }}
+                            >
+                                {sortedBeats.map((beat, i) => {
+                                    const isReady = beat.status === 'ready';
+                                    const isSandbox = sequenceCount > 0 && !isSequenceBeat(beat, connectedSet, beatOrder);
+                                    
+                                    const globalIndex = sortedBeats.findIndex(b => b.id === beat.id);
+                                    const isFirstSandbox = sequenceCount > 0 && globalIndex === sequenceCount;
+
+                                    const autoNum = (beat.sceneNumber && beat.sceneNumber.trim()) 
+                                        ? beat.sceneNumber.trim() 
+                                        : (beatOrder[beat.id] !== undefined ? beatOrder[beat.id].toString() : (globalIndex + 1).toString());
+                                    const displayNumber = isSandbox ? '•' : autoNum;
+
+                                    return (
+                                        <React.Fragment key={beat.id}>
+                                            {isFirstSandbox && (
+                                                <div className="w-full py-6 flex items-center justify-center select-none pointer-events-none">
+                                                    <div className={`h-px w-24 mr-4 border-b border-dashed ${isLight ? 'border-slate-400' : 'border-gray-500'}`}></div>
+                                                    <span className={`text-[10px] font-mono uppercase tracking-[0.2em] font-bold ${isLight ? 'text-slate-500' : 'text-gray-500'}`}>Unsequenced Fragments</span>
+                                                    <div className={`h-px w-24 ml-4 border-b border-dashed ${isLight ? 'border-slate-400' : 'border-gray-500'}`}></div>
                                                 </div>
-                                                {(isReady || isScriptReadOnly) && <Lock size={12} style={{ color: activeBeatId === beat.id ? theme.activeSlugText : '#10b981' }} className="ml-2 shrink-0" />}
+                                            )}
+                                            <div 
+                                                id={`beat-${beat.id}`} 
+                                                className={`beat-block group relative ${activeBeatId === beat.id ? 'z-20' : 'z-10'}`} 
+                                                onFocusCapture={() => setActiveBeatId(beat.id)} 
+                                                onClick={() => setActiveBeatId(beat.id)} 
+                                                onContextMenu={(e) => handleScriptContextMenu(e, beat.id)}
+                                            >
+                                                {/* Slugline Banner with Left & Right Scene Numbering */}
+                                                <div 
+                                                    className={`slugline-banner group/slug flex items-center gap-2 my-1 px-2.5 py-0.5 transition-colors duration-150 border-l-2 ${
+                                                        activeBeatId === beat.id 
+                                                            ? 'font-black shadow-xs' 
+                                                            : 'hover:brightness-95 opacity-90 hover:opacity-100'
+                                                    }`}
+                                                    style={{
+                                                        backgroundColor: activeBeatId === beat.id ? theme.activeSlugBg : theme.slugBg,
+                                                        borderColor: activeBeatId === beat.id ? theme.activeBorder : (scriptConfig.paperTheme === 'sepia' ? 'rgba(107,114,128,0.25)' : scriptConfig.paperTheme === 'dark' ? 'rgba(148,163,184,0.25)' : scriptConfig.paperTheme === 'red' ? 'rgba(148,163,184,0.25)' : 'rgba(107,114,128,0.25)'),
+                                                    }}
+                                                >
+                                                    {/* Left Scene Number Badge (Clickable to customize) */}
+                                                    {!isSandbox && (
+                                                        <button 
+                                                            type="button"
+                                                            onClick={(e) => { e.stopPropagation(); handleSetSceneNumber(beat.id, beat.sceneNumber || autoNum); }}
+                                                            className={`shrink-0 px-1.5 py-0 text-[11px] font-mono font-black transition-all select-none ${
+                                                                activeBeatId === beat.id 
+                                                                    ? (isLight ? 'bg-amber-500 text-slate-950 border border-amber-600 shadow-xs' : 'bg-[#f5a623] text-black border border-[#e09612] shadow-sm') 
+                                                                    : (isLight ? 'bg-black/5 text-slate-800 border border-black/10 hover:border-amber-500 hover:text-black' : 'bg-white/5 text-zinc-200 border border-white/10 hover:border-amber-400 hover:text-white')
+                                                            }`}
+                                                            title="Click to edit scene number"
+                                                        >
+                                                            {displayNumber}
+                                                        </button>
+                                                    )}
+
+                                                    <div className="flex-1 flex items-center gap-1.5 font-black uppercase font-screenplay text-[13px] tracking-wide min-w-0">
+                                                        <SlugInput 
+                                                            id={`beat-prefix-${beat.id}`} 
+                                                            value={beat.slug.prefix} 
+                                                            onChange={v => handleSlugChange(beat.id, 'prefix', v)} 
+                                                            onNext={() => document.getElementById(`beat-location-${beat.id}`)?.focus()} 
+                                                            suggestions={SLUG_PREFIXES} 
+                                                            className="w-20 shrink-0 font-black" 
+                                                            style={{ color: activeBeatId === beat.id ? theme.activeSlugText : theme.slugText, backgroundColor: 'transparent' }} 
+                                                            placeholder="INT." 
+                                                            dropdownStyle={{ backgroundColor: theme.dropdownBg, color: theme.dropdownText, borderColor: theme.dropdownBorder }} 
+                                                            readOnly={isReady || isScriptReadOnly} 
+                                                        />
+                                                        <SlugInput 
+                                                            id={`beat-location-${beat.id}`} 
+                                                            value={beat.slug.location} 
+                                                            onChange={v => handleSlugChange(beat.id, 'location', v)} 
+                                                            onNext={() => document.getElementById(`beat-time-${beat.id}`)?.focus()} 
+                                                            suggestions={uniqueLocations} 
+                                                            className="flex-1 font-black" 
+                                                            style={{ color: activeBeatId === beat.id ? theme.activeSlugText : theme.slugText, backgroundColor: 'transparent' }} 
+                                                            placeholder="LOCATION" 
+                                                            dropdownStyle={{ backgroundColor: theme.dropdownBg, color: theme.dropdownText, borderColor: theme.dropdownBorder }} 
+                                                            readOnly={isReady || isScriptReadOnly} 
+                                                        />
+                                                        <span className="opacity-50 font-black px-1 select-none" style={{ color: activeBeatId === beat.id ? theme.activeSlugText : theme.slugText }}>—</span>
+                                                        <SlugInput 
+                                                            id={`beat-time-${beat.id}`} 
+                                                            value={beat.slug.time} 
+                                                            onChange={v => handleSlugChange(beat.id, 'time', v)} 
+                                                            onNext={() => editorRefs.current[beat.id]?.focus()} 
+                                                            suggestions={SLUG_TIMES} 
+                                                            className="w-28 shrink-0 font-black" 
+                                                            style={{ color: activeBeatId === beat.id ? theme.activeSlugText : theme.slugText, backgroundColor: 'transparent' }} 
+                                                            placeholder="TIME" 
+                                                            dropdownStyle={{ backgroundColor: theme.dropdownBg, color: theme.dropdownText, borderColor: theme.dropdownBorder }} 
+                                                            readOnly={isReady || isScriptReadOnly} 
+                                                        />
+                                                    </div>
+
+                                                    {/* Right Scene Number (Standard Industry Screenplay Format) */}
+                                                    {!isSandbox && (
+                                                        <div 
+                                                            className="shrink-0 font-mono text-[11px] font-black select-none tracking-widest px-1 opacity-75 group-hover:opacity-100"
+                                                            style={{ color: activeBeatId === beat.id ? theme.activeSlugText : theme.slugText }}
+                                                            title="Standard production scene number"
+                                                        >
+                                                            {displayNumber}
+                                                        </div>
+                                                    )}
+
+                                                    {(isReady || isScriptReadOnly) && <Lock size={12} style={{ color: activeBeatId === beat.id ? theme.activeSlugText : '#10b981' }} className="ml-2 shrink-0" />}
+                                                </div>
+                                                <div>
+                                                    <BeatEditorBlock beat={beat} isActive={activeBeatId === beat.id} isReady={isReady || isScriptReadOnly} uniqueCharacters={uniqueCharacters} setActiveFormat={setActiveFormat} onUpdateContent={handleContentUpdate} onFocus={() => setActiveBeatId(beat.id)} editorRefCallback={(el) => { editorRefs.current[beat.id] = el; }} />
+                                                </div>
                                             </div>
-                                            <div>
-                                                <BeatEditorBlock beat={beat} isActive={activeBeatId === beat.id} isReady={isReady || isScriptReadOnly} uniqueCharacters={uniqueCharacters} setActiveFormat={setActiveFormat} onUpdateContent={handleContentUpdate} onFocus={() => setActiveBeatId(beat.id)} editorRefCallback={(el) => { editorRefs.current[beat.id] = el; }} />
-                                            </div>
-                                        </div>
-                                    </React.Fragment>
-                                );
-                            })}
-                            {!isScriptReadOnly && (
-                                <div onClick={handleAddScene} className={`mt-8 mx-auto w-full max-w-xl h-6 border-b border-transparent flex items-center justify-center cursor-pointer transition-all duration-300 group opacity-40 hover:opacity-100 ${isLight ? 'hover:border-amber-500/50' : 'hover:border-[#f5a623]/30'}`}><span className={`text-[9px] font-bold uppercase tracking-[0.2em] flex items-center gap-2 transition-colors ${isLight ? 'text-slate-500 group-hover:text-amber-600' : 'text-[#666] group-hover:text-[#f5a623]'}`}><Plus size={8} /> Add Scene</span></div>
-                            )}
+                                        </React.Fragment>
+                                    );
+                                })}
+
+                                {!isScriptReadOnly && (
+                                    <div 
+                                        onClick={handleAddScene} 
+                                        className={`mt-8 mx-auto w-full max-w-xl h-8 border-b border-dashed border-transparent flex items-center justify-center cursor-pointer transition-all duration-300 group opacity-50 hover:opacity-100 ${isLight ? 'hover:border-amber-500/50' : 'hover:border-[#f5a623]/30'}`}
+                                    >
+                                        <span className={`text-[10px] font-bold uppercase tracking-[0.2em] flex items-center gap-2 transition-colors ${isLight ? 'text-slate-500 group-hover:text-amber-600' : 'text-[#888] group-hover:text-[#f5a623]'}`}>
+                                            <Plus size={10} /> Add Scene
+                                        </span>
+                                    </div>
+                                )}
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -1524,7 +2000,151 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'cast
                     </div>
                     <div className="flex-1 relative overflow-hidden">
                         {activeSidebar === 'breakdown' && (<div className="absolute inset-0 overflow-y-auto custom-scrollbar p-4">{activeBeat ? (<><div className={`mb-6 pb-4 border-b ${isLight ? 'border-slate-200' : 'border-[#333]'}`}><span className={`text-[9px] uppercase tracking-wider font-bold ${isLight ? 'text-slate-400' : 'text-gray-500'}`}>Scene Breakdown Target</span><h4 className={`text-sm font-black uppercase mt-0.5 mb-4 ${isLight ? 'text-slate-900' : 'text-white'}`}>{activeBeat.slug.location || 'Untitled Scene'}</h4><div className="flex items-center justify-between mb-2"><span className={`text-[10px] font-bold uppercase ${isLight ? 'text-slate-500' : 'text-gray-500'}`}>Output Language</span><div className={`flex rounded border p-0.5 ${isLight ? 'bg-slate-100 border-slate-200' : 'bg-[#111] border-[#333]'}`}><button onClick={() => setBreakdownLanguage('english')} className={`px-2 py-0.5 text-[9px] font-bold uppercase rounded ${breakdownLanguage === 'english' ? (isLight ? 'bg-amber-500 text-slate-950' : 'bg-[#f5a623] text-black') : (isLight ? 'text-slate-600 hover:text-slate-900' : 'text-gray-500 hover:text-white')}`}>ENG</button><button onClick={() => setBreakdownLanguage('tamil')} className={`px-2 py-0.5 text-[9px] font-bold uppercase rounded ${breakdownLanguage === 'tamil' ? (isLight ? 'bg-amber-500 text-slate-950' : 'bg-[#f5a623] text-black') : (isLight ? 'text-slate-600 hover:text-slate-900' : 'text-gray-500 hover:text-white')}`}>TAM</button></div></div><button onClick={handleAnalyzeBreakdown} disabled={isAnalyzing || !aiAvailable} className={`w-full py-2 font-bold text-xs uppercase rounded flex items-center justify-center gap-2 transition-all disabled:opacity-50 ${isLight ? 'bg-amber-500 hover:bg-amber-600 text-slate-950 shadow-xs' : 'bg-[#f5a623] hover:bg-[#e09612] text-black'}`}>{isAnalyzing ? <Sparkles size={14} className="animate-spin" /> : <Sparkles size={14} />} {isAnalyzing ? 'Analyzing...' : 'Auto-Analyze'}</button></div><BreakdownSection title="Location Scenario" category="location" icon={MapIcon} color="text-orange-500" /><BreakdownSection title="Visual Effects" category="vfx" icon={Wand2} color="text-emerald-500" /><BreakdownSection title="Practical Effects" category="practical" icon={Flame} color="text-red-500" /><BreakdownSection title="Props" category="props" icon={Package} color="text-rose-500" /><BreakdownSection title="Sound / SFX" category="sound" icon={Mic2} color="text-sky-500" /><BreakdownSection title="Wardrobe" category="costume" icon={Shirt} color="text-pink-500" /><BreakdownSection title="Cast / Extras" category="cast" icon={Users} color="text-amber-500" /></>) : (<div className={`flex flex-col items-center justify-center h-full gap-2 ${isLight ? 'text-slate-400' : 'text-gray-500'}`}><ListChecks size={32} opacity={0.3} /><span className="text-xs text-center px-4">Select a scene to view or create breakdown items.</span></div>)}</div>)}
-                        {activeSidebar === 'scratchpad' && (<div className="absolute inset-0 flex flex-col"><div className={`px-4 py-3 border-b ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-[#161616] border-[#333]'}`}><div className={`flex p-1 rounded-lg border relative ${isLight ? 'bg-slate-100 border-slate-200' : 'bg-black/40 border-[#333]'}`}><button onClick={() => setScratchpadMode('global')} className={`flex-1 py-1.5 text-[10px] font-bold uppercase rounded-md transition-all relative z-10 flex items-center justify-center gap-2 ${scratchpadMode === 'global' ? (isLight ? 'bg-amber-500 text-slate-950 font-bold shadow-xs' : 'bg-[#f5a623] text-black shadow-sm') : (isLight ? 'text-slate-600 hover:text-slate-900' : 'text-gray-500 hover:text-gray-300')}`}><Globe size={10} /> Global Notes</button><button onClick={() => setScratchpadMode('scene')} className={`flex-1 py-1.5 text-[10px] font-bold uppercase rounded-md transition-all relative z-10 flex items-center justify-center gap-2 ${scratchpadMode === 'scene' ? (isLight ? 'bg-amber-500 text-slate-950 font-bold shadow-xs' : 'bg-[#f5a623] text-black shadow-sm') : (isLight ? 'text-slate-600 hover:text-slate-900' : 'text-gray-500 hover:text-gray-300')}`}><StickyNote size={10} /> Scene Notes</button></div></div><div className={`flex-1 p-4 overflow-y-auto custom-scrollbar ${isLight ? 'bg-slate-50' : 'bg-[#111]'}`}>{scratchpadMode === 'scene' && activeBeat && (<div className={`mb-4 pb-3 border-b ${isLight ? 'border-slate-200' : 'border-[#222]'}`}><span className={`text-[9px] uppercase tracking-wider font-bold ${isLight ? 'text-slate-400' : 'text-gray-500'}`}>Scene Notes Target</span><h4 className={`text-xs font-black uppercase mt-0.5 ${isLight ? 'text-slate-800' : 'text-white'}`}>{activeBeat.slug.location || 'Untitled Scene'}</h4></div>)}{scratchpadMode === 'global' && (<div className={`mb-4 pb-3 border-b ${isLight ? 'border-slate-200' : 'border-[#222]'}`}><span className={`text-[9px] uppercase tracking-wider font-bold ${isLight ? 'text-slate-400' : 'text-gray-500'}`}>Global Note Target</span><h4 className={`text-xs font-black uppercase mt-0.5 ${isLight ? 'text-slate-800' : 'text-white'}`}>Entire Screenplay</h4></div>)}{(scratchpadMode === 'global' ? globalNotes : (activeBeat?.notes || [])).map((note, index) => { const isConfirming = confirmDeleteNoteId === note.id; const borderColor = note.color; const subtleBorder = `${borderColor}40`; const subtleBg = isLight ? '#ffffff' : `${borderColor}05`; return (<div key={note.id} draggable={false} onDragOver={(e) => handleNoteDragOver(e, index)} onDrop={(e) => handleNoteDrop(e, index)} onDragLeave={handleNoteDragLeave} className={`mb-4 rounded-md overflow-hidden transition-all shadow-xs group relative ${scratchpadConfig.glassEffect ? 'backdrop-blur-md' : ''}`} style={{ transition: 'transform 0.2s, opacity 0.2s', transform: dragOverIndex === index && scratchpadConfig.enableDragAnimations ? `scale(${scratchpadConfig.dragScale})` : 'scale(1)', opacity: dragOverIndex === index && scratchpadConfig.enableDragAnimations ? scratchpadConfig.dragOpacity : 1, border: `1px solid ${isLight ? '#e2e8f0' : subtleBorder}`, backgroundColor: subtleBg, boxShadow: isLight ? '0 1px 3px rgba(0,0,0,0.05)' : `0 1px 3px rgba(0,0,0,0.3), 0 0 2px ${subtleBorder}` }}><div draggable={true} onDragStart={(e) => handleNoteDragStart(e, index)} className={`flex justify-between items-center px-2 py-1 border-b cursor-grab active:cursor-grabbing transition-colors ${isLight ? 'border-slate-100 bg-slate-100/70 hover:bg-slate-200/60' : 'border-white/5 bg-black/20 hover:bg-white/5'}`}><div className="flex gap-1 items-center"><GripHorizontal size={12} className={isLight ? "text-slate-400 mr-2" : "text-gray-600 mr-2"} />{STORYLINE_COLORS.slice(0,5).map(c => (<div key={c} className={`w-2 h-2 rounded-full cursor-pointer transition-transform hover:scale-125 ${note.color === c ? 'ring-1 ring-slate-400' : 'opacity-50 hover:opacity-100'}`} style={{ backgroundColor: c }} onMouseDown={(e) => { e.stopPropagation(); updateNote(note.id, { color: c }); }}></div>))}</div><button onMouseDown={(e) => { e.stopPropagation(); if(isConfirming) deleteNote(note.id); else { setConfirmDeleteNoteId(note.id); setTimeout(() => setConfirmDeleteNoteId(null), 3000); } }} className={`transition-colors ${isConfirming ? 'text-red-500 animate-pulse bg-red-50 px-1 rounded' : (isLight ? 'text-slate-400 hover:text-slate-800' : 'text-white/30 hover:text-white')}`} title={isConfirming ? "Click again to delete" : "Delete Note"}><Trash2 size={10} /></button></div><div style={{ backgroundColor: 'transparent' }}>{note.content.includes('<audio') ? (<div className="p-3 bg-black/10 dark:bg-white/[0.02] rounded-md m-2 border border-white/5"><div className="text-[9px] uppercase tracking-wider text-amber-500 font-black mb-2 flex items-center gap-1.5"><Volume2 size={10} /> Voice Idea Memo</div><div dangerouslySetInnerHTML={{ __html: note.content }} /></div>) : (<BlockEditor value={note.content} onChange={(val) => updateNote(note.id, { content: val })} className="bg-transparent border-none rounded-none text-slate-800" minHeight="80px" placeholder="Note content..." config={scratchpadConfig} style={{ lineHeight: scratchpadConfig.lineHeight }} />)}</div></div>); })} {(scratchpadMode === 'scene' && !activeBeat) ? (<div className={`flex flex-col items-center justify-center h-full gap-2 ${isLight ? 'text-slate-400' : 'text-gray-500'}`}><StickyNote size={32} opacity={0.3} /><span className="text-xs text-center px-4">Select a scene to add notes.</span></div>) : (<div className="flex gap-2 mt-2"><button onClick={() => addNote()} className={`flex-1 py-3 border border-dashed rounded-none text-xs font-bold uppercase transition-all flex items-center justify-center gap-2 ${isLight ? 'border-slate-300 hover:border-amber-500 text-slate-600 hover:text-amber-600 hover:bg-amber-50/50' : 'border-[#333] hover:border-[#f5a623] hover:bg-[#f5a623]/10 text-gray-500 hover:text-[#f5a623]'}`}><Plus size={14} /> Add Note</button><button onClick={toggleRecording} className={`px-4 border border-dashed rounded-none text-xs font-bold uppercase transition-all flex items-center justify-center gap-2 ${isRecording ? 'border-red-500/50 bg-red-500/10 text-red-500 hover:bg-red-500/20' : (isLight ? 'border-slate-300 hover:border-amber-500 text-slate-600 hover:text-amber-600 hover:bg-amber-50/50' : 'border-[#333] hover:border-[#f5a623] hover:bg-[#f5a623]/10 text-gray-500 hover:text-[#f5a623]')}`} title={isRecording ? "Stop Recording" : "Record Voice Idea"}>{isRecording ? (<><Square size={14} className="text-red-500 animate-pulse" /><span className="text-[10px] font-mono text-red-500">{Math.floor(recordingDuration / 60)}:{(recordingDuration % 60).toString().padStart(2, '0')}</span></>) : (<><Mic2 size={14} /></>)}</button></div>)}</div></div>)}
+                        {activeSidebar === 'scratchpad' && (
+                          <SidebarErrorBoundary isLight={isLight}>
+                            <div className="absolute inset-0 flex flex-col">
+                              <div className={`px-4 py-3 border-b ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-[#161616] border-[#333]'}`}>
+                                <div className={`flex p-1 rounded-lg border relative ${isLight ? 'bg-slate-100 border-slate-200' : 'bg-black/40 border-[#333]'}`}>
+                                  <button onClick={() => setScratchpadMode('global')} className={`flex-1 py-1.5 text-[10px] font-bold uppercase rounded-md transition-all relative z-10 flex items-center justify-center gap-2 ${scratchpadMode === 'global' ? (isLight ? 'bg-amber-500 text-slate-950 font-bold shadow-xs' : 'bg-[#f5a623] text-black shadow-sm') : (isLight ? 'text-slate-600 hover:text-slate-900' : 'text-gray-500 hover:text-gray-300')}`}>
+                                    <Globe size={10} /> Global Notes
+                                  </button>
+                                  <button onClick={() => setScratchpadMode('scene')} className={`flex-1 py-1.5 text-[10px] font-bold uppercase rounded-md transition-all relative z-10 flex items-center justify-center gap-2 ${scratchpadMode === 'scene' ? (isLight ? 'bg-amber-500 text-slate-950 font-bold shadow-xs' : 'bg-[#f5a623] text-black shadow-sm') : (isLight ? 'text-slate-600 hover:text-slate-900' : 'text-gray-500 hover:text-gray-300')}`}>
+                                    <StickyNote size={10} /> Scene Notes
+                                  </button>
+                                </div>
+                              </div>
+                              <div className={`flex-1 p-4 overflow-y-auto custom-scrollbar ${isLight ? 'bg-slate-50' : 'bg-[#111]'}`}>
+                                {scratchpadMode === 'scene' && activeBeat && (
+                                  <div className={`mb-4 pb-3 border-b ${isLight ? 'border-slate-200' : 'border-[#222]'}`}>
+                                    <span className={`text-[9px] uppercase tracking-wider font-bold ${isLight ? 'text-slate-400' : 'text-gray-500'}`}>Scene Notes Target</span>
+                                    <h4 className={`text-xs font-black uppercase mt-0.5 ${isLight ? 'text-slate-800' : 'text-white'}`}>{activeBeat.slug?.location || 'Untitled Scene'}</h4>
+                                  </div>
+                                )}
+                                {scratchpadMode === 'global' && (
+                                  <div className={`mb-4 pb-3 border-b ${isLight ? 'border-slate-200' : 'border-[#222]'}`}>
+                                    <span className={`text-[9px] uppercase tracking-wider font-bold ${isLight ? 'text-slate-400' : 'text-gray-500'}`}>Global Note Target</span>
+                                    <h4 className={`text-xs font-black uppercase mt-0.5 ${isLight ? 'text-slate-800' : 'text-white'}`}>Entire Screenplay</h4>
+                                  </div>
+                                )}
+                                {(scratchpadMode === 'global' ? (Array.isArray(globalNotes) ? globalNotes : []) : (Array.isArray(activeBeat?.notes) ? activeBeat.notes : [])).map((note, index) => {
+                                  if (!note) return null;
+                                  const noteId = note.id || `note-${index}`;
+                                  const isConfirming = confirmDeleteNoteId === noteId;
+                                  const borderColor = note.color || '#f5a623';
+                                  const subtleBorder = `${borderColor}40`;
+                                  const subtleBg = isLight ? '#ffffff' : `${borderColor}05`;
+                                  const noteContent = typeof note.content === 'string' ? note.content : '';
+                                  const isAudio = noteContent.includes('<audio');
+                                  const enableDragAnim = scratchpadConfig?.enableDragAnimations ?? true;
+                                  const dragScale = scratchpadConfig?.dragScale ?? 1.02;
+                                  const dragOpacity = scratchpadConfig?.dragOpacity ?? 0.8;
+                                  const glass = scratchpadConfig?.glassEffect ?? false;
+                                  const lineHeight = scratchpadConfig?.lineHeight ?? 1.6;
+
+                                  return (
+                                    <div 
+                                      key={noteId} 
+                                      draggable={false} 
+                                      onDragOver={(e) => handleNoteDragOver(e, index)} 
+                                      onDrop={(e) => handleNoteDrop(e, index)} 
+                                      onDragLeave={handleNoteDragLeave} 
+                                      className={`mb-4 rounded-md overflow-hidden transition-all shadow-xs group relative ${glass ? 'backdrop-blur-md' : ''}`} 
+                                      style={{ 
+                                        transition: 'transform 0.2s, opacity 0.2s', 
+                                        transform: dragOverIndex === index && enableDragAnim ? `scale(${dragScale})` : 'scale(1)', 
+                                        opacity: dragOverIndex === index && enableDragAnim ? dragOpacity : 1, 
+                                        border: `1px solid ${isLight ? '#e2e8f0' : subtleBorder}`, 
+                                        backgroundColor: subtleBg, 
+                                        boxShadow: isLight ? '0 1px 3px rgba(0,0,0,0.05)' : `0 1px 3px rgba(0,0,0,0.3), 0 0 2px ${subtleBorder}` 
+                                      }}
+                                    >
+                                      <div 
+                                        draggable={true} 
+                                        onDragStart={(e) => handleNoteDragStart(e, index)} 
+                                        className={`flex justify-between items-center px-2 py-1 border-b cursor-grab active:cursor-grabbing transition-colors ${isLight ? 'border-slate-100 bg-slate-100/70 hover:bg-slate-200/60' : 'border-white/5 bg-black/20 hover:bg-white/5'}`}
+                                      >
+                                        <div className="flex gap-1 items-center">
+                                          <GripHorizontal size={12} className={isLight ? "text-slate-400 mr-2" : "text-gray-600 mr-2"} />
+                                          {DEFAULT_STORYLINE_COLORS.slice(0, 5).map(c => (
+                                            <div 
+                                              key={c} 
+                                              className={`w-2 h-2 rounded-full cursor-pointer transition-transform hover:scale-125 ${note.color === c ? 'ring-1 ring-slate-400' : 'opacity-50 hover:opacity-100'}`} 
+                                              style={{ backgroundColor: c }} 
+                                              onMouseDown={(e) => { e.stopPropagation(); updateNote(noteId, { color: c }); }}
+                                            />
+                                          ))}
+                                        </div>
+                                        <button 
+                                          onMouseDown={(e) => { 
+                                            e.stopPropagation(); 
+                                            if (isConfirming) deleteNote(noteId); 
+                                            else { 
+                                              setConfirmDeleteNoteId(noteId); 
+                                              setTimeout(() => setConfirmDeleteNoteId(null), 3000); 
+                                            } 
+                                          }} 
+                                          className={`transition-colors ${isConfirming ? 'text-red-500 animate-pulse bg-red-50 px-1 rounded' : (isLight ? 'text-slate-400 hover:text-slate-800' : 'text-white/30 hover:text-white')}`} 
+                                          title={isConfirming ? "Click again to delete" : "Delete Note"}
+                                        >
+                                          <Trash2 size={10} />
+                                        </button>
+                                      </div>
+                                      <div style={{ backgroundColor: 'transparent' }}>
+                                        {isAudio ? (
+                                          <div className="p-3 bg-black/10 dark:bg-white/[0.02] rounded-md m-2 border border-white/5">
+                                            <div className="text-[9px] uppercase tracking-wider text-amber-500 font-black mb-2 flex items-center gap-1.5">
+                                              <Volume2 size={10} /> Voice Idea Memo
+                                            </div>
+                                            <div dangerouslySetInnerHTML={{ __html: noteContent }} />
+                                          </div>
+                                        ) : (
+                                          <BlockEditor 
+                                            value={noteContent} 
+                                            onChange={(val) => updateNote(noteId, { content: val })} 
+                                            className="bg-transparent border-none rounded-none text-slate-800" 
+                                            minHeight="80px" 
+                                            placeholder="Note content..." 
+                                            config={scratchpadConfig} 
+                                            style={{ lineHeight }} 
+                                          />
+                                        )}
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                                {(scratchpadMode === 'scene' && !activeBeat) ? (
+                                  <div className={`flex flex-col items-center justify-center h-full gap-2 ${isLight ? 'text-slate-400' : 'text-gray-500'}`}>
+                                    <StickyNote size={32} opacity={0.3} />
+                                    <span className="text-xs text-center px-4">Select a scene to add notes.</span>
+                                  </div>
+                                ) : (
+                                  <div className="flex gap-2 mt-2">
+                                    <button 
+                                      onClick={() => addNote()} 
+                                      className={`flex-1 py-3 border border-dashed rounded-none text-xs font-bold uppercase transition-all flex items-center justify-center gap-2 ${isLight ? 'border-slate-300 hover:border-amber-500 text-slate-600 hover:text-amber-600 hover:bg-amber-50/50' : 'border-[#333] hover:border-[#f5a623] hover:bg-[#f5a623]/10 text-gray-500 hover:text-[#f5a623]'}`}
+                                    >
+                                      <Plus size={14} /> Add Note
+                                    </button>
+                                    <button 
+                                      onClick={toggleRecording} 
+                                      className={`px-4 border border-dashed rounded-none text-xs font-bold uppercase transition-all flex items-center justify-center gap-2 ${isRecording ? 'border-red-500/50 bg-red-500/10 text-red-500 hover:bg-red-500/20' : (isLight ? 'border-slate-300 hover:border-amber-500 text-slate-600 hover:text-amber-600 hover:bg-amber-50/50' : 'border-[#333] hover:border-[#f5a623] hover:bg-[#f5a623]/10 text-gray-500 hover:text-[#f5a623]')}`} 
+                                      title={isRecording ? "Stop Recording" : "Record Voice Idea"}
+                                    >
+                                      {isRecording ? (
+                                        <>
+                                          <Square size={14} className="text-red-500 animate-pulse" />
+                                          <span className="text-[10px] font-mono text-red-500">{Math.floor(recordingDuration / 60)}:{(recordingDuration % 60).toString().padStart(2, '0')}</span>
+                                        </>
+                                      ) : (
+                                        <Mic2 size={14} />
+                                      )}
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </SidebarErrorBoundary>
+                        )}
                         {activeSidebar === 'history' && (<div className="absolute inset-0 overflow-y-auto custom-scrollbar p-4">{activeBeat ? (<div className="flex flex-col h-full"><div className={`mb-4 p-3 rounded border ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-[#111] border-[#333]'}`}><span className={`text-[9px] uppercase tracking-wider font-bold ${isLight ? 'text-slate-400' : 'text-gray-500'}`}>Version History Target</span><h4 className={`text-xs font-black uppercase mt-0.5 mb-1 ${isLight ? 'text-slate-900' : 'text-white'}`}>{activeBeat.slug.location || 'Untitled'}</h4><div className={`text-[10px] font-mono ${isLight ? 'text-slate-500' : 'text-gray-500'}`}>Current Version</div></div><button onClick={handleCreateSnapshot} className={`w-full py-2 mb-6 border text-xs font-bold uppercase rounded flex items-center justify-center gap-2 transition-all ${isLight ? 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-800' : 'bg-[#222] hover:bg-[#333] border-[#333] text-gray-300'}`}><Save size={12} /> Create Snapshot</button><div className="space-y-2">{activeBeat.versions && activeBeat.versions.length > 0 ? ([...activeBeat.versions].reverse().map((v, i) => (<div key={v.id} className={`border rounded p-3 group transition-colors ${isLight ? 'bg-slate-50 border-slate-200 hover:border-slate-300' : 'bg-[#111] border-[#222] hover:border-[#444]'}`}><div className="flex items-center justify-between mb-2"><span className="text-[10px] font-bold text-amber-600 uppercase">v{activeBeat.versions!.length - i}</span><span className={`text-[9px] font-mono ${isLight ? 'text-slate-400' : 'text-gray-500'}`}>{new Date(v.timestamp).toLocaleString()}</span></div><div className={`text-[10px] mb-3 line-clamp-2 italic opacity-80 ${isLight ? 'text-slate-600' : 'text-gray-400'}`}>{v.summary || "No summary provided."}</div><button onClick={() => handleRestoreClick(v)} className={`w-full py-1.5 border rounded text-[9px] font-bold uppercase flex items-center justify-center gap-2 transition-colors ${isLight ? 'bg-white hover:bg-slate-100 border-slate-300 text-slate-700 hover:text-slate-900' : 'bg-[#1a1a1a] hover:bg-[#252525] border-[#333] text-gray-400 hover:text-white'}`}><RotateCcw size={10} /> Restore</button></div>))) : (<div className={`text-center py-10 ${isLight ? 'text-slate-400' : 'text-gray-600'}`}><History size={32} className="mx-auto mb-2 opacity-20" /><span className="text-xs">No snapshots yet.</span></div>)}</div></div>) : (<div className={`flex flex-col items-center justify-center h-full gap-2 ${isLight ? 'text-slate-400' : 'text-gray-500'}`}><History size={32} opacity={0.3} /><span className="text-xs text-center px-4">Select a scene to view version history.</span></div>)}</div>)}
                     </div>
                 </div>
@@ -1693,7 +2313,25 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'cast
           </div>
         )}
       </div>
+      {/* Quick Action Toast */}
+      {scriptToast && (
+        <div className={`fixed bottom-8 left-1/2 -translate-x-1/2 z-[9999] px-4 py-2 text-xs font-mono font-bold tracking-wide uppercase shadow-2xl border flex items-center gap-2 animate-in fade-in slide-in-from-bottom-4 duration-150 ${
+            isLight ? 'bg-slate-900 text-amber-400 border-slate-700' : 'bg-black text-amber-400 border-amber-500/40'
+        }`}>
+            <Check size={14} className="text-emerald-400" />
+            <span>{scriptToast}</span>
+        </div>
+      )}
       {diffVersion && activeBeat && (<DiffModal currentContent={activeBeat.content} snapshotContent={diffVersion.content} timestamp={diffVersion.timestamp} snapshotTitle={diffVersion.summary} onRestore={confirmRestoreVersion} onClose={() => setDiffVersion(null)} />)}
+      <ScriptArchiveModal isOpen={showArchiveModal} onClose={() => setShowArchiveModal(false)} />
+      <TamilTranscoderModal isOpen={showTranscoderModal} onClose={() => setShowTranscoderModal(false)} onInsertText={(text) => {
+        if (activeBeatId) {
+          const beat = beats.find(b => b.id === activeBeatId);
+          if (beat) {
+            updateBeat(activeBeatId, { text: (beat.text || '') + '\n' + text });
+          }
+        }
+      }} />
     </div>
   );
 };

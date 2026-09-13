@@ -2,6 +2,7 @@ import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { useProject } from '../../context/ProjectContext';
 import { Shot, Beat } from '../../types';
 import LocationScoutView from './LocationScoutView';
+import DoodMatrixView from './DoodMatrixView';
 import { 
     AlertTriangle, AlertCircle, CheckCircle2,
     Lock, Unlock, ShieldAlert, Sparkles, Printer, RotateCcw,
@@ -160,7 +161,7 @@ const ScheduleView: React.FC = () => {
     const currentProjectName = projectList.find((p: any) => p.id === currentProjectId)?.name || 'PROJECT';
 
     // Strategy & UI States
-    const [scheduleTab, setScheduleTab] = useState<'stripboard' | 'locations'>('locations');
+    const [scheduleTab, setScheduleTab] = useState<'stripboard' | 'locations' | 'dood'>('locations');
     const [strategy, setStrategy] = useState<OptimizationStrategy>('balanced');
     const [selectedStripId, setSelectedStripId] = useState<string>('1');
     const [activeWhatIfKey, setActiveWhatIfKey] = useState<string | null>(null);
@@ -876,11 +877,27 @@ const ScheduleView: React.FC = () => {
                     <Calendar size={14} />
                     <span>Priority 2: Scheduling (Stripboard & Day Timeline)</span>
                 </button>
+
+                <button
+                    onClick={() => setScheduleTab('dood')}
+                    className={`px-4 py-2 font-bold uppercase tracking-wider flex items-center gap-2 transition-all cursor-pointer border-t border-x rounded-none ${
+                        scheduleTab === 'dood' 
+                            ? 'bg-[#14120E] text-[#E0A339] border-[#E0A339] shadow-xs' 
+                            : 'bg-transparent text-[#A9A190] border-transparent hover:text-[#F2EEE2]'
+                    }`}
+                >
+                    <Users size={14} className="text-[#E0A339]" />
+                    <span>Priority 3: Cast Logistics (DOOD Matrix)</span>
+                </button>
             </div>
 
             {scheduleTab === 'locations' ? (
                 <div className="flex-1 overflow-hidden min-h-0 w-full h-full">
                     <LocationScoutView />
+                </div>
+            ) : scheduleTab === 'dood' ? (
+                <div className="flex-1 overflow-y-auto min-h-0 w-full h-full">
+                    <DoodMatrixView />
                 </div>
             ) : (
                 <>

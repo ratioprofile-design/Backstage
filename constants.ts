@@ -178,6 +178,7 @@ export const INITIAL_STATE: ProjectState = {
   appTheme: 'dark',
   appAccentColor: '#f5a623',
   appLanguage: 'english',
+  navLayout: 'horizontal',
 
   panX: 0,
   panY: 0,
@@ -311,3 +312,4 @@ export const SCRIPT_FORMATS = [
   { label: 'Shot', value: 'shot' },
   { label: 'Lyrics', value: 'lyrics' },
 ];
+

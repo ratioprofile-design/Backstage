@@ -15,7 +15,7 @@ import {
   BoxSelect, Scan, Grid, Zap, Cloud, AlertTriangle, RefreshCw, Wand2,
   Moon, Sun, Coffee, Download, XCircle, Sparkles, Wifi, ShieldCheck, ShieldAlert,
   Key, Cpu, ListChecks, StickyNote, List, Hash, RotateCw, CheckSquare, Quote, WifiOff,
-  Palette, Languages, CheckCircle2, ChevronRight, Folder, Pipette
+  Palette, Languages, CheckCircle2, ChevronRight, Folder, Pipette, Layout
 } from 'lucide-react';
 import PrintPreviewModal from '../PrintPreviewModal';
 import { 
@@ -233,6 +233,7 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
     appTheme = 'dark', setAppTheme,
     appAccentColor = '#f5a623', setAppAccentColor,
     appLanguage = 'english', setAppLanguage,
+    navLayout = 'horizontal', setNavLayout,
     breakdownLanguage = 'english', setBreakdownLanguage,
     isPdfDropEnabled, setPdfDropEnabled,
     isRedoEnabled, setRedoEnabled
@@ -564,6 +565,63 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
             {activeCategory === 'appearance' && (
                 <ViewContainer title="Appearance & Themes" subtitle="Customize interface mode, accent color palettes, and languages.">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                        {/* 0. NAVIGATION LAYOUT (HORIZONTAL TOP BAR VS VERTICAL SIDEBAR) */}
+                        <div className="md:col-span-2 bg-[#111] p-6 rounded-sm border border-[#222]">
+                            <div className="flex items-center justify-between mb-4">
+                              <div>
+                                <h4 className="text-sm font-bold text-white uppercase tracking-wide flex items-center gap-2">
+                                  <Layout size={16} style={{ color: appAccentColor }} /> Navigation Layout
+                                </h4>
+                                <p className="text-xs text-gray-400 mt-1">Choose between the classic top page header switcher or a modern collapsible vertical sidebar.</p>
+                              </div>
+                              <span className="text-[10px] font-mono uppercase px-2 py-1 rounded bg-[#222] text-gray-300 border border-[#333]">
+                                Active: {navLayout === 'vertical' ? 'VERTICAL SIDEBAR' : 'HORIZONTAL TOP BAR'}
+                              </span>
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-6">
+                              {/* Horizontal Top Bar Option */}
+                              <div 
+                                onClick={() => setNavLayout('horizontal')}
+                                className={`p-5 rounded-lg border cursor-pointer transition-all flex flex-col justify-between h-36 relative overflow-hidden group ${
+                                  navLayout === 'horizontal' ? 'bg-[#181818] border-2 shadow-lg' : 'bg-[#0f0f0f] border-[#222] hover:border-[#444] hover:bg-[#141414]'
+                                }`}
+                                style={{ borderColor: navLayout === 'horizontal' ? appAccentColor : undefined }}
+                              >
+                                <div className="flex items-center justify-between">
+                                  <div className="w-8 h-8 rounded flex items-center justify-center bg-[#222] text-white">
+                                    <Layout size={16} />
+                                  </div>
+                                  {navLayout === 'horizontal' && <CheckCircle2 size={18} style={{ color: appAccentColor }} />}
+                                </div>
+                                <div>
+                                  <div className="text-xs font-black uppercase text-white tracking-wider">Horizontal Top Bar</div>
+                                  <div className="text-[10px] text-gray-500 font-mono mt-0.5">Classic view tabs placed directly in the top header</div>
+                                </div>
+                              </div>
+
+                              {/* Vertical Sidebar Option */}
+                              <div 
+                                onClick={() => setNavLayout('vertical')}
+                                className={`p-5 rounded-lg border cursor-pointer transition-all flex flex-col justify-between h-36 relative overflow-hidden group ${
+                                  navLayout === 'vertical' ? 'bg-[#181818] border-2 shadow-lg' : 'bg-[#0f0f0f] border-[#222] hover:border-[#444] hover:bg-[#141414]'
+                                }`}
+                                style={{ borderColor: navLayout === 'vertical' ? appAccentColor : undefined }}
+                              >
+                                <div className="flex items-center justify-between">
+                                  <div className="w-8 h-8 rounded flex items-center justify-center bg-[#222] text-white">
+                                    <AlignJustify size={16} className="rotate-90" />
+                                  </div>
+                                  {navLayout === 'vertical' && <CheckCircle2 size={18} style={{ color: appAccentColor }} />}
+                                </div>
+                                <div>
+                                  <div className="text-xs font-black uppercase text-white tracking-wider">Vertical Sidebar</div>
+                                  <div className="text-[10px] text-gray-500 font-mono mt-0.5">Collapsible vertical sidebar rail on the left side</div>
+                                </div>
+                              </div>
+                            </div>
+                        </div>
+
                         {/* 1. LIGHT / DARK / SYSTEM THEME */}
                         <div className="md:col-span-2 bg-[#111] p-6 rounded-sm border border-[#222]">
                             <div className="flex items-center justify-between mb-4">
@@ -1650,7 +1708,6 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
 
                         <FeatureCard title="Tamil Transliteration" desc="Type phonetically in English to automatically generate Tamil script." icon={Globe} isActive={isTamilMode} onToggle={setTamilMode} accentColor={appAccentColor} />
                         <FeatureCard title="Storyboard AI Features" desc="Enable AI generation capabilities for creating visual storyboard shots." icon={ImageIcon} isActive={isStoryboardFeatureEnabled} onToggle={setStoryboardFeatureEnabled} accentColor={appAccentColor} />
-                        <FeatureCard title="PDF Drag-and-Drop Import" desc="Enable PDF parsing. Drag a script PDF onto the board canvas to generate beats." icon={FileText} isActive={isPdfDropEnabled} onToggle={setPdfDropEnabled} accentColor={appAccentColor} />
                         <FeatureCard title="Redo Keyboard Shortcuts" desc="Enable Ctrl+Y or Cmd+Shift+Z redo functionality." icon={RotateCw} isActive={isRedoEnabled} onToggle={setRedoEnabled} accentColor={appAccentColor} />
                         
                         <div className="md:col-span-2 bg-[#111] p-6 rounded-sm border border-[#222]">

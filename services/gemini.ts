@@ -1,5 +1,6 @@
 import { GoogleGenAI } from "@google/genai";
 import { BreakdownData, Beat } from "../types";
+import { enrichBreakdownData } from "../utils/breakdownSync";
 
 // Removed defensive client initialization and singleton pattern to follow guidelines
 // requiring direct import.meta.env.VITE_GEMINI_API_KEY usage and per-call instantiation.
@@ -659,7 +660,7 @@ ${language === 'tamil' ? `{
           });
       };
 
-      return {
+      const rawBreakdown = {
           props: normalize(data.props),
           sound: normalize(data.sound),
           costume: normalize(data.costume),
@@ -668,6 +669,8 @@ ${language === 'tamil' ? `{
           cast: normalize(data.cast),
           location: normalize(data.location)
       };
+
+      return enrichBreakdownData(rawBreakdown, scriptText);
   } catch (e) {
       console.error("Breakdown Gen Error", e);
       return null;

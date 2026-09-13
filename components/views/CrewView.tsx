@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useProject } from '../../context/ProjectContext';
-import { Beat, BreakdownData, ViewMode, AppTask, TaskModificationHistory } from '../../types';
+import { Beat, BreakdownData, ViewMode, AppTask, TaskModificationHistory, TaskSubtask } from '../../types';
+import { detectDepartmentForItem } from '../../utils/breakdownSync';
 
 export interface CrewViewProps {
   allTasks?: AppTask[];
@@ -229,12 +230,17 @@ export interface DepartmentTask {
   id: string;
   title: string;
   departmentId: string;
+  departmentName?: string;
   owner: string;
   priority: 'Critical' | 'High' | 'Medium' | 'Low';
   deadline: string;
   status: 'To Do' | 'In Progress' | 'Review' | 'Completed';
   relatedScene?: string;
   dependencies?: string[];
+  subtasks?: TaskSubtask[];
+  sourceBreakdownItem?: string;
+  sourceCategory?: string;
+  details?: Record<string, string>;
 }
 
 export interface BudgetItem {
@@ -828,6 +834,79 @@ export const CrewView: React.FC<CrewViewProps> = ({
 
   // Task Editing Modal State
   const [editingTask, setEditingTask] = useState<AppTask | null>(null);
+  const [editingSubtasks, setEditingSubtasks] = useState<TaskSubtask[]>([]);
+
+  // Keep editingSubtasks in sync when editingTask opens
+  useEffect(() => {
+    if (editingTask) {
+      setEditingSubtasks(editingTask.subtasks ? JSON.parse(JSON.stringify(editingTask.subtasks)) : []);
+    } else {
+      setEditingSubtasks([]);
+    }
+  }, [editingTask]);
+
+  // Sync tasks when BreakdownView triggers app_tasks_updated
+  useEffect(() => {
+    const handleTasksSync = () => {
+      if (typeof window !== 'undefined') {
+        try {
+          const saved = localStorage.getItem('app_inbox_tasks');
+          if (saved) {
+            const parsed = JSON.parse(saved);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              setTasks(parsed);
+            }
+          }
+        } catch (e) {
+          console.error(e);
+        }
+      }
+    };
+    window.addEventListener('app_tasks_updated', handleTasksSync);
+    return () => window.removeEventListener('app_tasks_updated', handleTasksSync);
+  }, []);
+
+  // Quick toggle subtask check state
+  const handleToggleSubtask = (taskId: string, subtaskId: string) => {
+    const target = effectiveTasks.find(t => t.id === taskId);
+    if (!target) return;
+
+    const nextSubtasks = (target.subtasks || []).map(s => 
+      s.id === subtaskId ? { ...s, completed: !s.completed } : s
+    );
+
+    const updatedTask: AppTask = {
+      ...target,
+      subtasks: nextSubtasks,
+      history: [
+        ...(target.history || []),
+        {
+          id: `h-${Date.now()}`,
+          timestamp: 'Just now',
+          author: target.owner || 'User',
+          changeType: 'edited',
+          fieldChanged: 'Subtask Checklist',
+          comment: `Toggled subtask completion.`
+        }
+      ]
+    };
+
+    if (onUpdateTask) {
+      onUpdateTask(updatedTask);
+    }
+    setTasks(prev => prev.map(t => t.id === taskId ? updatedTask : t));
+
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem('app_inbox_tasks');
+        if (saved) {
+          const list: AppTask[] = JSON.parse(saved);
+          const nextList = list.map(t => t.id === taskId ? updatedTask : t);
+          localStorage.setItem('app_inbox_tasks', JSON.stringify(nextList));
+        }
+      } catch (e) {}
+    }
+  };
 
   // Modals & Drawers
   const [showDependencyGraphAsset, setShowDependencyGraphAsset] = useState<string | null>(null);
@@ -1064,17 +1143,22 @@ export const CrewView: React.FC<CrewViewProps> = ({
           }
         };
 
-        if (selectedDeptId === 'props' || selectedDeptId === 'art') {
-          safeArray(b.breakdown.props).forEach((p: any) => pushAsset(p, 'Prop'));
-        } else if (selectedDeptId === 'costume') {
-          safeArray(b.breakdown.costume).forEach((c: any) => pushAsset(c, 'Wardrobe'));
-        } else if (selectedDeptId === 'sound') {
-          safeArray(b.breakdown.sound).forEach((s: any) => pushAsset(s, 'SFX Track'));
-        } else if (selectedDeptId === 'vfx') {
-          safeArray(b.breakdown.vfx).forEach((v: any) => pushAsset(v, 'CG Asset'));
-        } else {
-          safeArray(b.breakdown.practical).forEach((pr: any) => pushAsset(pr, 'Practical Effect'));
-        }
+        const catKeys: (keyof BreakdownData)[] = ['props', 'costume', 'practical', 'vfx', 'sound', 'location', 'cast'];
+        catKeys.forEach(catKey => {
+          safeArray(b.breakdown[catKey]).forEach((item: any) => {
+            const name = typeof item === 'string' ? item : item?.name;
+            if (!name) return;
+            const classification = detectDepartmentForItem(name, catKey);
+            if (classification.departmentId === selectedDeptId) {
+              const displayCategory = classification.isVehicle 
+                ? 'Vehicle' 
+                : classification.isWeapon 
+                ? 'Hero Weapon' 
+                : catKey.toUpperCase();
+              pushAsset(item, displayCategory);
+            }
+          });
+        });
       });
     }
 
@@ -1899,6 +1983,62 @@ export const CrewView: React.FC<CrewViewProps> = ({
                                       <div className="inline-flex items-center gap-1 bg-[#242428] text-amber-400 text-[10px] font-mono px-2 py-0.5 rounded">
                                         <Film size={10} />
                                         <span>{task.relatedScene}</span>
+                                      </div>
+                                    )}
+
+                                    {/* Department Subtasks Checklist */}
+                                    {task.subtasks && task.subtasks.length > 0 && (
+                                      <div className="space-y-1.5 pt-1.5 border-t border-[#26262a]">
+                                        <div className="flex items-center justify-between text-[10px] font-mono">
+                                          <span className="flex items-center gap-1 font-bold text-amber-400">
+                                            <CheckCircle2 size={11} />
+                                            <span>Subtasks ({task.subtasks.filter(s => s.completed).length}/{task.subtasks.length})</span>
+                                          </span>
+                                          <span className="text-[9px] text-gray-500 font-bold">
+                                            {Math.round((task.subtasks.filter(s => s.completed).length / task.subtasks.length) * 100)}%
+                                          </span>
+                                        </div>
+
+                                        {/* Progress bar */}
+                                        <div className="w-full h-1 bg-[#202024] rounded-full overflow-hidden">
+                                          <div 
+                                            className="h-full bg-amber-400 transition-all duration-300"
+                                            style={{ width: `${(task.subtasks.filter(s => s.completed).length / task.subtasks.length) * 100}%` }}
+                                          />
+                                        </div>
+
+                                        {/* Checklist items */}
+                                        <div className="space-y-1 max-h-36 overflow-y-auto custom-scrollbar pr-0.5 pt-0.5">
+                                          {task.subtasks.map((sub) => (
+                                            <div
+                                              key={sub.id}
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleToggleSubtask(task.id, sub.id);
+                                              }}
+                                              className={`flex items-start gap-1.5 p-1 rounded transition-colors text-[10px] cursor-pointer ${
+                                                sub.completed 
+                                                  ? 'bg-emerald-950/20 text-emerald-300/60 line-through' 
+                                                  : 'bg-[#202024] hover:bg-[#282830] text-gray-200'
+                                              }`}
+                                            >
+                                              <input
+                                                type="checkbox"
+                                                checked={sub.completed}
+                                                onChange={() => {}}
+                                                className="mt-0.5 accent-amber-400 rounded shrink-0 cursor-pointer"
+                                              />
+                                              <div className="flex-1 min-w-0 leading-tight">
+                                                <span className="font-medium">{sub.title}</span>
+                                                {sub.value && (
+                                                  <div className="mt-0.5 font-mono text-[9px] text-amber-400 font-bold bg-amber-950/40 px-1 py-0.5 rounded border border-amber-800/30 truncate inline-block max-w-full">
+                                                    {sub.value}
+                                                  </div>
+                                                )}
+                                              </div>
+                                            </div>
+                                          ))}
+                                        </div>
                                       </div>
                                     )}
 
@@ -3676,6 +3816,7 @@ export const CrewView: React.FC<CrewViewProps> = ({
                 targetView,
                 relatedScene,
                 notes,
+                subtasks: editingSubtasks,
                 history: [...(editingTask.history || []), newHistoryItem]
               };
 
@@ -3800,6 +3941,87 @@ export const CrewView: React.FC<CrewViewProps> = ({
                   placeholder="Add detailed task notes or requirements..." 
                   className="w-full bg-[#0e0e11] border border-[#333] text-white p-2 rounded-lg outline-none focus:border-[#f5a623]" 
                 />
+              </div>
+
+              {/* Department Subtasks Manager */}
+              <div className="pt-2 border-t border-[#26262a] space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-gray-300 font-mono font-bold text-[11px] flex items-center gap-1.5">
+                    <CheckCircle2 size={13} className="text-amber-400" />
+                    <span>Department Subtasks ({editingSubtasks.filter(s => s.completed).length}/{editingSubtasks.length})</span>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const newSub: TaskSubtask = {
+                        id: `sub-${Date.now()}`,
+                        title: 'New Department Subtask',
+                        completed: false,
+                        value: ''
+                      };
+                      setEditingSubtasks(prev => [...prev, newSub]);
+                    }}
+                    className="text-[10px] font-mono font-bold text-amber-400 hover:text-amber-300 bg-amber-950/40 hover:bg-amber-950/60 border border-amber-800/40 px-2 py-0.5 rounded flex items-center gap-1 transition-colors"
+                  >
+                    <Plus size={11} /> Add Subtask
+                  </button>
+                </div>
+
+                <div className="space-y-1.5 max-h-48 overflow-y-auto custom-scrollbar pr-1">
+                  {editingSubtasks.map((sub, sIdx) => (
+                    <div key={sub.id || sIdx} className="bg-[#121215] border border-[#26262a] p-2 rounded-lg space-y-1.5">
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={sub.completed}
+                          onChange={(e) => {
+                            const val = e.target.checked;
+                            setEditingSubtasks(prev => prev.map((item, idx) => idx === sIdx ? { ...item, completed: val } : item));
+                          }}
+                          className="accent-amber-400 rounded cursor-pointer"
+                        />
+                        <input
+                          type="text"
+                          value={sub.title}
+                          placeholder="Subtask requirement..."
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setEditingSubtasks(prev => prev.map((item, idx) => idx === sIdx ? { ...item, title: val } : item));
+                          }}
+                          className="flex-1 bg-transparent border-b border-[#333] focus:border-amber-400 outline-none text-white text-[11px] font-medium"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingSubtasks(prev => prev.filter((_, idx) => idx !== sIdx));
+                          }}
+                          className="text-gray-500 hover:text-red-400 p-1 transition-colors"
+                          title="Delete subtask"
+                        >
+                          <X size={12} />
+                        </button>
+                      </div>
+                      <div className="flex items-center gap-2 pl-5">
+                        <span className="text-[9px] font-mono text-gray-500 uppercase shrink-0">Specification / Value:</span>
+                        <input
+                          type="text"
+                          value={sub.value || ''}
+                          placeholder="e.g. TN 09 BK 7721 / 2023 Fortuner / Front bumper dent"
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setEditingSubtasks(prev => prev.map((item, idx) => idx === sIdx ? { ...item, value: val } : item));
+                          }}
+                          className="flex-1 bg-[#1a1a20] border border-[#333] focus:border-amber-400 text-amber-400 font-mono text-[10px] px-2 py-0.5 rounded outline-none"
+                        />
+                      </div>
+                    </div>
+                  ))}
+                  {editingSubtasks.length === 0 && (
+                    <div className="text-[10px] font-mono text-gray-500 italic p-2 bg-[#121215] rounded border border-dashed border-[#26262a] text-center">
+                      No subtasks added yet. Click "+ Add Subtask" to add one.
+                    </div>
+                  )}
+                </div>
               </div>
 
               <div>

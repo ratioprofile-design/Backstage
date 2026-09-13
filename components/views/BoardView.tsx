@@ -11,9 +11,8 @@ import {
 } from 'lucide-react';
 import { GoogleGenAI } from '@google/genai';
 import { STORYLINE_COLORS } from '../../constants';
-import { extractRawTextFromPdf } from '../../services/pdfImport';
-import { analyzeScriptBatch, convertTextToScript } from '../../services/gemini';
 import { AISceneGeneratorModal } from '../AISceneGeneratorModal';
+import { ExcalidrawBoard } from '../ExcalidrawBoard';
 
 const ANNOTATION_COLORS = ['#f5a623', '#ef4444', '#22c55e', '#3b82f6', '#a855f7', '#ffffff'];
 
@@ -25,7 +24,7 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
   const { 
     beats, groups, annotations, activeBoardId, nextId,
     updateBeat, addBeat, setBeats, setGroups, addGroup, updateGroup, removeGroup,
-    setAnnotations, captureSnapshot, geminiApiKey, isPdfDropEnabled, setActiveBoardId, setNextId,
+    setAnnotations, captureSnapshot, geminiApiKey, setActiveBoardId, setNextId,
     autoGenerate5Scenes, undo, redo, appTheme,
     boardLayerOrder = ['annotations', 'text', 'groups', 'beats']
   } = useProject();
@@ -61,11 +60,6 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
 
   // Text Editing State
   const [editingAnnoId, setEditingAnnoId] = useState<number | null>(null);
-
-  // Import State
-  const [isImporting, setIsImporting] = useState(false);
-  const [isEnhancing, setIsEnhancing] = useState(false); 
-  const [isDragOver, setIsDragOver] = useState(false);
 
   // Engine Ref (Mutable state for high-perf interactions)
   const engine = useRef({
@@ -323,7 +317,8 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
     .zoom-control { position: absolute; bottom: 20px; right: 76px; z-index: 2000; display: flex; gap: 2px; background: rgba(20,20,20,0.6); backdrop-filter: blur(8px); border: 1px solid rgba(255,255,255,0.05); padding: 3px; border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.4); }
     .zoom-control button { background: transparent; border: none; color: #aaa; width: 26px; height: 26px; border-radius: 7px; font-size: 14px; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; }
     .zoom-control button:hover { color: #f5a623; background: rgba(245,166,35,0.1); }
-    .zoom-control .zoom-label { width: 54px; font-size: 11px; font-family: monospace; color: #ccc; }
+    .zoom-control .zoom-label { width: 54px; font-size: 11px; font-family: monospace; color: #ccc; cursor: pointer; transition: all 0.15s ease; user-select: none; }
+    .zoom-control .zoom-label:hover { color: #f5a623; background: rgba(245,166,35,0.15); }
 
     .space-pressed #viewport, .is-panning #viewport { cursor: grab !important; }
     .is-panning #viewport { cursor: grabbing !important; }
@@ -344,6 +339,15 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
     const timer = setTimeout(() => setIsPageTransitioning(false), 450);
     return () => clearTimeout(timer);
   }, [activeBoardId]);
+
+  // Ensure activeBoardId is valid for 2-board mode (0: Beatboard, 1: Excalidraw)
+  useEffect(() => {
+    if (activeBoardId === 3 || activeBoardId === 2) {
+      setActiveBoardId(1);
+    } else if (activeBoardId !== 0 && activeBoardId !== 1) {
+      setActiveBoardId(0);
+    }
+  }, [activeBoardId, setActiveBoardId]);
 
   useEffect(() => {
       if (toolMode === 'text' || toolMode === 'bigtext') {
@@ -1273,7 +1277,6 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
   const applyViewTransform = () => {
       const surface = containerRef.current?.querySelector('#canvas-surface') as HTMLElement | null;
       if (surface) {
-          engine.current.panX = 0;
           let maxY = 0;
           engine.current.beats.forEach(b => {
               const bh = b.h || 150;
@@ -1286,11 +1289,11 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
 
           const viewport = containerRef.current?.querySelector('#viewport');
           const minHeight = viewport ? viewport.clientHeight : 800;
-          const targetHeight = Math.max(minHeight, maxY + 400);
+          const targetHeight = Math.max(minHeight / engine.current.scale, maxY + 400);
           surface.style.height = `${targetHeight}px`;
 
           engine.current.panY = Math.min(0, engine.current.panY);
-          surface.style.transform = `translate(0px, ${engine.current.panY}px) scale(${engine.current.scale})`;
+          surface.style.transform = `translate(${engine.current.panX}px, ${engine.current.panY}px) scale(${engine.current.scale})`;
       }
       renderSelectionOverlay();
       updateMultiselectHighlighter();
@@ -1300,7 +1303,7 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
       const rect = containerRef.current?.getBoundingClientRect();
       if (!rect) return;
       const prev = engine.current.scale;
-      const next = 1.0;
+      const next = Math.max(0.15, Math.min(3, prev * factor));
       const real = next / prev;
       const mx = clientX - rect.left;
       const my = clientY - rect.top;
@@ -1325,6 +1328,8 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
 
   const zoomReset = () => {
       engine.current.scale = 1;
+      engine.current.panX = 0;
+      engine.current.panY = 0;
       setZoomPercent(100);
       applyViewTransform();
   };
@@ -1680,7 +1685,7 @@ const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
       }
       if (e.button !== 0) return;
       // @ts-ignore
-      if(e.target.classList.contains('beat-title') || e.target.classList.contains('seq-badge') || e.target.classList.contains('beat-status') || e.target.classList.contains('beat-version') || e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+      if(e.target.classList.contains('seq-badge') || e.target.classList.contains('beat-status') || e.target.classList.contains('beat-version') || e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
       e.stopPropagation();
 
       const now = Date.now();
@@ -2583,39 +2588,6 @@ Beats: ${JSON.stringify(beatSummaries)}`;
   };
 
   const statusAction = getStatusAction();
-  const handleDragEnter = useCallback((e: DragEvent) => { e.preventDefault(); e.stopPropagation(); setIsDragOver(true); }, []);
-  const handleDragLeave = useCallback((e: DragEvent) => { e.preventDefault(); e.stopPropagation(); setIsDragOver(false); }, []);
-
-  const handleDrop = useCallback(async (e: DragEvent) => {
-      e.preventDefault(); e.stopPropagation(); setIsDragOver(false);
-      const { x, y } = getSvgPoint(e);
-
-      if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-          const files = Array.from(e.dataTransfer.files);
-          for (const file of files) {
-              if (file.type.startsWith('image/')) {
-                  const reader = new FileReader();
-                  reader.onload = (readerEvent) => {
-                      const dataUrl = readerEvent.target?.result as string;
-                      const newAnno: Annotation = {
-                          id: Date.now() + Math.random(),
-                          type: 'image',
-                          x: x - 100,
-                          y: y - 75,
-                          w: 200,
-                          h: 150,
-                          color: '#ffffff',
-                          imageUrl: dataUrl,
-                          boardId: activeBoardId
-                      };
-                      captureSnapshot();
-                      setAnnotations(prev => [...prev, newAnno]);
-                  };
-                  reader.readAsDataURL(file);
-              }
-          }
-      }
-  }, [captureSnapshot, activeBoardId, setAnnotations]);
 
   // Stable ref for keyboard handler functions — prevents stale closures in the event listener useEffect
   const kbRef = useRef({
@@ -3259,7 +3231,7 @@ Beats: ${JSON.stringify(beatSummaries)}`;
       const handleDblClick = (e: MouseEvent) => {
           const target = e.target as HTMLElement;
           if (isSpacePressedRef.current) return;
-          if (target.closest('.ai-generator-container') || target.closest('.drawing-toolbar-container') || target.closest('#context-menu') || target.closest('.board-switcher')) return;
+          if (target.closest('.ai-generator-container') || target.closest('.drawing-toolbar-container') || target.closest('#context-menu') || target.closest('.board-switcher') || target.closest('.zoom-control')) return;
           if (target.closest('.beat-card') || target.closest('.group-container') || target.closest('.text-annotation-card') || target.closest('.annotation-hit-area')) return;
           if (toolMode !== 'none') return;
 
@@ -3289,6 +3261,10 @@ Beats: ${JSON.stringify(beatSummaries)}`;
           }
       };
 
+      if (activeBoardId === 1) {
+          return;
+      }
+
       container.addEventListener('mousedown', handleMouseDown);
       container.addEventListener('dblclick', handleDblClick);
       container.addEventListener('contextmenu', handleContextMenu);
@@ -3315,125 +3291,115 @@ Beats: ${JSON.stringify(beatSummaries)}`;
     <div 
       ref={containerRef} 
       className={`board-wrapper tool-${toolMode} ${isPageTransitioning ? 'is-transitioning' : ''}`}
-      onDragEnter={handleDragEnter}
-      onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
-      onDragLeave={handleDragLeave}
-      onDrop={handleDrop}
     >
       <style>{styles}</style>
 
-      {/* Drag Over Overlay */}
-      {isDragOver && (
-        <div className="absolute inset-0 bg-accent/10 border-2 border-dashed border-accent z-[3000] pointer-events-none flex items-center justify-center backdrop-blur-sm">
-          <div className="bg-black/80 px-6 py-4 rounded-xl border border-accent/40 text-accent font-bold flex items-center gap-3 shadow-2xl">
-            <Sparkles className="animate-spin" size={20} />
-            <span>Drop Image to Import</span>
-          </div>
+      {activeBoardId === 1 ? (
+        <div className="w-full h-full absolute inset-0 z-[1000] overflow-hidden">
+          <ExcalidrawBoard isLight={isLight} onEditBeat={onEditBeat} />
         </div>
-      )}
-
-      {/* Importing Loader Overlay */}
-      {(isImporting || isEnhancing) && (
-        <div className="absolute inset-0 bg-black/80 z-[3000] flex flex-col items-center justify-center gap-4 backdrop-blur-md">
-          <Loader2 className="animate-spin text-accent" size={40} />
-          <p className="text-white font-bold text-sm tracking-wider uppercase">
-            {isEnhancing ? 'AI Screenplay Parsing...' : 'Reading File...'}
-          </p>
-        </div>
-      )}
-
-      <div id="viewport">
-        <div id="canvas-surface">
-          {boardLayerOrder.map(layer => {
-            if (layer === 'annotations') return <svg key="annotations" id="annotations-layer" style={{ overflow: 'visible' }} className="w-full h-full" />;
-            if (layer === 'text') return <div key="text" id="text-layer" className="w-full h-full" />;
-            if (layer === 'groups') return <div key="groups" id="groups-layer" className="w-full h-full" />;
-            if (layer === 'beats') return <div key="beats" id="beats-layer" className="w-full h-full" />;
-            return null;
-          })}
-        </div>
-      </div>
-
-      <div id="selection-lasso" />
-      <div id="multiselect-highlighter" className="absolute border border-dashed border-[#f5a623]/30 bg-amber-500/[0.02] pointer-events-none z-[9998]" style={{ display: 'none' }} />
-      <div id="handles-layer" />
-      <div id="snap-guide-v" />
-      <div id="snap-guide-h" />
-      <div ref={eraserCursorRef} className="eraser-cursor" />
-
-      {/* Drawing Toolbar */}
-      <div className="drawing-toolbar-container">
-        <button 
-          className={`toolbar-toggle ${isToolbarOpen ? 'active' : ''}`}
-          onClick={() => setIsToolbarOpen(!isToolbarOpen)}
-          title="Drawing Tools"
-        >
-          <PenTool size={20} />
-        </button>
-
-        {isToolbarOpen && (
-          <div className="toolbar-panel">
-            <div className="tool-row">
-              <button className={`tool-btn ${toolMode === 'none' ? 'active' : ''}`} onClick={() => setToolMode('none')} title="Select / Pan"><MousePointer2 size={16} /></button>
-              <button className={`tool-btn ${toolMode === 'pencil' ? 'active' : ''}`} onClick={() => setToolMode('pencil')} title="Pencil"><Pen size={16} /></button>
-              <button className={`tool-btn ${toolMode === 'rect' ? 'active' : ''}`} onClick={() => setToolMode('rect')} title="Rectangle"><Square size={16} /></button>
-              <button className={`tool-btn ${toolMode === 'circle' ? 'active' : ''}`} onClick={() => setToolMode('circle')} title="Circle"><Circle size={16} /></button>
-              <button className={`tool-btn ${toolMode === 'line' ? 'active' : ''}`} onClick={() => setToolMode('line')} title="Line"><Minus size={16} /></button>
-              <button className={`tool-btn ${toolMode === 'arrow' ? 'active' : ''}`} onClick={() => setToolMode('arrow')} title="Arrow"><ArrowRight size={16} /></button>
-              <button className={`tool-btn ${toolMode === 'text' ? 'active' : ''}`} onClick={() => setToolMode('text')} title="Text Note"><Type size={16} /></button>
-              <button className={`tool-btn ${toolMode === 'bigtext' ? 'active' : ''}`} onClick={() => setToolMode('bigtext')} title="Heading Text"><Heading size={16} /></button>
-              <button className={`tool-btn ${toolMode === 'eraser' ? 'active' : ''}`} onClick={() => setToolMode('eraser')} title="Eraser"><Eraser size={16} /></button>
-              <button className="tool-btn danger" onClick={handleClearAll} title="Clear Drawings"><Trash2 size={16} /></button>
+      ) : (
+        <>
+          <div id="viewport">
+            <div id="canvas-surface">
+              {boardLayerOrder.map(layer => {
+                if (layer === 'annotations') return <svg key="annotations" id="annotations-layer" style={{ overflow: 'visible' }} className="w-full h-full" />;
+                if (layer === 'text') return <div key="text" id="text-layer" className="w-full h-full" />;
+                if (layer === 'groups') return <div key="groups" id="groups-layer" className="w-full h-full" />;
+                if (layer === 'beats') return <div key="beats" id="beats-layer" className="w-full h-full" />;
+                return null;
+              })}
             </div>
+          </div>
 
-            <div className="tool-divider" />
+          <div id="selection-lasso" />
+          <div id="multiselect-highlighter" className="absolute border border-dashed border-[#f5a623]/30 bg-amber-500/[0.02] pointer-events-none z-[9998]" style={{ display: 'none' }} />
+          <div id="handles-layer" />
+          <div id="snap-guide-v" />
+          <div id="snap-guide-h" />
+          <div ref={eraserCursorRef} className="eraser-cursor" />
 
-            {/* Colors */}
-            <div className="tool-row">
-              {ANNOTATION_COLORS.map(c => (
-                <div 
-                  key={c} 
-                  className={`color-dot-btn ${drawColor === c ? 'active' : ''}`}
-                  onClick={() => setDrawColor(c)}
-                >
-                  <div className="color-dot-inner" style={{ backgroundColor: c }} />
+          {/* Drawing Toolbar */}
+          <div className="drawing-toolbar-container">
+            <button 
+              className={`toolbar-toggle ${isToolbarOpen ? 'active' : ''}`}
+              onClick={() => setIsToolbarOpen(!isToolbarOpen)}
+              title="Drawing Tools"
+            >
+              <PenTool size={20} />
+            </button>
+
+            {isToolbarOpen && (
+              <div className="toolbar-panel">
+                <div className="tool-row">
+                  <button className={`tool-btn ${toolMode === 'none' ? 'active' : ''}`} onClick={() => setToolMode('none')} title="Select / Pan"><MousePointer2 size={16} /></button>
+                  <button className={`tool-btn ${toolMode === 'pencil' ? 'active' : ''}`} onClick={() => setToolMode('pencil')} title="Pencil"><Pen size={16} /></button>
+                  <button className={`tool-btn ${toolMode === 'rect' ? 'active' : ''}`} onClick={() => setToolMode('rect')} title="Rectangle"><Square size={16} /></button>
+                  <button className={`tool-btn ${toolMode === 'circle' ? 'active' : ''}`} onClick={() => setToolMode('circle')} title="Circle"><Circle size={16} /></button>
+                  <button className={`tool-btn ${toolMode === 'line' ? 'active' : ''}`} onClick={() => setToolMode('line')} title="Line"><Minus size={16} /></button>
+                  <button className={`tool-btn ${toolMode === 'arrow' ? 'active' : ''}`} onClick={() => setToolMode('arrow')} title="Arrow"><ArrowRight size={16} /></button>
+                  <button className={`tool-btn ${toolMode === 'text' ? 'active' : ''}`} onClick={() => setToolMode('text')} title="Text Note"><Type size={16} /></button>
+                  <button className={`tool-btn ${toolMode === 'bigtext' ? 'active' : ''}`} onClick={() => setToolMode('bigtext')} title="Heading Text"><Heading size={16} /></button>
+                  <button className={`tool-btn ${toolMode === 'eraser' ? 'active' : ''}`} onClick={() => setToolMode('eraser')} title="Eraser"><Eraser size={16} /></button>
+                  <button className="tool-btn danger" onClick={handleClearAll} title="Clear Drawings"><Trash2 size={16} /></button>
                 </div>
-              ))}
-            </div>
+
+                <div className="tool-divider" />
+
+                {/* Colors */}
+                <div className="tool-row">
+                  {ANNOTATION_COLORS.map(c => (
+                    <div 
+                      key={c} 
+                      className={`color-dot-btn ${drawColor === c ? 'active' : ''}`}
+                      onClick={() => setDrawColor(c)}
+                    >
+                      <div className="color-dot-inner" style={{ backgroundColor: c }} />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
-        )}
-      </div>
 
-      {/* Zoom Controls */}
-      <div className="zoom-control">
-        <button onClick={zoomOut} title="Zoom out (Ctrl/Cmd -)">−</button>
-        <button className="zoom-label" onClick={zoomReset} title="Reset to 100% (Ctrl/Cmd 0)">{zoomPercent}%</button>
-        <button onClick={zoomIn} title="Zoom in (Ctrl/Cmd +)">+</button>
-      </div>
+          {/* Zoom Controls */}
+          <div className="zoom-control">
+            <button onClick={zoomOut} title="Zoom out (Ctrl/Cmd -)">−</button>
+            <button className="zoom-label" onClick={zoomReset} title="Reset to 100% (Ctrl/Cmd 0)">{zoomPercent}%</button>
+            <button onClick={zoomIn} title="Zoom in (Ctrl/Cmd +)">+</button>
+          </div>
 
-      {/* Board Switcher */}
+          {/* AI Scene Generator */}
+          <div className="ai-generator-container">
+            <button 
+              onClick={() => setIsAiModalOpen(true)}
+              disabled={!aiAvailable}
+              className="w-9 h-9 !p-0 flex items-center justify-center bg-gradient-to-r from-[#2a1b40] to-[#150d24] hover:from-[#3b245a] hover:to-[#281845] text-[#f5a623] border border-[#f5a623]/40 hover:border-[#f5a623] rounded transition-all shadow-[0_0_10px_rgba(245,166,35,0.2)] group disabled:opacity-40 disabled:cursor-not-allowed"
+              title={aiAvailable ? "AI Scene Generator (5, 20, or 50 Scenes)" : "AI unavailable — no working API key. Fix in Backstage > AI."}
+            >
+              <Zap size={16} className="text-[#f5a623] fill-[#f5a623]/30 group-hover:scale-110 transition-transform duration-300" />
+            </button>
+          </div>
+        </>
+      )}
+
+      {/* Board Switcher - Exactly 2 boards: 1. Beatboard, 2. Excalidraw */}
       <div className="board-switcher">
-        {[0, 1, 2].map(boardIdx => (
-          <button
-            key={boardIdx}
-            className={`board-tab ${activeBoardId === boardIdx ? 'active' : ''}`}
-            onClick={() => setActiveBoardId(boardIdx)}
-          >
-            <Layers size={10} />
-            Board {boardIdx + 1}
-          </button>
-        ))}
-      </div>
-
-      {/* AI Scene Generator */}
-      <div className="ai-generator-container">
-        <button 
-          onClick={() => setIsAiModalOpen(true)}
-          disabled={!aiAvailable}
-          className="w-9 h-9 !p-0 flex items-center justify-center bg-gradient-to-r from-[#2a1b40] to-[#150d24] hover:from-[#3b245a] hover:to-[#281845] text-[#f5a623] border border-[#f5a623]/40 hover:border-[#f5a623] rounded transition-all shadow-[0_0_10px_rgba(245,166,35,0.2)] group disabled:opacity-40 disabled:cursor-not-allowed"
-          title={aiAvailable ? "AI Scene Generator (5, 20, or 50 Scenes)" : "AI unavailable — no working API key. Fix in Backstage > AI."}
+        <button
+          className={`board-tab ${activeBoardId === 0 ? 'active' : ''}`}
+          onClick={() => setActiveBoardId(0)}
+          title="Board 1: Screenplay Beatboard"
         >
-          <Zap size={16} className="text-[#f5a623] fill-[#f5a623]/30 group-hover:scale-110 transition-transform duration-300" />
+          <Layers size={10} />
+          Beatboard
+        </button>
+        <button
+          className={`board-tab ${activeBoardId === 1 ? 'active' : ''}`}
+          onClick={() => setActiveBoardId(1)}
+          title="Board 2: Infinite Freehand Excalidraw Whiteboard"
+        >
+          <PenTool size={10} className={activeBoardId === 1 ? 'text-amber-500' : ''} />
+          Excalidraw
         </button>
       </div>
 
