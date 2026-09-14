@@ -26,7 +26,7 @@ export const ScreenplayPageSheet: React.FC<ScreenplayPageSheetProps> = ({
 }) => {
   return (
     <div
-      className="screenplay-page-sheet relative select-text transition-all duration-200"
+      className="screenplay-page-sheet screenplay-a4-sheet relative select-text transition-all duration-200"
       style={{
         width: '794px',
         height: '1123px',
@@ -39,55 +39,64 @@ export const ScreenplayPageSheet: React.FC<ScreenplayPageSheetProps> = ({
         position: 'relative',
         overflow: 'hidden',
         boxSizing: 'border-box',
-        fontFamily: "'Courier Prime', Courier, monospace",
+        fontFamily: "var(--font-action, 'Courier Prime', Courier, monospace)",
       }}
     >
       <style>{`
         .screenplay-page-sheet .sc-line {
-          font-family: 'Courier Prime', Courier, monospace;
           font-size: 12px;
           line-height: 1.4;
           box-sizing: border-box;
           word-break: break-word;
         }
         .screenplay-page-sheet .sc-action {
-          width: 100%;
-          margin-bottom: 0.85em;
+          width: var(--width-action, 100%);
+          margin-left: var(--margin-action, 0%);
+          margin-bottom: var(--mb-action, 0.85em);
+          font-family: var(--font-action, 'Courier Prime', Courier, monospace) !important;
         }
         .screenplay-page-sheet .sc-character {
-          margin-left: 37%;
-          width: 45%;
-          font-weight: bold;
+          margin-left: var(--margin-character, 37%);
+          width: var(--width-character, 45%);
+          font-weight: var(--weight-character, bold);
           text-transform: uppercase;
-          margin-top: 0.85em;
-          margin-bottom: 0.1em;
+          margin-top: var(--mt-character, 0.85em);
+          margin-bottom: var(--mb-character, 0.1em);
+          font-family: var(--font-character, 'Courier Prime', Courier, monospace) !important;
         }
         .screenplay-page-sheet .sc-dialogue {
-          margin-left: 20%;
-          width: 60%;
-          margin-bottom: 0.85em;
+          margin-left: var(--margin-dialogue, 20%);
+          width: var(--width-dialogue, 60%);
+          margin-bottom: var(--mb-dialogue, 0.85em);
+          font-family: var(--font-dialogue, 'Courier Prime', Courier, monospace) !important;
         }
         .screenplay-page-sheet .sc-parenthetical {
-          margin-left: 29%;
-          width: 45%;
-          margin-bottom: 0.1em;
-          font-style: italic;
+          margin-left: var(--margin-parenthetical, 29%);
+          width: var(--width-parenthetical, 45%);
+          margin-bottom: var(--mb-parenthetical, 0.1em);
+          font-style: var(--style-parenthetical, italic);
+          font-family: var(--font-parenthetical, 'Courier Prime', Courier, monospace) !important;
         }
         .screenplay-page-sheet .sc-transition {
-          margin-left: 55%;
-          width: 45%;
-          font-weight: bold;
+          margin-left: var(--margin-transition, 55%);
+          width: var(--width-transition, 45%);
+          font-weight: var(--weight-transition, bold);
           text-transform: uppercase;
-          text-align: right;
-          margin-top: 0.85em;
-          margin-bottom: 0.85em;
+          text-align: var(--align-transition, right);
+          margin-top: var(--mt-transition, 0.85em);
+          margin-bottom: var(--mb-transition, 0.85em);
+          font-family: var(--font-transition, 'Courier Prime', Courier, monospace) !important;
         }
         .screenplay-page-sheet .sc-shot {
-          width: 100%;
-          font-weight: bold;
+          width: var(--width-shot, 100%);
+          font-weight: var(--weight-shot, bold);
           text-transform: uppercase;
-          margin-top: 0.85em;
-          margin-bottom: 0.85em;
+          margin-top: var(--mt-shot, 0.85em);
+          margin-bottom: var(--mb-shot, 0.85em);
+          font-family: var(--font-shot, 'Courier Prime', Courier, monospace) !important;
+        }
+        .screenplay-page-sheet .sc-lyrics {
+          font-family: var(--font-lyrics, 'Courier Prime', Courier, monospace) !important;
         }
       `}</style>
 

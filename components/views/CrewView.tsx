@@ -86,12 +86,59 @@ import {
   Check, X, Download, FileSpreadsheet, Printer, Share2, Grid, List, 
   Maximize2, Minimize2, Edit3, Trash2, ExternalLink, ArrowUpRight, 
   ChevronDown, ArrowRight, UserPlus, Phone, Mail, Link2, GitFork, RefreshCw,
-  FolderPlus, ChevronUp, AlertCircle, Play, MoreVertical
+  FolderPlus, ChevronUp, AlertCircle, Play, MoreVertical, Pause, RotateCcw,
+  Timer, Bell, Crosshair, Compass
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { ContinuityLook, INITIAL_LOOKS } from './ContinuityView';
 
-// --- TYPES FOR CREW MODULE ---
+// --- TYPES FOR 1AD CREW MODULE ---
+
+export type LiveSetStage = 'BLOCKING' | 'LIGHTING' | 'REHEARSAL' | 'LAST_LOOKS' | 'ROLLING' | 'RESET' | 'MOVING_ON';
+export type DeptReadinessStatus = 'READY' | 'WORKING' | 'HOLDING' | 'PRE_RIG';
+
+export interface DepartmentReadinessState {
+  departmentId: string;
+  name: string;
+  lead: string;
+  channel: number;
+  status: DeptReadinessStatus;
+  note: string;
+  updatedAt: string;
+}
+
+export interface TalentPipelineItem {
+  id: string;
+  characterName: string;
+  actorName: string;
+  castNumber: number;
+  stage: 'HMU' | 'WARDROBE' | 'HOLDING' | 'ON_SET';
+  hmuTime?: string;
+  onSetTime?: string;
+  isMinor?: boolean;
+  minorHoursRemaining?: string;
+  notes?: string;
+}
+
+export interface DailyTimelineMilestone {
+  id: string;
+  time: string;
+  title: string;
+  department: string;
+  completed: boolean;
+  actualTime?: string;
+  critical?: boolean;
+}
+
+export interface SafetyBriefingLog {
+  id: string;
+  sceneNum: string;
+  timestamp: string;
+  hazards: string[];
+  notes: string;
+  conductedBy: string;
+  departmentsPresent: string[];
+}
 
 export type CrewRoleHierarchy = string;
 
@@ -107,6 +154,9 @@ export interface CrewMember {
   callTime?: string;
   notes?: string;
   assignedScenes?: string[];
+  radioChannel?: number;
+  isHOD?: boolean;
+  checkedIn?: boolean;
 }
 
 // --- DEPARTMENT SPECIFIC ROLES MAP ---
@@ -701,6 +751,65 @@ const INITIAL_PRODUCTION_TEMPLATES: ProductionTemplateItem[] = [
   }
 ];
 
+// --- 1AD OPERATIONAL CONSTANTS ---
+
+export const INITIAL_DEPT_READINESS: DepartmentReadinessState[] = [
+  { departmentId: 'direction', name: 'Direction & 1AD', lead: 'Marcus Vance (1st AD)', channel: 1, status: 'READY', note: 'Actors briefed, blocking locked with Director', updatedAt: '2m ago' },
+  { departmentId: 'camera', name: 'Camera & DIT', lead: 'Elena Rostova (DOP)', channel: 6, status: 'READY', note: '85mm Cooke prime mounted, focus pulled, marks taped', updatedAt: 'Just now' },
+  { departmentId: 'lighting', name: 'Lighting & G&E', lead: 'Tariq Al-Mansoor (Gaffer)', channel: 5, status: 'WORKING', note: 'Tweaking 4K HMI key light diffusion through 8x8', updatedAt: '4m ago' },
+  { departmentId: 'art', name: 'Art & Props', lead: 'Devon Miller (Prop Master)', channel: 4, status: 'READY', note: 'Hero revolver loaded with inert blanks, blood bag taped', updatedAt: '1m ago' },
+  { departmentId: 'sound', name: 'Production Sound', lead: 'Chloe Dupont (Mixer)', channel: 8, status: 'READY', note: 'Lavalier wires checked, boom operator in position', updatedAt: '3m ago' },
+  { departmentId: 'costume', name: 'Costume & Wardrobe', lead: 'Sophia Ramos (Wardrobe)', channel: 7, status: 'READY', note: 'Hero jacket distressed, double costume ready for stunt', updatedAt: '5m ago' },
+  { departmentId: 'makeup', name: 'Hair & Makeup', lead: 'Aiden Brooks (Key HMU)', channel: 7, status: 'WORKING', note: 'Last looks touch-up on lead actor right cheek sweat', updatedAt: '1m ago' },
+  { departmentId: 'stunts', name: 'Stunts & Rigging', lead: 'Viktor Krum (Stunt Coord)', channel: 1, status: 'READY', note: 'Safety crash pad anchored behind breakaway table', updatedAt: '6m ago' },
+  { departmentId: 'locations', name: 'Locations & Security', lead: 'Sarah Jenkins (Locations)', channel: 9, status: 'READY', note: 'Perimeter locked, air conditioning turned OFF for sound', updatedAt: '10m ago' },
+];
+
+export const INITIAL_TALENT_PIPELINE: TalentPipelineItem[] = [
+  { id: 't-1', characterName: 'Det. John Miller', actorName: 'Christian Bale', castNumber: 1, stage: 'ON_SET', hmuTime: '06:30', onSetTime: '07:15', isMinor: false, notes: 'Full battle dress, holster on left' },
+  { id: 't-2', characterName: 'Elena Rostova', actorName: 'Rebecca Ferguson', castNumber: 2, stage: 'HOLDING', hmuTime: '07:00', onSetTime: '08:00', isMinor: false, notes: 'Waiting for Scene 14 reverse angles' },
+  { id: 't-3', characterName: 'Young Toby', actorName: 'Lucas Jade', castNumber: 7, stage: 'HMU', hmuTime: '07:30', onSetTime: '08:45', isMinor: true, minorHoursRemaining: '3h 45m left of 6h limit', notes: 'Studio teacher on set. Mandatory lunch at 12:30.' },
+  { id: 't-4', characterName: 'Sniper Assassin', actorName: 'Karl Urban (Stunt Double)', castNumber: 12, stage: 'WARDROBE', hmuTime: '07:15', onSetTime: '09:00', isMinor: false, notes: 'Tactical vest fitted with descender harness' },
+];
+
+export const INITIAL_DAILY_MILESTONES: DailyTimelineMilestone[] = [
+  { id: 'm-1', time: '05:30', title: 'Rigging Grip & Electric Pre-Light Call', department: 'G&E', completed: true, actualTime: '05:25' },
+  { id: 'm-2', time: '06:00', title: 'General Crew Call & Hot Catering Breakfast', department: 'Production', completed: true, actualTime: '06:00' },
+  { id: 'm-3', time: '06:30', title: 'Cast In HMU & Wardrobe Fittings', department: 'HMU / Cast', completed: true, actualTime: '06:35' },
+  { id: 'm-4', time: '07:15', title: 'Director & 1AD Blocking Rehearsal on Set', department: 'Direction', completed: true, actualTime: '07:20', critical: true },
+  { id: 'm-5', time: '07:45', title: 'Lighting & Camera Setup for Scene 14', department: 'Camera / G&E', completed: false },
+  { id: 'm-6', time: '08:30', title: 'PICTURE\'S UP: First Shot (Setup 14A)', department: 'All Set', completed: false, critical: true },
+  { id: 'm-7', time: '10:45', title: 'Scene 14 Complete • Moving On to Scene 14B', department: 'Direction', completed: false },
+  { id: 'm-8', time: '13:00', title: 'LUNCH CALL (1-Hour Hard Walk)', department: 'Catering / All', completed: false, critical: true },
+  { id: 'm-9', time: '14:00', title: 'Afternoon Call • First Shot Scene 15 (Alleyway)', department: 'All Set', completed: false },
+  { id: 'm-10', time: '18:00', title: 'Golden Hour Sunset Exterior Setup', department: 'Camera', completed: false },
+  { id: 'm-11', time: '19:00', title: 'CAMERA WRAP • 12-Hour Turnaround Clock Begins', department: 'Production', completed: false, critical: true },
+];
+
+export const INITIAL_SAFETY_LOGS: SafetyBriefingLog[] = [
+  {
+    id: 'sb-1',
+    sceneNum: '14',
+    timestamp: 'Today 07:10 AM',
+    conductedBy: 'Marcus Vance (1st AD)',
+    hazards: ['Blank-firing Prop Weapon', 'Breakaway Glass Bottle', 'Simulated Blood Splatter'],
+    notes: 'All cast & crew briefed on 15ft minimum safety radius during gunfire. Armorer verified chamber empty prior to run-through. Ear protection issued to sound and camera operators.',
+    departmentsPresent: ['Direction', 'Camera', 'G&E', 'Props', 'Sound', 'Stunts', 'Set Medic']
+  }
+];
+
+export const RADIO_CHANNELS = [
+  { channel: 1, name: '1AD & Production Main', purpose: 'Set Floor Operations, 1AD Calls, Picture\'s Up', lead: 'Marcus Vance (1st AD)' },
+  { channel: 2, name: 'Open / 1-on-1 Traffic', purpose: 'Individual conversations, long explanations', lead: 'All Crew' },
+  { channel: 3, name: 'Transportation', purpose: 'Actor shuttles, equipment trucks, basecamp runs', lead: 'Leo Diaz (Transport Captain)' },
+  { channel: 4, name: 'Art, Props & Set Dec', purpose: 'Hero props handoff, set dressing resets', lead: 'Devon Miller (Prop Master)' },
+  { channel: 5, name: 'Grip & Electric (G&E)', purpose: 'Power distro, lighting tweaks, rigging', lead: 'Tariq Al-Mansoor (Gaffer)' },
+  { channel: 6, name: 'Camera & DIT', purpose: 'Lenses, media mags, video village feeds', lead: 'Elena Rostova (DOP)' },
+  { channel: 7, name: 'Costume & HMU', purpose: 'Last looks calls, talent readiness, wardrobe change', lead: 'Sophia Ramos & Aiden Brooks' },
+  { channel: 8, name: 'Sound', purpose: 'Room tone, playback tracks, actor mic checks', lead: 'Chloe Dupont (Sound Mixer)' },
+  { channel: 9, name: 'Locations & Security', purpose: 'Lockups, street clearance, noise control', lead: 'Sarah Jenkins (Locations)' },
+];
+
 // --- MAIN CREW VIEW COMPONENT ---
 
 // Helper to check if department uses continuity (Costume, Makeup, Vehicles)
@@ -714,17 +823,207 @@ const isContinuityApplicableDept = (deptId: string, deptName?: string) => {
   );
 };
 
+export type ActiveSidebarItem = 'radar' | 'departments' | 'schedule' | 'comms' | 'safety' | 'assets' | 'meetings' | 'reports' | 'templates' | 'dashboard';
+
 export const CrewView: React.FC<CrewViewProps> = ({ 
   allTasks, 
   onUpdateTask, 
   onAddTask, 
   onDeleteTask 
 }) => {
-  const { beats, appTheme } = useProject();
+  const { beats, appTheme, appAccentColor } = useProject();
   const isLight = appTheme === 'light' || (appTheme === 'system' && typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: light)').matches);
 
+  // 1AD Set Command State
+  const [liveSetStage, setLiveSetStage] = useState<LiveSetStage>(() => {
+    if (typeof window !== 'undefined') {
+      const s = localStorage.getItem('backstage_1ad_stage');
+      if (s) return s as LiveSetStage;
+    }
+    return 'LIGHTING';
+  });
+
+  const [shootDay, setShootDay] = useState<number>(() => {
+    if (typeof window !== 'undefined') {
+      const d = localStorage.getItem('backstage_1ad_shootday');
+      if (d) return parseInt(d, 10);
+    }
+    return 1;
+  });
+  const [totalShootDays, setTotalShootDays] = useState<number>(25);
+
+  const [activeSceneNum, setActiveSceneNum] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      const s = localStorage.getItem('backstage_1ad_scene');
+      if (s) return s;
+    }
+    return '14';
+  });
+
+  const [currentSetupName, setCurrentSetupName] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      const s = localStorage.getItem('backstage_1ad_setup');
+      if (s) return s;
+    }
+    return 'Setup 14B • OTS Detective Close-Up';
+  });
+
+  const [setupElapsedSeconds, setSetupElapsedSeconds] = useState<number>(860);
+  const [isTimerRunning, setIsTimerRunning] = useState<boolean>(true);
+  const targetSetupSeconds = 25 * 60; // 25 min target
+
+  // Broadcast Notification Toast
+  const [broadcastToast, setBroadcastToast] = useState<{ message: string; type: 'rolling' | 'alert' | 'info' | 'ready' } | null>(null);
+
+  const triggerBroadcast = (message: string, type: 'rolling' | 'alert' | 'info' | 'ready' = 'info') => {
+    setBroadcastToast({ message, type });
+    setTimeout(() => {
+      setBroadcastToast(null);
+    }, 4500);
+  };
+
+  // Timer runner
+  useEffect(() => {
+    if (!isTimerRunning) return;
+    const interval = setInterval(() => {
+      setSetupElapsedSeconds(s => s + 1);
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [isTimerRunning]);
+
+  // Persist 1AD settings
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('backstage_1ad_stage', liveSetStage);
+      localStorage.setItem('backstage_1ad_shootday', shootDay.toString());
+      localStorage.setItem('backstage_1ad_scene', activeSceneNum);
+      localStorage.setItem('backstage_1ad_setup', currentSetupName);
+    }
+  }, [liveSetStage, shootDay, activeSceneNum, currentSetupName]);
+
+  // 1AD Department Readiness Live State
+  const [deptReadiness, setDeptReadiness] = useState<DepartmentReadinessState[]>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('backstage_1ad_readiness');
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        } catch (e) {}
+      }
+    }
+    return INITIAL_DEPT_READINESS;
+  });
+
+  const updateDeptReadinessStatus = (deptId: string, status: DeptReadinessStatus, note?: string) => {
+    setDeptReadiness(prev => {
+      const updated = prev.map(d => d.departmentId === deptId ? {
+        ...d,
+        status,
+        note: note !== undefined ? note : d.note,
+        updatedAt: 'Just now'
+      } : d);
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('backstage_1ad_readiness', JSON.stringify(updated));
+      }
+      return updated;
+    });
+  };
+
+  // Talent Pipeline State
+  const [talentPipeline, setTalentPipeline] = useState<TalentPipelineItem[]>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('backstage_1ad_talent');
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        } catch (e) {}
+      }
+    }
+    return INITIAL_TALENT_PIPELINE;
+  });
+
+  const updateTalentStage = (talentId: string, stage: TalentPipelineItem['stage']) => {
+    setTalentPipeline(prev => {
+      const updated = prev.map(t => t.id === talentId ? { ...t, stage } : t);
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('backstage_1ad_talent', JSON.stringify(updated));
+      }
+      return updated;
+    });
+  };
+
+  // Daily Milestones State
+  const [dailyMilestones, setDailyMilestones] = useState<DailyTimelineMilestone[]>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('backstage_1ad_milestones');
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        } catch (e) {}
+      }
+    }
+    return INITIAL_DAILY_MILESTONES;
+  });
+
+  const toggleMilestoneCompleted = (id: string) => {
+    setDailyMilestones(prev => {
+      const updated = prev.map(m => m.id === id ? {
+        ...m,
+        completed: !m.completed,
+        actualTime: !m.completed ? new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : undefined
+      } : m);
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('backstage_1ad_milestones', JSON.stringify(updated));
+      }
+      return updated;
+    });
+  };
+
+  // Safety Briefings Log
+  const [safetyLogs, setSafetyLogs] = useState<SafetyBriefingLog[]>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('backstage_1ad_safetylogs');
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        } catch (e) {}
+      }
+    }
+    return INITIAL_SAFETY_LOGS;
+  });
+
+  const [showAddSafetyModal, setShowAddSafetyModal] = useState(false);
+  const [newSafetyHazards, setNewSafetyHazards] = useState<string>('Blank-firing Prop Weapon, Pyro Sparks');
+  const [newSafetyNotes, setNewSafetyNotes] = useState<string>('');
+
+  const handleCreateSafetyBriefing = () => {
+    if (!newSafetyHazards.trim()) return;
+    const newLog: SafetyBriefingLog = {
+      id: `sb-${Date.now()}`,
+      sceneNum: activeSceneNum,
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      conductedBy: 'Marcus Vance (1st AD)',
+      hazards: newSafetyHazards.split(',').map(h => h.trim()).filter(Boolean),
+      notes: newSafetyNotes.trim() || 'Safety briefing conducted on set with all participating department heads and performers.',
+      departmentsPresent: ['Direction', 'Camera', 'G&E', 'Props', 'Sound', 'Stunts', 'Set Medic']
+    };
+    const updated = [newLog, ...safetyLogs];
+    setSafetyLogs(updated);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('backstage_1ad_safetylogs', JSON.stringify(updated));
+    }
+    setShowAddSafetyModal(false);
+    setNewSafetyHazards('');
+    setNewSafetyNotes('');
+    triggerBroadcast(`Safety Briefing logged for Scene ${activeSceneNum}`, 'ready');
+  };
+
   // Sidebar & Global State
-  const [activeSidebarItem, setActiveSidebarItem] = useState<'dashboard' | 'departments' | 'meetings' | 'reports' | 'contacts' | 'templates'>('departments');
+  const [activeSidebarItem, setActiveSidebarItem] = useState<ActiveSidebarItem>('radar');
   const [selectedDeptId, setSelectedDeptId] = useState<string>('direction');
   const [deptTab, setDeptTab] = useState<'crew' | 'scenes' | 'assets' | 'tasks' | 'budget' | 'continuity'>('crew');
 
@@ -1226,115 +1525,271 @@ export const CrewView: React.FC<CrewViewProps> = ({
       isLight ? 'bg-slate-100 text-slate-900' : 'bg-[#111111] text-[#e5e5e5]'
     }`}>
       
-      {/* GLOBAL CREW HEADER BAR */}
-      <div className={`h-12 border-b px-4 flex items-center justify-between gap-4 z-20 ${
-        isLight ? 'bg-white border-slate-200 text-slate-800' : 'bg-[#161618] border-[#262626] text-white'
+      {/* 1AD FLOATING BROADCAST TOAST */}
+      {broadcastToast && (
+        <div className="fixed top-3 left-1/2 -translate-x-1/2 z-[9999] animate-in fade-in slide-in-from-top-4 duration-200">
+          <div className={`px-6 py-3 rounded-2xl shadow-2xl border flex items-center gap-3 backdrop-blur-md font-mono text-xs font-black uppercase tracking-wider ${
+            broadcastToast.type === 'rolling'
+              ? 'bg-red-950/95 text-red-200 border-red-500 shadow-[0_0_30px_rgba(239,68,68,0.5)]'
+              : broadcastToast.type === 'alert'
+              ? 'bg-amber-950/95 text-amber-200 border-amber-500 shadow-[0_0_25px_rgba(245,166,35,0.4)]'
+              : broadcastToast.type === 'ready'
+              ? 'bg-emerald-950/95 text-emerald-200 border-emerald-500 shadow-[0_0_25px_rgba(16,185,129,0.4)]'
+              : 'bg-slate-900/95 text-white border-slate-600 shadow-xl'
+          }`}>
+            <Megaphone size={18} className="animate-bounce shrink-0" />
+            <span>{broadcastToast.message}</span>
+            <button onClick={() => setBroadcastToast(null)} className="ml-2 hover:opacity-75">
+              <X size={14} />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* 1AD SOUNDSTAGE COMMAND BAR (STICKY FLOOR HEADER) */}
+      <div className={`border-b px-4 py-2 flex flex-wrap items-center justify-between gap-3 z-20 shrink-0 ${
+        isLight ? 'bg-white border-slate-200 shadow-sm' : 'bg-[#151518] border-[#262629]'
       }`}>
+        
+        {/* Left: Shoot Day & Scene Focus */}
         <div className="flex items-center gap-3">
-          <div className={`flex items-center gap-2 border px-3 py-1 rounded-md text-xs font-bold ${
-            isLight ? 'bg-amber-500/10 border-amber-500/30 text-amber-700' : 'bg-[#222224] border-[#333] text-[#f5a623]'
-          }`}>
-            <Users size={16} />
-            <span className="uppercase tracking-wider">CREW PRODUCTION HUB</span>
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center text-black font-black text-xs shadow-md">
+              1AD
+            </div>
+            <div>
+              <div className="flex items-center gap-1.5 text-[10px] font-mono uppercase tracking-widest font-bold">
+                <span className={isLight ? 'text-slate-500' : 'text-gray-400'}>Floor Command</span>
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              </div>
+              <div className="flex items-center gap-2">
+                <span className={`text-xs font-black uppercase ${isLight ? 'text-slate-900' : 'text-white'}`}>
+                  Day {shootDay} of {totalShootDays}
+                </span>
+                <span className="text-[10px] text-gray-500 font-mono">• Stage 4</span>
+              </div>
+            </div>
           </div>
-          <span className={`text-xs hidden sm:inline ${isLight ? 'text-slate-500' : 'text-gray-500'}`}>| Screenplay-Driven Department Workspaces & AI Intelligence</span>
-        </div>
 
-        {/* Global Search Input & Quick Filters */}
-        <div className="flex items-center gap-2 flex-1 max-w-xl">
-          <div className="relative w-full">
-            <Search size={14} className={`absolute left-3 top-2.5 ${isLight ? 'text-slate-400' : 'text-gray-500'}`} />
-            <input 
-              type="text" 
-              placeholder="Search Crew Members, Departments, Props, Assets, Meetings, Reports..." 
-              value={globalSearch}
-              onChange={(e) => setGlobalSearch(e.target.value)}
-              className={`w-full border text-xs pl-9 pr-3 py-1.5 rounded-lg outline-none transition-colors ${
-                isLight 
-                  ? 'bg-slate-50 border-slate-300 text-slate-900 placeholder:text-slate-400 focus:border-amber-500 shadow-sm' 
-                  : 'bg-[#0d0d0f] border-[#2a2a2d] text-white focus:border-[#f5a623]'
+          <div className={`h-6 w-[1px] ${isLight ? 'bg-slate-200' : 'bg-[#333]'}`} />
+
+          {/* Current Scene & Setup Selector */}
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1">
+              <span className={`text-[10px] font-mono uppercase font-bold ${isLight ? 'text-slate-500' : 'text-gray-400'}`}>Scene:</span>
+              <select
+                value={activeSceneNum}
+                onChange={(e) => setActiveSceneNum(e.target.value)}
+                className={`text-xs font-bold border rounded px-2 py-1 outline-none cursor-pointer ${
+                  isLight ? 'bg-slate-50 border-slate-300 text-slate-900' : 'bg-[#1e1e22] border-[#333] text-amber-400'
+                }`}
+              >
+                {beats && beats.length > 0 ? (
+                  beats.map((b, idx) => {
+                    const sNum = b.sceneNumber || `${idx + 1}`;
+                    return (
+                      <option key={b.id || idx} value={sNum}>
+                        Sc. {sNum} - {b.slug?.location || 'Set'}
+                      </option>
+                    );
+                  })
+                ) : (
+                  <>
+                    <option value="12">Sc. 12 - Rooftop (Night)</option>
+                    <option value="14">Sc. 14 - Warehouse Interrogation</option>
+                    <option value="15">Sc. 15 - Exterior Alley Rain</option>
+                    <option value="22">Sc. 22 - Vault Breach</option>
+                  </>
+                )}
+              </select>
+            </div>
+
+            <input
+              type="text"
+              value={currentSetupName}
+              onChange={(e) => setCurrentSetupName(e.target.value)}
+              className={`text-xs font-mono font-bold px-2 py-1 rounded border outline-none max-w-[200px] sm:max-w-[260px] truncate ${
+                isLight ? 'bg-slate-50 border-slate-300 text-slate-800' : 'bg-[#1a1a1d] border-[#333] text-gray-200'
               }`}
+              placeholder="Current Shot Setup..."
             />
-            {globalSearch && (
-              <button onClick={() => setGlobalSearch('')} className={`absolute right-2.5 top-2.5 ${isLight ? 'text-slate-400 hover:text-slate-700' : 'text-gray-500 hover:text-white'}`}>
-                <X size={12} />
-              </button>
-            )}
-          </div>
-
-          <div className={`hidden lg:flex items-center gap-1.5 border p-1 rounded-lg ${
-            isLight ? 'bg-slate-50 border-slate-200' : 'bg-[#1a1a1e] border-[#2a2a2d]'
-          }`}>
-            <select 
-              value={filterDept} 
-              onChange={(e) => setFilterDept(e.target.value)}
-              className={`bg-transparent text-[10px] font-bold outline-none cursor-pointer px-1 ${
-                isLight ? 'text-slate-700' : 'text-gray-300'
-              }`}
-            >
-              <option value="all">All Depts</option>
-              {(Object.entries(groupedDepartments) as [string, DepartmentMeta[]][]).map(([groupName, depts]) => (
-                <optgroup key={groupName} label={groupName} className={isLight ? 'bg-white text-amber-700 font-bold' : 'bg-[#111] text-amber-400 font-bold'}>
-                  {depts.map(d => (
-                    <option key={d.id} value={d.id} className={isLight ? 'bg-white text-slate-800 font-normal' : 'bg-[#111] text-gray-200 font-normal'}>{d.name}</option>
-                  ))}
-                </optgroup>
-              ))}
-            </select>
           </div>
         </div>
 
-        {/* Action Buttons */}
-        <div className="flex items-center gap-2">
-          <button 
-            onClick={handleExportExcel}
-            className={`flex items-center gap-1.5 border text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors ${
-              isLight 
-                ? 'bg-white hover:bg-slate-100 text-slate-700 border-slate-300 shadow-sm' 
-                : 'bg-[#222] hover:bg-[#2e2e2e] text-gray-300 border-[#333]'
-            }`}
-            title="Export Department Data to Excel"
-          >
-            <FileSpreadsheet size={14} className="text-emerald-600 dark:text-emerald-400" />
-            <span className="hidden md:inline">Export Excel</span>
-          </button>
-          <button 
-            onClick={() => window.print()}
-            className={`flex items-center gap-1.5 border text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors ${
-              isLight 
-                ? 'bg-white hover:bg-slate-100 text-slate-700 border-slate-300 shadow-sm' 
-                : 'bg-[#222] hover:bg-[#2e2e2e] text-gray-300 border-[#333]'
-            }`}
-            title="Print Production Report"
-          >
-            <Printer size={14} className="text-blue-600 dark:text-blue-400" />
-            <span className="hidden md:inline">Print</span>
-          </button>
+        {/* Center: Live Set Stage Machine */}
+        <div className="flex items-center gap-1 overflow-x-auto custom-scrollbar py-0.5 max-w-full">
+          {[
+            { key: 'BLOCKING' as LiveSetStage, label: '1. BLOCK', icon: Compass, color: 'hover:border-blue-500 text-blue-400' },
+            { key: 'LIGHTING' as LiveSetStage, label: '2. LIGHT', icon: Sun, color: 'hover:border-amber-500 text-amber-400' },
+            { key: 'REHEARSAL' as LiveSetStage, label: '3. REHEARSE', icon: Activity, color: 'hover:border-indigo-500 text-indigo-400' },
+            { key: 'LAST_LOOKS' as LiveSetStage, label: '4. LAST LOOKS', icon: Scissors, color: 'hover:border-pink-500 text-pink-400' },
+            { key: 'ROLLING' as LiveSetStage, label: '5. ROLLING', icon: Flame, color: 'hover:border-red-500 text-red-500' },
+            { key: 'RESET' as LiveSetStage, label: '6. RESET', icon: RotateCcw, color: 'hover:border-orange-500 text-orange-400' },
+            { key: 'MOVING_ON' as LiveSetStage, label: '7. MOVING ON', icon: Zap, color: 'hover:border-emerald-500 text-emerald-400' },
+          ].map(stage => {
+            const isCurrent = liveSetStage === stage.key;
+            const Icon = stage.icon;
+            return (
+              <button
+                key={stage.key}
+                type="button"
+                onClick={() => {
+                  setLiveSetStage(stage.key);
+                  if (stage.key === 'ROLLING') {
+                    triggerBroadcast(`🔴 PICTURE'S UP! ROLLING CAMERA & SOUND ON SCENE ${activeSceneNum}!`, 'rolling');
+                  } else if (stage.key === 'LAST_LOOKS') {
+                    triggerBroadcast(`💇 LAST LOOKS FOR CAST! Hair, Makeup & Wardrobe to set!`, 'alert');
+                  } else if (stage.key === 'MOVING_ON') {
+                    triggerBroadcast(`🚀 WRAP ON THIS SETUP! Moving on to next setup!`, 'ready');
+                    setSetupElapsedSeconds(0);
+                  }
+                }}
+                className={`px-2.5 py-1 rounded text-[10px] font-mono font-bold uppercase flex items-center gap-1.5 transition-all border shrink-0 ${
+                  isCurrent
+                    ? stage.key === 'ROLLING'
+                      ? 'bg-red-600 text-white border-red-400 shadow-[0_0_15px_rgba(239,68,68,0.7)] animate-pulse'
+                      : isLight
+                      ? 'bg-amber-600 text-white border-amber-600 shadow-sm'
+                      : 'bg-[#f5a623] text-black border-[#f5a623] shadow-[0_0_12px_rgba(245,166,35,0.4)]'
+                    : isLight
+                    ? 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200'
+                    : 'bg-[#1e1e22] text-gray-400 border-[#2a2a2e] hover:bg-[#25252a]'
+                }`}
+              >
+                <Icon size={12} className={isCurrent ? '' : stage.color} />
+                <span>{stage.label}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Right: Setup Timer, Pace & 1AD Quick Broadcast */}
+        <div className="flex items-center gap-3">
+          
+          {/* Setup Stopwatch */}
+          <div className={`flex items-center gap-2 border px-2.5 py-1 rounded-lg ${
+            isLight ? 'bg-slate-50 border-slate-200' : 'bg-[#1b1b1f] border-[#2c2c30]'
+          }`}>
+            <Clock size={13} className={setupElapsedSeconds > targetSetupSeconds ? 'text-red-500 animate-pulse' : 'text-amber-500'} />
+            <div className="flex flex-col">
+              <span className={`font-mono text-xs font-black ${
+                setupElapsedSeconds > targetSetupSeconds ? 'text-red-500' : isLight ? 'text-slate-900' : 'text-white'
+              }`}>
+                {Math.floor(setupElapsedSeconds / 60).toString().padStart(2, '0')}:{(setupElapsedSeconds % 60).toString().padStart(2, '0')}
+              </span>
+              <span className="text-[8px] font-mono text-gray-500">25m target</span>
+            </div>
+            <button
+              onClick={() => setIsTimerRunning(!isTimerRunning)}
+              className="text-gray-400 hover:text-white p-0.5 rounded"
+              title={isTimerRunning ? 'Pause Timer' : 'Resume Timer'}
+            >
+              {isTimerRunning ? <Pause size={11} /> : <Play size={11} />}
+            </button>
+            <button
+              onClick={() => setSetupElapsedSeconds(0)}
+              className="text-gray-400 hover:text-white p-0.5 rounded"
+              title="Reset Setup Timer"
+            >
+              <RotateCcw size={11} />
+            </button>
+          </div>
+
+          {/* Day Pace Meter */}
+          <div className={`hidden xl:flex flex-col text-right px-2 py-0.5 border-l ${
+            isLight ? 'border-slate-200' : 'border-[#2a2a2d]'
+          }`}>
+            <span className="text-[10px] font-bold text-emerald-500 flex items-center gap-1 justify-end">
+              <CheckCircle2 size={10} /> +15m On Pace
+            </span>
+            <span className="text-[9px] font-mono text-gray-400">7 / 18 Setups Done</span>
+          </div>
+
+          {/* 1AD Broadcast Megaphone Buttons */}
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => triggerBroadcast('🔴 PICTURE\'S UP! ROLL SOUND & CAMERA! QUIET ON SET!', 'rolling')}
+              className="bg-red-600/90 hover:bg-red-600 text-white px-2.5 py-1.5 rounded text-[10px] font-black uppercase tracking-wider flex items-center gap-1 shadow transition-all active:scale-95"
+              title="Broadcast: Roll Sound & Camera"
+            >
+              <Flame size={12} />
+              <span className="hidden sm:inline">Roll</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => triggerBroadcast('💇 LAST LOOKS! Hair, Makeup & Wardrobe touch-up on set!', 'alert')}
+              className={`px-2.5 py-1.5 rounded text-[10px] font-bold uppercase border transition-all ${
+                isLight 
+                  ? 'bg-slate-100 hover:bg-slate-200 text-slate-800 border-slate-300' 
+                  : 'bg-[#222] hover:bg-[#2e2e2e] text-pink-300 border-[#382b35]'
+              }`}
+              title="Call Last Looks"
+            >
+              <Scissors size={12} />
+              <span className="hidden sm:inline">Looks</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => triggerBroadcast('🤫 QUIET ON SET PLEASE! SETTLE DOWN!', 'alert')}
+              className={`px-2.5 py-1.5 rounded text-[10px] font-bold uppercase border transition-all ${
+                isLight 
+                  ? 'bg-slate-100 hover:bg-slate-200 text-slate-800 border-slate-300' 
+                  : 'bg-[#222] hover:bg-[#2e2e2e] text-amber-300 border-[#38332a]'
+              }`}
+              title="Call Quiet on Set"
+            >
+              <Bell size={12} />
+              <span className="hidden md:inline">Quiet</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => triggerBroadcast('🍱 15 MINUTES TO LUNCH! Current setup is wrap for first half.', 'info')}
+              className={`px-2 py-1.5 rounded text-[10px] font-bold uppercase border transition-all ${
+                isLight 
+                  ? 'bg-slate-100 hover:bg-slate-200 text-slate-800 border-slate-300' 
+                  : 'bg-[#222] hover:bg-[#2e2e2e] text-gray-300 border-[#333]'
+              }`}
+              title="Call 15m to Lunch"
+            >
+              <Utensils size={12} />
+            </button>
+          </div>
+
         </div>
       </div>
 
       {/* MAIN BODY LAYOUT */}
       <div className="flex-1 flex overflow-hidden">
         
-        {/* LEFT SIDEBAR NAVIGATION */}
+        {/* LEFT SIDEBAR NAVIGATION: 1AD COMMAND CONSOLE */}
         <div className={`w-56 border-r flex flex-col justify-between shrink-0 overflow-y-auto custom-scrollbar ${
           isLight ? 'bg-white border-slate-200 text-slate-700' : 'bg-[#141416] border-[#242426]'
         }`}>
           <div className="p-3 space-y-4">
             
-            {/* Primary Modules */}
+            {/* 1AD Set Modules */}
             <div>
-              <div className={`text-[10px] font-mono font-bold uppercase tracking-widest px-2 mb-2 ${
+              <div className={`text-[10px] font-mono font-bold uppercase tracking-widest px-2 mb-2 flex items-center justify-between ${
                 isLight ? 'text-slate-400' : 'text-gray-500'
-              }`}>Main Navigation</div>
+              }`}>
+                <span>1AD Operations</span>
+                <span className="text-[9px] text-amber-500 font-bold">LIVE</span>
+              </div>
               <div className="space-y-0.5">
                 {[
-                  { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-                  { id: 'departments', label: 'Departments', icon: Layers, badge: ALL_DEPARTMENTS.length },
-                  { id: 'meetings', label: 'Meetings', icon: Calendar, pulse: true },
-                  { id: 'reports', label: 'Reports', icon: FileText },
-                  { id: 'contacts', label: 'Contacts', icon: Contact },
-                  { id: 'templates', label: 'Templates', icon: BookOpen },
+                  { id: 'radar', label: '1AD Floor Radar', icon: Crosshair, pulse: liveSetStage === 'ROLLING' },
+                  { id: 'departments', label: 'Crew & Departments', icon: Users, badge: ALL_DEPARTMENTS.length },
+                  { id: 'schedule', label: 'Daily Call & Timeline', icon: Clock, badge: `Day ${shootDay}` },
+                  { id: 'comms', label: 'Walkie Comms (1-9)', icon: Radio },
+                  { id: 'safety', label: 'Safety & Briefings', icon: Shield, badge: safetyLogs.length },
+                  { id: 'assets', label: 'Readiness & Assets', icon: Package },
+                  { id: 'templates', label: '1AD Templates & Forms', icon: BookOpen },
+                  { id: 'meetings', label: 'HOD Meetings', icon: Calendar },
+                  { id: 'reports', label: 'Production Reports', icon: FileText },
                 ].map(item => {
                   const Icon = item.icon;
                   const isActive = activeSidebarItem === item.id;
@@ -1342,7 +1797,7 @@ export const CrewView: React.FC<CrewViewProps> = ({
                     <button
                       key={item.id}
                       onClick={() => setActiveSidebarItem(item.id as any)}
-                      className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-bold transition-all ${
+                      className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                         isActive
                           ? isLight
                             ? 'bg-amber-500/10 text-amber-800 border border-amber-300 shadow-sm'
@@ -1353,16 +1808,16 @@ export const CrewView: React.FC<CrewViewProps> = ({
                       }`}
                     >
                       <div className="flex items-center gap-2.5">
-                        <Icon size={16} />
+                        <Icon size={15} className={isActive ? 'text-amber-500' : ''} />
                         <span>{item.label}</span>
                       </div>
                       {item.badge !== undefined && (
-                        <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded-full ${
+                        <span className={`text-[9px] font-mono px-1.5 py-0.2 rounded-full ${
                           isLight ? 'bg-slate-200 text-slate-700' : 'bg-[#2a2a2e] text-gray-300'
                         }`}>{item.badge}</span>
                       )}
                       {item.pulse && (
-                        <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
+                        <span className="w-2 h-2 rounded-full bg-red-500 animate-ping"></span>
                       )}
                     </button>
                   );
@@ -1468,6 +1923,752 @@ export const CrewView: React.FC<CrewViewProps> = ({
         }`}>
           
           {/* VIEW ROUTER */}
+
+          {/* 1AD FLOOR RADAR (LIVE SET COMMAND) */}
+          {activeSidebarItem === 'radar' && (
+            <div className="flex-1 overflow-y-auto custom-scrollbar p-6 space-y-6">
+              
+              {/* Floor Command Banner */}
+              <div className={`border rounded-2xl p-6 relative overflow-hidden shadow-xl ${
+                isLight 
+                  ? 'bg-gradient-to-r from-amber-500/10 via-orange-50/60 to-slate-100 border-amber-300 text-slate-900' 
+                  : 'bg-gradient-to-r from-[#1c1c22] via-[#16161a] to-[#251508] border-[#382b1d] text-white'
+              }`}>
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 z-10 relative">
+                  <div>
+                    <div className="flex items-center gap-2 text-amber-500 font-mono text-xs uppercase tracking-widest font-bold mb-1">
+                      <Crosshair size={15} className="animate-spin text-amber-500" />
+                      <span>1AD Live Set Radar • Floor Command Center</span>
+                    </div>
+                    <h1 className="text-2xl font-black tracking-tight flex items-center gap-3">
+                      <span>Scene {activeSceneNum}: {currentSetupName}</span>
+                      <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full border uppercase ${
+                        liveSetStage === 'ROLLING' 
+                          ? 'bg-red-600 text-white border-red-400 animate-pulse' 
+                          : 'bg-amber-500/20 text-amber-400 border-amber-500/40'
+                      }`}>
+                        {liveSetStage}
+                      </span>
+                    </h1>
+                    <p className={`text-xs mt-1 max-w-2xl leading-relaxed ${isLight ? 'text-slate-600' : 'text-gray-400'}`}>
+                      Active shooting floor command. Track real-time department readiness, monitor cast pipeline from makeup chair to set, and coordinate next scene pre-rigging with zero turnaround downtime.
+                    </p>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2.5">
+                    <button 
+                      onClick={() => setShowAddSafetyModal(true)}
+                      className={`flex items-center gap-1.5 border text-xs font-bold px-3.5 py-2 rounded-xl transition-all shadow-sm ${
+                        isLight ? 'bg-white hover:bg-slate-50 border-slate-300 text-slate-800' : 'bg-[#222226] hover:bg-[#2c2c32] border-[#383840] text-gray-200'
+                      }`}
+                    >
+                      <Shield size={14} className="text-amber-500" />
+                      <span>Safety Briefing</span>
+                    </button>
+
+                    <button 
+                      onClick={() => setActiveSidebarItem('comms')}
+                      className={`flex items-center gap-1.5 border text-xs font-bold px-3.5 py-2 rounded-xl transition-all shadow-sm ${
+                        isLight ? 'bg-white hover:bg-slate-50 border-slate-300 text-slate-800' : 'bg-[#222226] hover:bg-[#2c2c32] border-[#383840] text-gray-200'
+                      }`}
+                    >
+                      <Radio size={14} className="text-blue-400" />
+                      <span>Radio Channels</span>
+                    </button>
+
+                    <button 
+                      onClick={() => {
+                        triggerBroadcast(`🚀 WRAP ON SETUP! Moving on to next setup!`, 'ready');
+                        setSetupElapsedSeconds(0);
+                        const match = currentSetupName.match(/Setup\s*([0-9]+)([A-Z]?)/i);
+                        if (match) {
+                          const num = match[1];
+                          const letter = match[2] || 'A';
+                          const nextLetter = String.fromCharCode(letter.charCodeAt(0) + 1);
+                          setCurrentSetupName(`Setup ${num}${nextLetter} • Reverse Angle`);
+                        }
+                      }}
+                      className="flex items-center gap-1.5 bg-[#f5a623] hover:bg-[#e0951a] text-black text-xs font-black px-4 py-2 rounded-xl transition-all shadow-[0_0_15px_rgba(245,166,35,0.3)] cursor-pointer active:scale-95"
+                    >
+                      <Zap size={14} />
+                      <span>Next Setup ➔</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* SECTION 1: DEPARTMENT READINESS RADAR (TRAFFIC LIGHT) */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Crosshair size={16} className="text-amber-500" />
+                    <h2 className={`text-sm font-black uppercase tracking-wider ${isLight ? 'text-slate-900' : 'text-white'}`}>
+                      Department Readiness Radar (Traffic Light)
+                    </h2>
+                  </div>
+                  <span className={`text-[10px] font-mono ${isLight ? 'text-slate-500' : 'text-gray-500'}`}>
+                    Click status pill to toggle: READY 🟢 • WORKING 🟡 • HOLDING 🔴 • PRE-RIG 🔵
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3.5">
+                  {deptReadiness.map(dept => {
+                    const statusColors = {
+                      READY: isLight ? 'bg-emerald-100 text-emerald-800 border-emerald-300' : 'bg-emerald-950/60 text-emerald-400 border-emerald-500/40 shadow-[0_0_10px_rgba(16,185,129,0.15)]',
+                      WORKING: isLight ? 'bg-amber-100 text-amber-800 border-amber-300' : 'bg-amber-950/60 text-amber-400 border-amber-500/40 shadow-[0_0_10px_rgba(245,166,35,0.15)]',
+                      HOLDING: isLight ? 'bg-red-100 text-red-800 border-red-300' : 'bg-red-950/60 text-red-400 border-red-500/40 shadow-[0_0_10px_rgba(239,68,68,0.2)] animate-pulse',
+                      PRE_RIG: isLight ? 'bg-blue-100 text-blue-800 border-blue-300' : 'bg-blue-950/60 text-blue-400 border-blue-500/40'
+                    };
+
+                    return (
+                      <div 
+                        key={dept.departmentId}
+                        className={`border rounded-xl p-3.5 flex flex-col justify-between gap-3 transition-all ${
+                          isLight 
+                            ? 'bg-white border-slate-200 shadow-sm hover:border-slate-300' 
+                            : 'bg-[#161619] border-[#252528] hover:border-[#35353a]'
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className={`text-xs font-black uppercase ${isLight ? 'text-slate-900' : 'text-white'}`}>
+                                {dept.name}
+                              </span>
+                              <span className={`text-[9px] font-mono px-1.5 py-0.2 rounded border font-bold ${
+                                isLight ? 'bg-slate-100 text-slate-700 border-slate-300' : 'bg-black/50 text-amber-400 border-amber-500/30'
+                              }`}>
+                                Ch {dept.channel}
+                              </span>
+                            </div>
+                            <span className={`text-[10px] ${isLight ? 'text-slate-500' : 'text-gray-400'}`}>
+                              Lead: {dept.lead}
+                            </span>
+                          </div>
+
+                          {/* Interactive Status Selector */}
+                          <select
+                            value={dept.status}
+                            onChange={(e) => updateDeptReadinessStatus(dept.departmentId, e.target.value as DeptReadinessStatus)}
+                            className={`text-[10px] font-mono font-bold uppercase px-2 py-1 rounded border outline-none cursor-pointer ${statusColors[dept.status]}`}
+                          >
+                            <option value="READY">● READY</option>
+                            <option value="WORKING">◐ WORKING</option>
+                            <option value="HOLDING">▲ HOLDING SET</option>
+                            <option value="PRE_RIG">◆ PRE-RIGGING</option>
+                          </select>
+                        </div>
+
+                        {/* Note / Activity Input */}
+                        <div className="space-y-1">
+                          <input 
+                            type="text"
+                            value={dept.note}
+                            onChange={(e) => updateDeptReadinessStatus(dept.departmentId, dept.status, e.target.value)}
+                            className={`w-full text-xs px-2.5 py-1.5 rounded border outline-none transition-colors ${
+                              isLight 
+                                ? 'bg-slate-50 border-slate-200 text-slate-800 focus:border-amber-500' 
+                                : 'bg-[#101012] border-[#222] text-gray-300 focus:border-amber-500/60'
+                            }`}
+                            placeholder="Department status notes / blockers..."
+                          />
+                          <div className="flex items-center justify-between text-[9px] font-mono text-gray-500 px-0.5">
+                            <span>Updated {dept.updatedAt}</span>
+                            {dept.status !== 'READY' && (
+                              <button 
+                                onClick={() => updateDeptReadinessStatus(dept.departmentId, 'READY', 'Ready on set')}
+                                className="text-emerald-500 hover:text-emerald-400 font-bold uppercase tracking-wider"
+                              >
+                                Mark Ready ➔
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* SECTION 2: TALENT ON-SET PIPELINE & ON DECK PREP (2 COLUMNS) */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                
+                {/* TALENT PIPELINE */}
+                <div className={`border rounded-2xl p-5 space-y-4 ${
+                  isLight ? 'bg-white border-slate-200 shadow-sm' : 'bg-[#161619] border-[#252528]'
+                }`}>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Users size={16} className="text-pink-500" />
+                      <h3 className={`text-xs font-black uppercase tracking-wider ${isLight ? 'text-slate-900' : 'text-white'}`}>
+                        Cast & Talent On-Set Pipeline
+                      </h3>
+                    </div>
+                    <span className={`text-[10px] font-mono ${isLight ? 'text-slate-500' : 'text-gray-500'}`}>
+                      Chair ➔ Wardrobe ➔ Holding ➔ Set
+                    </span>
+                  </div>
+
+                  <div className="space-y-3">
+                    {talentPipeline.map(actor => {
+                      const stages: TalentPipelineItem['stage'][] = ['HMU', 'WARDROBE', 'HOLDING', 'ON_SET'];
+                      const currentIdx = stages.indexOf(actor.stage);
+
+                      return (
+                        <div 
+                          key={actor.id}
+                          className={`border rounded-xl p-3 space-y-2.5 ${
+                            actor.isMinor
+                              ? isLight ? 'bg-amber-50/60 border-amber-300' : 'bg-amber-950/20 border-amber-500/30'
+                              : isLight ? 'bg-slate-50/80 border-slate-200' : 'bg-[#111113] border-[#222]'
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <span className="font-mono text-xs font-black text-amber-500">#{actor.castNumber}</span>
+                                <span className={`text-xs font-bold ${isLight ? 'text-slate-900' : 'text-white'}`}>{actor.characterName}</span>
+                                <span className={`text-xs ${isLight ? 'text-slate-500' : 'text-gray-400'}`}>({actor.actorName})</span>
+                                {actor.isMinor && (
+                                  <span className="text-[9px] font-mono bg-red-500/20 text-red-400 px-1.5 py-0.2 rounded border border-red-500/40 font-bold flex items-center gap-1">
+                                    <AlertTriangle size={9} /> MINOR ACTOR
+                                  </span>
+                                )}
+                              </div>
+                              <div className={`text-[10px] mt-0.5 ${isLight ? 'text-slate-600' : 'text-gray-400'}`}>
+                                {actor.notes}
+                              </div>
+                            </div>
+
+                            <span className={`text-[9px] font-mono font-bold uppercase px-2 py-0.5 rounded border ${
+                              actor.stage === 'ON_SET'
+                                ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40'
+                                : 'bg-slate-700/30 text-gray-300 border-slate-600/30'
+                            }`}>
+                              {actor.stage.replace('_', ' ')}
+                            </span>
+                          </div>
+
+                          {/* Minor Compliance Clock */}
+                          {actor.isMinor && (
+                            <div className={`p-2 rounded text-[10px] font-mono flex items-center justify-between border ${
+                              isLight ? 'bg-amber-100/70 border-amber-300 text-amber-900' : 'bg-amber-950/30 border-amber-500/30 text-amber-300'
+                            }`}>
+                              <span>Labor Clock: {actor.minorHoursRemaining}</span>
+                              <span className="font-bold underline">Mandatory Wrap: 15:30 PM</span>
+                            </div>
+                          )}
+
+                          {/* Stage Flow Buttons */}
+                          <div className="grid grid-cols-4 gap-1.5 pt-1">
+                            {stages.map((st, idx) => {
+                              const isPassed = idx <= currentIdx;
+                              const isCurrent = idx === currentIdx;
+                              return (
+                                <button
+                                  key={st}
+                                  type="button"
+                                  onClick={() => updateTalentStage(actor.id, st)}
+                                  className={`py-1 text-[9px] font-mono font-bold uppercase rounded border transition-all text-center ${
+                                    isCurrent
+                                      ? st === 'ON_SET'
+                                        ? 'bg-emerald-600 text-white border-emerald-500 shadow'
+                                        : 'bg-amber-600 text-white border-amber-500 shadow'
+                                      : isPassed
+                                      ? isLight ? 'bg-slate-200 text-slate-700 border-slate-300' : 'bg-[#222] text-gray-300 border-[#333]'
+                                      : isLight ? 'bg-white text-slate-400 border-slate-200 hover:bg-slate-100' : 'bg-transparent text-gray-600 border-[#252528] hover:bg-[#1a1a1d]'
+                                  }`}
+                                >
+                                  {st === 'ON_SET' ? '★ On Set' : st}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* ON DECK (NEXT SCENE PREP) */}
+                <div className={`border rounded-2xl p-5 space-y-4 ${
+                  isLight ? 'bg-white border-slate-200 shadow-sm' : 'bg-[#161619] border-[#252528]'
+                }`}>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Zap size={16} className="text-amber-500" />
+                      <h3 className={`text-xs font-black uppercase tracking-wider ${isLight ? 'text-slate-900' : 'text-white'}`}>
+                        On Deck (Next Scene Prep Countdown)
+                      </h3>
+                    </div>
+                    <span className="text-[10px] font-mono text-emerald-500 font-bold">
+                      Target: Zero Downtime
+                    </span>
+                  </div>
+
+                  <div className={`p-3 rounded-xl border space-y-1 ${
+                    isLight ? 'bg-amber-50/50 border-amber-200' : 'bg-[#1c1a17] border-[#382b1d]'
+                  }`}>
+                    <div className="flex items-center justify-between text-xs font-bold">
+                      <span className="text-amber-500 font-mono font-black">NEXT: SCENE 15</span>
+                      <span className={isLight ? 'text-slate-600' : 'text-gray-400'}>EXT. ALLEYWAY - RAIN EFFECT</span>
+                    </div>
+                    <p className={`text-[10px] ${isLight ? 'text-slate-500' : 'text-gray-400'}`}>
+                      Estimated start: 10:45 AM (immediately following Scene 14 wrap). Pre-lighting crew deployed.
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    {[
+                      { id: 'od-1', title: 'G&E: Rig 18K HMI on Condor crane in Alleyway', dept: 'Lighting', status: 'In Progress', lead: 'Gaffer Tariq' },
+                      { id: 'od-2', title: 'Special Effects: Water tank & Rain towers pressurized', dept: 'SFX', status: 'Ready', lead: 'SFX Lead' },
+                      { id: 'od-3', title: 'Props: 3x Breakaway trash cans placed at mark', dept: 'Props', status: 'Ready', lead: 'Prop Master' },
+                      { id: 'od-4', title: 'Wardrobe: Christian Bale double rain jacket standby', dept: 'Wardrobe', status: 'Ready', lead: 'Sophia Ramos' },
+                      { id: 'od-5', title: 'Stunts: High-fall crash pad anchor test', dept: 'Stunts', status: 'Pending Check', lead: 'Viktor Krum' }
+                    ].map(item => (
+                      <div 
+                        key={item.id}
+                        className={`p-2.5 rounded-lg border flex items-center justify-between gap-3 text-xs ${
+                          isLight ? 'bg-slate-50 border-slate-200' : 'bg-[#101012] border-[#222]'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <CheckCircle2 size={14} className={item.status === 'Ready' ? 'text-emerald-500' : 'text-amber-500'} />
+                          <span className={isLight ? 'text-slate-800 font-medium' : 'text-gray-200'}>{item.title}</span>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span className={`text-[9px] font-mono px-1.5 py-0.2 rounded border ${
+                            item.status === 'Ready'
+                              ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30 font-bold'
+                              : 'bg-amber-500/20 text-amber-400 border-amber-500/30'
+                          }`}>
+                            {item.status}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className={`p-3 rounded-xl border flex items-center justify-between ${
+                    isLight ? 'bg-slate-50 border-slate-200' : 'bg-[#121214] border-[#222]'
+                  }`}>
+                    <span className={`text-xs font-bold ${isLight ? 'text-slate-700' : 'text-gray-300'}`}>Turnaround Clock Goal:</span>
+                    <span className="font-mono text-xs font-black text-emerald-400">&lt; 15 Mins Move Time</span>
+                  </div>
+                </div>
+
+              </div>
+
+            </div>
+          )}
+
+          {/* 1AD DAILY CALL & STAGGERED TIMELINE */}
+          {activeSidebarItem === 'schedule' && (
+            <div className="flex-1 overflow-y-auto custom-scrollbar p-6 space-y-6">
+              
+              <div className={`border rounded-2xl p-6 relative overflow-hidden shadow-xl ${
+                isLight 
+                  ? 'bg-gradient-to-r from-blue-500/10 via-slate-100 to-slate-200 border-blue-200 text-slate-900' 
+                  : 'bg-gradient-to-r from-[#131b26] via-[#10161f] to-[#0c0d12] border-[#1e2c3d] text-white'
+              }`}>
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div>
+                    <div className="flex items-center gap-2 text-blue-400 font-mono text-xs uppercase tracking-widest font-bold mb-1">
+                      <Clock size={15} />
+                      <span>1AD Master Shooting Day Schedule • Day {shootDay}</span>
+                    </div>
+                    <h1 className="text-2xl font-black tracking-tight">Staggered Calls & Production Milestones</h1>
+                    <p className={`text-xs mt-1 max-w-2xl leading-relaxed ${isLight ? 'text-slate-600' : 'text-gray-400'}`}>
+                      Staggered crew deployment prevents dead hours on set. Monitor check-in timestamps, lock in critical milestones, and safeguard the 12-hour turnaround rest period.
+                    </p>
+                  </div>
+
+                  {/* Turnaround Rest Calculator Badge */}
+                  <div className={`p-3 rounded-xl border flex flex-col items-center justify-center shrink-0 ${
+                    isLight ? 'bg-white border-slate-300 shadow-sm' : 'bg-[#18202d] border-[#2d3d52]'
+                  }`}>
+                    <span className="text-[9px] font-mono uppercase text-gray-400">12-Hour Rest Period</span>
+                    <span className="font-mono text-sm font-black text-emerald-400">Wrap 19:00 ➔ Next Call 07:00</span>
+                    <span className="text-[9px] text-emerald-500 font-bold">Turnaround Protected</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Milestones Checklist Table */}
+              <div className={`border rounded-2xl overflow-hidden shadow-sm ${
+                isLight ? 'bg-white border-slate-200' : 'bg-[#141416] border-[#242426]'
+              }`}>
+                <div className={`px-4 py-3 border-b flex items-center justify-between ${
+                  isLight ? 'bg-slate-50 border-slate-200' : 'bg-[#18181c] border-[#262629]'
+                }`}>
+                  <span className={`text-xs font-black uppercase tracking-wider ${isLight ? 'text-slate-800' : 'text-white'}`}>
+                    Day {shootDay} Schedule Milestones
+                  </span>
+                  <span className={`text-[10px] font-mono ${isLight ? 'text-slate-500' : 'text-gray-400'}`}>
+                    Click checkbox to confirm actual milestone completion
+                  </span>
+                </div>
+
+                <div className="divide-y divide-slate-200 dark:divide-[#222]">
+                  {dailyMilestones.map(item => (
+                    <div 
+                      key={item.id}
+                      onClick={() => toggleMilestoneCompleted(item.id)}
+                      className={`px-4 py-3 flex items-center justify-between gap-4 cursor-pointer transition-colors ${
+                        item.completed
+                          ? isLight ? 'bg-emerald-50/40 hover:bg-emerald-50/70' : 'bg-emerald-950/10 hover:bg-emerald-950/20'
+                          : isLight ? 'hover:bg-slate-50' : 'hover:bg-[#18181c]'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <input 
+                          type="checkbox" 
+                          checked={item.completed} 
+                          onChange={() => {}}
+                          className="w-4 h-4 rounded text-amber-500 cursor-pointer" 
+                        />
+                        <span className="font-mono text-xs font-black text-amber-500 w-16">{item.time}</span>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className={`text-xs font-bold ${
+                              item.completed ? 'line-through opacity-75' : isLight ? 'text-slate-900' : 'text-white'
+                            }`}>
+                              {item.title}
+                            </span>
+                            {item.critical && (
+                              <span className="text-[9px] font-mono bg-red-500/20 text-red-400 px-1.5 py-0.2 rounded border border-red-500/30 font-bold">
+                                CRITICAL
+                              </span>
+                            )}
+                          </div>
+                          <span className={`text-[10px] font-mono ${isLight ? 'text-slate-500' : 'text-gray-500'}`}>
+                            Lead Dept: {item.department}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-3 shrink-0">
+                        {item.actualTime ? (
+                          <span className="text-[10px] font-mono text-emerald-500 font-bold">
+                            Completed at {item.actualTime}
+                          </span>
+                        ) : (
+                          <span className={`text-[10px] font-mono ${isLight ? 'text-slate-400' : 'text-gray-600'}`}>
+                            Pending
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+            </div>
+          )}
+
+          {/* 1AD WALKIE COMMS MATRIX (CHANNELS 1-9) */}
+          {activeSidebarItem === 'comms' && (
+            <div className="flex-1 overflow-y-auto custom-scrollbar p-6 space-y-6">
+              
+              <div className={`border rounded-2xl p-6 relative overflow-hidden shadow-xl ${
+                isLight 
+                  ? 'bg-gradient-to-r from-purple-500/10 via-slate-100 to-slate-200 border-purple-200 text-slate-900' 
+                  : 'bg-gradient-to-r from-[#1c1326] via-[#16101f] to-[#0c0d12] border-[#38234a] text-white'
+              }`}>
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div>
+                    <div className="flex items-center gap-2 text-purple-400 font-mono text-xs uppercase tracking-widest font-bold mb-1">
+                      <Radio size={15} />
+                      <span>Set Walkie-Talkie Radio Protocol</span>
+                    </div>
+                    <h1 className="text-2xl font-black tracking-tight">Soundstage Radio Channels Matrix</h1>
+                    <p className={`text-xs mt-1 max-w-2xl leading-relaxed ${isLight ? 'text-slate-600' : 'text-gray-400'}`}>
+                      Standard production radio frequencies. All floor directions, calls, and safety halts originate on Channel 1. Long conversations must immediately switch to Channel 2.
+                    </p>
+                  </div>
+
+                  <button
+                    onClick={() => triggerBroadcast('📻 RADIO CHECK ALL CHANNELS: 1AD Main on 1', 'alert')}
+                    className="flex items-center gap-2 bg-purple-600 hover:bg-purple-700 text-white text-xs font-black px-4 py-2.5 rounded-xl shadow-lg transition-all"
+                  >
+                    <Radio size={14} />
+                    <span>Broadcast Radio Check</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Channels Grid */}
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                {RADIO_CHANNELS.map(ch => (
+                  <div 
+                    key={ch.channel}
+                    className={`border rounded-2xl p-4 space-y-3 transition-all ${
+                      ch.channel === 1
+                        ? isLight ? 'bg-amber-50 border-amber-300 shadow-md' : 'bg-[#1e1913] border-amber-500/40 shadow-[0_0_15px_rgba(245,166,35,0.1)]'
+                        : isLight ? 'bg-white border-slate-200 shadow-sm' : 'bg-[#151518] border-[#242428]'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2.5">
+                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-mono font-black text-xs ${
+                          ch.channel === 1 
+                            ? 'bg-amber-500 text-black' 
+                            : isLight ? 'bg-slate-200 text-slate-800' : 'bg-[#25252a] text-purple-300'
+                        }`}>
+                          {ch.channel}
+                        </div>
+                        <div>
+                          <div className={`text-xs font-black uppercase ${isLight ? 'text-slate-900' : 'text-white'}`}>
+                            {ch.name}
+                          </div>
+                          <span className={`text-[10px] font-mono ${isLight ? 'text-slate-500' : 'text-gray-400'}`}>
+                            Lead: {ch.lead}
+                          </span>
+                        </div>
+                      </div>
+
+                      <span className={`text-[9px] font-mono px-2 py-0.5 rounded border ${
+                        ch.channel === 1 
+                          ? 'bg-red-500/20 text-red-400 border-red-500/30 font-bold' 
+                          : 'bg-slate-700/20 text-gray-400 border-slate-600/30'
+                      }`}>
+                        {ch.channel === 1 ? 'SET MAIN' : 'ACTIVE'}
+                      </span>
+                    </div>
+
+                    <p className={`text-xs ${isLight ? 'text-slate-600' : 'text-gray-400'}`}>
+                      {ch.purpose}
+                    </p>
+
+                    <div className="pt-2 border-t border-slate-200 dark:border-[#242426] flex items-center justify-between text-[10px] font-mono">
+                      <span className="text-gray-500">Frequency: Standard UHF</span>
+                      <button 
+                        onClick={() => triggerBroadcast(`Calling ${ch.name} on Channel ${ch.channel}...`, 'info')}
+                        className="text-amber-500 hover:text-amber-400 font-bold uppercase tracking-wider"
+                      >
+                        Ping Ch {ch.channel} ➔
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Radio Lingo Cheat Sheet */}
+              <div className={`border rounded-2xl p-5 space-y-3 ${
+                isLight ? 'bg-white border-slate-200' : 'bg-[#151518] border-[#242426]'
+              }`}>
+                <div className="flex items-center gap-2">
+                  <Megaphone size={15} className="text-amber-500" />
+                  <h3 className={`text-xs font-black uppercase tracking-wider ${isLight ? 'text-slate-900' : 'text-white'}`}>
+                    1AD Set Radio Lingo & Etiquette Quick Reference
+                  </h3>
+                </div>
+
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                  {[
+                    { term: '"10-1"', meaning: 'Brief personal break / restroom' },
+                    { term: '"What\'s your 20?"', meaning: 'What is your current location?' },
+                    { term: '"Flying In"', meaning: 'Item/person is en route right now' },
+                    { term: '"Reset to One"', meaning: 'Return cast and cameras to mark 1' },
+                    { term: '"Stand By"', meaning: 'Wait, holding radio transmission' },
+                    { term: '"Eyes On"', meaning: 'I have spotted the person/actor' },
+                    { term: '"Bogey on Set"', meaning: 'Unauthorized person entered frame' },
+                    { term: '"Go to 2"', meaning: 'Switch to Channel 2 for private talk' },
+                  ].map(l => (
+                    <div key={l.term} className={`p-2.5 rounded-lg border ${
+                      isLight ? 'bg-slate-50 border-slate-200' : 'bg-[#101012] border-[#222]'
+                    }`}>
+                      <div className="font-mono font-black text-amber-500 text-xs">{l.term}</div>
+                      <div className={`text-[11px] mt-0.5 ${isLight ? 'text-slate-600' : 'text-gray-400'}`}>{l.meaning}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+            </div>
+          )}
+
+          {/* 1AD SAFETY, HAZARDS & PROTOCOL BRIEFINGS */}
+          {activeSidebarItem === 'safety' && (
+            <div className="flex-1 overflow-y-auto custom-scrollbar p-6 space-y-6">
+              
+              <div className={`border rounded-2xl p-6 relative overflow-hidden shadow-xl ${
+                isLight 
+                  ? 'bg-gradient-to-r from-red-500/10 via-slate-100 to-slate-200 border-red-200 text-slate-900' 
+                  : 'bg-gradient-to-r from-[#241315] via-[#1a1012] to-[#0c0d12] border-[#442226] text-white'
+              }`}>
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div>
+                    <div className="flex items-center gap-2 text-red-400 font-mono text-xs uppercase tracking-widest font-bold mb-1">
+                      <Shield size={15} />
+                      <span>1AD Safety & Hazardous Elements Protocol</span>
+                    </div>
+                    <h1 className="text-2xl font-black tracking-tight">On-Set Safety & Incident Prevention</h1>
+                    <p className={`text-xs mt-1 max-w-2xl leading-relaxed ${isLight ? 'text-slate-600' : 'text-gray-400'}`}>
+                      The 1st AD is directly responsible for floor safety. Mandatory pre-scene safety meetings must be conducted and logged before any stunt, blank gunfire, pyrotechnic effect, or high-fall wirework.
+                    </p>
+                  </div>
+
+                  <button
+                    onClick={() => setShowAddSafetyModal(true)}
+                    className="flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white text-xs font-black px-4 py-2.5 rounded-xl shadow-lg transition-all cursor-pointer active:scale-95 shrink-0"
+                  >
+                    <Plus size={15} />
+                    <span>Log Safety Meeting</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Emergency Contacts Card */}
+              <div className={`border rounded-2xl p-5 space-y-3 ${
+                isLight ? 'bg-white border-slate-200 shadow-sm' : 'bg-[#161619] border-[#252528]'
+              }`}>
+                <div className="flex items-center gap-2 text-red-500 font-bold text-xs uppercase tracking-wider">
+                  <Flame size={15} />
+                  <span>On-Set Emergency Contacts & Level 1 Trauma Center</span>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+                  <div className={`p-3 rounded-xl border space-y-1 ${
+                    isLight ? 'bg-red-50 border-red-200' : 'bg-red-950/20 border-red-500/30'
+                  }`}>
+                    <span className="text-[10px] font-mono text-red-400 uppercase font-bold">On-Set Paramedic</span>
+                    <div className="font-bold text-sm">Dr. Sarah Adams, EMT-P</div>
+                    <div className="font-mono text-xs text-red-500 font-black">+1 (555) 911-0422 • Radio Ch 1</div>
+                  </div>
+
+                  <div className={`p-3 rounded-xl border space-y-1 ${
+                    isLight ? 'bg-slate-50 border-slate-200' : 'bg-[#111113] border-[#252528]'
+                  }`}>
+                    <span className="text-[10px] font-mono text-gray-400 uppercase font-bold">Nearest Trauma Center</span>
+                    <div className="font-bold text-sm">Apollo Emergency Hospital</div>
+                    <div className="font-mono text-xs text-gray-400">1.2 miles • 4 min ambulance drive</div>
+                  </div>
+
+                  <div className={`p-3 rounded-xl border space-y-1 ${
+                    isLight ? 'bg-slate-50 border-slate-200' : 'bg-[#111113] border-[#252528]'
+                  }`}>
+                    <span className="text-[10px] font-mono text-gray-400 uppercase font-bold">Fire Marshal & Risk Officer</span>
+                    <div className="font-bold text-sm">Inspector Dave Higgins</div>
+                    <div className="font-mono text-xs text-gray-400">Permit: SFX-FIRE-2026-88</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Logged Safety Briefings */}
+              <div className={`border rounded-2xl overflow-hidden shadow-sm ${
+                isLight ? 'bg-white border-slate-200' : 'bg-[#151518] border-[#242426]'
+              }`}>
+                <div className={`px-5 py-3 border-b flex items-center justify-between ${
+                  isLight ? 'bg-slate-50 border-slate-200' : 'bg-[#18181c] border-[#262629]'
+                }`}>
+                  <span className={`text-xs font-black uppercase tracking-wider ${isLight ? 'text-slate-800' : 'text-white'}`}>
+                    Conducted Safety Briefings Log ({safetyLogs.length})
+                  </span>
+                  <span className={`text-[10px] font-mono ${isLight ? 'text-slate-500' : 'text-gray-400'}`}>
+                    Mandatory sign-offs for high-risk scenes
+                  </span>
+                </div>
+
+                <div className="p-5 space-y-3">
+                  {safetyLogs.map(log => (
+                    <div 
+                      key={log.id}
+                      className={`border rounded-xl p-4 space-y-2.5 ${
+                        isLight ? 'bg-slate-50 border-slate-200' : 'bg-[#101012] border-[#222]'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono font-black text-amber-500 text-xs">SCENE {log.sceneNum}</span>
+                          <span className={`text-xs font-bold ${isLight ? 'text-slate-800' : 'text-white'}`}>Pre-Shoot Safety Meeting</span>
+                          <span className={`text-[10px] font-mono ${isLight ? 'text-slate-500' : 'text-gray-400'}`}>• {log.timestamp}</span>
+                        </div>
+                        <span className="text-[9px] font-mono bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded border border-emerald-500/40 font-bold">
+                          1AD SIGNED OFF
+                        </span>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="text-[10px] font-mono text-gray-500 font-bold mr-1">Hazards:</span>
+                        {log.hazards.map(h => (
+                          <span key={h} className="text-[9px] font-mono bg-red-500/20 text-red-300 border border-red-500/30 px-2 py-0.5 rounded-full font-bold">
+                            ▲ {h}
+                          </span>
+                        ))}
+                      </div>
+
+                      <p className={`text-xs ${isLight ? 'text-slate-700' : 'text-gray-300'}`}>
+                        {log.notes}
+                      </p>
+
+                      <div className="text-[10px] font-mono text-gray-500 border-t border-slate-200 dark:border-[#222] pt-2 flex items-center justify-between">
+                        <span>Conducted by: <strong className="text-amber-400">{log.conductedBy}</strong></span>
+                        <span>Attendees: {log.departmentsPresent.join(', ')}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+            </div>
+          )}
+
+          {/* 1AD DEPARTMENT READINESS & ASSETS */}
+          {activeSidebarItem === 'assets' && (
+            <div className="flex-1 overflow-y-auto custom-scrollbar p-6 space-y-6">
+              <div className={`border rounded-2xl p-6 relative overflow-hidden shadow-xl ${
+                isLight 
+                  ? 'bg-gradient-to-r from-emerald-500/10 via-slate-100 to-slate-200 border-emerald-200 text-slate-900' 
+                  : 'bg-gradient-to-r from-[#12241b] via-[#0f1d16] to-[#0c0d12] border-[#224430] text-white'
+              }`}>
+                <div>
+                  <div className="flex items-center gap-2 text-emerald-400 font-mono text-xs uppercase tracking-widest font-bold mb-1">
+                    <Package size={15} />
+                    <span>Critical Department Scene Deliverables</span>
+                  </div>
+                  <h1 className="text-2xl font-black tracking-tight">On-Set Asset Readiness & Blockers</h1>
+                  <p className={`text-xs mt-1 max-w-2xl leading-relaxed ${isLight ? 'text-slate-600' : 'text-gray-400'}`}>
+                    Ensure every hero prop, specialty camera package, vehicle, and stunt harness is on set before picture is up. Missing items trigger automatic 1AD alerts.
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                {deptAssets.slice(0, 9).map(asset => (
+                  <div 
+                    key={asset.id}
+                    className={`border rounded-2xl p-4 space-y-3 ${
+                      isLight ? 'bg-white border-slate-200 shadow-sm' : 'bg-[#151518] border-[#252528]'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <div className={`text-xs font-bold ${isLight ? 'text-slate-900' : 'text-white'}`}>{asset.name}</div>
+                        <span className="text-[10px] font-mono text-amber-500 font-bold">{asset.category}</span>
+                      </div>
+                      <span className={`text-[9px] font-mono px-2 py-0.5 rounded border font-bold ${
+                        asset.status === 'In Stock'
+                          ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40'
+                          : 'bg-amber-500/20 text-amber-400 border-amber-500/40'
+                      }`}>
+                        {asset.status}
+                      </span>
+                    </div>
+
+                    <div className={`text-[10px] font-mono ${isLight ? 'text-slate-500' : 'text-gray-400'}`}>
+                      Needed for Scenes: <strong className="text-amber-400">{asset.sceneIds.join(', ')}</strong> • Qty: {asset.quantity}
+                    </div>
+
+                    <div className="flex items-center justify-between text-[10px] font-mono text-gray-500 pt-2 border-t border-slate-200 dark:border-[#222]">
+                      <span>Location: {asset.location || 'Set Storage'}</span>
+                      <span className="text-emerald-500 font-bold">Ready</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* 1. DASHBOARD VIEW */}
           {activeSidebarItem === 'dashboard' && (
@@ -4447,6 +5648,152 @@ export const CrewView: React.FC<CrewViewProps> = ({
               </div>
 
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* 1AD SAFETY BRIEFING MODAL */}
+      {showAddSafetyModal && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[9999] flex items-center justify-center p-4">
+          <div className={`border rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl animate-in fade-in zoom-in duration-200 ${
+            isLight ? 'bg-white border-red-200 text-slate-900' : 'bg-[#151518] border-red-500/40 text-white'
+          }`}>
+            <div className={`p-5 border-b flex items-center justify-between ${
+              isLight ? 'bg-red-50/70 border-red-200' : 'bg-red-950/30 border-red-500/20'
+            }`}>
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-red-600/20 text-red-500 flex items-center justify-center border border-red-500/30">
+                  <Shield size={18} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black tracking-tight">Log 1AD Safety & Hazard Briefing</h3>
+                  <p className="text-[11px] font-mono text-red-400">Scene {activeSceneNum} • Mandatory Floor Protocol</p>
+                </div>
+              </div>
+              <button 
+                type="button" 
+                onClick={() => setShowAddSafetyModal(false)} 
+                className="text-gray-400 hover:text-white p-1 rounded-lg hover:bg-white/10 transition-colors"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4 text-xs">
+              <div>
+                <label className="block text-[11px] font-mono font-bold uppercase tracking-wider text-gray-400 mb-1.5">
+                  Scene Reference
+                </label>
+                <div className="flex items-center gap-2">
+                  <span className="px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-400 font-mono font-bold">
+                    Scene {activeSceneNum}
+                  </span>
+                  <span className={`text-[11px] ${isLight ? 'text-slate-500' : 'text-gray-400'}`}>
+                    Active scene loaded from 1AD soundstage command bar
+                  </span>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-mono font-bold uppercase tracking-wider text-gray-400 mb-1.5">
+                  Quick Hazard Selectors <span className="text-gray-500 font-normal">(Click to toggle)</span>
+                </label>
+                <div className="flex flex-wrap gap-1.5 mb-2">
+                  {[
+                    'Blank-firing Weapon',
+                    'Breakaway Glass',
+                    'Pyrotechnics / Sparks',
+                    'High Fall / Wire Harness',
+                    'Simulated Blood Splatter',
+                    'Atmospheric Smoke / Haze',
+                    'Water / Rain Rigs',
+                    'Stunt Driving Vehicle'
+                  ].map(hazard => {
+                    const active = newSafetyHazards.includes(hazard);
+                    return (
+                      <button
+                        key={hazard}
+                        type="button"
+                        onClick={() => {
+                          if (active) {
+                            const filtered = newSafetyHazards
+                              .split(',')
+                              .map(s => s.trim())
+                              .filter(s => s !== hazard)
+                              .join(', ');
+                            setNewSafetyHazards(filtered);
+                          } else {
+                            const updated = newSafetyHazards ? `${newSafetyHazards}, ${hazard}` : hazard;
+                            setNewSafetyHazards(updated);
+                          }
+                        }}
+                        className={`text-[10px] font-mono px-2 py-1 rounded-lg border transition-all cursor-pointer font-bold ${
+                          active
+                            ? 'bg-red-600 text-white border-red-500 shadow-sm'
+                            : isLight
+                              ? 'bg-slate-100 hover:bg-slate-200 border-slate-200 text-slate-700'
+                              : 'bg-[#1e1e24] hover:bg-[#282830] border-[#333] text-gray-300'
+                        }`}
+                      >
+                        {active ? '✓ ' : '+ '}{hazard}
+                      </button>
+                    );
+                  })}
+                </div>
+                <input
+                  type="text"
+                  value={newSafetyHazards}
+                  onChange={(e) => setNewSafetyHazards(e.target.value)}
+                  placeholder="e.g. Blank-firing Prop Weapon, Breakaway Glass Bottle"
+                  className={`w-full p-2.5 rounded-lg font-mono text-xs border outline-none focus:border-red-500 ${
+                    isLight ? 'bg-slate-50 border-slate-300 text-slate-900' : 'bg-[#0f0f12] border-[#333] text-white'
+                  }`}
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-mono font-bold uppercase tracking-wider text-gray-400 mb-1.5">
+                  1AD Floor Precautions & Safety Notes
+                </label>
+                <textarea
+                  rows={3}
+                  value={newSafetyNotes}
+                  onChange={(e) => setNewSafetyNotes(e.target.value)}
+                  placeholder="e.g. All crew issued ear and eye protection. 15-foot buffer zone strictly enforced. On-set medic stationed at monitor."
+                  className={`w-full p-2.5 rounded-lg text-xs border outline-none focus:border-red-500 ${
+                    isLight ? 'bg-slate-50 border-slate-300 text-slate-900' : 'bg-[#0f0f12] border-[#333] text-white'
+                  }`}
+                />
+              </div>
+
+              <div className={`p-3 rounded-xl border flex items-center justify-between text-[11px] ${
+                isLight ? 'bg-slate-50 border-slate-200 text-slate-700' : 'bg-[#101012] border-[#252528] text-gray-300'
+              }`}>
+                <span className="font-mono">Sign-off Authority:</span>
+                <span className="font-bold text-red-400 font-mono">Marcus Vance (1st AD) & On-Set Medic</span>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-200 dark:border-[#2a2a2e]">
+                <button
+                  type="button"
+                  onClick={() => setShowAddSafetyModal(false)}
+                  className={`px-3 py-2 rounded-xl font-bold transition-colors ${
+                    isLight ? 'bg-slate-100 hover:bg-slate-200 text-slate-700' : 'bg-[#222] hover:bg-[#2a2a2e] text-gray-300'
+                  }`}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCreateSafetyBriefing}
+                  disabled={!newSafetyHazards.trim()}
+                  className="px-4 py-2 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white font-black rounded-xl flex items-center gap-1.5 shadow-lg cursor-pointer transition-all active:scale-95"
+                >
+                  <ShieldCheck size={16} />
+                  <span>Sign & Broadcast Briefing</span>
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

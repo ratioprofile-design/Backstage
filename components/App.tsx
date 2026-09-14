@@ -3,6 +3,7 @@ import { ProjectProvider, useProject } from '../context/ProjectContext';
 import { AiKeyStatusProvider } from '../context/AiKeyStatusContext';
 import AppHeader from './AppHeader';
 import BoardView from './views/BoardView';
+import ExcalidrawView from './views/ExcalidrawView';
 import ScriptView from './views/ScriptView';
 import CastingView from './views/CastingView';
 import StoryboardView from './views/StoryboardView';
@@ -21,7 +22,7 @@ import { ViewMode, ScriptConfig } from '../types';
 import { Loader2, Film } from 'lucide-react';
 
 const StyleInjector: React.FC = () => {
-  const { scriptConfig, scratchpadConfig } = useProject();
+  const { scriptConfig, scratchpadConfig, isTamilMode, tamilFontFamily } = useProject();
   const { blockBounds, paperTheme, slugline } = scriptConfig;
 
   useEffect(() => {
@@ -37,13 +38,17 @@ const StyleInjector: React.FC = () => {
     const elements = ['action', 'character', 'dialogue', 'parenthetical', 'transition', 'shot', 'lyrics'] as const;
     const elementVars = elements.map(el => {
       const conf = scriptConfig[el];
+      const baseFont = conf.fontFamily || 'Courier Prime';
+      const font = (isTamilMode && tamilFontFamily && tamilFontFamily !== baseFont)
+        ? `'${baseFont}', '${tamilFontFamily}', "Courier Prime", monospace`
+        : `'${baseFont}', "Courier Prime", monospace`;
       return `
         --margin-${el}: ${conf.marginLeft}%;
         --width-${el}: ${conf.width}%;
         --mt-${el}: ${conf.marginTop}rem;
         --mb-${el}: ${conf.marginBottom}rem;
         --size-${el}: ${conf.fontSize}px;
-        --font-${el}: '${conf.fontFamily}', "Courier Prime", monospace;
+        --font-${el}: ${font};
         --align-${el}: ${conf.textAlign};
         --lh-${el}: ${conf.lineHeight};
         --ls-${el}: ${conf.letterSpacing}px;
@@ -56,9 +61,13 @@ const StyleInjector: React.FC = () => {
     }).join('\n');
 
     // Slugline Variables
+    const baseSlugFont = slugline.fontFamily || 'Courier Prime';
+    const slugFont = (isTamilMode && tamilFontFamily && tamilFontFamily !== baseSlugFont)
+      ? `'${baseSlugFont}', '${tamilFontFamily}', "Courier Prime", monospace`
+      : `'${baseSlugFont}', "Courier Prime", monospace`;
     const slugVars = `
         --size-slug: ${slugline.fontSize}px;
-        --font-slug: '${slugline.fontFamily}', "Courier Prime", monospace;
+        --font-slug: ${slugFont};
         --align-slug: ${slugline.textAlign};
         --lh-slug: ${slugline.lineHeight};
         --ls-slug: ${slugline.letterSpacing}px;
@@ -132,12 +141,12 @@ const StyleInjector: React.FC = () => {
       .sc-active-block { position: relative; z-index: 1; }
       .sc-paper-preview { background-color: var(--bg-paper) !important; color: var(--text-paper) !important; transition: background-color 0.3s ease; }
       
-      .sc-line.sc-slugline {
+      .sc-line.sc-slugline, .sc-slugline {
         padding: var(--padding-v-slug) var(--padding-h-slug);
         background-color: var(--bg-slug);
         margin-top: var(--mt-slug);
         margin-bottom: var(--mb-slug);
-        font-family: var(--font-slug);
+        font-family: var(--font-slug) !important;
         font-size: var(--size-slug);
         text-align: var(--align-slug);
         line-height: var(--lh-slug);
@@ -147,8 +156,16 @@ const StyleInjector: React.FC = () => {
         text-decoration: var(--dec-slug);
         color: var(--color-slug);
       }
+
+      .sc-action, .sc-line.sc-action { font-family: var(--font-action) !important; }
+      .sc-character, .sc-line.sc-character { font-family: var(--font-character) !important; }
+      .sc-dialogue, .sc-line.sc-dialogue { font-family: var(--font-dialogue) !important; }
+      .sc-parenthetical, .sc-line.sc-parenthetical { font-family: var(--font-parenthetical) !important; }
+      .sc-transition, .sc-line.sc-transition { font-family: var(--font-transition) !important; }
+      .sc-shot, .sc-line.sc-shot { font-family: var(--font-shot) !important; }
+      .sc-lyrics, .sc-line.sc-lyrics { font-family: var(--font-lyrics) !important; }
     `;
-  }, [scriptConfig, scratchpadConfig]);
+  }, [scriptConfig, scratchpadConfig, isTamilMode, tamilFontFamily]);
 
   return null;
 };
@@ -236,6 +253,7 @@ const AppContent: React.FC = () => {
       
       <main className="w-full h-[calc(100vh-50px)] mt-[50px] relative print:hidden print:mt-0 print:h-auto">
         {currentView === 'board' && <div className="w-full h-full"><BoardView key={`board-${refreshKey}`} onEditBeat={handleEditBeat} /></div>}
+        {currentView === 'excalidraw' && <div className="w-full h-full"><ExcalidrawView key={`excalidraw-${refreshKey}`} onEditBeat={handleEditBeat} onNavigateToView={(v) => setCurrentView(v)} /></div>}
         {currentView === 'script' && <ScriptView key={`script-${refreshKey}`} />}
         {(currentView === 'casting' || (currentView as string) === 'characters') && <div className="w-full h-full"><CastingView key={`casting-${refreshKey}`} /></div>}
         {currentView === 'breakdown' && <div className="w-full h-full"><BreakdownView key={`breakdown-${refreshKey}`} /></div>}
@@ -247,12 +265,12 @@ const AppContent: React.FC = () => {
         {currentView === 'statistics' && <div className="w-full h-full"><StatisticsView key={`stats-${refreshKey}`} /></div>}
         {(currentView === 'backstage' || (currentView as string) === 'inbox') && <div className="w-full h-full"><BackstageView key={`backstage-${refreshKey}`} onNavigateToBoard={() => setCurrentView('board')} /></div>}
         {currentView === 'goals' && <div className="w-full h-full"><GoalView key={`goals-${refreshKey}`} /></div>}
-        {!['board', 'script', 'casting', 'characters', 'breakdown', 'continuity', 'crew', 'shotlist', 'storyboard', 'schedule', 'statistics', 'backstage', 'inbox', 'goals'].includes(currentView) && (
+        {!['board', 'excalidraw', 'script', 'casting', 'characters', 'breakdown', 'continuity', 'crew', 'shotlist', 'storyboard', 'schedule', 'statistics', 'backstage', 'inbox', 'goals'].includes(currentView) && (
           <div className="w-full h-full"><BoardView key={`fallback-${refreshKey}`} onEditBeat={handleEditBeat} /></div>
         )}
       </main>
 
-      {currentView === 'board' && (
+      {(currentView === 'board' || currentView === 'excalidraw') && (
         <div className="fixed inset-0 pointer-events-none z-[1000] overflow-hidden">
             {openBeatIds.map((id, index) => (
               <div key={id} className="pointer-events-auto absolute" style={{ zIndex: 1000 + index }}>

@@ -6,6 +6,7 @@ import AppHeader from './components/AppHeader';
 import { AppSidebar } from './components/AppSidebar';
 import { SettingsModal } from './components/SettingsModal';
 import BoardView from './components/views/BoardView';
+import ExcalidrawView from './components/views/ExcalidrawView';
 import ScriptView from './components/views/ScriptView';
 import CastingView from './components/views/CastingView';
 import CharacterDesignView from './components/views/CharacterDesignView';
@@ -38,7 +39,7 @@ import { getRecentFiles, addRecentFile, RecentFile } from './utils/recentFiles';
 import { isSupabaseConfigured } from './services/supabase';
 
 const StyleInjector: React.FC = () => {
-  const { scriptConfig, scratchpadConfig, appTheme, appAccentColor } = useProject();
+  const { scriptConfig, scratchpadConfig, appTheme, appAccentColor, isTamilMode, tamilFontFamily } = useProject();
   const { blockBounds, paperTheme, slugline } = scriptConfig;
 
   useEffect(() => {
@@ -74,13 +75,17 @@ const StyleInjector: React.FC = () => {
     const elements = ['action', 'character', 'dialogue', 'parenthetical', 'transition', 'shot', 'lyrics'] as const;
     const elementVars = elements.map(el => {
       const conf = scriptConfig[el];
+      const baseFont = conf.fontFamily || 'Courier Prime';
+      const font = (isTamilMode && tamilFontFamily && tamilFontFamily !== baseFont)
+        ? `'${baseFont}', '${tamilFontFamily}', "Courier Prime", monospace`
+        : `'${baseFont}', "Courier Prime", monospace`;
       return `
         --margin-${el}: ${conf.marginLeft}%;
         --width-${el}: ${conf.width}%;
         --mt-${el}: ${conf.marginTop}rem;
         --mb-${el}: ${conf.marginBottom}rem;
         --size-${el}: ${conf.fontSize}px;
-        --font-${el}: '${conf.fontFamily}', "Courier Prime", monospace;
+        --font-${el}: ${font};
         --align-${el}: ${conf.textAlign};
         --lh-${el}: ${conf.lineHeight};
         --ls-${el}: ${conf.letterSpacing}px;
@@ -93,9 +98,13 @@ const StyleInjector: React.FC = () => {
     }).join('\n');
 
     // Slugline Variables
+    const baseSlugFont = slugline.fontFamily || 'Courier Prime';
+    const slugFont = (isTamilMode && tamilFontFamily && tamilFontFamily !== baseSlugFont)
+      ? `'${baseSlugFont}', '${tamilFontFamily}', "Courier Prime", monospace`
+      : `'${baseSlugFont}', "Courier Prime", monospace`;
     const slugVars = `
         --size-slug: ${slugline.fontSize}px;
-        --font-slug: '${slugline.fontFamily}', "Courier Prime", monospace;
+        --font-slug: ${slugFont};
         --align-slug: ${slugline.textAlign};
         --lh-slug: ${slugline.lineHeight};
         --ls-slug: ${slugline.letterSpacing}px;
@@ -169,12 +178,12 @@ const StyleInjector: React.FC = () => {
       .sc-active-block { position: relative; z-index: 1; }
       .sc-paper-preview { background-color: var(--bg-paper) !important; color: var(--text-paper) !important; transition: background-color 0.3s ease; }
       
-      .sc-line.sc-slugline {
+      .sc-line.sc-slugline, .sc-slugline {
         padding: var(--padding-v-slug) var(--padding-h-slug);
         background-color: var(--bg-slug);
         margin-top: var(--mt-slug);
         margin-bottom: var(--mb-slug);
-        font-family: var(--font-slug);
+        font-family: var(--font-slug) !important;
         font-size: var(--size-slug);
         text-align: var(--align-slug);
         line-height: var(--lh-slug);
@@ -184,8 +193,16 @@ const StyleInjector: React.FC = () => {
         text-decoration: var(--dec-slug);
         color: var(--color-slug);
       }
+
+      .sc-action, .sc-line.sc-action { font-family: var(--font-action) !important; }
+      .sc-character, .sc-line.sc-character { font-family: var(--font-character) !important; }
+      .sc-dialogue, .sc-line.sc-dialogue { font-family: var(--font-dialogue) !important; }
+      .sc-parenthetical, .sc-line.sc-parenthetical { font-family: var(--font-parenthetical) !important; }
+      .sc-transition, .sc-line.sc-transition { font-family: var(--font-transition) !important; }
+      .sc-shot, .sc-line.sc-shot { font-family: var(--font-shot) !important; }
+      .sc-lyrics, .sc-line.sc-lyrics { font-family: var(--font-lyrics) !important; }
     `;
-  }, [scriptConfig, scratchpadConfig, appTheme, appAccentColor]);
+  }, [scriptConfig, scratchpadConfig, appTheme, appAccentColor, isTamilMode, tamilFontFamily]);
 
   return null;
 };
@@ -241,6 +258,40 @@ const AppContent: React.FC = () => {
     return () => clearTimeout(timer);
   }, []);
 
+  // Global Drag & Drop: allow dropping .bst, .json, or .cau directly into the window
+  useEffect(() => {
+    const handleDragOver = (e: DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+    };
+    const handleDrop = (e: DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const file = e.dataTransfer?.files?.[0];
+      if (file && (file.name.endsWith('.bst') || file.name.endsWith('.json') || file.name.endsWith('.cau'))) {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          try {
+            const parsed = JSON.parse(event.target?.result as string);
+            loadProject(parsed);
+            setShowWelcome(false);
+          } catch (err) {
+            console.error("Drag-and-drop import failed", err);
+            alert("Could not parse file. Ensure it is a valid Backstage (.bst) or Causality (.cau, .json) file.");
+          }
+        };
+        reader.readAsText(file);
+      }
+    };
+
+    window.addEventListener('dragover', handleDragOver);
+    window.addEventListener('drop', handleDrop);
+    return () => {
+      window.removeEventListener('dragover', handleDragOver);
+      window.removeEventListener('drop', handleDrop);
+    };
+  }, [loadProject]);
+
   // Open a project file from an absolute path (native menu "Open File..." / recent files / welcome screen)
   const openPath = useCallback(async (path: string): Promise<boolean> => {
     try {
@@ -265,21 +316,49 @@ const AppContent: React.FC = () => {
     fileDialogOpenRef.current = true;
     try {
       const dialog = await getTauriDialog();
-      if (!dialog) return;
-      const selected = await dialog.open({
-        filters: [{ name: 'Backstage File', extensions: ['bst', 'json'] }],
-        multiple: false,
-      });
-      if (selected) {
-        const ok = await openPath(selected as string);
-        if (ok) setShowWelcome(false);
+      if (dialog) {
+        const selected = await dialog.open({
+          filters: [
+            { name: 'Story & Screenplay Files (*.bst, *.json, *.cau)', extensions: ['bst', 'json', 'cau'] },
+            { name: 'Backstage Project (*.bst)', extensions: ['bst'] },
+            { name: 'Causality Project (*.cau, *.json)', extensions: ['cau', 'json'] }
+          ],
+          multiple: false,
+        });
+        if (selected) {
+          const ok = await openPath(selected as string);
+          if (ok) setShowWelcome(false);
+        }
+      } else {
+        // Web fallback: trigger file input
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.bst,.json,.cau';
+        input.onchange = (e: any) => {
+          const file = e.target?.files?.[0];
+          if (file) {
+            const reader = new FileReader();
+            reader.onload = (event) => {
+              try {
+                const parsed = JSON.parse(event.target?.result as string);
+                loadProject(parsed);
+                setShowWelcome(false);
+              } catch (err) {
+                console.error("Failed to load project", err);
+                alert("Invalid or corrupted file format");
+              }
+            };
+            reader.readAsText(file);
+          }
+        };
+        input.click();
       }
     } catch (err) {
       console.error("Failed to open project file", err);
     } finally {
       fileDialogOpenRef.current = false;
     }
-  }, [openPath]);
+  }, [openPath, loadProject]);
 
   // Create a brand new blank script file: prompt for Finder location/name, write it, open it.
   const handleMenuNewFile = useCallback(async () => {
@@ -585,6 +664,7 @@ const AppContent: React.FC = () => {
           
           <main className="flex-1 w-full h-full min-h-0 relative print:hidden print:mt-0 print:h-auto overflow-hidden">
             {currentView === 'board' && <div className="w-full h-full"><BoardView key={`board-${refreshKey}`} onEditBeat={handleEditBeat} /></div>}
+            {currentView === 'excalidraw' && <div className="w-full h-full"><ExcalidrawView key={`excalidraw-${refreshKey}`} onEditBeat={handleEditBeat} onNavigateToView={(v) => setCurrentView(v)} /></div>}
             {currentView === 'script' && <div className="w-full h-full"><ScriptView key={`script-${refreshKey}`} onNavigateToView={(v) => setCurrentView(v)} /></div>}
             {currentView === 'casting' && <div className="w-full h-full"><CastingView key={`casting-${refreshKey}`} onNavigateToView={(v) => setCurrentView(v)} /></div>}
             {currentView === 'characterdesign' && <div className="w-full h-full"><CharacterDesignView key={`characterdesign-${refreshKey}`} onNavigateToView={(v) => setCurrentView(v)} /></div>}
@@ -621,14 +701,14 @@ const AppContent: React.FC = () => {
             {currentView === 'backstage' && <div className="w-full h-full"><BackstageView key={`backstage-${refreshKey}`} onNavigateToBoard={() => setCurrentView('board')} /></div>}
             {currentView === 'goals' && <div className="w-full h-full"><GoalView key={`goals-${refreshKey}`} /></div>}
             {currentView === 'inbox' && <div className="w-full h-full"><InboxView key={`inbox-${refreshKey}`} tasks={inboxTasks} onNavigateToView={setCurrentView} onUpdateTask={handleUpdateTask} onAddTask={handleAddTask} onDeleteTask={handleDeleteTask} /></div>}
-            {!['board', 'script', 'casting', 'characterdesign', 'characters', 'breakdown', 'continuity', 'crew', 'shotlist', 'storyboard', 'schedule', 'statistics', 'backstage', 'inbox', 'goals', 'dood', 'documents', 'callsheet'].includes(currentView) && (
+            {!['board', 'excalidraw', 'script', 'casting', 'characterdesign', 'characters', 'breakdown', 'continuity', 'crew', 'shotlist', 'storyboard', 'schedule', 'statistics', 'backstage', 'inbox', 'goals', 'dood', 'documents', 'callsheet'].includes(currentView) && (
               <div className="w-full h-full"><BoardView key={`fallback-${refreshKey}`} onEditBeat={handleEditBeat} /></div>
             )}
           </main>
         </div>
       </div>
 
-      {currentView === 'board' && (
+      {(currentView === 'board' || currentView === 'excalidraw') && (
         <div className="fixed inset-0 pointer-events-none z-[1000] overflow-hidden">
             {openBeatIds.map((id, index) => (
               <div key={id} className="pointer-events-auto absolute" style={{ zIndex: 1000 + index }}>

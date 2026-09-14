@@ -11,6 +11,7 @@ import { supabase, upsertProject, fetchProjectData, fetchUserProjects, fetchInvi
 import { createAuto5ScenesDataset, createAutoScenesDataset } from '../services/sampleGenerator';
 import { isTauri, getTauriFs, getTauriDialog, getTauriWindow } from '../utils/desktop';
 import { addRecentFile } from '../utils/recentFiles';
+import { isCausalityData, parseCausalityProject } from '../services/causalityParser';
 
 const ProjectContext = createContext<ProjectContextType | undefined>(undefined);
 
@@ -286,14 +287,23 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const applyProjectState = useCallback((data: any) => {
     if (!data) return;
+
+    const isCausality = isCausalityData(data);
+    let processedData = data;
+    if (isCausality) {
+      const parsed = parseCausalityProject(data);
+      if (parsed.success && parsed.projectState) {
+        processedData = { ...INITIAL_STATE, ...parsed.projectState };
+      }
+    }
     
-    // Auto-detect and filter out any preloaded demo datasets
-    const hasDemoBeats = Array.isArray(data.beats) && data.beats.some((b: any) => 
-      (b.title && (b.title.includes('Cyber-Lab') || b.title.includes('மெரினா') || b.title.includes('அபிராமி') || b.title.includes('Ikaros') || b.title.includes('Vane'))) ||
-      (b.content && (b.content.includes('MAYA') || b.content.includes('KALE') || b.content.includes('அபிராமி') || b.content.includes('VANE') || b.content.includes('Ikaros')))
+    // Auto-detect and filter out any preloaded demo datasets (never filter user Causality imports)
+    const hasDemoBeats = !isCausality && Array.isArray(processedData.beats) && processedData.beats.some((b: any) => 
+      (b.title && (b.title.includes('Cyber-Lab') || b.title.includes('Ikaros'))) ||
+      (b.content && (b.content.includes('MAYA') && b.content.includes('KALE') && b.content.includes('Ikaros')))
     );
 
-    const cleanData = hasDemoBeats ? INITIAL_STATE : data;
+    const cleanData = hasDemoBeats ? INITIAL_STATE : processedData;
 
     isRemoteUpdateRef.current = true; // Block auto-save trigger
     

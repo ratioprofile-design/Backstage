@@ -94,12 +94,13 @@ class SidebarErrorBoundary extends (React.Component as any) {
     if ((this as any).state.hasError) {
       return (
         <div className="p-6 flex flex-col items-center justify-center h-full text-center gap-3">
-          <AlertCircle size={32} className="text-amber-500" />
+          <AlertCircle size={32} style={{ color: 'var(--app-accent, #f5a623)' }} />
           <h4 className="text-xs font-bold uppercase tracking-wider">Sidebar Display Protected</h4>
           <p className="text-[11px] text-gray-500 max-w-xs">An error occurred while loading this sidebar panel. Click below to reload.</p>
           <button 
             onClick={() => { (this as any).setState({ hasError: false }); if ((this as any).props.onReset) (this as any).props.onReset(); }}
-            className="px-3 py-1.5 bg-amber-500 text-black text-[10px] font-bold uppercase rounded hover:bg-amber-400 transition-colors"
+            className="px-3 py-1.5 text-black text-[10px] font-bold uppercase rounded transition-opacity hover:opacity-90"
+            style={{ backgroundColor: 'var(--app-accent, #f5a623)' }}
           >
             Reload Panel
           </button>
@@ -196,6 +197,7 @@ const SummaryCardsPanel = ({
     onSummaryDoubleClick?: (beatId: number) => void,
     beatPageMap?: Record<number, number>
 }) => {
+    const { appAccentColor = '#f5a623' } = useProject();
     const [searchTerm, setSearchTerm] = useState('');
     const [editingId, setEditingId] = useState<number | null>(null);
     const [dragOverId, setDragOverId] = useState<number | null>(null);
@@ -361,7 +363,7 @@ const SummaryCardsPanel = ({
                     const isReady = beat.status === 'ready';
                     const isEditing = editingId === beat.id;
                     const isDragOver = dragOverId === beat.id;
-                    const displayColor = beat.color && beat.color !== '#444' ? beat.color : (isLight ? '#6366f1' : '#f5a623');
+                    const displayColor = beat.color && beat.color !== '#444' ? beat.color : appAccentColor;
                     const sceneNum = beat.sceneNumber || (idx + 1).toString();
                     const seqData = sequenceInfo[beat.id];
                     const boardNum = (beat.boardId || 0) + 1;
@@ -381,20 +383,29 @@ const SummaryCardsPanel = ({
                             onDrop={(e) => handleDrop(e, beat.id)}
                         >
                             {isDragOver && (
-                                <div className={`absolute left-2 right-2 h-[2px] bg-amber-500 shadow-[0_0_10px_rgba(245,166,35,0.6)] z-50 ${dropSide === 'top' ? 'top-0' : 'bottom-0'}`} />
+                                <div 
+                                    className={`absolute left-2 right-2 h-[2px] z-50 ${dropSide === 'top' ? 'top-0' : 'bottom-0'}`} 
+                                    style={{ backgroundColor: appAccentColor, boxShadow: `0 0 10px ${appAccentColor}99` }}
+                                />
                             )}
 
                             <div 
                                 className={`relative border overflow-hidden transition-all duration-200 cursor-pointer group
                                     ${isLight 
                                       ? (isActive 
-                                          ? 'bg-white border-amber-500 ring-1 ring-amber-400/60 shadow-md' 
+                                          ? 'bg-white shadow-md' 
                                           : 'bg-white/90 hover:bg-white shadow-xs border-slate-200 hover:border-slate-300')
                                       : (isActive 
-                                          ? 'bg-[#1a1a22] border-[#f5a623] ring-1 ring-[#f5a623]/40 shadow-lg' 
+                                          ? 'bg-[#1a1a22] shadow-lg' 
                                           : 'bg-[#131318] hover:bg-[#1a1a22] shadow-xs border-white/[0.06] hover:border-white/[0.12]')
                                     }
                                 `}
+                                style={isActive ? {
+                                    borderColor: appAccentColor,
+                                    boxShadow: isLight
+                                        ? `0 0 0 1px ${appAccentColor}80, 0 4px 14px -2px ${appAccentColor}30`
+                                        : `0 0 0 1px ${appAccentColor}80, 0 10px 25px -5px ${appAccentColor}40`
+                                } : undefined}
                                 onClick={(e) => { e.stopPropagation(); onBeatClick(beat.id); }}
                                 onContextMenu={(e) => handleContextMenu(e, beat.id)}
                                 onBlur={(e) => {
@@ -410,8 +421,8 @@ const SummaryCardsPanel = ({
                                         className="px-3 py-2 flex items-center justify-between gap-3"
                                         style={{ 
                                             background: isLight 
-                                                ? `linear-gradient(135deg, ${displayColor}12, ${displayColor}06)`
-                                                : `linear-gradient(135deg, ${displayColor}18, ${displayColor}08)`,
+                                                ? `linear-gradient(135deg, ${displayColor}14, ${displayColor}06)`
+                                                : `linear-gradient(135deg, ${displayColor}20, ${displayColor}08)`,
                                             borderBottom: `1px solid ${isLight ? displayColor + '18' : displayColor + '20'}`
                                         }}
                                     >
@@ -430,7 +441,8 @@ const SummaryCardsPanel = ({
                                                 {isEditing ? (
                                                     <input 
                                                         id={`card-title-input-${beat.id}`}
-                                                        className={`font-bold text-[12px] bg-transparent border-b outline-none w-full ${isLight ? 'text-slate-900 border-amber-400' : 'text-white border-amber-500'}`}
+                                                        className={`font-bold text-[12px] bg-transparent border-b outline-none w-full ${isLight ? 'text-slate-900' : 'text-white'}`}
+                                                        style={{ borderBottomColor: appAccentColor }}
                                                         value={beat.title}
                                                         onChange={(e) => updateBeat(beat.id, { title: e.target.value })}
                                                         autoFocus
@@ -462,7 +474,11 @@ const SummaryCardsPanel = ({
                                             </div>
                                         </div>
                                         {/* Status Indicator */}
-                                        <div className={`shrink-0 w-2 h-2 ${isReady ? 'bg-emerald-400' : 'bg-amber-400'}`} title={isReady ? 'Ready' : 'Work in Progress'} />
+                                        <div 
+                                            className="shrink-0 w-2 h-2 rounded-none" 
+                                            style={{ backgroundColor: isReady ? '#34d399' : appAccentColor }} 
+                                            title={isReady ? 'Ready' : 'Work in Progress'} 
+                                        />
                                     </div>
                                 </div>
 
@@ -504,7 +520,8 @@ const SummaryCardsPanel = ({
                                     {isEditing ? (
                                         <textarea 
                                             id={`card-summary-textarea-${beat.id}`}
-                                            className={`w-full text-[12px] leading-relaxed bg-transparent border rounded-lg outline-none resize-none min-h-[80px] p-2 custom-scrollbar ${isLight ? 'text-slate-700 border-amber-300 placeholder-slate-400' : 'text-slate-300 border-amber-700/50 placeholder-slate-600'}`}
+                                            className={`w-full text-[12px] leading-relaxed bg-transparent border rounded-lg outline-none resize-none min-h-[80px] p-2 custom-scrollbar ${isLight ? 'text-slate-700 placeholder-slate-400' : 'text-slate-300 placeholder-slate-600'}`}
+                                            style={{ borderColor: `color-mix(in srgb, ${appAccentColor} 50%, transparent)` }}
                                             value={summaryText}
                                             onChange={(e) => updateBeat(beat.id, { summary: e.target.value })}
                                             placeholder="Write a complete scene summary — story beats, emotional arc, key plot points..."
@@ -579,7 +596,7 @@ const SummaryCardsPanel = ({
                     </div>
                     <div className="px-1 mb-1">
                         <button onClick={() => setStatus(contextMenu.beatId, 'ready')} className={`w-full text-left px-2 py-1.5 text-[10px] font-bold text-emerald-600 rounded flex items-center gap-2 ${isLight ? 'hover:bg-slate-100' : 'hover:bg-[#333]'}`}><Check size={10} /> Mark Ready</button>
-                        <button onClick={() => setStatus(contextMenu.beatId, 'not-ready')} className={`w-full text-left px-2 py-1.5 text-[10px] font-bold text-amber-600 rounded flex items-center gap-2 ${isLight ? 'hover:bg-slate-100' : 'hover:bg-[#333]'}`}><Clock size={10} /> Mark W.I.P</button>
+                        <button onClick={() => setStatus(contextMenu.beatId, 'not-ready')} className={`w-full text-left px-2 py-1.5 text-[10px] font-bold rounded flex items-center gap-2 ${isLight ? 'hover:bg-slate-100' : 'hover:bg-[#333]'}`} style={{ color: appAccentColor }}><Clock size={10} /> Mark W.I.P</button>
                     </div>
                     <div className={`h-px my-1 ${isLight ? 'bg-slate-200' : 'bg-[#333]'}`}></div>
                     <div className="px-3 py-2">
@@ -604,6 +621,7 @@ const LocationNavPanel = ({
     beats: Beat[], activeBeatId: number | null, 
     onBeatClick: (id: number) => void, isLight?: boolean
 }) => {
+    const { appAccentColor = '#f5a623' } = useProject();
     const [searchTerm, setSearchTerm] = useState('');
     const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
@@ -670,7 +688,7 @@ const LocationNavPanel = ({
                                 className={`w-full flex items-center justify-between gap-2 px-3 py-2 border-b transition-colors ${isLight ? 'bg-slate-50 hover:bg-slate-100 border-slate-100' : 'bg-white/[0.02] hover:bg-white/[0.04] border-white/[0.03]'}`}
                             >
                                 <span className={`flex items-center gap-2 text-[10px] font-black uppercase tracking-wider ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
-                                    <MapIcon size={11} className="text-amber-500" />
+                                    <MapIcon size={11} style={{ color: appAccentColor }} />
                                     {loc}
                                 </span>
                                 <span className={`text-[9px] font-mono font-bold px-1.5 py-0.5 ${isLight ? 'bg-slate-100 text-slate-500' : 'bg-slate-800 text-slate-400'}`}>{locBeats.length}</span>
@@ -685,11 +703,15 @@ const LocationNavPanel = ({
                                             <button 
                                                 key={beat.id} 
                                                 onClick={() => onBeatClick(beat.id)}
-                                                className={`w-full flex items-center gap-2.5 px-3 py-2 text-left transition-colors ${isActive ? (isLight ? 'bg-amber-50 border-l-2 border-amber-500' : 'bg-amber-950/30 border-l-2 border-amber-500') : (isLight ? 'hover:bg-slate-50' : 'hover:bg-white/[0.03]')}`}
+                                                className={`w-full flex items-center gap-2.5 px-3 py-2 text-left transition-colors ${isActive ? 'border-l-2' : (isLight ? 'hover:bg-slate-50' : 'hover:bg-white/[0.03]')}`}
+                                                style={isActive ? {
+                                                    borderLeftColor: appAccentColor,
+                                                    backgroundColor: `color-mix(in srgb, ${appAccentColor} 12%, transparent)`
+                                                } : undefined}
                                             >
                                                 <span 
                                                     className={`shrink-0 w-7 h-7 flex items-center justify-center text-[10px] font-black ${isActive ? 'text-white' : isLight ? 'text-slate-500 bg-slate-100' : 'text-slate-400 bg-slate-800/60'}`}
-                                                    style={isActive ? { background: 'linear-gradient(135deg, #f5a623, #f5a623cc)' } : undefined}
+                                                    style={isActive ? { background: `linear-gradient(135deg, ${appAccentColor}, ${appAccentColor}cc)` } : undefined}
                                                 >
                                                     {sceneNum}
                                                 </span>
@@ -729,6 +751,7 @@ const LanguageSettingsPopover = ({
   onClose: () => void,
   isLight?: boolean
 }) => {
+  const { appAccentColor = '#f5a623' } = useProject();
   const elements = [
     { id: 'slugline', label: 'Slugline' },
     { id: 'action', label: 'Action' },
@@ -743,7 +766,7 @@ const LanguageSettingsPopover = ({
   return (
     <div className={`absolute top-full left-0 mt-2 w-64 rounded-lg shadow-2xl z-[1000] p-3 animate-in fade-in zoom-in duration-150 ${isLight ? 'bg-white border border-slate-200 text-slate-800' : 'bg-[#1a1a1a] border border-[#333] text-white'}`}>
       <div className={`flex items-center justify-between mb-3 pb-2 border-b ${isLight ? 'border-slate-200' : 'border-[#333]'}`}>
-        <span className="text-[10px] font-black text-amber-500 uppercase tracking-wider flex items-center gap-2">
+        <span className="text-[10px] font-black uppercase tracking-wider flex items-center gap-2" style={{ color: appAccentColor }}>
           <Globe size={12} /> Typing Languages
         </span>
         <button onClick={onClose} className={isLight ? "text-slate-400 hover:text-slate-700" : "text-gray-500 hover:text-white"}><X size={14} /></button>
@@ -755,7 +778,9 @@ const LanguageSettingsPopover = ({
             <select 
               value={config[elm.id] || 'default'} 
               onChange={(e) => onUpdate(elm.id, e.target.value)}
-              className={`text-[9px] font-bold rounded px-2 py-1 outline-none border ${isLight ? 'bg-slate-50 border-slate-300 text-slate-800 focus:border-amber-500' : 'bg-[#0a0a0a] border-[#333] text-gray-300 focus:border-[#f5a623]'}`}
+              className={`text-[9px] font-bold rounded px-2 py-1 outline-none border transition-colors ${isLight ? 'bg-slate-50 border-slate-300 text-slate-800' : 'bg-[#0a0a0a] border-[#333] text-gray-300'}`}
+              onFocus={(e) => { e.currentTarget.style.borderColor = appAccentColor; }}
+              onBlur={(e) => { e.currentTarget.style.borderColor = ''; }}
             >
               {SUPPORTED_LANGUAGES.map(lang => (
                 <option key={lang.value} value={lang.value}>{lang.label}</option>
@@ -788,9 +813,10 @@ const ContextMenuItem = ({ icon: Icon, label, onClick, danger, submenu, active, 
                   danger 
                     ? (isLight ? 'text-red-600 hover:bg-red-50' : 'text-red-400 hover:bg-red-900/20') 
                     : active 
-                    ? 'bg-[#f5a623] text-black' 
+                    ? 'text-black' 
                     : (isLight ? 'text-slate-700 hover:bg-slate-100 hover:text-slate-900' : 'text-gray-300 hover:bg-[#333] hover:text-white')
                 }`}
+                style={!danger && active ? { backgroundColor: 'var(--app-accent, #f5a623)', color: '#000000' } : undefined}
             >
                 <span className="flex items-center gap-2">
                     {Icon && <Icon size={14} className={danger ? 'text-red-500/50' : ''} />}
@@ -807,80 +833,10 @@ const ContextMenuItem = ({ icon: Icon, label, onClick, danger, submenu, active, 
     );
 };
 
-const GoogleKeepIcon: React.FC<{ size?: number; className?: string }> = ({ size = 14, className = "" }) => (
-  <svg width={size} height={size} viewBox="0 0 48 48" fill="none" className={className}>
-    <rect x="6" y="3" width="36" height="42" rx="6" fill="#FFBB00" />
-    <path
-      d="M24 11C18.48 11 14 15.48 14 21C14 24.36 15.65 27.33 18.2 29.13C18.66 29.46 19 30.01 19 30.6V33C19 33.55 19.45 34 20 34H28C28.55 34 29 33.55 29 33V30.6C29 30.01 29.34 29.46 29.8 29.13C32.35 27.33 34 24.36 34 21C34 15.48 29.52 11 24 11Z"
-      fill="#FFFFFF"
-    />
-    <path
-      d="M21 36H27C27.55 36 28 36.45 28 37C28 37.55 27.55 38 27 38H21C20.45 38 20 37.55 20 37C20 36.45 20.45 36 21 36Z"
-      fill="#FFFFFF"
-    />
-    <path
-      d="M24 14C20.13 14 17 17.13 17 21C17 23.4 18.2 25.5 20.05 26.8C20.65 27.2 21 27.9 21 28.65V31H27V28.65C27 27.9 27.35 27.2 27.95 26.8C29.8 25.5 31 23.4 31 21C31 17.13 27.87 14 24 14Z"
-      fill="#E5A100"
-    />
-  </svg>
-);
-
 const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'casting') => void }> = ({ onNavigateToView }) => {
-  const { beats, groups, connections, updateBeat, addBeat, setBeats, setConnections, scriptViewMode, setScriptViewMode, scriptConfig, setScriptConfig, scratchpadConfig, characterData, breakdownLanguage, setBreakdownLanguage, scratchpad, setScratchpad, globalNotes, setGlobalNotes, captureSnapshot, reorderBeats, setActiveBoardId, appTheme, generalAiModel, openrouterKey, userRole } = useProject();
+  const { beats, groups, connections, updateBeat, addBeat, setBeats, setConnections, scriptViewMode, setScriptViewMode, scriptConfig, setScriptConfig, scratchpadConfig, characterData, breakdownLanguage, setBreakdownLanguage, scratchpad, setScratchpad, globalNotes, setGlobalNotes, captureSnapshot, reorderBeats, setActiveBoardId, appTheme, appAccentColor = '#f5a623', generalAiModel, openrouterKey, userRole, isTamilMode, tamilFontFamily } = useProject();
   const { aiAvailable } = useAiKeyStatus();
   const isScriptReadOnly = false;
-
-  const openGoogleKeepCompanion = useCallback(async () => {
-    if (isTauri()) {
-      try {
-        const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow');
-        const existing = await WebviewWindow.getByLabel('google-keep-sidecar');
-        if (existing) {
-          await existing.show();
-          await existing.setFocus();
-          return;
-        }
-
-        const { getCurrentWindow } = await import('@tauri-apps/api/window');
-        const current = getCurrentWindow();
-        const pos = await current.outerPosition();
-        const size = await current.outerSize();
-
-        const width = 420;
-        const height = Math.max(650, size.height - 40);
-        const x = Math.max(0, pos.x + size.width - width - 10);
-        const y = pos.y + 30;
-
-        const keepWin = new WebviewWindow('google-keep-sidecar', {
-          url: 'https://keep.google.com',
-          title: 'Google Keep',
-          width,
-          height,
-          x,
-          y,
-          resizable: true,
-          alwaysOnTop: true,
-        });
-
-        await keepWin.once('tauri://created', () => {
-          console.log('[Tauri] Google Keep window created successfully');
-        });
-        return;
-      } catch (e) {
-        console.warn('Fallback to window.open for Keep in Tauri:', e);
-      }
-    }
-
-    const width = 420;
-    const height = 760;
-    const left = Math.max(0, (typeof window !== 'undefined' ? window.screen.availWidth : 1440) - width - 20);
-    const top = 70;
-    window.open(
-      'https://keep.google.com',
-      'GoogleKeepCompanion',
-      `width=${width},height=${height},left=${left},top=${top},menubar=no,toolbar=no,location=no,status=no,resizable=yes,scrollbars=yes`
-    );
-  }, []);
 
   const isLight = useMemo(() => {
     if (appTheme === 'light') return true;
@@ -900,8 +856,7 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'cast
   const [navMode, setNavMode] = useState<'list' | 'board'>('board');
   const [sidebarWidth, setSidebarWidth] = useState(380); 
   const [activeSidebar, setActiveSidebar] = useState<'none' | 'breakdown' | 'scratchpad' | 'history'>('none');
-  const [scratchpadMode, setScratchpadMode] = useState<'global' | 'scene' | 'keep'>('global');
-  const [keepIframeKey, setKeepIframeKey] = useState(0);
+  const [scratchpadMode, setScratchpadMode] = useState<'global' | 'scene'>('global');
   const [draggedNoteIndex, setDraggedNoteIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null); 
   const [confirmDeleteNoteId, setConfirmDeleteNoteId] = useState<string | null>(null);
@@ -948,8 +903,8 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'cast
           const base64Audio = reader.result as string;
           const newNote: Note = {
             id: `note-audio-${Date.now()}`,
-            content: `<div class="audio-note-container"><audio src="${base64Audio}" controls class="w-full mt-1 accent-amber-500"></audio></div>`,
-            color: '#f5a623',
+            content: `<div class="audio-note-container"><audio src="${base64Audio}" controls class="w-full mt-1"></audio></div>`,
+            color: appAccentColor,
             timestamp: Date.now()
           };
           if (scratchpadMode === 'global') {
@@ -999,6 +954,7 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'cast
   const isResizingRef = useRef(false);
   
   const getThemeStyles = () => {
+      const accent = appAccentColor || '#f5a623';
       switch(scriptConfig.paperTheme) {
           case 'dark': 
               return { 
@@ -1012,10 +968,10 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'cast
                   slugBg: '#27272a',
                   activeSlugBg: '#3f3f46',
                   activeSlugText: '#f1f5f9',
-                  activeBorder: '#f5a623',
+                  activeBorder: accent,
                   dropdownBg: '#1c1c22',
                   dropdownText: '#f1f5f9',
-                  dropdownBorder: '#33333d'
+                  dropdownBorder: `color-mix(in srgb, ${accent} 45%, #33333d)`
               };
           case 'sepia': 
               return { 
@@ -1029,10 +985,10 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'cast
                   slugBg: '#e4e4e7',
                   activeSlugBg: '#d4d4d8',
                   activeSlugText: '#433422',
-                  activeBorder: '#b58900',
+                  activeBorder: accent,
                   dropdownBg: '#f8f2e3',
                   dropdownText: '#433422',
-                  dropdownBorder: '#d6c8a5'
+                  dropdownBorder: `color-mix(in srgb, ${accent} 45%, #d6c8a5)`
               };
           case 'red': 
               return { 
@@ -1046,10 +1002,10 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'cast
                   slugBg: '#27272a',
                   activeSlugBg: '#3f3f46',
                   activeSlugText: '#ff8888',
-                  activeBorder: '#ff3333',
+                  activeBorder: accent,
                   dropdownBg: '#1a0505',
                   dropdownText: '#ffaaaa',
-                  dropdownBorder: '#660000'
+                  dropdownBorder: `color-mix(in srgb, ${accent} 45%, #660000)`
               };
           default: 
               return { 
@@ -1063,10 +1019,10 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'cast
                   slugBg: '#e4e4e7',
                   activeSlugBg: '#d4d4d8',
                   activeSlugText: '#0f172a',
-                  activeBorder: '#d97706',
+                  activeBorder: accent,
                   dropdownBg: '#ffffff',
                   dropdownText: '#0f172a',
-                  dropdownBorder: '#cbd5e1'
+                  dropdownBorder: `color-mix(in srgb, ${accent} 45%, #cbd5e1)`
               }; 
       }
   };
@@ -1409,7 +1365,7 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'cast
     } 
     setDraggedNoteIndex(null); 
   };
-  const editorStyle = { '--color-action': theme.text, '--color-character': theme.text, '--color-dialogue': theme.text, '--color-parenthetical': theme.text, '--color-transition': theme.text, } as React.CSSProperties;
+  const editorStyle = { '--color-action': theme.text, '--color-character': theme.text, '--color-dialogue': theme.text, '--color-parenthetical': theme.text, '--color-transition': theme.text } as React.CSSProperties;
   
   const FORMAT_BUTTONS = [ 
     { id: 'action', label: '1', short: 'Opt+1', icon: AlignLeft }, 
@@ -1427,7 +1383,7 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'cast
   const handleTagDragOver = (e: React.DragEvent, category: keyof BreakdownData) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setDragOverCategory(category); };
   const handleTagDragLeave = (e: React.DragEvent) => { setDragOverCategory(null); };
   const handleTagDrop = (e: React.DragEvent, targetCategory: keyof BreakdownData) => { e.preventDefault(); setDragOverCategory(null); const data = e.dataTransfer.getData('text/plain'); if (!data) return; try { const { category: sourceCategory, item: itemName } = JSON.parse(data); if (sourceCategory === targetCategory) return; if (activeBeat) { const current = activeBeat.breakdown || { props: [], sound: [], costume: [], vfx: [], practical: [], cast: [], location: [] }; const getName = (i: string | BreakdownItem) => typeof i === 'string' ? i : i.name; const sourceArray = current[sourceCategory as keyof BreakdownData] || []; const itemObj = sourceArray.find(i => getName(i) === itemName); const newSourceList = sourceArray.filter(i => getName(i) !== itemName); const targetList = current[targetCategory] || []; const newTargetList = targetList.some(i => getName(i) === itemName) ? targetList : [...targetList, itemObj || { name: itemName, source: '' }]; updateBeat(activeBeat.id, { breakdown: { ...current, [sourceCategory]: newSourceList, [targetCategory]: newTargetList } }); } } catch (err) { console.error("Drop failed", err); } };
-  const TagInput = ({ category }: { category: keyof BreakdownData }) => { const [val, setVal] = useState(''); return ( <div className="flex gap-1 mt-2"> <input value={val} onChange={e => setVal(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && val.trim()) { addTag(activeBeatId!, category, val.trim()); setVal(''); } }} className={`flex-1 border rounded px-2 py-1 text-[10px] focus:border-amber-500 outline-none ${isLight ? 'bg-slate-50 border-slate-300 text-slate-900 placeholder-slate-400' : 'bg-[#111] border-[#333] text-white'}`} placeholder="Add..." /> <button onClick={() => { if(val.trim()) { addTag(activeBeatId!, category, val.trim()); setVal(''); } }} className={`px-2 rounded ${isLight ? 'bg-slate-200 hover:bg-slate-300 text-slate-700' : 'bg-[#222] hover:bg-[#333] text-gray-400'}`}><Plus size={10}/></button> </div> ); };
+  const TagInput = ({ category }: { category: keyof BreakdownData }) => { const [val, setVal] = useState(''); return ( <div className="flex gap-1 mt-2"> <input value={val} onChange={e => setVal(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && val.trim()) { addTag(activeBeatId!, category, val.trim()); setVal(''); } }} onFocus={(e) => { e.currentTarget.style.borderColor = appAccentColor; }} onBlur={(e) => { e.currentTarget.style.borderColor = ''; }} className={`flex-1 border rounded px-2 py-1 text-[10px] outline-none transition-colors ${isLight ? 'bg-slate-50 border-slate-300 text-slate-900 placeholder-slate-400' : 'bg-[#111] border-[#333] text-white'}`} placeholder="Add..." /> <button onClick={() => { if(val.trim()) { addTag(activeBeatId!, category, val.trim()); setVal(''); } }} className={`px-2 rounded ${isLight ? 'bg-slate-200 hover:bg-slate-300 text-slate-700' : 'bg-[#222] hover:bg-[#333] text-gray-400'}`}><Plus size={10}/></button> </div> ); };
   const CATEGORY_STYLES: Record<string, { lightBadge: string, darkBadge: string, lightTag: string, darkTag: string }> = {
     location: {
       lightBadge: 'text-orange-900 bg-orange-100/90 border-orange-200 font-extrabold',
@@ -1483,7 +1439,8 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'cast
         isLight 
           ? 'bg-slate-50/80 border-slate-200/90 shadow-2xs' 
           : 'bg-[#181818] border-[#2b2b2b]'
-      } ${isDragOver ? (isLight ? 'ring-2 ring-dashed ring-amber-500 bg-amber-50/50 border-amber-300' : 'ring-2 ring-dashed ring-[#f5a623] bg-[#222]') : ''}`} 
+      }`} 
+      style={isDragOver ? { borderColor: appAccentColor, boxShadow: `0 0 0 2px ${appAccentColor}80` } : undefined}
       onDragOver={(e) => handleTagDragOver(e, category)} 
       onDragLeave={handleTagDragLeave} 
       onDrop={(e) => handleTagDrop(e, category)}> 
@@ -1509,7 +1466,8 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'cast
                 onMouseLeave={clearHighlight} 
                 className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-[10.5px] border group cursor-move transition-all ${
                   isLight ? catStyle.lightTag : catStyle.darkTag
-                } ${showSourceHighlights && source ? 'ring-2 ring-amber-400 font-bold' : ''}`} 
+                } ${showSourceHighlights && source ? 'font-bold' : ''}`} 
+                style={showSourceHighlights && source ? { boxShadow: `0 0 0 2px ${appAccentColor}` } : undefined}
                 title={source ? `Source: "${source}"` : "No source info"} 
               > 
                 <span>{name}</span> 
@@ -1563,9 +1521,9 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'cast
           return (b.props?.length || 0) + (b.sound?.length || 0) + (b.costume?.length || 0) + (b.vfx?.length || 0) + (b.practical?.length || 0) + (b.cast?.length || 0) + (b.location?.length || 0);
       })()
       : activeSidebar === 'scratchpad'
-          ? (scratchpadMode === 'keep' ? 'Live' : scratchpadMode === 'global' ? (Array.isArray(globalNotes) ? globalNotes.length : 0) : (Array.isArray(activeBeat?.notes) ? activeBeat.notes.length : 0))
+          ? (scratchpadMode === 'global' ? (Array.isArray(globalNotes) ? globalNotes.length : 0) : (Array.isArray(activeBeat?.notes) ? activeBeat.notes.length : 0))
           : (Array.isArray(activeBeat?.versions) ? activeBeat.versions.length : 0);
-  const rightPanelLabel = activeSidebar === 'breakdown' ? 'tags' : activeSidebar === 'scratchpad' ? (scratchpadMode === 'keep' ? 'sync' : 'notes') : 'versions';
+  const rightPanelLabel = activeSidebar === 'breakdown' ? 'tags' : activeSidebar === 'scratchpad' ? 'notes' : 'versions';
 
   return (
     <div className={`flex w-full h-full overflow-hidden font-sans ${isLight ? 'bg-slate-100 text-slate-900' : 'bg-[#0c0c0c] text-white'}`} onClick={() => setScriptContextMenu(null)}>
@@ -1578,17 +1536,36 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'cast
             <div className={`flex-1 flex flex-col overflow-hidden ${isLight ? 'bg-slate-50' : 'bg-[#0a0a0a]'}`}>
                 <div className={`px-4 py-3 border-b flex items-center justify-between ${isLight ? 'border-slate-200 bg-slate-100/50' : 'border-[#222] bg-[#121216]'}`}>
                     <div className="flex items-center gap-2">
-                        {navMode === 'board' ? <FileText size={14} className="text-amber-500" /> : <MapIcon size={14} className="text-amber-500" />}
+                        {navMode === 'board' ? <FileText size={14} style={{ color: appAccentColor }} /> : <MapIcon size={14} style={{ color: appAccentColor }} />}
                         <span className={`text-xs font-black uppercase tracking-wider ${isLight ? 'text-slate-800' : 'text-slate-200'}`}>{navMode === 'board' ? 'Summary Cards' : 'Locations'}</span>
                     </div>
-                    <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border ${isLight ? 'bg-amber-50 border-amber-200 text-amber-800' : 'bg-amber-950/40 border-amber-800/60 text-amber-300'}`}>
+                    <span 
+                        className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border transition-colors"
+                        style={{
+                            backgroundColor: `color-mix(in srgb, ${appAccentColor} 14%, transparent)`,
+                            borderColor: `color-mix(in srgb, ${appAccentColor} 40%, transparent)`,
+                            color: appAccentColor,
+                        }}
+                    >
                         {navMode === 'board' ? `${beats.length} ${beats.length === 1 ? 'scene' : 'scenes'}` : `${locationCount} ${locationCount === 1 ? 'location' : 'locations'}`}
                     </span>
                 </div>
 
                 <div className={`px-2.5 py-2 border-b flex items-center gap-1 ${isLight ? 'border-slate-200 bg-slate-50' : 'border-[#222] bg-[#0d0d0d]'}`}>
-                    <button onClick={() => setNavMode('board')} className={`flex-1 py-1.5 rounded text-[9px] font-black uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all ${navMode === 'board' ? (isLight ? 'bg-amber-500 text-slate-950 shadow-xs' : 'bg-[#f5a623] text-black') : (isLight ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100' : 'text-gray-500 hover:text-white hover:bg-white/5')}`}><FileText size={10} /> Summary</button>
-                    <button onClick={() => setNavMode('list')} className={`flex-1 py-1.5 rounded text-[9px] font-black uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all ${navMode === 'list' ? (isLight ? 'bg-amber-500 text-slate-950 shadow-xs' : 'bg-[#f5a623] text-black') : (isLight ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100' : 'text-gray-500 hover:text-white hover:bg-white/5')}`}><MapIcon size={10} /> Locations</button>
+                    <button 
+                        onClick={() => setNavMode('board')} 
+                        className={`flex-1 py-1.5 rounded text-[9px] font-black uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all ${navMode === 'board' ? 'shadow-xs' : (isLight ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100' : 'text-gray-500 hover:text-white hover:bg-white/5')}`}
+                        style={navMode === 'board' ? { backgroundColor: appAccentColor, color: '#000000' } : undefined}
+                    >
+                        <FileText size={10} /> Summary
+                    </button>
+                    <button 
+                        onClick={() => setNavMode('list')} 
+                        className={`flex-1 py-1.5 rounded text-[9px] font-black uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all ${navMode === 'list' ? 'shadow-xs' : (isLight ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100' : 'text-gray-500 hover:text-white hover:bg-white/5')}`}
+                        style={navMode === 'list' ? { backgroundColor: appAccentColor, color: '#000000' } : undefined}
+                    >
+                        <MapIcon size={10} /> Locations
+                    </button>
                 </div>
                 
                 <div className="flex-1 overflow-hidden relative">
@@ -1616,9 +1593,9 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'cast
                     )}
                 </div>
             </div>
-            <div className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-amber-500 transition-colors z-50 group" onMouseDown={() => { isResizingRef.current = true; document.body.style.cursor = 'col-resize'; }}>
+            <div className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize transition-colors z-50 group" onMouseDown={() => { isResizingRef.current = true; document.body.style.cursor = 'col-resize'; }}>
                 <div className="absolute right-0 top-1/2 -translate-y-1/2 w-3 h-12 flex flex-col gap-1 items-center justify-center pointer-events-none group-hover:opacity-100 opacity-0 transition-opacity">
-                    <div className="w-0.5 h-full bg-amber-500"></div>
+                    <div className="w-0.5 h-full" style={{ backgroundColor: appAccentColor }}></div>
                 </div>
             </div>
         </div>
@@ -1628,15 +1605,28 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'cast
         <div className={`w-full border-b flex flex-col shrink-0 z-20 shadow-xs select-none ${isLight ? 'bg-white border-slate-200' : 'bg-[#111] border-[#222]'}`}>
             <div className={`flex items-center justify-between px-4 py-2 h-12 border-b ${isLight ? 'border-slate-200' : 'border-[#222]'}`}>
                 <div className="flex items-center gap-4">
-                    <button onClick={() => setShowNav(!showNav)} className={`w-8 h-8 flex items-center justify-center rounded border transition-all ${showNav ? (isLight ? 'bg-amber-50 border-amber-300 text-amber-600' : 'bg-[#222] border-[#333] text-[#f5a623]') : (isLight ? 'bg-slate-100 border-slate-300 text-slate-600 hover:text-slate-900 hover:bg-slate-200' : 'bg-[#1a1a1a] border-[#333] text-gray-400 hover:text-white')}`} title="Toggle Navigation"><PanelLeft size={14} /></button>
+                    <button 
+                        onClick={() => setShowNav(!showNav)} 
+                        className={`w-8 h-8 flex items-center justify-center rounded border transition-all ${showNav ? '' : (isLight ? 'bg-slate-100 border-slate-300 text-slate-600 hover:text-slate-900 hover:bg-slate-200' : 'bg-[#1a1a1a] border-[#333] text-gray-400 hover:text-white')}`} 
+                        style={showNav ? { 
+                            backgroundColor: `color-mix(in srgb, ${appAccentColor} 14%, transparent)`, 
+                            borderColor: `color-mix(in srgb, ${appAccentColor} 45%, transparent)`, 
+                            color: appAccentColor 
+                        } : undefined}
+                        title="Toggle Navigation"
+                    >
+                        <PanelLeft size={14} />
+                    </button>
                     <div className={`flex items-center rounded border p-0.5 gap-0.5 relative ${isLight ? 'bg-slate-100 border-slate-200' : 'bg-[#1a1a1a] border-[#333]'}`}>
                         {FORMAT_BUTTONS.map((btn) => {
                             const BtnIcon = btn.icon;
+                            const isActive = activeFormat === btn.id;
                             return (
                                 <button 
                                     key={btn.id} 
                                     onMouseDown={(e) => { e.preventDefault(); handleFormat(btn.id); }} 
-                                    className={`px-2 py-1.5 text-[10px] font-bold uppercase rounded-xs transition-all duration-200 flex items-center gap-1.5 min-w-[28px] justify-center ${activeFormat === btn.id ? (isLight ? 'bg-amber-500 text-slate-950 font-bold shadow-xs' : 'bg-[#f5a623] text-black shadow-sm') : (isLight ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-200' : 'text-gray-400 hover:text-white hover:bg-[#222]')}`} 
+                                    className={`px-2 py-1.5 text-[10px] font-bold uppercase rounded-xs transition-all duration-200 flex items-center gap-1.5 min-w-[28px] justify-center ${isActive ? 'shadow-xs font-bold' : (isLight ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-200' : 'text-gray-400 hover:text-white hover:bg-[#222]')}`} 
+                                    style={isActive ? { backgroundColor: appAccentColor, color: '#000000' } : undefined}
                                     title={`${btn.id.charAt(0).toUpperCase() + btn.id.slice(1)} (${btn.short})`}
                                 >
                                     <BtnIcon size={12} strokeWidth={2.5} />
@@ -1647,7 +1637,8 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'cast
                         <div className={`w-px h-4 mx-1 ${isLight ? 'bg-slate-300' : 'bg-[#333]'}`}></div>
                         <button 
                             onClick={() => setShowLanguageConfig(!showLanguageConfig)}
-                            className={`p-1.5 rounded transition-all flex items-center justify-center ${showLanguageConfig ? (isLight ? 'bg-amber-500 text-slate-950' : 'bg-[#f5a623] text-black') : (isLight ? 'text-slate-500 hover:text-slate-900' : 'text-gray-500 hover:text-white')}`}
+                            className={`p-1.5 rounded transition-all flex items-center justify-center ${showLanguageConfig ? 'font-bold shadow-xs' : (isLight ? 'text-slate-500 hover:text-slate-900' : 'text-gray-500 hover:text-white')}`}
+                            style={showLanguageConfig ? { backgroundColor: appAccentColor, color: '#000000' } : undefined}
                             title="Configure Element Languages"
                         >
                             <Settings size={14} />
@@ -1684,7 +1675,7 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'cast
                         }`}
                         title={`Total: ${totalPages} Pages • ${sortedBeats.length} ${sortedBeats.length === 1 ? 'Scene' : 'Scenes'}`}
                     >
-                        <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" />
+                        <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: appAccentColor }} />
                         <span className="font-bold text-slate-900 dark:text-slate-100">P.{totalPages}</span>
                         <span className="opacity-40">•</span>
                         <span>{sortedBeats.length} {isConstrained ? 'sc' : (sortedBeats.length === 1 ? 'scene' : 'scenes')}</span>
@@ -1698,36 +1689,39 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'cast
                             onClick={() => setActiveSidebar(activeSidebar === 'scratchpad' ? 'none' : 'scratchpad')} 
                             className={`px-2 py-1 rounded-md flex items-center gap-1.5 text-[11px] font-semibold transition-all duration-150 ${
                                 activeSidebar === 'scratchpad' 
-                                    ? (isLight ? 'bg-white text-amber-600 shadow-xs font-bold' : 'bg-[#222] text-[#f5a623] shadow-sm font-bold') 
+                                    ? (isLight ? 'bg-white shadow-xs font-bold' : 'bg-[#222] shadow-sm font-bold') 
                                     : (isLight ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60' : 'text-slate-400 hover:text-white hover:bg-white/5')
                             }`} 
+                            style={activeSidebar === 'scratchpad' ? { color: appAccentColor } : undefined}
                             title="Scene & Project Notes (Scratchpad)"
                         >
-                            <StickyNote size={13} className={activeSidebar === 'scratchpad' ? 'text-amber-500' : 'opacity-75'} />
+                            <StickyNote size={13} style={activeSidebar === 'scratchpad' ? { color: appAccentColor } : undefined} className={activeSidebar === 'scratchpad' ? '' : 'opacity-75'} />
                             <span className={isConstrained ? 'hidden' : 'hidden xl:inline'}>Notes</span>
                         </button>
                         <button 
                             onClick={() => setActiveSidebar(activeSidebar === 'breakdown' ? 'none' : 'breakdown')} 
                             className={`px-2 py-1 rounded-md flex items-center gap-1.5 text-[11px] font-semibold transition-all duration-150 ${
                                 activeSidebar === 'breakdown' 
-                                    ? (isLight ? 'bg-white text-amber-600 shadow-xs font-bold' : 'bg-[#222] text-[#f5a623] shadow-sm font-bold') 
+                                    ? (isLight ? 'bg-white shadow-xs font-bold' : 'bg-[#222] shadow-sm font-bold') 
                                     : (isLight ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60' : 'text-slate-400 hover:text-white hover:bg-white/5')
                             }`} 
+                            style={activeSidebar === 'breakdown' ? { color: appAccentColor } : undefined}
                             title="Scene Elements Breakdown"
                         >
-                            <ListChecks size={13} className={activeSidebar === 'breakdown' ? 'text-amber-500' : 'opacity-75'} />
+                            <ListChecks size={13} style={activeSidebar === 'breakdown' ? { color: appAccentColor } : undefined} className={activeSidebar === 'breakdown' ? '' : 'opacity-75'} />
                             <span className={isConstrained ? 'hidden' : 'hidden xl:inline'}>Breakdown</span>
                         </button>
                         <button 
                             onClick={() => setActiveSidebar(activeSidebar === 'history' ? 'none' : 'history')} 
                             className={`px-2 py-1 rounded-md flex items-center gap-1.5 text-[11px] font-semibold transition-all duration-150 ${
                                 activeSidebar === 'history' 
-                                    ? (isLight ? 'bg-white text-amber-600 shadow-xs font-bold' : 'bg-[#222] text-[#f5a623] shadow-sm font-bold') 
+                                    ? (isLight ? 'bg-white shadow-xs font-bold' : 'bg-[#222] shadow-sm font-bold') 
                                     : (isLight ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60' : 'text-slate-400 hover:text-white hover:bg-white/5')
                             }`} 
+                            style={activeSidebar === 'history' ? { color: appAccentColor } : undefined}
                             title="Beat Snapshot History"
                         >
-                            <History size={13} className={activeSidebar === 'history' ? 'text-amber-500' : 'opacity-75'} />
+                            <History size={13} style={activeSidebar === 'history' ? { color: appAccentColor } : undefined} className={activeSidebar === 'history' ? '' : 'opacity-75'} />
                             <span className={isConstrained ? 'hidden' : 'hidden xl:inline'}>History</span>
                         </button>
                     </div>
@@ -1743,7 +1737,7 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'cast
                             }`} 
                             title="Hollywood Script Revisions (White, Blue, Pink...)"
                         >
-                            <Archive size={13} className="text-amber-500/90" />
+                            <Archive size={13} style={{ color: appAccentColor }} />
                             <span className={isConstrained ? 'hidden' : 'hidden xl:inline'}>Revisions</span>
                         </button>
                         <button 
@@ -1753,7 +1747,7 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'cast
                             }`} 
                             title="Tamil / Bamini Transcoder"
                         >
-                            <Type size={13} className="text-amber-500/90" />
+                            <Type size={13} style={{ color: appAccentColor }} />
                             <span className={isConstrained ? 'hidden' : 'hidden xl:inline'}>Tamil</span>
                         </button>
                     </div>
@@ -1767,9 +1761,10 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'cast
                             title="White Paper (Standard)" 
                             className={`p-1.5 rounded-md transition-all ${
                                 scriptConfig.paperTheme === 'white' 
-                                    ? (isLight ? 'bg-white text-amber-600 shadow-xs font-bold' : 'bg-[#222] text-[#f5a623] shadow-sm font-bold') 
+                                    ? (isLight ? 'bg-white shadow-xs font-bold' : 'bg-[#222] shadow-sm font-bold') 
                                     : (isLight ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-200/60' : 'text-slate-400 hover:text-white hover:bg-white/5')
                             }`}
+                            style={scriptConfig.paperTheme === 'white' ? { color: appAccentColor } : undefined}
                         >
                             <Sun size={13} />
                         </button>
@@ -1789,9 +1784,10 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'cast
                             title="Dark Paper (Midnight)" 
                             className={`p-1.5 rounded-md transition-all ${
                                 scriptConfig.paperTheme === 'dark' 
-                                    ? (isLight ? 'bg-slate-900 text-white shadow-xs font-bold' : 'bg-[#222] text-[#f5a623] shadow-sm font-bold') 
+                                    ? (isLight ? 'bg-slate-900 text-white shadow-xs font-bold' : 'bg-[#222] shadow-sm font-bold') 
                                     : (isLight ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-200/60' : 'text-slate-400 hover:text-white hover:bg-white/5')
                             }`}
+                            style={scriptConfig.paperTheme === 'dark' && !isLight ? { color: appAccentColor } : undefined}
                         >
                             <Moon size={13} />
                         </button>
@@ -1827,8 +1823,9 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'cast
                             className={`px-1.5 py-0.5 text-[10px] font-mono font-bold tracking-tight rounded-sm transition-colors text-center min-w-[36px] ${
                                 Math.round(zoom * 100) === 100
                                     ? (isLight ? 'text-slate-700' : 'text-slate-300')
-                                    : (isLight ? 'text-amber-600 font-black' : 'text-amber-400 font-black')
+                                    : 'font-black'
                             } ${isLight ? 'hover:bg-slate-200/60' : 'hover:bg-white/5'}`}
+                            style={Math.round(zoom * 100) !== 100 ? { color: appAccentColor } : undefined}
                         >
                             {Math.round(zoom * 100)}%
                         </button>
@@ -1851,29 +1848,237 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'cast
                 <div className="transition-transform duration-200 origin-top py-10" style={{ transform: `scale(${zoom})` }}>
                     <div className="flex flex-col items-center">
                         <style>{`
-                            .screenplay-a4-sheet,
-                            .screenplay-a4-sheet .script-body,
-                            .screenplay-a4-sheet .script-body *,
-                            .screenplay-a4-sheet .sc-line,
-                            .screenplay-a4-sheet .sc-action,
-                            .screenplay-a4-sheet .sc-character,
-                            .screenplay-a4-sheet .sc-dialogue,
-                            .screenplay-a4-sheet .sc-parenthetical,
-                            .screenplay-a4-sheet .sc-transition,
-                            .screenplay-a4-sheet .sc-shot,
-                            .screenplay-a4-sheet .sc-lyrics {
-                                color: ${theme.text} !important;
+                            .screenplay-a4-sheet {
+                                /* Action */
+                                --font-action: ${isTamilMode && tamilFontFamily && tamilFontFamily !== scriptConfig.action.fontFamily ? `'${scriptConfig.action.fontFamily}', '${tamilFontFamily}', Courier, monospace` : `'${scriptConfig.action.fontFamily}', Courier, monospace`};
+                                --size-action: ${scriptConfig.action.fontSize}px;
+                                --lh-action: ${scriptConfig.action.lineHeight};
+                                --margin-action: ${scriptConfig.action.marginLeft}%;
+                                --width-action: ${scriptConfig.action.width}%;
+                                --mt-action: ${scriptConfig.action.marginTop}rem;
+                                --mb-action: ${scriptConfig.action.marginBottom}rem;
+                                --align-action: ${scriptConfig.action.textAlign};
+                                --weight-action: ${scriptConfig.action.bold ? 'bold' : 'normal'};
+                                --style-action: ${scriptConfig.action.italic ? 'italic' : 'normal'};
+                                --dec-action: ${scriptConfig.action.underline ? 'underline' : 'none'};
+                                /* Character */
+                                --font-character: ${isTamilMode && tamilFontFamily && tamilFontFamily !== scriptConfig.character.fontFamily ? `'${scriptConfig.character.fontFamily}', '${tamilFontFamily}', Courier, monospace` : `'${scriptConfig.character.fontFamily}', Courier, monospace`};
+                                --size-character: ${scriptConfig.character.fontSize}px;
+                                --lh-character: ${scriptConfig.character.lineHeight};
+                                --margin-character: ${scriptConfig.character.marginLeft}%;
+                                --width-character: ${scriptConfig.character.width}%;
+                                --mt-character: ${scriptConfig.character.marginTop}rem;
+                                --mb-character: ${scriptConfig.character.marginBottom}rem;
+                                --align-character: ${scriptConfig.character.textAlign};
+                                --weight-character: ${scriptConfig.character.bold ? 'bold' : 'normal'};
+                                --style-character: ${scriptConfig.character.italic ? 'italic' : 'normal'};
+                                --dec-character: ${scriptConfig.character.underline ? 'underline' : 'none'};
+                                /* Dialogue */
+                                --font-dialogue: ${isTamilMode && tamilFontFamily && tamilFontFamily !== scriptConfig.dialogue.fontFamily ? `'${scriptConfig.dialogue.fontFamily}', '${tamilFontFamily}', Courier, monospace` : `'${scriptConfig.dialogue.fontFamily}', Courier, monospace`};
+                                --size-dialogue: ${scriptConfig.dialogue.fontSize}px;
+                                --lh-dialogue: ${scriptConfig.dialogue.lineHeight};
+                                --margin-dialogue: ${scriptConfig.dialogue.marginLeft}%;
+                                --width-dialogue: ${scriptConfig.dialogue.width}%;
+                                --mt-dialogue: ${scriptConfig.dialogue.marginTop}rem;
+                                --mb-dialogue: ${scriptConfig.dialogue.marginBottom}rem;
+                                --align-dialogue: ${scriptConfig.dialogue.textAlign};
+                                --weight-dialogue: ${scriptConfig.dialogue.bold ? 'bold' : 'normal'};
+                                --style-dialogue: ${scriptConfig.dialogue.italic ? 'italic' : 'normal'};
+                                --dec-dialogue: ${scriptConfig.dialogue.underline ? 'underline' : 'none'};
+                                /* Parenthetical */
+                                --font-parenthetical: ${isTamilMode && tamilFontFamily && tamilFontFamily !== scriptConfig.parenthetical.fontFamily ? `'${scriptConfig.parenthetical.fontFamily}', '${tamilFontFamily}', Courier, monospace` : `'${scriptConfig.parenthetical.fontFamily}', Courier, monospace`};
+                                --size-parenthetical: ${scriptConfig.parenthetical.fontSize}px;
+                                --lh-parenthetical: ${scriptConfig.parenthetical.lineHeight};
+                                --margin-parenthetical: ${scriptConfig.parenthetical.marginLeft}%;
+                                --width-parenthetical: ${scriptConfig.parenthetical.width}%;
+                                --mt-parenthetical: ${scriptConfig.parenthetical.marginTop}rem;
+                                --mb-parenthetical: ${scriptConfig.parenthetical.marginBottom}rem;
+                                --align-parenthetical: ${scriptConfig.parenthetical.textAlign};
+                                --weight-parenthetical: ${scriptConfig.parenthetical.bold ? 'bold' : 'normal'};
+                                --style-parenthetical: ${scriptConfig.parenthetical.italic ? 'italic' : 'normal'};
+                                --dec-parenthetical: ${scriptConfig.parenthetical.underline ? 'underline' : 'none'};
+                                /* Transition */
+                                --font-transition: ${isTamilMode && tamilFontFamily && tamilFontFamily !== scriptConfig.transition.fontFamily ? `'${scriptConfig.transition.fontFamily}', '${tamilFontFamily}', Courier, monospace` : `'${scriptConfig.transition.fontFamily}', Courier, monospace`};
+                                --size-transition: ${scriptConfig.transition.fontSize}px;
+                                --lh-transition: ${scriptConfig.transition.lineHeight};
+                                --margin-transition: ${scriptConfig.transition.marginLeft}%;
+                                --width-transition: ${scriptConfig.transition.width}%;
+                                --mt-transition: ${scriptConfig.transition.marginTop}rem;
+                                --mb-transition: ${scriptConfig.transition.marginBottom}rem;
+                                --align-transition: ${scriptConfig.transition.textAlign};
+                                --weight-transition: ${scriptConfig.transition.bold ? 'bold' : 'normal'};
+                                --style-transition: ${scriptConfig.transition.italic ? 'italic' : 'normal'};
+                                --dec-transition: ${scriptConfig.transition.underline ? 'underline' : 'none'};
+                                /* Shot */
+                                --font-shot: ${isTamilMode && tamilFontFamily && tamilFontFamily !== scriptConfig.shot.fontFamily ? `'${scriptConfig.shot.fontFamily}', '${tamilFontFamily}', Courier, monospace` : `'${scriptConfig.shot.fontFamily}', Courier, monospace`};
+                                --size-shot: ${scriptConfig.shot.fontSize}px;
+                                --lh-shot: ${scriptConfig.shot.lineHeight};
+                                --margin-shot: ${scriptConfig.shot.marginLeft}%;
+                                --width-shot: ${scriptConfig.shot.width}%;
+                                --mt-shot: ${scriptConfig.shot.marginTop}rem;
+                                --mb-shot: ${scriptConfig.shot.marginBottom}rem;
+                                --align-shot: ${scriptConfig.shot.textAlign};
+                                --weight-shot: ${scriptConfig.shot.bold ? 'bold' : 'normal'};
+                                --style-shot: ${scriptConfig.shot.italic ? 'italic' : 'normal'};
+                                --dec-shot: ${scriptConfig.shot.underline ? 'underline' : 'none'};
+                                /* Lyrics */
+                                --font-lyrics: ${isTamilMode && tamilFontFamily && tamilFontFamily !== scriptConfig.lyrics.fontFamily ? `'${scriptConfig.lyrics.fontFamily}', '${tamilFontFamily}', Courier, monospace` : `'${scriptConfig.lyrics.fontFamily}', Courier, monospace`};
+                                --size-lyrics: ${scriptConfig.lyrics.fontSize}px;
+                                --lh-lyrics: ${scriptConfig.lyrics.lineHeight};
+                                --margin-lyrics: ${scriptConfig.lyrics.marginLeft}%;
+                                --width-lyrics: ${scriptConfig.lyrics.width}%;
+                                --mt-lyrics: ${scriptConfig.lyrics.marginTop}rem;
+                                --mb-lyrics: ${scriptConfig.lyrics.marginBottom}rem;
+                                --align-lyrics: ${scriptConfig.lyrics.textAlign};
+                                --weight-lyrics: ${scriptConfig.lyrics.bold ? 'bold' : 'normal'};
+                                --style-lyrics: ${scriptConfig.lyrics.italic ? 'italic' : 'normal'};
+                                --dec-lyrics: ${scriptConfig.lyrics.underline ? 'underline' : 'none'};
+                            }
+                            /* Slugline */
+                            .screenplay-a4-sheet .sc-slugline {
+                                font-family: ${isTamilMode && tamilFontFamily && tamilFontFamily !== scriptConfig.slugline.fontFamily ? `'${scriptConfig.slugline.fontFamily}', '${tamilFontFamily}', Courier, monospace` : `'${scriptConfig.slugline.fontFamily}', Courier, monospace`} !important;
+                                font-size: ${scriptConfig.slugline.fontSize}px !important;
+                                line-height: ${scriptConfig.slugline.lineHeight} !important;
+                                letter-spacing: ${scriptConfig.slugline.letterSpacing}px !important;
+                                margin-top: ${scriptConfig.slugline.marginTop}em !important;
+                                margin-bottom: ${scriptConfig.slugline.marginBottom}em !important;
+                                font-weight: ${scriptConfig.slugline.bold ? 'bold' : 'normal'} !important;
+                                font-style: ${scriptConfig.slugline.italic ? 'italic' : 'normal'} !important;
+                                text-decoration: ${scriptConfig.slugline.underline ? 'underline' : 'none'} !important;
+                                text-align: ${scriptConfig.slugline.textAlign} !important;
+                                background-color: ${theme.slugBg} !important;
+                                color: ${theme.slugText} !important;
                             }
                             .screenplay-a4-sheet .sc-slug {
                                 color: ${theme.slug} !important;
                             }
-                            .screenplay-a4-sheet .script-body .sc-slugline {
-                                background-color: ${theme.slugBg} !important;
-                                color: ${theme.slugText} !important;
+                            /* Base text color for everything else */
+                            .screenplay-a4-sheet .script-body {
+                                color: ${theme.text};
+                            }
+
+                            /* Explicit Element Font & Formatting Rules */
+                            .screenplay-a4-sheet .sc-action,
+                            .screenplay-a4-sheet .sc-line.sc-action {
+                                font-family: var(--font-action) !important;
+                                font-size: var(--size-action);
+                                line-height: var(--lh-action);
+                                margin-left: var(--margin-action);
+                                width: var(--width-action);
+                                margin-top: var(--mt-action);
+                                margin-bottom: var(--mb-action);
+                                text-align: var(--align-action);
+                                font-weight: var(--weight-action);
+                                font-style: var(--style-action);
+                                text-decoration: var(--dec-action);
+                                color: ${theme.text};
+                            }
+
+                            .screenplay-a4-sheet .sc-character,
+                            .screenplay-a4-sheet .sc-line.sc-character {
+                                font-family: var(--font-character) !important;
+                                font-size: var(--size-character);
+                                line-height: var(--lh-character);
+                                margin-left: var(--margin-character);
+                                width: var(--width-character);
+                                margin-top: var(--mt-character);
+                                margin-bottom: var(--mb-character);
+                                text-align: var(--align-character);
+                                font-weight: var(--weight-character);
+                                font-style: var(--style-character);
+                                text-decoration: var(--dec-character);
+                                text-transform: uppercase;
+                                color: ${theme.text};
+                            }
+
+                            .screenplay-a4-sheet .sc-dialogue,
+                            .screenplay-a4-sheet .sc-line.sc-dialogue {
+                                font-family: var(--font-dialogue) !important;
+                                font-size: var(--size-dialogue);
+                                line-height: var(--lh-dialogue);
+                                margin-left: var(--margin-dialogue);
+                                width: var(--width-dialogue);
+                                margin-top: var(--mt-dialogue);
+                                margin-bottom: var(--mb-dialogue);
+                                text-align: var(--align-dialogue);
+                                font-weight: var(--weight-dialogue);
+                                font-style: var(--style-dialogue);
+                                text-decoration: var(--dec-dialogue);
+                                color: ${theme.text};
+                            }
+
+                            .screenplay-a4-sheet .sc-parenthetical,
+                            .screenplay-a4-sheet .sc-line.sc-parenthetical {
+                                font-family: var(--font-parenthetical) !important;
+                                font-size: var(--size-parenthetical);
+                                line-height: var(--lh-parenthetical);
+                                margin-left: var(--margin-parenthetical);
+                                width: var(--width-parenthetical);
+                                margin-top: var(--mt-parenthetical);
+                                margin-bottom: var(--mb-parenthetical);
+                                text-align: var(--align-parenthetical);
+                                font-weight: var(--weight-parenthetical);
+                                font-style: var(--style-parenthetical);
+                                text-decoration: var(--dec-parenthetical);
+                                color: ${theme.text};
+                            }
+
+                            .screenplay-a4-sheet .sc-transition,
+                            .screenplay-a4-sheet .sc-line.sc-transition {
+                                font-family: var(--font-transition) !important;
+                                font-size: var(--size-transition);
+                                line-height: var(--lh-transition);
+                                margin-left: var(--margin-transition);
+                                width: var(--width-transition);
+                                margin-top: var(--mt-transition);
+                                margin-bottom: var(--mb-transition);
+                                text-align: var(--align-transition);
+                                font-weight: var(--weight-transition);
+                                font-style: var(--style-transition);
+                                text-decoration: var(--dec-transition);
+                                text-transform: uppercase;
+                                color: ${theme.text};
+                            }
+
+                            .screenplay-a4-sheet .sc-shot,
+                            .screenplay-a4-sheet .sc-line.sc-shot {
+                                font-family: var(--font-shot) !important;
+                                font-size: var(--size-shot);
+                                line-height: var(--lh-shot);
+                                margin-left: var(--margin-shot);
+                                width: var(--width-shot);
+                                margin-top: var(--mt-shot);
+                                margin-bottom: var(--mb-shot);
+                                text-align: var(--align-shot);
+                                font-weight: var(--weight-shot);
+                                font-style: var(--style-shot);
+                                text-decoration: var(--dec-shot);
+                                text-transform: uppercase;
+                                color: ${theme.text};
+                            }
+
+                            .screenplay-a4-sheet .sc-lyrics,
+                            .screenplay-a4-sheet .sc-line.sc-lyrics {
+                                font-family: var(--font-lyrics) !important;
+                                font-size: var(--size-lyrics);
+                                line-height: var(--lh-lyrics);
+                                margin-left: var(--margin-lyrics);
+                                width: var(--width-lyrics);
+                                margin-top: var(--mt-lyrics);
+                                margin-bottom: var(--mb-lyrics);
+                                text-align: var(--align-lyrics);
+                                font-weight: var(--weight-lyrics);
+                                font-style: var(--style-lyrics);
+                                text-decoration: var(--dec-lyrics);
+                                color: ${theme.text};
+                            }
+
+                            .screenplay-a4-sheet .sc-line:not([class*="sc-action"]):not([class*="sc-character"]):not([class*="sc-dialogue"]):not([class*="sc-parenthetical"]):not([class*="sc-transition"]):not([class*="sc-shot"]):not([class*="sc-lyrics"]):not([class*="sc-slugline"]) {
+                                font-family: var(--font-action, 'Courier Prime', Courier, monospace);
                             }
                         `}</style>
                         <div 
-                            className="relative"
+                            className="relative screenplay-a4-sheet"
                             style={{
                                 width: `${A4_WIDTH}px`,
                                 minHeight: `${totalPages * (A4_HEIGHT + PAGE_GAP) - PAGE_GAP}px`,
@@ -1978,9 +2183,16 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'cast
                                                             onClick={(e) => { e.stopPropagation(); handleSetSceneNumber(beat.id, beat.sceneNumber || autoNum); }}
                                                             className={`shrink-0 px-1.5 py-0 text-[11px] font-mono font-black transition-all select-none ${
                                                                 activeBeatId === beat.id 
-                                                                    ? (isLight ? 'bg-amber-500 text-slate-950 border border-amber-600 shadow-xs' : 'bg-[#f5a623] text-black border border-[#e09612] shadow-sm') 
-                                                                    : (isLight ? 'bg-black/5 text-slate-800 border border-black/10 hover:border-amber-500 hover:text-black' : 'bg-white/5 text-zinc-200 border border-white/10 hover:border-amber-400 hover:text-white')
+                                                                    ? 'shadow-xs' 
+                                                                    : (isLight ? 'bg-black/5 text-slate-800 border border-black/10 hover:text-black' : 'bg-white/5 text-zinc-200 border border-white/10 hover:text-white')
                                                             }`}
+                                                            style={activeBeatId === beat.id ? {
+                                                                backgroundColor: appAccentColor,
+                                                                borderColor: appAccentColor,
+                                                                color: '#000000',
+                                                                borderWidth: '1px',
+                                                                borderStyle: 'solid'
+                                                            } : undefined}
                                                             title="Click to edit scene number"
                                                         >
                                                             {displayNumber}
@@ -2051,9 +2263,16 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'cast
                                 {!isScriptReadOnly && (
                                     <div 
                                         onClick={handleAddScene} 
-                                        className={`mt-8 mx-auto w-full max-w-xl h-8 border-b border-dashed border-transparent flex items-center justify-center cursor-pointer transition-all duration-300 group opacity-50 hover:opacity-100 ${isLight ? 'hover:border-amber-500/50' : 'hover:border-[#f5a623]/30'}`}
+                                        className="mt-8 mx-auto w-full max-w-xl h-8 border-b border-dashed flex items-center justify-center cursor-pointer transition-all duration-300 group opacity-50 hover:opacity-100"
+                                        style={{ borderColor: 'transparent' }}
+                                        onMouseEnter={(e) => { e.currentTarget.style.borderColor = `${appAccentColor}80`; }}
+                                        onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'transparent'; }}
                                     >
-                                        <span className={`text-[10px] font-bold uppercase tracking-[0.2em] flex items-center gap-2 transition-colors ${isLight ? 'text-slate-500 group-hover:text-amber-600' : 'text-[#888] group-hover:text-[#f5a623]'}`}>
+                                        <span 
+                                            className={`text-[10px] font-bold uppercase tracking-[0.2em] flex items-center gap-2 transition-colors ${isLight ? 'text-slate-500' : 'text-[#888]'}`}
+                                            onMouseEnter={(e) => { e.currentTarget.style.color = appAccentColor; }}
+                                            onMouseLeave={(e) => { e.currentTarget.style.color = ''; }}
+                                        >
                                             <Plus size={10} /> Add Scene
                                         </span>
                                     </div>
@@ -2067,88 +2286,110 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'cast
             {activeSidebar !== 'none' && (
                 <div className={`w-[400px] flex flex-col animate-in slide-in-from-right-10 duration-200 z-30 shadow-2xl relative overflow-hidden border-l ${isLight ? 'bg-slate-50 border-slate-200 text-slate-800' : 'bg-[#0a0a0a] border-[#222] text-white'}`}>
                     <div className={`px-4 py-3 border-b flex items-center justify-between shrink-0 ${isLight ? 'border-slate-200 bg-slate-100/50' : 'border-[#222] bg-[#121216]'}`}>
-                        <div className="flex items-center gap-2"><h3 className={`text-xs font-black uppercase tracking-wider flex items-center gap-2 ${isLight ? 'text-slate-800' : 'text-slate-200'}`}>{activeSidebar === 'breakdown' && <><ListChecks size={14} className="text-amber-500" /> Scene Breakdown</>}{activeSidebar === 'scratchpad' && <><StickyNote size={14} className="text-amber-500" /> Note Blocks</>}{activeSidebar === 'history' && <><History size={14} className="text-amber-500" /> Version History</>}</h3><span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border ${isLight ? 'bg-amber-50 border-amber-200 text-amber-800' : 'bg-amber-950/40 border-amber-800/60 text-amber-300'}`}>{rightPanelCount} {rightPanelLabel}</span></div>
+                        <div className="flex items-center gap-2">
+                            <h3 className={`text-xs font-black uppercase tracking-wider flex items-center gap-2 ${isLight ? 'text-slate-800' : 'text-slate-200'}`}>
+                                {activeSidebar === 'breakdown' && <><ListChecks size={14} style={{ color: appAccentColor }} /> Scene Breakdown</>}
+                                {activeSidebar === 'scratchpad' && <><StickyNote size={14} style={{ color: appAccentColor }} /> Note Blocks</>}
+                                {activeSidebar === 'history' && <><History size={14} style={{ color: appAccentColor }} /> Version History</>}
+                            </h3>
+                            <span 
+                                className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border transition-colors"
+                                style={{
+                                    backgroundColor: `color-mix(in srgb, ${appAccentColor} 14%, transparent)`,
+                                    borderColor: `color-mix(in srgb, ${appAccentColor} 40%, transparent)`,
+                                    color: appAccentColor,
+                                }}
+                            >
+                                {rightPanelCount} {rightPanelLabel}
+                            </span>
+                        </div>
                         <div className="flex items-center gap-2 ml-4">
-                            {activeSidebar === 'breakdown' && (<button onClick={() => { setShowSourceHighlights(!showSourceHighlights); clearHighlight(); }} className={`p-1.5 rounded transition-colors ${showSourceHighlights ? (isLight ? 'bg-amber-500 text-slate-950 font-bold' : 'bg-[#f5a623] text-black') : (isLight ? 'text-slate-400 hover:text-slate-800' : 'text-gray-500 hover:text-white')}`} title="Highlight source text in script on hover"><Eye size={14}/></button>)}
-                            {activeSidebar === 'scratchpad' && (
-                              <button 
-                                onClick={openGoogleKeepCompanion} 
-                                className={`px-2 py-1 rounded transition-all flex items-center gap-1.5 text-[10px] font-bold border ${isLight ? 'bg-amber-100/70 hover:bg-amber-200 text-amber-950 border-amber-300 shadow-2xs' : 'bg-[#ffbb00]/15 hover:bg-[#ffbb00]/25 text-[#ffbb00] border-[#ffbb00]/30 shadow-2xs'}`} 
-                                title="Open Google Keep in a companion sidecar window"
-                              >
-                                <GoogleKeepIcon size={12} />
-                                <span>Keep</span>
-                                <ExternalLink size={10} className="opacity-70" />
-                              </button>
+                            {activeSidebar === 'breakdown' && (
+                                <button 
+                                    onClick={() => { setShowSourceHighlights(!showSourceHighlights); clearHighlight(); }} 
+                                    className={`p-1.5 rounded transition-colors ${showSourceHighlights ? 'font-bold' : (isLight ? 'text-slate-400 hover:text-slate-800' : 'text-gray-500 hover:text-white')}`} 
+                                    style={showSourceHighlights ? { backgroundColor: appAccentColor, color: '#000000' } : undefined}
+                                    title="Highlight source text in script on hover"
+                                >
+                                    <Eye size={14}/>
+                                </button>
                             )}
                             <button onClick={() => { setActiveSidebar('none'); clearHighlight(); }} className={isLight ? "text-slate-400 hover:text-slate-800" : "text-gray-500 hover:text-white"}><X size={14}/></button>
                         </div>
                     </div>
                     <div className="flex-1 relative overflow-hidden">
-                        {activeSidebar === 'breakdown' && (<div className="absolute inset-0 overflow-y-auto custom-scrollbar p-4">{activeBeat ? (<><div className={`mb-6 pb-4 border-b ${isLight ? 'border-slate-200' : 'border-[#333]'}`}><span className={`text-[9px] uppercase tracking-wider font-bold ${isLight ? 'text-slate-400' : 'text-gray-500'}`}>Scene Breakdown Target</span><h4 className={`text-sm font-black uppercase mt-0.5 mb-4 ${isLight ? 'text-slate-900' : 'text-white'}`}>{activeBeat.slug.location || 'Untitled Scene'}</h4><div className="flex items-center justify-between mb-2"><span className={`text-[10px] font-bold uppercase ${isLight ? 'text-slate-500' : 'text-gray-500'}`}>Output Language</span><div className={`flex rounded border p-0.5 ${isLight ? 'bg-slate-100 border-slate-200' : 'bg-[#111] border-[#333]'}`}><button onClick={() => setBreakdownLanguage('english')} className={`px-2 py-0.5 text-[9px] font-bold uppercase rounded ${breakdownLanguage === 'english' ? (isLight ? 'bg-amber-500 text-slate-950' : 'bg-[#f5a623] text-black') : (isLight ? 'text-slate-600 hover:text-slate-900' : 'text-gray-500 hover:text-white')}`}>ENG</button><button onClick={() => setBreakdownLanguage('tamil')} className={`px-2 py-0.5 text-[9px] font-bold uppercase rounded ${breakdownLanguage === 'tamil' ? (isLight ? 'bg-amber-500 text-slate-950' : 'bg-[#f5a623] text-black') : (isLight ? 'text-slate-600 hover:text-slate-900' : 'text-gray-500 hover:text-white')}`}>TAM</button></div></div><button onClick={handleAnalyzeBreakdown} disabled={isAnalyzing || !aiAvailable} className={`w-full py-2 font-bold text-xs uppercase rounded flex items-center justify-center gap-2 transition-all disabled:opacity-50 ${isLight ? 'bg-amber-500 hover:bg-amber-600 text-slate-950 shadow-xs' : 'bg-[#f5a623] hover:bg-[#e09612] text-black'}`}>{isAnalyzing ? <Sparkles size={14} className="animate-spin" /> : <Sparkles size={14} />} {isAnalyzing ? 'Analyzing...' : 'Auto-Analyze'}</button></div><BreakdownSection title="Location Scenario" category="location" icon={MapIcon} color="text-orange-500" /><BreakdownSection title="Visual Effects" category="vfx" icon={Wand2} color="text-emerald-500" /><BreakdownSection title="Practical Effects" category="practical" icon={Flame} color="text-red-500" /><BreakdownSection title="Props" category="props" icon={Package} color="text-rose-500" /><BreakdownSection title="Sound / SFX" category="sound" icon={Mic2} color="text-sky-500" /><BreakdownSection title="Wardrobe" category="costume" icon={Shirt} color="text-pink-500" /><BreakdownSection title="Cast / Extras" category="cast" icon={Users} color="text-amber-500" /></>) : (<div className={`flex flex-col items-center justify-center h-full gap-2 ${isLight ? 'text-slate-400' : 'text-gray-500'}`}><ListChecks size={32} opacity={0.3} /><span className="text-xs text-center px-4">Select a scene to view or create breakdown items.</span></div>)}</div>)}
+                        {activeSidebar === 'breakdown' && (
+                            <div className="absolute inset-0 overflow-y-auto custom-scrollbar p-4">
+                                {activeBeat ? (
+                                    <>
+                                        <div className={`mb-6 pb-4 border-b ${isLight ? 'border-slate-200' : 'border-[#333]'}`}>
+                                            <span className={`text-[9px] uppercase tracking-wider font-bold ${isLight ? 'text-slate-400' : 'text-gray-500'}`}>Scene Breakdown Target</span>
+                                            <h4 className={`text-sm font-black uppercase mt-0.5 mb-4 ${isLight ? 'text-slate-900' : 'text-white'}`}>{activeBeat.slug.location || 'Untitled Scene'}</h4>
+                                            <div className="flex items-center justify-between mb-2">
+                                                <span className={`text-[10px] font-bold uppercase ${isLight ? 'text-slate-500' : 'text-gray-500'}`}>Output Language</span>
+                                                <div className={`flex rounded border p-0.5 ${isLight ? 'bg-slate-100 border-slate-200' : 'bg-[#111] border-[#333]'}`}>
+                                                    <button 
+                                                        onClick={() => setBreakdownLanguage('english')} 
+                                                        className={`px-2 py-0.5 text-[9px] font-bold uppercase rounded ${breakdownLanguage === 'english' ? 'shadow-xs' : (isLight ? 'text-slate-600 hover:text-slate-900' : 'text-gray-500 hover:text-white')}`}
+                                                        style={breakdownLanguage === 'english' ? { backgroundColor: appAccentColor, color: '#000000' } : undefined}
+                                                    >
+                                                        ENG
+                                                    </button>
+                                                    <button 
+                                                        onClick={() => setBreakdownLanguage('tamil')} 
+                                                        className={`px-2 py-0.5 text-[9px] font-bold uppercase rounded ${breakdownLanguage === 'tamil' ? 'shadow-xs' : (isLight ? 'text-slate-600 hover:text-slate-900' : 'text-gray-500 hover:text-white')}`}
+                                                        style={breakdownLanguage === 'tamil' ? { backgroundColor: appAccentColor, color: '#000000' } : undefined}
+                                                    >
+                                                        TAM
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            <button 
+                                                onClick={handleAnalyzeBreakdown} 
+                                                disabled={isAnalyzing || !aiAvailable} 
+                                                className="w-full py-2 font-bold text-xs uppercase rounded flex items-center justify-center gap-2 transition-all disabled:opacity-50 shadow-xs hover:brightness-110"
+                                                style={{ backgroundColor: appAccentColor, color: '#000000' }}
+                                            >
+                                                {isAnalyzing ? <Sparkles size={14} className="animate-spin" /> : <Sparkles size={14} />} {isAnalyzing ? 'Analyzing...' : 'Auto-Analyze'}
+                                            </button>
+                                        </div>
+                                        <BreakdownSection title="Location Scenario" category="location" icon={MapIcon} color="text-orange-500" />
+                                        <BreakdownSection title="Visual Effects" category="vfx" icon={Wand2} color="text-emerald-500" />
+                                        <BreakdownSection title="Practical Effects" category="practical" icon={Flame} color="text-red-500" />
+                                        <BreakdownSection title="Props" category="props" icon={Package} color="text-rose-500" />
+                                        <BreakdownSection title="Sound / SFX" category="sound" icon={Mic2} color="text-sky-500" />
+                                        <BreakdownSection title="Wardrobe" category="costume" icon={Shirt} color="text-pink-500" />
+                                        <BreakdownSection title="Cast / Extras" category="cast" icon={Users} color="text-amber-500" />
+                                    </>
+                                ) : (
+                                    <div className={`flex flex-col items-center justify-center h-full gap-2 ${isLight ? 'text-slate-400' : 'text-gray-500'}`}>
+                                        <ListChecks size={32} opacity={0.3} />
+                                        <span className="text-xs text-center px-4">Select a scene to view or create breakdown items.</span>
+                                    </div>
+                                )}
+                            </div>
+                        )}
                         {activeSidebar === 'scratchpad' && (
                           <SidebarErrorBoundary isLight={isLight}>
                             <div className="absolute inset-0 flex flex-col">
                               <div className={`px-4 py-3 border-b ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-[#161616] border-[#333]'}`}>
                                 <div className={`flex p-1 rounded-lg border relative ${isLight ? 'bg-slate-100 border-slate-200' : 'bg-black/40 border-[#333]'}`}>
-                                  <button onClick={() => setScratchpadMode('global')} className={`flex-1 py-1.5 text-[10px] font-bold uppercase rounded-md transition-all relative z-10 flex items-center justify-center gap-1.5 ${scratchpadMode === 'global' ? (isLight ? 'bg-amber-500 text-slate-950 font-bold shadow-xs' : 'bg-[#f5a623] text-black shadow-sm') : (isLight ? 'text-slate-600 hover:text-slate-900' : 'text-gray-500 hover:text-gray-300')}`}>
+                                  <button 
+                                    onClick={() => setScratchpadMode('global')} 
+                                    className={`flex-1 py-1.5 text-[10px] font-bold uppercase rounded-md transition-all relative z-10 flex items-center justify-center gap-1.5 ${scratchpadMode === 'global' ? 'shadow-xs' : (isLight ? 'text-slate-600 hover:text-slate-900' : 'text-gray-500 hover:text-gray-300')}`}
+                                    style={scratchpadMode === 'global' ? { backgroundColor: appAccentColor, color: '#000000' } : undefined}
+                                  >
                                     <Globe size={10} /> Global
                                   </button>
-                                  <button onClick={() => setScratchpadMode('scene')} className={`flex-1 py-1.5 text-[10px] font-bold uppercase rounded-md transition-all relative z-10 flex items-center justify-center gap-1.5 ${scratchpadMode === 'scene' ? (isLight ? 'bg-amber-500 text-slate-950 font-bold shadow-xs' : 'bg-[#f5a623] text-black shadow-sm') : (isLight ? 'text-slate-600 hover:text-slate-900' : 'text-gray-500 hover:text-gray-300')}`}>
+                                  <button 
+                                    onClick={() => setScratchpadMode('scene')} 
+                                    className={`flex-1 py-1.5 text-[10px] font-bold uppercase rounded-md transition-all relative z-10 flex items-center justify-center gap-1.5 ${scratchpadMode === 'scene' ? 'shadow-xs' : (isLight ? 'text-slate-600 hover:text-slate-900' : 'text-gray-500 hover:text-gray-300')}`}
+                                    style={scratchpadMode === 'scene' ? { backgroundColor: appAccentColor, color: '#000000' } : undefined}
+                                  >
                                     <StickyNote size={10} /> Scene
-                                  </button>
-                                  <button onClick={() => setScratchpadMode('keep')} className={`flex-1 py-1.5 text-[10px] font-bold uppercase rounded-md transition-all relative z-10 flex items-center justify-center gap-1.5 ${scratchpadMode === 'keep' ? (isLight ? 'bg-amber-500 text-slate-950 font-bold shadow-xs' : 'bg-[#ffbb00] text-black shadow-sm') : (isLight ? 'text-slate-600 hover:text-slate-900' : 'text-gray-500 hover:text-gray-300')}`}>
-                                    <GoogleKeepIcon size={11} /> Google Keep
                                   </button>
                                 </div>
                               </div>
-                              {scratchpadMode === 'keep' ? (
-                                <div className="flex-1 flex flex-col h-full overflow-hidden relative">
-                                  <div className={`px-3 py-2 border-b flex items-center justify-between shrink-0 ${isLight ? 'bg-white border-slate-200' : 'bg-[#141416] border-[#222]'}`}>
-                                    <div className="flex items-center gap-2">
-                                      <GoogleKeepIcon size={14} />
-                                      <span className={`text-[11px] font-bold uppercase tracking-wider ${isLight ? 'text-slate-800' : 'text-slate-200'}`}>Google Keep Live</span>
-                                    </div>
-                                    <div className="flex items-center gap-1.5">
-                                      <button
-                                        onClick={() => setKeepIframeKey(prev => prev + 1)}
-                                        className={`p-1.5 rounded transition-colors ${isLight ? 'text-slate-500 hover:text-slate-800 hover:bg-slate-100' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
-                                        title="Reload Google Keep"
-                                      >
-                                        <RotateCcw size={12} />
-                                      </button>
-                                      <button
-                                        onClick={openGoogleKeepCompanion}
-                                        className={`px-2 py-1 rounded text-[10px] font-bold flex items-center gap-1 border transition-all ${isLight ? 'bg-amber-50 hover:bg-amber-100 text-amber-900 border-amber-200' : 'bg-[#ffbb00]/10 hover:bg-[#ffbb00]/20 text-[#ffbb00] border-[#ffbb00]/30'}`}
-                                        title="Open in companion popup window"
-                                      >
-                                        <span>Pop Out</span>
-                                        <ExternalLink size={10} />
-                                      </button>
-                                    </div>
-                                  </div>
-
-                                  <div className="flex-1 relative w-full h-full bg-white">
-                                    <iframe
-                                      key={keepIframeKey}
-                                      src="https://keep.google.com"
-                                      className="w-full h-full border-none"
-                                      title="Google Keep"
-                                      allow="clipboard-read; clipboard-write; microphone"
-                                    />
-                                  </div>
-
-                                  <div className={`p-2.5 border-t text-[10px] shrink-0 leading-tight ${isLight ? 'bg-amber-50/90 border-amber-200 text-amber-950' : 'bg-[#18150f] border-amber-500/20 text-amber-300'}`}>
-                                    <div className="flex items-start gap-1.5">
-                                      <AlertCircle size={12} className="shrink-0 mt-0.5 text-amber-600" />
-                                      <div className="flex-1 space-y-0.5">
-                                        <div><strong>Notice blank or "refused to connect"?</strong> Google blocks embedding on websites by default.</div>
-                                        <div>Like the <em>Black Menu</em> extension, install <a href="https://chromewebstore.google.com/detail/ignore-x-frame-headers/gleekbfimigapmdooioggjaehnhdmach" target="_blank" rel="noreferrer" className="underline font-bold text-amber-600 hover:text-amber-500">Ignore X-Frame Headers</a> to view directly inside this panel, or use <button onClick={openGoogleKeepCompanion} className="underline font-bold text-amber-600 hover:text-amber-500">Pop Out</button>.</div>
-                                      </div>
-                                    </div>
-                                  </div>
-                                </div>
-                              ) : (
                               <div className={`flex-1 p-4 overflow-y-auto custom-scrollbar ${isLight ? 'bg-slate-50' : 'bg-[#111]'}`}>
                                 {scratchpadMode === 'scene' && activeBeat && (
                                   <div className={`mb-4 pb-3 border-b ${isLight ? 'border-slate-200' : 'border-[#222]'}`}>
@@ -2162,22 +2403,13 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'cast
                                       <span className={`text-[9px] uppercase tracking-wider font-bold ${isLight ? 'text-slate-400' : 'text-gray-500'}`}>Global Note Target</span>
                                       <h4 className={`text-xs font-black uppercase mt-0.5 ${isLight ? 'text-slate-800' : 'text-white'}`}>Entire Screenplay</h4>
                                     </div>
-                                    <button 
-                                      onClick={openGoogleKeepCompanion}
-                                      className={`px-2 py-1 rounded text-[10px] font-bold flex items-center gap-1.5 border transition-all ${isLight ? 'bg-white hover:bg-amber-50 text-slate-700 hover:text-amber-900 border-slate-200 hover:border-amber-300 shadow-2xs' : 'bg-[#18181b] hover:bg-[#222] text-zinc-300 hover:text-[#ffbb00] border-zinc-800 hover:border-[#ffbb00]/40 shadow-2xs'}`}
-                                      title="Open Google Keep sidecar companion"
-                                    >
-                                      <GoogleKeepIcon size={13} />
-                                      <span>Keep Sidecar</span>
-                                      <ExternalLink size={10} className="opacity-60" />
-                                    </button>
                                   </div>
                                 )}
                                 {(scratchpadMode === 'global' ? (Array.isArray(globalNotes) ? globalNotes : []) : (Array.isArray(activeBeat?.notes) ? activeBeat.notes : [])).map((note, index) => {
                                   if (!note) return null;
                                   const noteId = note.id || `note-${index}`;
                                   const isConfirming = confirmDeleteNoteId === noteId;
-                                  const borderColor = note.color || '#f5a623';
+                                  const borderColor = note.color || appAccentColor;
                                   const subtleBorder = `${borderColor}40`;
                                   const subtleBg = isLight ? '#ffffff' : `${borderColor}05`;
                                   const noteContent = typeof note.content === 'string' ? note.content : '';
@@ -2239,7 +2471,7 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'cast
                                       <div style={{ backgroundColor: 'transparent' }}>
                                         {isAudio ? (
                                           <div className="p-3 bg-black/10 dark:bg-white/[0.02] rounded-md m-2 border border-white/5">
-                                            <div className="text-[9px] uppercase tracking-wider text-amber-500 font-black mb-2 flex items-center gap-1.5">
+                                            <div className="text-[9px] uppercase tracking-wider font-black mb-2 flex items-center gap-1.5" style={{ color: appAccentColor }}>
                                               <Volume2 size={10} /> Voice Idea Memo
                                             </div>
                                             <div dangerouslySetInnerHTML={{ __html: noteContent }} />
@@ -2269,13 +2501,19 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'cast
                                     <div className="flex gap-2">
                                       <button 
                                         onClick={() => addNote()} 
-                                        className={`flex-1 py-3 border border-dashed rounded-none text-xs font-bold uppercase transition-all flex items-center justify-center gap-2 ${isLight ? 'border-slate-300 hover:border-amber-500 text-slate-600 hover:text-amber-600 hover:bg-amber-50/50' : 'border-[#333] hover:border-[#f5a623] hover:bg-[#f5a623]/10 text-gray-500 hover:text-[#f5a623]'}`}
+                                        className={`flex-1 py-3 border border-dashed rounded-none text-xs font-bold uppercase transition-all flex items-center justify-center gap-2 ${isLight ? 'border-slate-300 text-slate-600' : 'border-[#333] text-gray-500'}`}
+                                        style={{ borderColor: `color-mix(in srgb, ${appAccentColor} 40%, transparent)` }}
+                                        onMouseEnter={(e) => { e.currentTarget.style.borderColor = appAccentColor; e.currentTarget.style.color = appAccentColor; }}
+                                        onMouseLeave={(e) => { e.currentTarget.style.borderColor = `color-mix(in srgb, ${appAccentColor} 40%, transparent)`; e.currentTarget.style.color = ''; }}
                                       >
                                         <Plus size={14} /> Add Note
                                       </button>
                                       <button 
                                         onClick={toggleRecording} 
-                                        className={`px-4 border border-dashed rounded-none text-xs font-bold uppercase transition-all flex items-center justify-center gap-2 ${isRecording ? 'border-red-500/50 bg-red-500/10 text-red-500 hover:bg-red-500/20' : (isLight ? 'border-slate-300 hover:border-amber-500 text-slate-600 hover:text-amber-600 hover:bg-amber-50/50' : 'border-[#333] hover:border-[#f5a623] hover:bg-[#f5a623]/10 text-gray-500 hover:text-[#f5a623]')}`} 
+                                        className={`px-4 border border-dashed rounded-none text-xs font-bold uppercase transition-all flex items-center justify-center gap-2 ${isRecording ? 'border-red-500/50 bg-red-500/10 text-red-500 hover:bg-red-500/20' : (isLight ? 'border-slate-300 text-slate-600' : 'border-[#333] text-gray-500')}`} 
+                                        style={!isRecording ? { borderColor: `color-mix(in srgb, ${appAccentColor} 40%, transparent)` } : undefined}
+                                        onMouseEnter={(e) => { if (!isRecording) { e.currentTarget.style.borderColor = appAccentColor; e.currentTarget.style.color = appAccentColor; } }}
+                                        onMouseLeave={(e) => { if (!isRecording) { e.currentTarget.style.borderColor = `color-mix(in srgb, ${appAccentColor} 40%, transparent)`; e.currentTarget.style.color = ''; } }}
                                         title={isRecording ? "Stop Recording" : "Record Voice Idea"}
                                       >
                                         {isRecording ? (
@@ -2288,23 +2526,13 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'cast
                                         )}
                                       </button>
                                     </div>
-                                    <button 
-                                      onClick={openGoogleKeepCompanion}
-                                      className={`py-2 px-3 border border-dashed rounded-none text-[11px] font-bold uppercase transition-all flex items-center justify-center gap-2 ${isLight ? 'border-amber-200 hover:border-amber-400 bg-amber-50/50 hover:bg-amber-100/60 text-amber-900' : 'border-[#ffbb00]/20 hover:border-[#ffbb00]/40 bg-[#ffbb00]/5 hover:bg-[#ffbb00]/10 text-[#ffbb00]'}`}
-                                      title="Open Google Keep in a companion sidecar window"
-                                    >
-                                      <GoogleKeepIcon size={13} />
-                                      <span>Launch Google Keep Sidecar</span>
-                                      <ExternalLink size={11} className="opacity-60" />
-                                    </button>
                                   </div>
                                 )}
                               </div>
-                              )}
                             </div>
                           </SidebarErrorBoundary>
                         )}
-                        {activeSidebar === 'history' && (<div className="absolute inset-0 overflow-y-auto custom-scrollbar p-4">{activeBeat ? (<div className="flex flex-col h-full"><div className={`mb-4 p-3 rounded border ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-[#111] border-[#333]'}`}><span className={`text-[9px] uppercase tracking-wider font-bold ${isLight ? 'text-slate-400' : 'text-gray-500'}`}>Version History Target</span><h4 className={`text-xs font-black uppercase mt-0.5 mb-1 ${isLight ? 'text-slate-900' : 'text-white'}`}>{activeBeat.slug.location || 'Untitled'}</h4><div className={`text-[10px] font-mono ${isLight ? 'text-slate-500' : 'text-gray-500'}`}>Current Version</div></div><button onClick={handleCreateSnapshot} className={`w-full py-2 mb-6 border text-xs font-bold uppercase rounded flex items-center justify-center gap-2 transition-all ${isLight ? 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-800' : 'bg-[#222] hover:bg-[#333] border-[#333] text-gray-300'}`}><Save size={12} /> Create Snapshot</button><div className="space-y-2">{activeBeat.versions && activeBeat.versions.length > 0 ? ([...activeBeat.versions].reverse().map((v, i) => (<div key={v.id} className={`border rounded p-3 group transition-colors ${isLight ? 'bg-slate-50 border-slate-200 hover:border-slate-300' : 'bg-[#111] border-[#222] hover:border-[#444]'}`}><div className="flex items-center justify-between mb-2"><span className="text-[10px] font-bold text-amber-600 uppercase">v{activeBeat.versions!.length - i}</span><span className={`text-[9px] font-mono ${isLight ? 'text-slate-400' : 'text-gray-500'}`}>{new Date(v.timestamp).toLocaleString()}</span></div><div className={`text-[10px] mb-3 line-clamp-2 italic opacity-80 ${isLight ? 'text-slate-600' : 'text-gray-400'}`}>{v.summary || "No summary provided."}</div><button onClick={() => handleRestoreClick(v)} className={`w-full py-1.5 border rounded text-[9px] font-bold uppercase flex items-center justify-center gap-2 transition-colors ${isLight ? 'bg-white hover:bg-slate-100 border-slate-300 text-slate-700 hover:text-slate-900' : 'bg-[#1a1a1a] hover:bg-[#252525] border-[#333] text-gray-400 hover:text-white'}`}><RotateCcw size={10} /> Restore</button></div>))) : (<div className={`text-center py-10 ${isLight ? 'text-slate-400' : 'text-gray-600'}`}><History size={32} className="mx-auto mb-2 opacity-20" /><span className="text-xs">No snapshots yet.</span></div>)}</div></div>) : (<div className={`flex flex-col items-center justify-center h-full gap-2 ${isLight ? 'text-slate-400' : 'text-gray-500'}`}><History size={32} opacity={0.3} /><span className="text-xs text-center px-4">Select a scene to view version history.</span></div>)}</div>)}
+                        {activeSidebar === 'history' && (<div className="absolute inset-0 overflow-y-auto custom-scrollbar p-4">{activeBeat ? (<div className="flex flex-col h-full"><div className={`mb-4 p-3 rounded border ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-[#111] border-[#333]'}`}><span className={`text-[9px] uppercase tracking-wider font-bold ${isLight ? 'text-slate-400' : 'text-gray-500'}`}>Version History Target</span><h4 className={`text-xs font-black uppercase mt-0.5 mb-1 ${isLight ? 'text-slate-900' : 'text-white'}`}>{activeBeat.slug.location || 'Untitled'}</h4><div className={`text-[10px] font-mono ${isLight ? 'text-slate-500' : 'text-gray-500'}`}>Current Version</div></div><button onClick={handleCreateSnapshot} className={`w-full py-2 mb-6 border text-xs font-bold uppercase rounded flex items-center justify-center gap-2 transition-all ${isLight ? 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-800' : 'bg-[#222] hover:bg-[#333] border-[#333] text-gray-300'}`}><Save size={12} /> Create Snapshot</button><div className="space-y-2">{activeBeat.versions && activeBeat.versions.length > 0 ? ([...activeBeat.versions].reverse().map((v, i) => (<div key={v.id} className={`border rounded p-3 group transition-colors ${isLight ? 'bg-slate-50 border-slate-200 hover:border-slate-300' : 'bg-[#111] border-[#222] hover:border-[#444]'}`}><div className="flex items-center justify-between mb-2"><span className="text-[10px] font-bold uppercase" style={{ color: appAccentColor }}>v{activeBeat.versions!.length - i}</span><span className={`text-[9px] font-mono ${isLight ? 'text-slate-400' : 'text-gray-500'}`}>{new Date(v.timestamp).toLocaleString()}</span></div><div className={`text-[10px] mb-3 line-clamp-2 italic opacity-80 ${isLight ? 'text-slate-600' : 'text-gray-400'}`}>{v.summary || "No summary provided."}</div><button onClick={() => handleRestoreClick(v)} className={`w-full py-1.5 border rounded text-[9px] font-bold uppercase flex items-center justify-center gap-2 transition-colors ${isLight ? 'bg-white hover:bg-slate-100 border-slate-300 text-slate-700 hover:text-slate-900' : 'bg-[#1a1a1a] hover:bg-[#252525] border-[#333] text-gray-400 hover:text-white'}`}><RotateCcw size={10} /> Restore</button></div>))) : (<div className={`text-center py-10 ${isLight ? 'text-slate-400' : 'text-gray-600'}`}><History size={32} className="mx-auto mb-2 opacity-20" /><span className="text-xs">No snapshots yet.</span></div>)}</div></div>) : (<div className={`flex flex-col items-center justify-center h-full gap-2 ${isLight ? 'text-slate-400' : 'text-gray-500'}`}><History size={32} opacity={0.3} /><span className="text-xs text-center px-4">Select a scene to view version history.</span></div>)}</div>)}
                     </div>
                 </div>
             )}
@@ -2320,7 +2548,7 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'cast
             {/* Header: Scene Context */}
             <div className={`px-3 py-2 border-b mb-1 flex items-center justify-between ${isLight ? 'border-slate-200 bg-slate-50' : 'border-[#222] bg-black/20'}`}>
                 <span className={`text-[9px] font-black uppercase tracking-widest ${isLight ? 'text-slate-400' : 'text-gray-500'}`}>Script Terminal</span>
-                <span className="text-[9px] font-mono text-amber-500">SCN: {scriptContextMenu.beatId}</span>
+                <span className="text-[9px] font-mono font-bold" style={{ color: appAccentColor }}>SCN: {scriptContextMenu.beatId}</span>
             </div>
 
             {/* SELECTION-SPECIFIC SECTION */}
@@ -2474,9 +2702,14 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'cast
       </div>
       {/* Quick Action Toast */}
       {scriptToast && (
-        <div className={`fixed bottom-8 left-1/2 -translate-x-1/2 z-[9999] px-4 py-2 text-xs font-mono font-bold tracking-wide uppercase shadow-2xl border flex items-center gap-2 animate-in fade-in slide-in-from-bottom-4 duration-150 ${
-            isLight ? 'bg-slate-900 text-amber-400 border-slate-700' : 'bg-black text-amber-400 border-amber-500/40'
-        }`}>
+        <div 
+          className="fixed bottom-8 left-1/2 -translate-x-1/2 z-[9999] px-4 py-2 text-xs font-mono font-bold tracking-wide uppercase shadow-2xl border flex items-center gap-2 animate-in fade-in slide-in-from-bottom-4 duration-150"
+          style={{
+            backgroundColor: isLight ? '#0f172a' : '#000000',
+            color: appAccentColor,
+            borderColor: `color-mix(in srgb, ${appAccentColor} 40%, transparent)`
+          }}
+        >
             <Check size={14} className="text-emerald-400" />
             <span>{scriptToast}</span>
         </div>

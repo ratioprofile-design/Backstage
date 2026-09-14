@@ -34,6 +34,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
   cloudProjects = [],
   onOpenCloudProject,
   onDeleteCloudProject,
+  onOpenAuth,
 }) => {
   const { 
     userRole, logout, schemaError, projectList, selectProject, 
@@ -224,8 +225,8 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
                     <FolderOpen size={18} style={{ color: appAccentColor }} className="group-hover:scale-110 transition-transform" />
                   </div>
                   <div className="flex flex-col">
-                    <span className="text-xs font-bold uppercase tracking-wider text-slate-200 group-hover:text-white">Open Project File</span>
-                    <span className="text-[10px] text-gray-400">Load .backstage or script</span>
+                    <span className="text-xs font-bold uppercase tracking-wider text-slate-200 group-hover:text-white">Open / Import File</span>
+                    <span className="text-[10px] text-gray-400">Backstage (.bst) or Causality (.cau, .json)</span>
                   </div>
                 </div>
                 <kbd className="text-[10px] font-mono text-gray-400 bg-white/5 px-2 py-1 rounded border border-white/5 shrink-0">
@@ -289,15 +290,24 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
                 </div>
               </div>
 
-              {currentUser && (
+              {currentUser ? (
                 <button
                   onClick={() => logout()}
-                  className="p-1.5 rounded-lg text-gray-400 hover:text-red-400 hover:bg-red-500/10 transition-colors text-[10px] flex items-center gap-1"
+                  className="p-1.5 rounded-lg text-gray-400 hover:text-red-400 hover:bg-red-500/10 transition-colors text-[10px] flex items-center gap-1 cursor-pointer"
                   title="Sign out of workspace"
                 >
                   <LogOut size={13} />
                 </button>
-              )}
+              ) : onOpenAuth ? (
+                <button
+                  onClick={onOpenAuth}
+                  className="px-2.5 py-1 rounded-lg bg-amber-400 hover:bg-amber-300 text-black font-black text-[10px] uppercase tracking-wider transition-all shadow-xs cursor-pointer active:scale-95 flex items-center gap-1"
+                  title="Sign in or create account"
+                >
+                  <User size={11} />
+                  <span>Log In</span>
+                </button>
+              ) : null}
             </div>
 
             {/* Direct Continue Button */}
@@ -504,11 +514,24 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
                       <Cloud size={20} className="text-gray-600" />
                     </div>
                     <div>
-                      <h4 className="text-xs font-bold text-gray-300 uppercase tracking-wider">No Cloud Projects</h4>
+                      <h4 className="text-xs font-bold text-gray-300 uppercase tracking-wider">
+                        {currentUser ? 'No Cloud Projects' : 'Sign In Required for Cloud Sync'}
+                      </h4>
                       <p className="text-[11px] text-gray-500 max-w-[280px] mt-1 leading-relaxed">
-                        Projects created while logged in are automatically backed up to your production cloud.
+                        {currentUser
+                          ? 'Projects created while logged in are automatically backed up to your production cloud.'
+                          : 'Log in with your account to access your cloud scripts, automated backups, and shared production workspaces.'
+                        }
                       </p>
                     </div>
+                    {!currentUser && onOpenAuth && (
+                      <button
+                        onClick={onOpenAuth}
+                        className="mt-1 px-4 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-black text-xs font-bold uppercase tracking-wider transition-all shadow-md active:scale-95 cursor-pointer"
+                      >
+                        Log In to Access Cloud
+                      </button>
+                    )}
                   </div>
                 )}
               </>
@@ -556,11 +579,24 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
                       <Mail size={20} className="text-gray-600" />
                     </div>
                     <div>
-                      <h4 className="text-xs font-bold text-gray-300 uppercase tracking-wider">No Active Invites</h4>
+                      <h4 className="text-xs font-bold text-gray-300 uppercase tracking-wider">
+                        {currentUser ? 'No Active Invites' : 'Sign In to View Collaboration Invites'}
+                      </h4>
                       <p className="text-[11px] text-gray-500 max-w-[320px] mt-1 leading-relaxed">
-                        When other writers or producers invite you by email (<strong className="text-gray-300">{currentUser || 'your email'}</strong>), collaborative productions appear here.
+                        {currentUser
+                          ? `When other writers or producers invite you by email (${currentUser}), collaborative productions appear here.`
+                          : 'Sign in to check for invitations sent to your email from directors, screenwriters, or producers.'
+                        }
                       </p>
                     </div>
+                    {!currentUser && onOpenAuth && (
+                      <button
+                        onClick={onOpenAuth}
+                        className="mt-1 px-4 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-black text-xs font-bold uppercase tracking-wider transition-all shadow-md active:scale-95 cursor-pointer"
+                      >
+                        Log In to View Invites
+                      </button>
+                    )}
                   </div>
                 )}
               </>

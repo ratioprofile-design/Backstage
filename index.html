@@ -71,6 +71,38 @@
       }
     </script>
 
+    <!-- Canvas Filter Intercept: Prevents Excalidraw dark mode from turning photos into negatives -->
+    <script>
+      (function() {
+        function patchFilter(proto) {
+          if (!proto) return;
+          try {
+            const desc = Object.getOwnPropertyDescriptor(proto, 'filter');
+            if (desc && desc.set) {
+              const origSet = desc.set;
+              Object.defineProperty(proto, 'filter', {
+                ...desc,
+                set(val) {
+                  if (typeof val === 'string' && val.includes('invert(')) {
+                    return origSet.call(this, 'none');
+                  }
+                  return origSet.call(this, val);
+                }
+              });
+            }
+          } catch(e) {}
+        }
+        if (typeof window !== 'undefined') {
+          if ('CanvasRenderingContext2D' in window) {
+            patchFilter(window.CanvasRenderingContext2D.prototype);
+          }
+          if ('OffscreenCanvasRenderingContext2D' in window) {
+            patchFilter(window.OffscreenCanvasRenderingContext2D.prototype);
+          }
+        }
+      })();
+    </script>
+
     <!-- Global Shim: Prevents "process is not defined" crash on static hosts like Netlify -->
     <script>
       window.process = { 
@@ -96,8 +128,11 @@
       });
     </script>
 
+    <link rel="preload" href="/fonts/vijaya.ttf" as="font" type="font/ttf" crossorigin>
+    <link rel="preload" href="/fonts/vijayab.ttf" as="font" type="font/ttf" crossorigin>
+    <link rel="preload" href="/fonts/MeeraInimai-Regular.ttf" as="font" type="font/ttf" crossorigin>
     <link rel="stylesheet" href="./style.css">
-    <link href="https://fonts.googleapis.com/css2?family=Courier+Prime:ital,wght@0,400;0,700;1,400;1,700&family=Inter:wght@400;700;900&family=Merriweather:ital,wght@0,400;0,700;1,400&family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Courier+Prime:ital,wght@0,400;0,700;1,400;1,700&family=Inter:wght@400;700;900&family=Merriweather:ital,wght@0,400;0,700;1,400&family=Roboto+Mono:wght@400;700&family=Meera+Inimai&display=swap" rel="stylesheet">
     
 
     <script>

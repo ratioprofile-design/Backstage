@@ -69,7 +69,8 @@ export const CHARACTER_ROLES = ['Protagonist', 'Antagonist', 'Deuteragonist', 'L
 export const RELATIONSHIP_TYPES = ['Friend', 'Enemy', 'Rival', 'Sibling', 'Parent', 'Child', 'Spouse', 'Lover', 'Ex-Lover', 'Mentor', 'Student', 'Boss', 'Subordinate', 'Acquaintance', 'Estranged', 'Killer', 'Victim'];
 
 export const AVAILABLE_TAMIL_FONTS = [
-    { label: 'Vijaya (Default)', value: 'Vijaya' },
+    { label: 'Meera Inimai (Recommended)', value: 'Meera Inimai' },
+    { label: 'Vijaya', value: 'Vijaya' },
     { label: 'Latha', value: 'Latha' },
     { label: 'Nirmala UI', value: 'Nirmala UI' },
     { label: 'InaiMathi', value: 'InaiMathi' },
@@ -78,6 +79,7 @@ export const AVAILABLE_TAMIL_FONTS = [
 
 export const AVAILABLE_ENGLISH_FONTS = [
     { label: 'Courier Prime', value: 'Courier Prime' },
+    { label: 'Meera Inimai', value: 'Meera Inimai' },
     { label: 'Vijaya', value: 'Vijaya' },
     { label: 'Courier New', value: 'Courier New' },
     { label: 'Helvetica Neue', value: 'Helvetica Neue' },
@@ -85,6 +87,7 @@ export const AVAILABLE_ENGLISH_FONTS = [
     { label: 'Times New Roman', value: 'Times New Roman' },
     { label: 'Georgia', value: 'Georgia' },
 ];
+export const AVAILABLE_FONTS = AVAILABLE_ENGLISH_FONTS;
 
 export const AVAILABLE_IMAGE_MODELS = [
     { label: 'Gemini 2.5 Flash Image (Fast & Cheap)', value: 'gemini-2.5-flash-image' },
@@ -129,6 +132,8 @@ export const NOTE_FONTS = [
     { label: 'Merriweather (Serif)', value: '"Merriweather", serif' },
     { label: 'Inter (Clean)', value: '"Inter", sans-serif' },
     { label: 'Roboto Mono (Code)', value: '"Roboto Mono", monospace' },
+    { label: 'Meera Inimai', value: '"Meera Inimai", sans-serif' },
+    { label: 'Vijaya', value: '"Vijaya", serif' },
 ];
 
 export const SUPPORTED_LANGUAGES = [

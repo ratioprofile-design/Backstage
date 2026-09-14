@@ -2,6 +2,36 @@
 /* --- BACKSTAGE STORY SEQUENCER — UNIFIED DESIGN SYSTEM --- */
 
 /* ==========================================
+   0. EMBEDDED FONTS (Vijaya & Meera Inimai)
+   ========================================== */
+@font-face {
+  font-family: 'Vijaya';
+  src: local('Vijaya'),
+       url('/fonts/vijaya.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Vijaya';
+  src: local('Vijaya Bold'), local('Vijaya-Bold'),
+       url('/fonts/vijayab.ttf') format('truetype');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Meera Inimai';
+  src: local('Meera Inimai'), local('MeeraInimai-Regular'),
+       url('/fonts/MeeraInimai-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* ==========================================
    0. DESIGN TOKENS (Dark = default, Light = .light-theme)
    ========================================== */
 :root {
@@ -118,7 +148,7 @@
   margin-top: var(--mt-action, 0.2rem);
   margin-bottom: var(--mb-action, 1rem);
   font-size: var(--size-action, 13px);
-  font-family: var(--font-action);
+  font-family: var(--font-action) !important;
   text-align: var(--align-action, left);
   line-height: var(--lh-action, 1.2);
   font-weight: var(--weight-action);
@@ -131,7 +161,7 @@
   width: var(--width-character, 40%);
   margin-top: var(--mt-character, 0.4rem);
   font-size: var(--size-character, 13px);
-  font-family: var(--font-character);
+  font-family: var(--font-character) !important;
   font-weight: var(--weight-character, bold);
   text-align: var(--align-character, left);
   text-transform: uppercase;
@@ -142,7 +172,7 @@
   width: var(--width-dialogue, 60%);
   margin-bottom: var(--mb-dialogue, 0.2rem);
   font-size: var(--size-dialogue, 13px);
-  font-family: var(--font-dialogue);
+  font-family: var(--font-dialogue) !important;
   text-align: var(--align-dialogue, left);
 }
 
@@ -150,7 +180,7 @@
   margin-left: var(--margin-parenthetical, 28%);
   width: var(--width-parenthetical, 35%);
   font-size: var(--size-parenthetical, 13px);
-  font-family: var(--font-parenthetical);
+  font-family: var(--font-parenthetical) !important;
   font-style: var(--style-parenthetical, italic);
 }
 
@@ -160,7 +190,7 @@
   margin-top: var(--mt-transition, 0rem);
   margin-bottom: var(--mb-transition, 0rem);
   font-size: var(--size-transition, 13px);
-  font-family: var(--font-transition, "Courier Prime", monospace);
+  font-family: var(--font-transition, "Courier Prime", monospace) !important;
   text-align: var(--align-transition, right);
   line-height: var(--lh-transition, 1.2);
   font-weight: var(--weight-transition, bold);
@@ -175,7 +205,7 @@
   margin-top: var(--mt-shot, 0.1rem);
   margin-bottom: var(--mb-shot, 0.1rem);
   font-size: var(--size-shot, 13px);
-  font-family: var(--font-shot);
+  font-family: var(--font-shot) !important;
   text-align: var(--align-shot, left);
   line-height: var(--lh-shot, 1.2);
   font-weight: var(--weight-shot, bold);
@@ -190,7 +220,7 @@
   margin-top: var(--mt-lyrics, 0rem);
   margin-bottom: var(--mb-lyrics, 0rem);
   font-size: var(--size-lyrics, 13px);
-  font-family: var(--font-lyrics);
+  font-family: var(--font-lyrics) !important;
   text-align: var(--align-lyrics, center);
   line-height: var(--lh-lyrics, 1.2);
   font-weight: var(--weight-lyrics);
@@ -216,7 +246,8 @@
    4. PROJECT-SPECIFIC UI
    ========================================== */
 .board-wrapper {
-  background-image: radial-gradient(circle at 2px 2px, var(--border-default) 1px, transparent 0);
+  background-color: #1e1e1e;
+  background-image: linear-gradient(#2a2a2a 1px, transparent 1px), linear-gradient(90deg, #2a2a2a 1px, transparent 1px);
   background-size: 50px 50px;
 }
 
@@ -403,9 +434,8 @@
 /* --- Beatboard canvas --- */
 .light-theme .board-wrapper,
 .light-theme #viewport {
-  background-color: var(--bg-surface) !important;
-  background-image: radial-gradient(circle at 1.5px 1.5px, var(--border-strong) 1px, transparent 0) !important;
-  background-size: 24px 24px !important;
+  background-color: #f8fafc !important;
+  background-image: linear-gradient(#e2e8f0 1px, transparent 1px), linear-gradient(90deg, #e2e8f0 1px, transparent 1px) !important;
   color: var(--text-primary) !important;
 }
 
@@ -932,6 +962,25 @@ input.slug-input:focus,
   outline: none !important;
 }
 
+/* --- Script Autocomplete & Slug Dropdowns --- */
+.script-dropdown,
+.slug-dropdown {
+  border-color: color-mix(in srgb, var(--app-accent, #f5a623) 50%, #444) !important;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35), 0 0 0 1px color-mix(in srgb, var(--app-accent, #f5a623) 25%, transparent) !important;
+}
+
+.slug-dropdown-item.active,
+.script-dropdown-item.active {
+  background-color: var(--app-accent, #f5a623) !important;
+  color: #000000 !important;
+  font-weight: 800 !important;
+}
+
+.slug-dropdown-item:hover:not(.active),
+.script-dropdown-item:hover:not(.active) {
+  background-color: color-mix(in srgb, var(--app-accent, #f5a623) 14%, transparent) !important;
+}
+
 /* --- Scrollbars (light) --- */
 .light-theme ::-webkit-scrollbar-thumb {
   background-color: var(--scrollbar-thumb) !important;
@@ -1007,17 +1056,22 @@ select:not(.slug-input):not(.bg-transparent):focus {
 
 /* Universal Accent Utility Overrides */
 .bg-app-accent,
-.bg-\[\#f5a623\] {
+.bg-\[\#f5a623\],
+.bg-amber-500 {
   background-color: var(--app-accent, #f5a623) !important;
 }
 
 .text-app-accent,
-.text-\[\#f5a623\] {
+.text-\[\#f5a623\],
+.text-amber-500,
+.text-amber-600 {
   color: var(--app-accent, #f5a623) !important;
 }
 
 .border-app-accent,
-.border-\[\#f5a623\] {
+.border-\[\#f5a623\],
+.border-amber-500,
+.border-amber-600 {
   border-color: var(--app-accent, #f5a623) !important;
 }
 

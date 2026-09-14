@@ -79,7 +79,8 @@ const AppHeader: React.FC<AppHeaderProps> = ({
 
   const views = useMemo(() => {
     const list = [
-      { id: 'board', label: 'Board' },
+      { id: 'board', label: 'Beats DAW' },
+      { id: 'excalidraw', label: 'Excalidraw' },
       { id: 'script', label: 'Script' },
       { id: 'casting', label: 'Casting & Roster' },
       { id: 'breakdown', label: 'Breakdown' },

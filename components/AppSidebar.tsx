@@ -5,7 +5,7 @@ import {
   Film, LayoutGrid, FileText, Users, Layers, Clock, Video, Image as ImageIcon,
   Calendar, CalendarCheck, Files, ClipboardList, TrendingUp,
   PanelLeftClose, PanelLeft, Settings, Sun, Moon, Sparkles, Inbox,
-  RotateCcw, RotateCw, Target, CheckCircle2, Check,
+  RotateCcw, RotateCw, Target, CheckCircle2, Check, PenTool, SlidersHorizontal,
   User, Cloud, CloudOff, Wifi, WifiOff, LogOut, LogIn, Users as UsersIcon
 } from 'lucide-react';
 import { useAiKeyStatus } from '../context/AiKeyStatusContext';
@@ -81,7 +81,8 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
 
   const navItems = useMemo(() => {
     const list = [
-      { id: 'board' as ViewMode, label: 'Board', icon: LayoutGrid },
+      { id: 'board' as ViewMode, label: 'Beats DAW', icon: SlidersHorizontal },
+      { id: 'excalidraw' as ViewMode, label: 'Excalidraw', icon: PenTool },
       { id: 'script' as ViewMode, label: 'Script', icon: FileText },
       { id: 'casting' as ViewMode, label: 'Casting & Roster', icon: Users },
       { id: 'breakdown' as ViewMode, label: 'Breakdown', icon: Layers },

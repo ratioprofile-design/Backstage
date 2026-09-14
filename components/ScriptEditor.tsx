@@ -1059,13 +1059,23 @@ export const ScriptEditor = forwardRef<ScriptEditorHandle, ScriptEditorProps>(({
         
         {!readOnly && showAutocomplete && createPortal(
             <div 
-                className="fixed bg-white border border-gray-300 shadow-xl rounded z-[99999] w-48 max-h-40 overflow-y-auto font-sans" 
-                style={{ top: acPosition.top, left: acPosition.left }}
+                className="script-dropdown fixed bg-white dark:bg-[#1a1a1e] border shadow-xl rounded z-[99999] w-48 max-h-40 overflow-y-auto font-sans" 
+                style={{ 
+                    top: acPosition.top, 
+                    left: acPosition.left,
+                    borderColor: 'color-mix(in srgb, var(--app-accent, #f5a623) 50%, #555)'
+                }}
             >
                 {filteredSuggestions.map((s, i) => (
                     <div 
                         key={s} 
-                        className={`px-3 py-1.5 text-xs font-bold cursor-pointer ${i === acIndex ? 'bg-orange-100 text-orange-800' : 'text-gray-700 hover:bg-gray-100'}`} 
+                        className={`script-dropdown-item px-3 py-1.5 text-xs font-bold cursor-pointer transition-colors ${
+                            i === acIndex ? 'active font-extrabold' : 'text-gray-700 dark:text-gray-200 hover:bg-black/5 dark:hover:bg-white/5'
+                        }`} 
+                        style={i === acIndex ? {
+                            backgroundColor: 'var(--app-accent, #f5a623)',
+                            color: '#000'
+                        } : undefined}
                         onMouseDown={(e) => { e.preventDefault(); applySuggestion(s); }}
                     >
                         {s}
@@ -1077,15 +1087,36 @@ export const ScriptEditor = forwardRef<ScriptEditorHandle, ScriptEditorProps>(({
 
         {!readOnly && showTransliteration && isTamilMode && createPortal(
             <div 
-                className="fixed bg-[#222] border border-[#444] shadow-2xl rounded z-[99999] flex flex-row items-center overflow-hidden font-sans" 
-                style={{ top: acPosition.top, left: acPosition.left }}
+                className="script-dropdown fixed bg-[#1a1a1e] border shadow-2xl rounded z-[99999] flex flex-row items-center overflow-hidden font-sans" 
+                style={{ 
+                    top: acPosition.top, 
+                    left: acPosition.left,
+                    borderColor: 'color-mix(in srgb, var(--app-accent, #f5a623) 50%, #444)'
+                }}
             >
-                <div className="bg-[#333] px-2 py-2 text-[10px] text-[#888] border-r border-[#444] uppercase font-bold flex items-center">{currentTypingWord}</div>
+                <div 
+                    className="bg-[#242429] px-2 py-2 text-[10px] uppercase font-bold flex items-center border-r border-[#333]"
+                    style={{ color: 'var(--app-accent, #f5a623)' }}
+                >
+                    {currentTypingWord}
+                </div>
                 <div className="flex flex-row">
                     {transCandidates.map((s, i) => (
-                        <div key={s} className="px-3 py-2 text-sm font-medium cursor-pointer transition-colors text-gray-200 hover:bg-[#333] hover:text-[#f5a623] border-r border-[#333] last:border-0 flex gap-2 items-center" onMouseDown={(e) => { e.preventDefault(); applyTransliteration(s); }}>
-                            <span className="text-[10px] text-gray-500 font-bold bg-black/30 px-1 rounded">{i+1}</span>
-                            <span>{s}</span>
+                        <div 
+                            key={s} 
+                            className="px-3 py-2 text-sm font-medium cursor-pointer transition-colors text-gray-200 hover:bg-white/10 border-r border-[#333] last:border-0 flex gap-2 items-center group" 
+                            onMouseDown={(e) => { e.preventDefault(); applyTransliteration(s); }}
+                        >
+                            <span 
+                                className="text-[10px] font-bold px-1 rounded transition-colors"
+                                style={{ 
+                                    backgroundColor: 'color-mix(in srgb, var(--app-accent, #f5a623) 25%, transparent)',
+                                    color: 'var(--app-accent, #f5a623)'
+                                }}
+                            >
+                                {i+1}
+                            </span>
+                            <span className="group-hover:text-white transition-colors">{s}</span>
                         </div>
                     ))}
                 </div>

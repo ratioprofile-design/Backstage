@@ -149,17 +149,24 @@ export const SlugInput = ({
       />
       {!readOnly && isOpen && (
         <div 
-          className={`absolute top-full ${align === 'right' ? 'right-0' : 'left-0'} min-w-full w-max bg-white dark:bg-[#1a1a1e] border border-slate-200 dark:border-slate-700/80 shadow-2xl z-[9999] max-h-60 overflow-y-auto mt-1 rounded-none p-1 print:hidden text-left backdrop-blur-md ${dropdownClassName || ''}`}
-          style={dropdownStyle}
+          className={`slug-dropdown absolute top-full ${align === 'right' ? 'right-0' : 'left-0'} min-w-full w-max bg-white dark:bg-[#1a1a1e] border border-slate-200 dark:border-slate-700/80 shadow-2xl z-[9999] max-h-60 overflow-y-auto mt-1 rounded-none p-1 print:hidden text-left backdrop-blur-md ${dropdownClassName || ''}`}
+          style={{
+            borderColor: 'color-mix(in srgb, var(--app-accent, #f5a623) 40%, #555)',
+            ...dropdownStyle
+          }}
         >
           {filtered.map((s, i) => (
             <div 
-              key={s}
-              className={`px-3 py-1.5 cursor-pointer text-xs font-extrabold whitespace-nowrap transition-colors rounded-none ${
+              key={s} 
+              className={`slug-dropdown-item px-3 py-1.5 cursor-pointer text-xs font-extrabold whitespace-nowrap transition-colors rounded-none ${
                 i === selectedIndex 
-                  ? 'bg-amber-400 text-slate-950 font-black' 
+                  ? 'active font-black' 
                   : 'hover:bg-slate-500/10'
               }`}
+              style={i === selectedIndex ? {
+                backgroundColor: 'var(--app-accent, #f5a623)',
+                color: '#000'
+              } : undefined}
               onMouseDown={(e) => { e.preventDefault(); handleSelect(s); if(onNext) onNext(); }}
             >
               {s}

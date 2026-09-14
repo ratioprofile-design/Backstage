@@ -98,7 +98,7 @@ export interface ProjectMetadata {
   invitedBy?: string;
 }
 
-export type ViewMode = 'board' | 'script' | 'characters' | 'casting' | 'characterdesign' | 'breakdown' | 'crew' | 'shotlist' | 'storyboard' | 'schedule' | 'statistics' | 'backstage' | 'goals' | 'inbox' | 'continuity' | 'locations' | 'dood' | 'documents' | 'callsheet';
+export type ViewMode = 'board' | 'excalidraw' | 'script' | 'characters' | 'casting' | 'characterdesign' | 'breakdown' | 'crew' | 'shotlist' | 'storyboard' | 'schedule' | 'statistics' | 'backstage' | 'goals' | 'inbox' | 'continuity' | 'locations' | 'dood' | 'documents' | 'callsheet';
 
 export interface ContinuityItem {
   id: string;
@@ -810,7 +810,7 @@ export interface BreakdownData {
   items?: BreakdownItem[];
 }
 
-export type BeatStatus = 'not-ready' | 'ready';
+export type BeatStatus = 'not-ready' | 'ready' | 'idea' | 'outline' | 'draft' | 'revision' | 'polish' | 'locked';
 
 export interface BeatVersion {
   id: string;
@@ -825,6 +825,18 @@ export interface Note {
   content: string; // HTML Content
   color: string; // Hex color for sticky note background
   timestamp: number;
+}
+
+export interface TimelineTrack {
+  id: string;
+  label: string;
+  type: 'main' | 'subplot' | 'parallel' | 'broll' | 'audio' | 'theme' | string;
+  color: string;
+  isLocked?: boolean;
+  isMuted?: boolean;
+  isSolo?: boolean;
+  volume?: number;
+  height?: number;
 }
 
 export interface Beat {
@@ -848,6 +860,11 @@ export interface Beat {
   boardId?: number; // Target Board Page
   w?: number; // Board card width (custom resized)
   h?: number; // Board card height (custom resized)
+  trackIndex?: number; // NLE Timeline Track index (0 = V1, 1 = V2, 2 = V3, etc.)
+  durationWidth?: number; // Visual duration width on timeline (px)
+  tension?: number; // Dramatic tension level 0-100%
+  characters?: string[]; // Characters featured in this beat
+  startTime?: number; // Timeline start position in minutes or beats
 }
 
 export type ConnectionStyle = 'curve' | 'zigzag';

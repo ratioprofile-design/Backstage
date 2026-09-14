@@ -20,7 +20,7 @@ import {
 import PrintPreviewModal from '../PrintPreviewModal';
 import { 
     AVAILABLE_IMAGE_MODELS, AVAILABLE_TEXT_MODELS, GEMINI_TEXT_MODELS,
-    VISUAL_STYLES, NOTE_FONTS, AVAILABLE_ENGLISH_FONTS,
+    VISUAL_STYLES, NOTE_FONTS, AVAILABLE_ENGLISH_FONTS, AVAILABLE_TAMIL_FONTS,
     ACCENT_COLORS, APP_LANGUAGES, BREAKDOWN_LANGUAGES
 } from '../../constants';
 import { BlockEditor } from '../BlockEditor';
@@ -221,6 +221,7 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
   const { 
     scriptConfig, setScriptConfig, scriptViewMode, setScriptViewMode,
     isTamilMode, setTamilMode, 
+    tamilFontFamily, setTamilFontFamily, tamilFontScale, setTamilFontScale, 
     isOsInputMode, setOsInputMode, osInputShortcut, setOsInputShortcut,
     storyboardConfig, setStoryboardConfig, isStoryboardFeatureEnabled, setStoryboardFeatureEnabled,
     scratchpadConfig, setScratchpadConfig,
@@ -351,7 +352,11 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
       const dialog = await getTauriDialog();
       if (dialog) {
         const selected = await dialog.open({
-          filters: [{ name: 'Backstage File', extensions: ['bst', 'json'] }],
+          filters: [
+            { name: 'Story & Screenplay Files (*.bst, *.json, *.cau)', extensions: ['bst', 'json', 'cau'] },
+            { name: 'Backstage File (*.bst)', extensions: ['bst'] },
+            { name: 'Causality Project (*.cau, *.json)', extensions: ['cau', 'json'] }
+          ],
           multiple: false
         });
         if (selected) {
@@ -462,7 +467,7 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
 
   const slugFontStyle = {
       fontSize: `${scriptConfig.slugline.fontSize}px`,
-      fontFamily: `${scriptConfig.slugline.fontFamily}, "TamilDynamic", monospace`,
+      fontFamily: isTamilMode && tamilFontFamily && tamilFontFamily !== scriptConfig.slugline.fontFamily ? `'${scriptConfig.slugline.fontFamily}', '${tamilFontFamily}', "Courier Prime", monospace` : `'${scriptConfig.slugline.fontFamily}', "Courier Prime", monospace`,
       textAlign: scriptConfig.slugline.textAlign as any,
       lineHeight: scriptConfig.slugline.lineHeight,
       letterSpacing: `${scriptConfig.slugline.letterSpacing}px`,
@@ -1067,12 +1072,12 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
                         />
 
                         <div className="md:col-span-2">
-                          <input type="file" ref={fileInputRef} onChange={handleFileLoad} accept=".bst,.json" className="hidden" />
+                          <input type="file" ref={fileInputRef} onChange={handleFileLoad} accept=".bst,.json,.cau" className="hidden" />
                           <LargeActionCard 
                               onClick={isTauri() ? handleLoadTauriFile : () => fileInputRef.current?.click()}
                               icon={Upload}
-                              title="Load Project File"
-                              desc="Import and open an existing .bst or JSON script file from your disk."
+                              title="Load Project File (.bst, .json, .cau)"
+                              desc="Import and open an existing Backstage (.bst) or Causality Story (.cau, .json) file from your disk."
                               accentColor={appAccentColor}
                           />
                         </div>
@@ -1707,6 +1712,24 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
                         )}
 
                         <FeatureCard title="Tamil Transliteration" desc="Type phonetically in English to automatically generate Tamil script." icon={Globe} isActive={isTamilMode} onToggle={setTamilMode} accentColor={appAccentColor} />
+                        {isTamilMode && (
+                            <div className="bg-[#111] p-4 rounded-sm border border-[#222] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                                <div>
+                                    <h4 className="text-xs font-bold text-white uppercase tracking-wider">Tamil Font Engine</h4>
+                                    <p className="text-[10px] text-gray-400 mt-0.5">Select preferred Tamil typeface for scriptwriting and live rendering.</p>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <select
+                                        value={tamilFontFamily || 'Meera Inimai'}
+                                        onChange={(e) => setTamilFontFamily(e.target.value)}
+                                        className="bg-[#000] border border-[#333] rounded-sm px-3 py-1.5 text-xs font-bold text-white focus:border-[#f5a623] outline-none"
+                                        style={{ borderColor: appAccentColor }}
+                                    >
+                                        {AVAILABLE_TAMIL_FONTS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
+                                    </select>
+                                </div>
+                            </div>
+                        )}
                         <FeatureCard title="Storyboard AI Features" desc="Enable AI generation capabilities for creating visual storyboard shots." icon={ImageIcon} isActive={isStoryboardFeatureEnabled} onToggle={setStoryboardFeatureEnabled} accentColor={appAccentColor} />
                         <FeatureCard title="Redo Keyboard Shortcuts" desc="Enable Ctrl+Y or Cmd+Shift+Z redo functionality." icon={RotateCw} isActive={isRedoEnabled} onToggle={setRedoEnabled} accentColor={appAccentColor} />
                         
