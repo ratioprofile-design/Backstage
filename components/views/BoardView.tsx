@@ -7,7 +7,8 @@ import {
   Plus, Trash2, Copy, Edit3, Sparkles,
   Maximize2, Minimize2, ZoomIn, ZoomOut,
   FileText, X, ArrowUp, ArrowDown, Check,
-  Settings2, ArrowLeftRight, CornerDownLeft, BarChart3, HelpCircle
+  Settings2, ArrowLeftRight, CornerDownLeft, BarChart3, HelpCircle,
+  ChevronDown, ChevronRight, Layers
 } from 'lucide-react';
 import { AISceneGeneratorModal } from '../AISceneGeneratorModal';
 
@@ -15,13 +16,31 @@ interface BoardViewProps {
   onEditBeat: (id: number) => void;
 }
 
-// Default standard tracks for narrative beats
+// 3 Subtracks per master track (DAW standard multi-lane architecture)
+export const MAX_SUBTRACKS_PER_TRACK = 2;
+
+// Dynamic subtrack height: scales with lane height setting so detailed cards have full room
+export const getSubtrackHeight = (baseHeight: number = 112): number => {
+  if (baseHeight >= 112) return 84; // Detailed mode: ample room for synopsis snippet & tension bar
+  if (baseHeight >= 84) return 68;  // Standard mode
+  return 54;                        // Compact mode
+};
+
+export const getTrackTotalHeight = (track: TimelineTrack, globalLaneHeight: number): number => {
+  const mainH = track.height || globalLaneHeight;
+  const subCount = Math.min(MAX_SUBTRACKS_PER_TRACK, Math.max(0, track.subtrackCount || 0));
+  if (subCount === 0) return mainH;
+  const subH = getSubtrackHeight(mainH);
+  return mainH + (subCount * subH);
+};
+
+// Default standard tracks for narrative beats (Detailed as default, 112px height, manual subtracks)
 const DEFAULT_TRACKS: TimelineTrack[] = [
-  { id: 'v1', label: 'A-Story / Main Protagonist', type: 'main', color: '#06b6d4', height: 84, volume: 85 },
-  { id: 'v2', label: 'B-Story / Allies & Romance', type: 'subplot', color: '#f59e0b', height: 84, volume: 75 },
-  { id: 'v3', label: 'Antagonist & Obstacles', type: 'parallel', color: '#f43f5e', height: 84, volume: 80 },
-  { id: 'v4', label: 'Atmosphere, Tone & B-Roll', type: 'broll', color: '#a855f7', height: 84, volume: 60 },
-  { id: 'v5', label: 'Theme & Philosophy', type: 'theme', color: '#10b981', height: 84, volume: 70 },
+  { id: 'v1', label: 'A-Story / Main Protagonist', type: 'main', color: '#06b6d4', height: 112, volume: 85, subtrackCount: 0 },
+  { id: 'v2', label: 'B-Story / Allies & Romance', type: 'subplot', color: '#f59e0b', height: 112, volume: 75, subtrackCount: 0 },
+  { id: 'v3', label: 'Antagonist & Obstacles', type: 'parallel', color: '#f43f5e', height: 112, volume: 80, subtrackCount: 0 },
+  { id: 'v4', label: 'Atmosphere, Tone & B-Roll', type: 'broll', color: '#a855f7', height: 112, volume: 60, subtrackCount: 0 },
+  { id: 'v5', label: 'Theme & Philosophy', type: 'theme', color: '#10b981', height: 112, volume: 70, subtrackCount: 0 },
 ];
 
 const TRACK_PALETTE_COLORS = [
@@ -75,7 +94,16 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
   const [tracks, setTracks] = useState<TimelineTrack[]>(() => {
     try {
       const saved = localStorage.getItem(tracksStorageKey) || localStorage.getItem('backstage_daw_tracks');
-      if (saved) return JSON.parse(saved);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed.map((t: TimelineTrack) => ({
+            ...t,
+            height: (t.height === 162 || !t.height) ? 112 : t.height,
+            subtrackCount: typeof t.subtrackCount === 'number' ? Math.min(MAX_SUBTRACKS_PER_TRACK, Math.max(0, t.subtrackCount)) : 0
+          }));
+        }
+      }
     } catch (e) {}
     return DEFAULT_TRACKS;
   });
@@ -87,6 +115,52 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
     } catch (e) {}
   };
 
+  // Manually add a subtrack (up to 2 subtracks max per track)
+  const handleAddSubtrack = (trackId: string) => {
+    setTracks(prevTracks => {
+      const updated = prevTracks.map(t => {
+        if (t.id === trackId) {
+          const curCount = Math.min(MAX_SUBTRACKS_PER_TRACK, Math.max(0, t.subtrackCount || 0));
+          if (curCount < MAX_SUBTRACKS_PER_TRACK) {
+            return { ...t, subtrackCount: curCount + 1 };
+          }
+        }
+        return t;
+      });
+      saveTracks(updated);
+      return updated;
+    });
+  };
+
+  // Manually remove a subtrack and reassign any orphan beats
+  const handleRemoveSubtrack = (trackId: string, subtrackNum: number) => {
+    const trackIdx = tracks.findIndex(t => t.id === trackId);
+    setTracks(prevTracks => {
+      const updated = prevTracks.map(t => {
+        if (t.id === trackId) {
+          const curCount = Math.min(MAX_SUBTRACKS_PER_TRACK, Math.max(0, t.subtrackCount || 0));
+          return { ...t, subtrackCount: Math.max(0, curCount - 1) };
+        }
+        return t;
+      });
+      saveTracks(updated);
+      return updated;
+    });
+
+    if (trackIdx !== -1) {
+      setBeats(prevBeats => prevBeats.map(b => {
+        if (b.trackIndex === trackIdx) {
+          if (b.subtrackIndex === subtrackNum) {
+            return { ...b, subtrackIndex: Math.max(0, subtrackNum - 1) };
+          } else if (typeof b.subtrackIndex === 'number' && b.subtrackIndex > subtrackNum) {
+            return { ...b, subtrackIndex: b.subtrackIndex - 1 };
+          }
+        }
+        return b;
+      }));
+    }
+  };
+
   // Track Header Position: 'left' (Industry standard Logic/Final Cut) or 'right' (Ableton)
   const [trackHeaderDock, setTrackHeaderDock] = useState<'left' | 'right'>('left');
 
@@ -95,8 +169,17 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
   const [editingTrackLabel, setEditingTrackLabel] = useState<string>('');
   const [activeTrackSettingsId, setActiveTrackSettingsId] = useState<string | null>(null);
 
-  // Global Lane Height Preset
-  const [globalLaneHeight, setGlobalLaneHeight] = useState<number>(84);
+  // Global Lane Height Preset: Detailed (112) by default
+  const [globalLaneHeight, setGlobalLaneHeight] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem('backstage_daw_lane_height');
+      if (saved) {
+        const num = Number(saved);
+        if ([64, 84, 112].includes(num)) return num;
+      }
+    } catch (e) {}
+    return 112; // Detailed as default
+  });
 
   // DAW Transport State
   const [isPlaying, setIsPlaying] = useState(false);
@@ -125,8 +208,8 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
   // AI Modal
   const [isAiModalOpen, setIsAiModalOpen] = useState(false);
 
-  // Dragging / Trimming Clip State
-  const [dragHoverTrackIdx, setDragHoverTrackIdx] = useState<number | null>(null);
+  // Dragging / Trimming Clip State (Tracks both master track and subtrack 0, 1, 2)
+  const [dragHoverTrack, setDragHoverTrack] = useState<{ trackIdx: number; subtrackIdx: number } | null>(null);
   const [dragState, setDragState] = useState<{
     type: 'move' | 'trim-left' | 'trim-right';
     beatId: number;
@@ -135,6 +218,7 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
     initialStartPage: number;
     initialDuration: number;
     targetTrackIdx: number;
+    targetSubtrackIdx: number;
   } | null>(null);
 
   // References
@@ -153,11 +237,19 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
     let accumulatedPage = 1.0;
     return beats.map((b) => {
       const trackIdx = typeof b.trackIndex === 'number' && b.trackIndex >= 0 && b.trackIndex < tracks.length ? b.trackIndex : 0;
+      const curTrack = tracks[trackIdx];
+      const maxSub = Math.min(MAX_SUBTRACKS_PER_TRACK, Math.max(0, curTrack?.subtrackCount || 0));
+      const subtrackIdx = typeof b.subtrackIndex === 'number' && b.subtrackIndex >= 0 && b.subtrackIndex <= maxSub ? b.subtrackIndex : 0;
       const wordCount = (b.content || '').replace(/<[^>]*>/g, ' ').trim().split(/\s+/).filter(Boolean).length;
       const defaultDuration = Math.max(1.5, Math.min(8.0, Math.round((wordCount / 220) * 2) / 2 || 2.5));
       
       const startPage = typeof b.startTime === 'number' && b.startTime >= 1 ? b.startTime : accumulatedPage;
-      const durationPages = typeof b.durationWidth === 'number' && b.durationWidth > 0 ? (b.durationWidth / (pixelsPerPage * zoomLevel)) : defaultDuration;
+      // Duration in screenplay pages - scales correctly when rendered with effectivePxPerPage
+      const durationPages = typeof (b as any).durationPages === 'number' && (b as any).durationPages > 0
+        ? (b as any).durationPages
+        : typeof b.durationWidth === 'number' && b.durationWidth > 0
+          ? (b.durationWidth / pixelsPerPage)
+          : defaultDuration;
       
       accumulatedPage = Math.max(accumulatedPage, startPage + durationPages);
       const tension = typeof b.tension === 'number' ? b.tension : 50;
@@ -165,12 +257,47 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
       return {
         ...b,
         timelineTrackIdx: trackIdx,
+        timelineSubtrackIdx: subtrackIdx,
         startPage,
         durationPages,
         tension
       };
     });
-  }, [beats, tracks.length, pixelsPerPage, zoomLevel]);
+  }, [beats, tracks, pixelsPerPage]);
+
+  // Zoom In / Out anchored to the playhead
+  const zoomAroundPlayhead = (newZoom: number) => {
+    const clampedZoom = Math.max(0.4, Math.min(3.0, Math.round(newZoom * 10) / 10));
+    if (clampedZoom === zoomLevel) return;
+
+    const scrollContainer = timelineScrollRef.current;
+    const headerOffset = trackHeaderDock === 'left' ? 256 : 0;
+    const oldEffective = pixelsPerPage * zoomLevel;
+    const newEffective = pixelsPerPage * clampedZoom;
+
+    let relativePlayheadOffset = 0;
+    if (scrollContainer) {
+      const oldPlayheadPixel = (playheadPage - 1) * oldEffective + headerOffset;
+      relativePlayheadOffset = oldPlayheadPixel - scrollContainer.scrollLeft;
+    }
+
+    setZoomLevel(clampedZoom);
+
+    requestAnimationFrame(() => {
+      if (timelineScrollRef.current) {
+        const newPlayheadPixel = (playheadPage - 1) * newEffective + headerOffset;
+        const containerWidth = timelineScrollRef.current.clientWidth;
+        
+        // If playhead was visible on screen, keep it at the exact same screen offset
+        if (relativePlayheadOffset >= 0 && relativePlayheadOffset <= containerWidth) {
+          timelineScrollRef.current.scrollLeft = Math.max(0, newPlayheadPixel - relativePlayheadOffset);
+        } else {
+          // Otherwise, center the playhead in the viewport
+          timelineScrollRef.current.scrollLeft = Math.max(0, newPlayheadPixel - (containerWidth / 2));
+        }
+      }
+    });
+  };
 
   // Selected beat
   const selectedBeat = useMemo(() => {
@@ -412,10 +539,25 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
     }
   };
 
-  // Keyboard shortcut listener
+  // Keyboard shortcut listener (Space = Play/Pause, +/= = Zoom In, -/_ = Zoom Out)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement)?.tagName)) return;
+
+      // Zoom In: + or =
+      if (e.key === '+' || e.key === '=' || e.code === 'Equal' || e.code === 'NumpadAdd') {
+        e.preventDefault();
+        zoomAroundPlayhead(zoomLevel + 0.2);
+        return;
+      }
+
+      // Zoom Out: - or _
+      if (e.key === '-' || e.key === '_' || e.code === 'Minus' || e.code === 'NumpadSubtract') {
+        e.preventDefault();
+        zoomAroundPlayhead(zoomLevel - 0.2);
+        return;
+      }
+
       if (e.code === 'Space') {
         e.preventDefault();
         setIsPlaying(p => !p);
@@ -436,16 +578,26 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedBeatId, beats]);
+  }, [selectedBeatId, beats, zoomLevel, playheadPage, trackHeaderDock, pixelsPerPage]);
 
-  // Handle Drag Move & Trim on Timeline
+  // Smooth Drag Move & Trim on Timeline (with RAF and position diffing)
+  const dragRafRef = useRef<number | null>(null);
+  const pendingMouseCoordsRef = useRef<{ clientX: number; clientY: number } | null>(null);
+  const lastAppliedDragRef = useRef<{ startTime?: number; trackIndex?: number; subtrackIndex?: number; durationWidth?: number } | null>(null);
+
   const handleTimelineMouseDown = (e: React.MouseEvent, beatId: number, type: 'move' | 'trim-left' | 'trim-right') => {
     e.stopPropagation();
     const targetBeat = beatsWithTimeline.find(b => b.id === beatId);
     if (!targetBeat) return;
 
     setSelectedBeatId(beatId);
-    setDragHoverTrackIdx(targetBeat.timelineTrackIdx);
+    setDragHoverTrack({ trackIdx: targetBeat.timelineTrackIdx, subtrackIdx: targetBeat.timelineSubtrackIdx });
+    lastAppliedDragRef.current = {
+      startTime: targetBeat.startPage,
+      trackIndex: targetBeat.timelineTrackIdx,
+      subtrackIndex: targetBeat.timelineSubtrackIdx,
+      durationWidth: targetBeat.durationPages * pixelsPerPage
+    };
     setDragState({
       type,
       beatId,
@@ -453,7 +605,8 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
       startY: e.clientY,
       initialStartPage: targetBeat.startPage,
       initialDuration: targetBeat.durationPages,
-      targetTrackIdx: targetBeat.timelineTrackIdx
+      targetTrackIdx: targetBeat.timelineTrackIdx,
+      targetSubtrackIdx: targetBeat.timelineSubtrackIdx
     });
   };
 
@@ -462,53 +615,104 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
   useEffect(() => {
     if (!dragState) return;
 
-    const handleMouseMove = (e: MouseEvent) => {
-      const deltaPx = e.clientX - dragState.startX;
+    const processDragFrame = () => {
+      dragRafRef.current = null;
+      if (!pendingMouseCoordsRef.current || !dragState) return;
+      const { clientX, clientY } = pendingMouseCoordsRef.current;
+      const deltaPx = clientX - dragState.startX;
       const deltaPages = deltaPx / effectivePxPerPage;
 
       if (dragState.type === 'move') {
         const newStart = snapToGrid(Math.max(1, dragState.initialStartPage + deltaPages));
 
         let targetTrack = dragState.targetTrackIdx;
+        let targetSubtrack = dragState.targetSubtrackIdx;
+
         if (tracksContainerRef.current) {
           const containerRect = tracksContainerRef.current.getBoundingClientRect();
-          const relativeY = e.clientY - containerRect.top;
+          const relativeY = clientY - containerRect.top;
           let cumulativeY = 0;
+
           for (let i = 0; i < tracks.length; i++) {
-            const h = tracks[i].height || globalLaneHeight;
-            if (relativeY >= cumulativeY && relativeY < cumulativeY + h) {
+            const track = tracks[i];
+            const mainH = track.height || globalLaneHeight;
+            const subCount = Math.min(MAX_SUBTRACKS_PER_TRACK, Math.max(0, track.subtrackCount || 0));
+            const subH = getSubtrackHeight(mainH);
+            const totalTrackH = mainH + (subCount * subH);
+
+            if (relativeY >= cumulativeY && relativeY < cumulativeY + totalTrackH) {
               targetTrack = i;
+              const relativeYInTrack = relativeY - cumulativeY;
+              if (relativeYInTrack < mainH || subCount === 0) {
+                targetSubtrack = 0; // Main Track
+              } else {
+                targetSubtrack = Math.min(subCount, Math.floor((relativeYInTrack - mainH) / subH) + 1);
+              }
               break;
             }
-            cumulativeY += h;
+            cumulativeY += totalTrackH;
+
             if (i === tracks.length - 1 && relativeY >= cumulativeY) {
               targetTrack = tracks.length - 1;
+              targetSubtrack = subCount;
             }
           }
           targetTrack = Math.max(0, Math.min(tracks.length - 1, targetTrack));
         }
 
-        setDragHoverTrackIdx(targetTrack);
-        updateBeat(dragState.beatId, { startTime: newStart, trackIndex: targetTrack });
+        const last = lastAppliedDragRef.current;
+        if (!last || last.startTime !== newStart || last.trackIndex !== targetTrack || last.subtrackIndex !== targetSubtrack) {
+          lastAppliedDragRef.current = { startTime: newStart, trackIndex: targetTrack, subtrackIndex: targetSubtrack };
+          setDragHoverTrack({ trackIdx: targetTrack, subtrackIdx: targetSubtrack });
+          updateBeat(dragState.beatId, { startTime: newStart, trackIndex: targetTrack, subtrackIndex: targetSubtrack });
+        }
       } else if (dragState.type === 'trim-right') {
         const newDur = Math.max(0.5, snapToGrid(dragState.initialDuration + deltaPages));
-        updateBeat(dragState.beatId, { durationWidth: newDur * effectivePxPerPage });
+        const newWidth = newDur * pixelsPerPage;
+        const last = lastAppliedDragRef.current;
+        if (!last || last.durationWidth !== newWidth) {
+          lastAppliedDragRef.current = { ...last, durationWidth: newWidth };
+          updateBeat(dragState.beatId, { durationWidth: newWidth });
+        }
       } else if (dragState.type === 'trim-left') {
         const newStart = snapToGrid(Math.max(1, dragState.initialStartPage + deltaPages));
         const newDur = Math.max(0.5, dragState.initialDuration - (newStart - dragState.initialStartPage));
-        updateBeat(dragState.beatId, { startTime: newStart, durationWidth: newDur * effectivePxPerPage });
+        const newWidth = newDur * pixelsPerPage;
+        const last = lastAppliedDragRef.current;
+        if (!last || last.startTime !== newStart || last.durationWidth !== newWidth) {
+          lastAppliedDragRef.current = { startTime: newStart, durationWidth: newWidth };
+          updateBeat(dragState.beatId, { startTime: newStart, durationWidth: newWidth });
+        }
+      }
+    };
+
+    const handleMouseMove = (e: MouseEvent) => {
+      pendingMouseCoordsRef.current = { clientX: e.clientX, clientY: e.clientY };
+      if (!dragRafRef.current) {
+        dragRafRef.current = requestAnimationFrame(processDragFrame);
       }
     };
 
     const handleMouseUp = () => {
+      if (dragRafRef.current) {
+        cancelAnimationFrame(dragRafRef.current);
+        dragRafRef.current = null;
+      }
+      processDragFrame();
       setDragState(null);
-      setDragHoverTrackIdx(null);
+      setDragHoverTrack(null);
+      lastAppliedDragRef.current = null;
+      pendingMouseCoordsRef.current = null;
       captureSnapshot();
     };
 
     window.addEventListener('mousemove', handleMouseMove);
     window.addEventListener('mouseup', handleMouseUp);
     return () => {
+      if (dragRafRef.current) {
+        cancelAnimationFrame(dragRafRef.current);
+        dragRafRef.current = null;
+      }
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
     };
@@ -537,10 +741,15 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
 
   const totalTimelineWidth = Math.max(1400, totalScreenplayPages * effectivePxPerPage);
 
-  // Helper to create a new beat clip on the active or first track
-  const handleCreateBeat = (trackIdx = 0) => {
+  // Helper to create a new beat clip on the active track and subtrack (0, 1, or 2)
+  const handleCreateBeat = (trackIdx = 0, subtrackIdx = 0) => {
     const newBeatTitle = `Scene ${beats.length + 1}`;
     const newId = Date.now();
+    const safeTrackIdx = Math.max(0, Math.min(tracks.length - 1, trackIdx));
+    const curTrack = tracks[safeTrackIdx];
+    const maxSub = Math.min(MAX_SUBTRACKS_PER_TRACK, Math.max(0, curTrack?.subtrackCount || 0));
+    const safeSubtrackIdx = Math.max(0, Math.min(maxSub, subtrackIdx));
+
     const newBeat: Beat = {
       id: newId,
       x: 100,
@@ -550,33 +759,38 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
       summary: 'New dramatic sequence.',
       slug: { prefix: 'INT.', location: 'SCENE LOCATION', time: 'DAY' },
       content: '<p>Scene action begins...</p>',
-      trackIndex: trackIdx,
+      trackIndex: safeTrackIdx,
+      subtrackIndex: safeSubtrackIdx,
       startTime: Math.round(playheadPage),
-      durationWidth: 2.5 * effectivePxPerPage,
+      durationWidth: 2.5 * pixelsPerPage,
       tension: 50
     };
     setBeats([...beats, newBeat]);
     setSelectedBeatId(newId);
     captureSnapshot();
-    logTerminal('info', `Created "${newBeatTitle}" at page ${Math.round(playheadPage)}.`);
+    const subLabel = safeSubtrackIdx === 0 ? 'Main' : `Sub ${safeSubtrackIdx}`;
+    logTerminal('info', `Created "${newBeatTitle}" in track V${safeTrackIdx + 1} (${subLabel}), page ${Math.round(playheadPage)}.`);
   };
 
-  // Render Studio Track Strip (Docked on Left or Right)
+  // Render Studio Track Strip (Docked on Left or Right) with Main Track + up to 2 Manual Subtracks
   const renderTrackStripItem = (track: TimelineTrack, trackIdx: number) => {
     const isSoloActive = tracks.some(t => t.isSolo);
     const isMuted = track.isMuted;
     const isDimmed = isMuted || (isSoloActive && !track.isSolo);
-    const isHovered = dragState?.type === 'move' && dragHoverTrackIdx === trackIdx;
-    const beatCount = beatsWithTimeline.filter(b => b.timelineTrackIdx === trackIdx).length;
-    const laneH = track.height || globalLaneHeight;
+    const mainH = track.height || globalLaneHeight;
+    const subCount = Math.min(MAX_SUBTRACKS_PER_TRACK, Math.max(0, track.subtrackCount || 0));
+    const subH = getSubtrackHeight(mainH);
+    const totalH = mainH + (subCount * subH);
+    const trackBeats = beatsWithTimeline.filter(b => b.timelineTrackIdx === trackIdx);
+    const mainBeats = trackBeats.filter(b => (b.timelineSubtrackIdx ?? 0) === 0);
 
     return (
       <div 
         key={track.id}
-        style={{ height: `${laneH}px` }}
-        className={`w-full px-3 py-2 flex flex-col justify-between border-b border-[#1c1f2e] select-none transition-all relative ${
+        style={{ height: `${totalH}px` }}
+        className={`w-full flex flex-col justify-between border-b border-[#1c1f2e] select-none transition-all relative ${
           isDimmed ? 'bg-[#0c0d14] opacity-50' : 'bg-[#10121a]'
-        } ${isHovered ? 'bg-amber-500/[0.12] ring-1 ring-amber-400' : 'hover:bg-[#151722]'}`}
+        }`}
       >
         {/* Color stripe on edge */}
         <div 
@@ -584,112 +798,196 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
           style={{ backgroundColor: track.color }}
         />
 
-        {/* Row 1: Track Index + Inline Renamable Label + Settings Gear */}
-        <div className="flex items-center justify-between gap-1.5 min-w-0">
-          <div className="flex items-center gap-2 min-w-0 flex-1">
-            <span 
-              className="w-5 h-5 rounded flex items-center justify-center font-mono font-black text-[10px] shrink-0 text-black shadow-sm"
-              style={{ backgroundColor: track.color }}
-            >
-              {String(trackIdx + 1).padStart(2, '0')}
-            </span>
-
-            {editingTrackId === track.id ? (
-              <input
-                type="text"
-                autoFocus
-                value={editingTrackLabel}
-                onChange={(e) => setEditingTrackLabel(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') renameTrack(track.id, editingTrackLabel);
-                  if (e.key === 'Escape') setEditingTrackId(null);
-                }}
-                onBlur={() => renameTrack(track.id, editingTrackLabel)}
-                className="bg-[#1e2233] border border-amber-400 rounded px-1.5 py-0.5 text-xs text-white outline-none w-full font-sans font-semibold"
-                onClick={(e) => e.stopPropagation()}
-              />
-            ) : (
-              <div 
-                className="truncate cursor-pointer group/title flex items-center gap-1"
-                onDoubleClick={() => {
-                  setEditingTrackId(track.id);
-                  setEditingTrackLabel(track.label);
-                }}
-                title="Double-click to rename track"
+        {/* 1. Main Master Track Section */}
+        <div 
+          style={{ height: `${mainH}px` }}
+          className="px-3 pt-2.5 pb-2 flex flex-col justify-between border-b border-white/[0.06] bg-[#121420]/90"
+        >
+          {/* Top Line: Number, Title, + Sub button, Settings */}
+          <div className="flex items-center justify-between gap-1.5 min-w-0">
+            <div className="flex items-center gap-1.5 min-w-0 flex-1">
+              <span 
+                className="w-5 h-5 rounded flex items-center justify-center font-mono font-black text-[10px] shrink-0 text-black shadow-sm"
+                style={{ backgroundColor: track.color }}
               >
-                <span className="text-xs font-semibold text-slate-100 truncate group-hover/title:text-amber-400 transition-colors">
-                  {track.label}
-                </span>
-                <Edit3 size={11} className="opacity-0 group-hover/title:opacity-60 text-slate-400 shrink-0" />
-              </div>
-            )}
+                {String(trackIdx + 1).padStart(2, '0')}
+              </span>
+
+              {editingTrackId === track.id ? (
+                <input
+                  type="text"
+                  autoFocus
+                  value={editingTrackLabel}
+                  onChange={(e) => setEditingTrackLabel(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') renameTrack(track.id, editingTrackLabel);
+                    if (e.key === 'Escape') setEditingTrackId(null);
+                  }}
+                  onBlur={() => renameTrack(track.id, editingTrackLabel)}
+                  className="bg-[#1e2233] border border-amber-400 rounded px-1.5 py-0.5 text-xs text-white outline-none w-full font-sans font-semibold"
+                  onClick={(e) => e.stopPropagation()}
+                />
+              ) : (
+                <div 
+                  className="truncate cursor-pointer group/title flex items-center gap-1"
+                  onDoubleClick={() => {
+                    setEditingTrackId(track.id);
+                    setEditingTrackLabel(track.label);
+                  }}
+                  title="Double-click to rename track"
+                >
+                  <span className="text-xs font-semibold text-slate-100 truncate group-hover/title:text-amber-400 transition-colors">
+                    {track.label}
+                  </span>
+                  <Edit3 size={11} className="opacity-0 group-hover/title:opacity-60 text-slate-400 shrink-0" />
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center gap-1 shrink-0">
+              {/* Manual + Subtrack Button (max 2) */}
+              <button
+                onClick={() => handleAddSubtrack(track.id)}
+                disabled={subCount >= MAX_SUBTRACKS_PER_TRACK}
+                className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-bold flex items-center gap-0.5 cursor-pointer transition-colors ${
+                  subCount >= MAX_SUBTRACKS_PER_TRACK
+                    ? 'opacity-30 cursor-not-allowed bg-white/5 text-slate-500'
+                    : 'bg-amber-500/15 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30'
+                }`}
+                title={subCount >= MAX_SUBTRACKS_PER_TRACK ? 'Maximum 2 subtracks reached' : 'Add Subtrack (up to 2 max)'}
+              >
+                <Plus size={10} />
+                <span>Sub</span>
+              </button>
+
+              <button
+                onClick={() => setActiveTrackSettingsId(activeTrackSettingsId === track.id ? null : track.id)}
+                className={`p-1 rounded transition-colors shrink-0 cursor-pointer ${
+                  activeTrackSettingsId === track.id ? 'bg-amber-500 text-black' : 'text-slate-400 hover:text-white hover:bg-white/10'
+                }`}
+                title="Track Settings"
+              >
+                <Settings2 size={13} />
+              </button>
+            </div>
           </div>
 
-          <button
-            onClick={() => setActiveTrackSettingsId(activeTrackSettingsId === track.id ? null : track.id)}
-            className={`p-1 rounded transition-colors shrink-0 cursor-pointer ${
-              activeTrackSettingsId === track.id ? 'bg-amber-500 text-black' : 'text-slate-400 hover:text-white hover:bg-white/10'
-            }`}
-            title="Track Settings & Role"
-          >
-            <Settings2 size={13} />
-          </button>
-        </div>
+          {/* Controls: Mute, Solo, Volume, Main Beats count */}
+          <div className="flex items-center justify-between gap-2 mt-1">
+            <div className="flex items-center gap-1 shrink-0">
+              <button
+                onClick={() => updateTrack(track.id, { isMuted: !track.isMuted })}
+                className={`w-4 h-4 rounded text-[9px] font-mono font-bold flex items-center justify-center transition-all cursor-pointer ${
+                  track.isMuted 
+                    ? 'bg-red-500 text-white shadow-[0_0_8px_#ef4444]' 
+                    : 'bg-[#1b1e2a] hover:bg-[#252838] text-slate-400 hover:text-slate-200'
+                }`}
+                title="Mute Track"
+              >
+                M
+              </button>
+              <button
+                onClick={() => updateTrack(track.id, { isSolo: !track.isSolo })}
+                className={`w-4 h-4 rounded text-[9px] font-mono font-bold flex items-center justify-center transition-all cursor-pointer ${
+                  track.isSolo 
+                    ? 'bg-amber-400 text-black shadow-[0_0_8px_#f59e0b]' 
+                    : 'bg-[#1b1e2a] hover:bg-[#252838] text-slate-400 hover:text-slate-200'
+                }`}
+                title="Solo Track"
+              >
+                S
+              </button>
+            </div>
 
-        {/* Row 2: Console Controls (Mute, Solo, Volume Fader, Clip count) */}
-        <div className="flex items-center justify-between gap-2 mt-1">
-          {/* Mute and Solo tactile buttons */}
-          <div className="flex items-center gap-1 shrink-0">
-            <button
-              onClick={() => updateTrack(track.id, { isMuted: !track.isMuted })}
-              className={`w-5 h-5 rounded text-[10px] font-mono font-bold flex items-center justify-center transition-all cursor-pointer ${
-                track.isMuted 
-                  ? 'bg-red-500 text-white shadow-[0_0_8px_#ef4444]' 
-                  : 'bg-[#1b1e2a] hover:bg-[#252838] text-slate-400 hover:text-slate-200'
-              }`}
-              title="Mute Track (Silence from timeline playhead)"
-            >
-              M
-            </button>
-            <button
-              onClick={() => updateTrack(track.id, { isSolo: !track.isSolo })}
-              className={`w-5 h-5 rounded text-[10px] font-mono font-bold flex items-center justify-center transition-all cursor-pointer ${
-                track.isSolo 
-                  ? 'bg-amber-400 text-black shadow-[0_0_8px_#f59e0b]' 
-                  : 'bg-[#1b1e2a] hover:bg-[#252838] text-slate-400 hover:text-slate-200'
-              }`}
-              title="Solo Track"
-            >
-              S
-            </button>
-          </div>
+            <div className="flex items-center gap-1 flex-1 min-w-0">
+              <input
+                type="range"
+                min="0"
+                max="100"
+                value={track.volume ?? 75}
+                onChange={(e) => updateTrack(track.id, { volume: Number(e.target.value) })}
+                className="w-full h-1 accent-amber-500 bg-[#252838] rounded cursor-pointer"
+                title={`Track Weight: ${track.volume ?? 75}%`}
+              />
+            </div>
 
-          {/* Integrated Console Volume/Weight Slider */}
-          <div className="flex items-center gap-1.5 flex-1 min-w-0">
-            <input
-              type="range"
-              min="0"
-              max="100"
-              value={track.volume ?? 75}
-              onChange={(e) => updateTrack(track.id, { volume: Number(e.target.value) })}
-              className="w-full h-1 accent-amber-500 bg-[#252838] rounded cursor-pointer"
-              title={`Track Weight: ${track.volume ?? 75}%`}
-            />
-            <span className="text-[9px] font-mono text-slate-400 shrink-0 w-6 text-right">
-              {track.volume ?? 75}%
+            <span className="text-[9px] font-mono px-1 py-0.2 rounded bg-white/5 text-slate-400 border border-white/5 shrink-0" title="Beats on Main track">
+              {mainBeats.length} {mainBeats.length === 1 ? 'clip' : 'clips'}
             </span>
           </div>
 
-          {/* Beat clip counter badge */}
-          <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-white/5 text-slate-400 border border-white/5 shrink-0">
-            {beatCount} {beatCount === 1 ? 'clip' : 'clips'}
-          </span>
+          {/* Role badge if roomy */}
+          {mainH >= 90 && (
+            <div className="flex items-center justify-between text-[10px] text-slate-500 font-mono pt-1">
+              <span className="uppercase tracking-wider truncate text-[9px] text-slate-400">{track.type || 'Main Lane'}</span>
+              <button
+                onClick={() => handleCreateBeat(trackIdx, 0)}
+                className="text-amber-400 hover:underline flex items-center gap-0.5 text-[10px] cursor-pointer"
+                title="Add Beat to Main Track"
+              >
+                <Plus size={10} /> Beat
+              </button>
+            </div>
+          )}
         </div>
+
+        {/* 2. Manually Created Subtrack Rows (up to 2) */}
+        {subCount > 0 && (
+          <div className="flex flex-col">
+            {Array.from({ length: subCount }).map((_, sIdx) => {
+              const subNum = sIdx + 1; // 1 or 2
+              const subBeats = trackBeats.filter(b => b.timelineSubtrackIdx === subNum);
+              const isSubHovered = dragState?.type === 'move' && dragHoverTrack?.trackIdx === trackIdx && dragHoverTrack?.subtrackIdx === subNum;
+
+              return (
+                <div
+                  key={`strip-sub-${subNum}`}
+                  style={{ height: `${subH}px` }}
+                  className={`px-3 flex items-center justify-between border-t border-white/[0.05] transition-colors group/sub ${
+                    isSubHovered ? 'bg-amber-400/[0.12]' : 'bg-[#0d0f18] hover:bg-white/[0.02]'
+                  }`}
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span 
+                      className="text-[9px] font-mono font-bold px-1.5 py-0.2 rounded shrink-0 border"
+                      style={{ borderColor: `${track.color}40`, color: track.color, backgroundColor: `${track.color}15` }}
+                    >
+                      {trackIdx + 1}.{subNum}
+                    </span>
+                    <span className="text-[11px] font-mono text-slate-300">
+                      Subtrack {subNum}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <span className="text-[9px] font-mono text-slate-500">
+                      {subBeats.length}
+                    </span>
+                    <button
+                      onClick={() => handleCreateBeat(trackIdx, subNum)}
+                      className="w-4 h-4 rounded hover:bg-white/10 text-slate-500 hover:text-amber-400 flex items-center justify-center cursor-pointer transition-colors"
+                      title={`Add Beat to Subtrack ${subNum}`}
+                    >
+                      <Plus size={11} />
+                    </button>
+                    <button
+                      onClick={() => handleRemoveSubtrack(track.id, subNum)}
+                      className="w-4 h-4 rounded hover:bg-red-500/20 text-slate-500 hover:text-red-400 flex items-center justify-center cursor-pointer transition-colors opacity-0 group-hover/sub:opacity-100"
+                      title={`Remove Subtrack ${subNum}`}
+                    >
+                      <X size={11} />
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
 
         {/* Track Customization Popover */}
         {activeTrackSettingsId === track.id && (
           <div 
-            className={`absolute ${trackHeaderDock === 'left' ? 'left-full ml-2' : 'right-full mr-2'} top-0 w-72 bg-[#141724] border border-[#2d3248] rounded-xl p-3.5 shadow-2xl z-50 text-xs text-slate-200 animate-in fade-in zoom-in-95 backdrop-blur-md`}
+            className={`absolute ${trackHeaderDock === 'left' ? 'left-full ml-2' : 'right-full mr-2'} top-0 w-80 bg-[#141724] border border-[#2d3248] rounded-xl p-3.5 shadow-2xl z-50 text-xs text-slate-200 animate-in fade-in zoom-in-95 backdrop-blur-md`}
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between pb-2 mb-2.5 border-b border-white/10">
@@ -705,7 +1003,7 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
               </button>
             </div>
 
-            {/* Quick Rename & Presets */}
+            {/* Track Name */}
             <div className="mb-2.5">
               <label className="block text-[9px] uppercase font-mono text-slate-400 mb-1">Track Name</label>
               <input
@@ -716,6 +1014,7 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
               />
             </div>
 
+            {/* Role Presets */}
             <div className="mb-2.5">
               <label className="block text-[9px] uppercase font-mono text-slate-400 mb-1">Role Presets</label>
               <div className="flex flex-wrap gap-1">
@@ -793,16 +1092,29 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
     );
   };
 
-  // Render Rich Studio Beat Clip (No cheesy fake audio equalizers)
+  // Render Rich Studio Beat Clip (Positioned in its respective main track or subtrack lane)
   const renderBeatClip = (beat: typeof beatsWithTimeline[0], track: TimelineTrack) => {
     const isSelected = selectedBeatId === beat.id;
     const isBeingDragged = dragState?.beatId === beat.id && dragState.type === 'move';
     const clipLeft = (beat.startPage - 1) * effectivePxPerPage;
-    const clipWidth = Math.max(140, beat.durationPages * effectivePxPerPage);
-    const laneH = track.height || globalLaneHeight;
-    const clipHeight = Math.max(50, laneH - 12);
+    const clipWidth = Math.max(48, beat.durationPages * effectivePxPerPage);
+    const mainH = track.height || globalLaneHeight;
+    const subH = getSubtrackHeight(mainH);
+    const subIdx = beat.timelineSubtrackIdx ?? 0; // 0 = Main, 1 = Sub 1, 2 = Sub 2
+    
+    let clipTop = 6;
+    let clipHeight = Math.max(46, mainH - 12);
+
+    if (subIdx === 1) {
+      clipTop = mainH + 4;
+      clipHeight = Math.max(44, subH - 8);
+    } else if (subIdx === 2) {
+      clipTop = mainH + subH + 4;
+      clipHeight = Math.max(44, subH - 8);
+    }
 
     const cleanSummary = (beat.summary || (beat.content || '').replace(/<[^>]*>/g, ' ')).trim();
+    const subBadgeLabel = subIdx === 0 ? `V${beat.timelineTrackIdx + 1}` : `${beat.timelineTrackIdx + 1}.${subIdx}`;
 
     return (
       <div
@@ -811,33 +1123,34 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
           left: `${clipLeft}px`,
           width: `${clipWidth}px`,
           height: `${clipHeight}px`,
-          top: '6px',
+          top: `${clipTop}px`,
           borderColor: isSelected || isBeingDragged ? '#f59e0b' : `${track.color}50`,
-          backgroundColor: isBeingDragged ? '#181b2a' : isSelected ? '#151826' : '#10121d',
-          zIndex: isBeingDragged ? 40 : isSelected ? 20 : 2,
+          backgroundColor: isBeingDragged ? '#1a1d2e' : isSelected ? '#151826' : '#10121d',
+          zIndex: isBeingDragged ? 50 : isSelected ? 20 : 2,
           transform: isBeingDragged ? 'scale(1.02)' : 'none',
+          willChange: isBeingDragged ? 'left, top' : 'auto',
         }}
         onMouseDown={(e) => handleTimelineMouseDown(e, beat.id, 'move')}
         onDoubleClick={(e) => {
           e.stopPropagation();
           onEditBeat(beat.id);
         }}
-        className={`absolute rounded-lg border shadow-sm cursor-grab active:cursor-grabbing group overflow-hidden flex flex-col justify-between select-none transition-all ${
+        className={`absolute rounded-lg border shadow-sm select-none overflow-hidden flex flex-col justify-between ${
           isBeingDragged 
-            ? 'shadow-[0_12px_28px_rgba(0,0,0,0.8)] ring-2 ring-amber-400' 
+            ? 'shadow-[0_16px_36px_rgba(0,0,0,0.85)] ring-2 ring-amber-400 cursor-grabbing transition-none pointer-events-none' 
             : isSelected 
-              ? 'shadow-[0_4px_16px_rgba(245,158,11,0.25)] ring-1 ring-amber-400' 
-              : 'hover:border-white/40 hover:shadow-md'
+              ? 'shadow-[0_4px_16px_rgba(245,158,11,0.25)] ring-1 ring-amber-400 cursor-grab transition-[border-color,box-shadow]' 
+              : 'hover:border-white/40 hover:shadow-md cursor-grab transition-[border-color,box-shadow]'
         }`}
       >
         {/* Left Trim Handle */}
         <div
           onMouseDown={(e) => handleTimelineMouseDown(e, beat.id, 'trim-left')}
-          className="absolute left-0 top-0 bottom-0 w-2.5 hover:bg-amber-400/80 cursor-ew-resize opacity-0 group-hover:opacity-100 transition-opacity z-30"
+          className="absolute left-0 top-0 bottom-0 w-2.5 hover:bg-amber-400/80 cursor-ew-resize opacity-0 group-hover:opacity-100 transition-opacity z-30 pointer-events-auto"
           title="Drag to trim scene start"
         />
 
-        {/* 1. Clip Top Header: Scene # Badge + Slugline + Duration */}
+        {/* 1. Clip Top Header: Scene # Badge + Subtrack Pill + Slugline + Duration */}
         <div 
           className="h-6 px-2.5 flex items-center justify-between border-b border-white/5 shrink-0"
           style={{ backgroundColor: `${track.color}18` }}
@@ -849,15 +1162,22 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
             >
               SC.{beat.sceneNumber || beat.id}
             </span>
+            <span 
+              className="text-[9px] font-mono font-bold px-1 py-0.2 rounded shrink-0 border"
+              style={{ borderColor: `${track.color}40`, color: track.color, backgroundColor: `${track.color}15` }}
+              title={subIdx === 0 ? 'Main Track' : `Subtrack ${subIdx}`}
+            >
+              {subBadgeLabel}
+            </span>
             <span className="text-[10px] font-mono font-bold text-slate-300 uppercase truncate">
               {beat.slug?.prefix || 'INT.'} {beat.slug?.location || 'SCENE'}
             </span>
           </div>
 
-          <div className="flex items-center gap-1 shrink-0">
+          <div className="flex items-center gap-1.5 shrink-0">
             {isBeingDragged && (
               <span className="text-[9px] font-mono font-black px-1.5 py-0.2 rounded bg-amber-400 text-black uppercase animate-pulse">
-                ➜ {tracks[dragHoverTrackIdx ?? track.id ? (dragHoverTrackIdx ?? 0) : 0]?.label?.split(' ')[0] || 'V1'}
+                ➜ {dragHoverTrack ? (dragHoverTrack.subtrackIdx === 0 ? `V${dragHoverTrack.trackIdx + 1}` : `V${dragHoverTrack.trackIdx + 1}.${dragHoverTrack.subtrackIdx}`) : subBadgeLabel}
               </span>
             )}
             <span className="text-[9px] font-mono text-slate-400">
@@ -866,44 +1186,50 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
           </div>
         </div>
 
-        {/* 2. Clip Body: Scene Title & Clean Synopsis Snippet */}
+        {/* 2. Clip Body: Scene Title & Clean Synopsis Snippet (Detailed layout by default) */}
         <div className="px-2.5 py-1 flex-1 flex flex-col justify-center min-w-0 overflow-hidden">
           <div className="text-xs font-bold text-slate-100 truncate group-hover:text-amber-400 transition-colors">
             {beat.title || 'Untitled Beat'}
           </div>
-          {cleanSummary && clipHeight >= 68 && (
+          {cleanSummary && clipHeight >= 64 && (
             <div className="text-[10px] text-slate-400 line-clamp-1 leading-tight mt-0.5">
               {cleanSummary}
             </div>
           )}
         </div>
 
-        {/* 3. Clip Bottom Bar: Dramatic Tension Indicator & Character Tags */}
-        <div className="h-5 px-2.5 flex items-center justify-between bg-black/30 border-t border-white/5 text-[9px] font-mono shrink-0">
-          {/* Tension Pill */}
-          <div className="flex items-center gap-1 text-slate-400">
-            <Activity size={10} className={beat.tension && beat.tension > 70 ? 'text-red-400' : 'text-amber-400'} />
-            <span className="text-slate-300 font-semibold">{beat.tension || 50}% Tension</span>
-          </div>
+        {/* 3. Clip Bottom Bar: Dramatic Tension Indicator & Quick Action */}
+        {clipHeight >= 56 && (
+          <div className="h-5 px-2.5 flex items-center justify-between bg-black/30 border-t border-white/5 text-[9px] font-mono shrink-0">
+            <div className="flex items-center gap-1.5 text-slate-400">
+              <Activity size={10} className={beat.tension && beat.tension > 70 ? 'text-red-400' : 'text-amber-400'} />
+              <span className="text-slate-300 font-semibold">{beat.tension || 50}%</span>
+              <div className="w-8 h-1 bg-white/10 rounded-full overflow-hidden hidden sm:block">
+                <div 
+                  className={`h-full rounded-full ${beat.tension && beat.tension > 70 ? 'bg-red-400' : 'bg-amber-400'}`} 
+                  style={{ width: `${beat.tension || 50}%` }} 
+                />
+              </div>
+            </div>
 
-          {/* Quick Actions (open script editor on click) */}
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onEditBeat(beat.id);
-            }}
-            className="opacity-0 group-hover:opacity-100 hover:text-amber-400 text-slate-400 transition-opacity flex items-center gap-0.5 cursor-pointer"
-            title="Open in Script Editor"
-          >
-            <span>Script</span>
-            <FileText size={10} />
-          </button>
-        </div>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onEditBeat(beat.id);
+              }}
+              className="opacity-0 group-hover:opacity-100 hover:text-amber-400 text-slate-400 transition-opacity flex items-center gap-1 cursor-pointer pointer-events-auto"
+              title="Open in Script Editor"
+            >
+              <span>Script</span>
+              <FileText size={10} />
+            </button>
+          </div>
+        )}
 
         {/* Right Trim Handle */}
         <div
           onMouseDown={(e) => handleTimelineMouseDown(e, beat.id, 'trim-right')}
-          className="absolute right-0 top-0 bottom-0 w-2.5 hover:bg-amber-400/80 cursor-ew-resize opacity-0 group-hover:opacity-100 transition-opacity z-30"
+          className="absolute right-0 top-0 bottom-0 w-2.5 hover:bg-amber-400/80 cursor-ew-resize opacity-0 group-hover:opacity-100 transition-opacity z-30 pointer-events-auto"
           title="Drag to trim scene duration"
         />
       </div>
@@ -1023,6 +1349,9 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
               onChange={(e) => {
                 const newH = Number(e.target.value);
                 setGlobalLaneHeight(newH);
+                try {
+                  localStorage.setItem('backstage_daw_lane_height', String(newH));
+                } catch (err) {}
                 saveTracks(tracks.map(t => ({ ...t, height: newH })));
               }}
               className="bg-transparent text-slate-200 font-bold outline-none cursor-pointer text-xs"
@@ -1033,20 +1362,20 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
             </select>
           </div>
 
-          {/* Zoom controls */}
+          {/* Zoom controls (anchored to playhead) */}
           <div className="flex items-center bg-[#141622] px-1.5 py-1 rounded border border-[#24283b] gap-1">
             <button 
-              onClick={() => setZoomLevel(p => Math.max(0.6, p - 0.2))}
+              onClick={() => zoomAroundPlayhead(zoomLevel - 0.2)}
               className="text-slate-400 hover:text-white p-0.5 cursor-pointer"
-              title="Zoom Out"
+              title="Zoom Out (- or _)"
             >
               <ZoomOut size={12} />
             </button>
-            <span className="text-[10px] w-7 text-center text-slate-300">{Math.round(zoomLevel * 100)}%</span>
+            <span className="text-[10px] w-7 text-center text-slate-300 font-mono">{Math.round(zoomLevel * 100)}%</span>
             <button 
-              onClick={() => setZoomLevel(p => Math.min(2.4, p + 0.2))}
+              onClick={() => zoomAroundPlayhead(zoomLevel + 0.2)}
               className="text-slate-400 hover:text-white p-0.5 cursor-pointer"
-              title="Zoom In"
+              title="Zoom In (+ or =)"
             >
               <ZoomIn size={12} />
             </button>
@@ -1054,9 +1383,9 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
 
           {/* Add Beat Button */}
           <button
-            onClick={() => handleCreateBeat(0)}
+            onClick={() => handleCreateBeat(0, 0)}
             className="px-2.5 py-1 bg-amber-500 hover:bg-amber-400 text-black font-bold rounded flex items-center gap-1 shadow-[0_0_10px_rgba(245,158,11,0.3)] transition-all cursor-pointer"
-            title="Create New Beat"
+            title="Create New Beat on Track 1, Subtrack 1"
           >
             <Plus size={13} />
             <span>Beat</span>
@@ -1199,14 +1528,17 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
               );
             })}
 
-            {/* Unified Track Rows */}
+            {/* Unified Track Rows with Main Track and up to 2 Manual Subtracks */}
             {tracks.map((track, trackIdx) => {
-              const laneH = track.height || globalLaneHeight;
+              const mainH = track.height || globalLaneHeight;
+              const subCount = Math.min(MAX_SUBTRACKS_PER_TRACK, Math.max(0, track.subtrackCount || 0));
+              const subH = getSubtrackHeight(mainH);
+              const totalLaneH = mainH + (subCount * subH);
 
               return (
                 <div 
                   key={track.id}
-                  style={{ height: `${laneH}px` }}
+                  style={{ height: `${totalLaneH}px` }}
                   className="flex w-full border-b border-[#181a26] relative group"
                 >
                   {/* Left Docked Track Strip */}
@@ -1218,10 +1550,61 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
 
                   {/* Lane Canvas */}
                   <div 
-                    style={{ width: `${totalTimelineWidth}px` }}
+                    style={{ width: `${totalTimelineWidth}px`, height: `${totalLaneH}px` }}
                     className="flex-1 relative overflow-visible"
-                    onDoubleClick={() => handleCreateBeat(trackIdx)}
                   >
+                    {/* 1. Main Track Canvas Lane */}
+                    <div
+                      style={{ height: `${mainH}px` }}
+                      className={`absolute left-0 right-0 top-0 border-b border-white/[0.06] transition-colors ${
+                        dragState?.type === 'move' && dragHoverTrack?.trackIdx === trackIdx && dragHoverTrack?.subtrackIdx === 0
+                          ? 'bg-amber-400/[0.08]'
+                          : ''
+                      }`}
+                      onDoubleClick={(e) => {
+                        e.stopPropagation();
+                        handleCreateBeat(trackIdx, 0);
+                      }}
+                    >
+                      {/* Sticky Main watermark */}
+                      <div className="sticky left-2 top-1 pointer-events-none flex items-center gap-1.5 opacity-30 select-none z-1">
+                        <span className="text-[9px] font-mono font-bold uppercase tracking-wider text-slate-400">
+                          V{trackIdx + 1} • MAIN
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* 2. Manual Subtrack Lanes (up to 2) */}
+                    {Array.from({ length: subCount }).map((_, sIdx) => {
+                      const subNum = sIdx + 1; // 1 or 2
+                      const topY = mainH + (sIdx * subH);
+                      const isSubHovered = dragState?.type === 'move' && dragHoverTrack?.trackIdx === trackIdx && dragHoverTrack?.subtrackIdx === subNum;
+
+                      return (
+                        <div
+                          key={`sublane-${subNum}`}
+                          style={{
+                            top: `${topY}px`,
+                            height: `${subH}px`,
+                          }}
+                          className={`absolute left-0 right-0 border-b border-white/[0.04] transition-colors ${
+                            isSubHovered ? 'bg-amber-400/[0.08]' : sIdx % 2 === 0 ? 'bg-white/[0.012]' : 'bg-transparent'
+                          }`}
+                          onDoubleClick={(e) => {
+                            e.stopPropagation();
+                            handleCreateBeat(trackIdx, subNum);
+                          }}
+                        >
+                          {/* Sticky subtrack watermark */}
+                          <div className="sticky left-2 top-1 pointer-events-none flex items-center gap-1.5 opacity-30 select-none z-1">
+                            <span className="text-[9px] font-mono font-bold uppercase tracking-wider text-slate-400">
+                              V{trackIdx + 1}.{subNum} • SUB {subNum}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+
                     {/* Vertical Screenplay Grid Lines */}
                     {Array.from({ length: Math.ceil(totalScreenplayPages) }).map((_, i) => {
                       const pageNum = i + 1;
@@ -1386,7 +1769,7 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
           {terminalTab === 'inspector' && (
             <div className="flex-1 p-4 bg-[#0a0c13] text-xs overflow-y-auto">
               {selectedBeat ? (
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-5 gap-3.5">
                   {/* Title & Scene # */}
                   <div>
                     <label className="block text-[10px] uppercase font-mono text-slate-400 mb-1">Beat Title</label>
@@ -1425,6 +1808,51 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
                     </div>
                   </div>
 
+                  {/* Track & 3 Subtracks Assignment */}
+                  <div>
+                    <label className="block text-[10px] uppercase font-mono text-slate-400 mb-1">Track & Subtrack</label>
+                    <div className="flex flex-col gap-1">
+                      <select
+                        value={selectedBeat.trackIndex ?? 0}
+                        onChange={(e) => updateBeat(selectedBeat.id, { trackIndex: Number(e.target.value) })}
+                        className="w-full bg-[#141724] border border-[#262b3f] focus:border-amber-400 rounded px-2 py-1 text-white text-xs outline-none"
+                      >
+                        {tracks.map((t, i) => (
+                          <option key={t.id} value={i}>{`V${i + 1}: ${t.label}`}</option>
+                        ))}
+                      </select>
+                      <div className="flex gap-1">
+                        {(() => {
+                          const curTrack = tracks[selectedBeat.trackIndex ?? 0];
+                          const subCount = Math.min(MAX_SUBTRACKS_PER_TRACK, Math.max(0, curTrack?.subtrackCount || 0));
+                          const subOptions = [
+                            { idx: 0, label: 'Main' },
+                            ...(subCount >= 1 ? [{ idx: 1, label: 'Sub 1' }] : []),
+                            ...(subCount >= 2 ? [{ idx: 2, label: 'Sub 2' }] : []),
+                          ];
+
+                          return subOptions.map(({ idx, label }) => {
+                            const isCurrent = (selectedBeat.subtrackIndex ?? 0) === idx;
+                            return (
+                              <button
+                                key={idx}
+                                type="button"
+                                onClick={() => updateBeat(selectedBeat.id, { subtrackIndex: idx })}
+                                className={`flex-1 py-1 text-[10px] font-mono font-bold rounded cursor-pointer transition-all truncate px-1 text-center border ${
+                                  isCurrent
+                                    ? 'bg-amber-400 text-black border-amber-400 shadow-xs'
+                                    : 'bg-[#141622] border-[#262b3f] text-slate-400 hover:text-white'
+                                }`}
+                              >
+                                {label}
+                              </button>
+                            );
+                          });
+                        })()}
+                      </div>
+                    </div>
+                  </div>
+
                   {/* Dramatic Tension Slider */}
                   <div>
                     <div className="flex justify-between items-center mb-1">
@@ -1448,7 +1876,7 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
                       className="w-full py-2 bg-amber-500 hover:bg-amber-400 text-black font-bold rounded-lg flex items-center justify-center gap-2 cursor-pointer shadow-md transition-all"
                     >
                       <FileText size={14} />
-                      <span>Edit Full Scene Script</span>
+                      <span>Edit Script</span>
                     </button>
                   </div>
                 </div>

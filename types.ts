@@ -837,6 +837,8 @@ export interface TimelineTrack {
   isSolo?: boolean;
   volume?: number;
   height?: number;
+  subtrackCount?: number; // 0, 1, or 2 manually created subtracks (max 2)
+  isExpanded?: boolean;
 }
 
 export interface Beat {
@@ -861,6 +863,7 @@ export interface Beat {
   w?: number; // Board card width (custom resized)
   h?: number; // Board card height (custom resized)
   trackIndex?: number; // NLE Timeline Track index (0 = V1, 1 = V2, 2 = V3, etc.)
+  subtrackIndex?: number; // Subtrack index (0 = Subtrack 1, 1 = Subtrack 2, 2 = Subtrack 3)
   durationWidth?: number; // Visual duration width on timeline (px)
   tension?: number; // Dramatic tension level 0-100%
   characters?: string[]; // Characters featured in this beat
