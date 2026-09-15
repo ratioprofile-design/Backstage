@@ -250,6 +250,22 @@ const AppContent: React.FC = () => {
   const [loadingTimedOut, setLoadingTimedOut] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
 
+  // When user signs out (transitions from logged in to null), redirect to welcome screen
+  const prevUserRef = useRef(currentUser);
+  useEffect(() => {
+    if (prevUserRef.current && !currentUser) {
+      setShowWelcome(true);
+    }
+    prevUserRef.current = currentUser;
+  }, [currentUser]);
+
+  // Auto-close auth modal if user successfully signs in
+  useEffect(() => {
+    if (currentUser && showAuthModal) {
+      setShowAuthModal(false);
+    }
+  }, [currentUser, showAuthModal]);
+
   // Safety fallback: if session restoration takes more than 1s, proceed into workspace
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -575,43 +591,32 @@ const AppContent: React.FC = () => {
 
   if (showWelcome) {
       return (
-          <WelcomeScreen
-              recents={recentFiles}
-              onNew={() => {
-                  if (isTauri()) handleMenuNewFile();
-                  else { setShowNewProject(true); setShowWelcome(false); }
-              }}
-              onOpen={() => handleMenuOpenFile()}
-              onOpenRecent={async (path) => {
-                  const ok = await openPath(path);
-                  if (ok) setShowWelcome(false);
-              }}
-              onDismiss={() => setShowWelcome(false)}
-              isCloudMode={isCloudMode}
-              currentUser={currentUser}
-              cloudProjects={projectList}
-              onOpenCloudProject={(id) => { selectProject(id); setShowWelcome(false); }}
-              onDeleteCloudProject={(id) => { if (supabaseUser) deleteProject(id); }}
-              onOpenAuth={() => setShowAuthModal(true)}
-          />
-      );
-  }
-
-  if (showAuthModal) {
-      return (
           <>
-              <StyleInjector />
-              <div className="fixed inset-0 z-[800] bg-black/85 backdrop-blur-md flex items-center justify-center p-4">
-                <div className="relative w-full max-w-md">
-                  <button 
-                    onClick={() => setShowAuthModal(false)}
-                    className="absolute -top-10 right-0 px-3 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-xs font-bold text-white transition-all"
-                  >
-                    ✕ Close
-                  </button>
-                  <AuthScreen />
-                </div>
-              </div>
+            <WelcomeScreen
+                recents={recentFiles}
+                onNew={() => {
+                    if (isTauri()) handleMenuNewFile();
+                    else { setShowNewProject(true); setShowWelcome(false); }
+                }}
+                onOpen={() => handleMenuOpenFile()}
+                onOpenRecent={async (path) => {
+                    const ok = await openPath(path);
+                    if (ok) setShowWelcome(false);
+                }}
+                onDismiss={() => setShowWelcome(false)}
+                isCloudMode={isCloudMode}
+                currentUser={currentUser}
+                cloudProjects={projectList}
+                onOpenCloudProject={(id) => { selectProject(id); setShowWelcome(false); }}
+                onDeleteCloudProject={(id) => { if (supabaseUser) deleteProject(id); }}
+                onOpenAuth={() => setShowAuthModal(true)}
+            />
+            {showAuthModal && (
+              <AuthScreen 
+                onClose={() => setShowAuthModal(false)}
+                onSuccess={() => setShowAuthModal(false)}
+              />
+            )}
           </>
       );
   }
@@ -641,6 +646,7 @@ const AppContent: React.FC = () => {
             unreadCount={inboxTasks.filter(t => !t.isRead).length}
             onAskAnything={() => setShowAssistant(true)}
             onPrint={() => setShowPrintPreview(true)}
+            onOpenAuth={() => setShowAuthModal(true)}
           />
         )}
 
@@ -755,6 +761,13 @@ const AppContent: React.FC = () => {
         onClose={() => setIsSettingsOpen(false)}
         onNavigateToBackstage={() => setCurrentView('backstage')}
       />
+
+      {showAuthModal && (
+        <AuthScreen 
+          onClose={() => setShowAuthModal(false)}
+          onSuccess={() => setShowAuthModal(false)}
+        />
+      )}
     </>
   );
 };

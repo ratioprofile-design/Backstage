@@ -838,6 +838,7 @@ export interface TimelineTrack {
   volume?: number;
   height?: number;
   subtrackCount?: number; // 0, 1, or 2 manually created subtracks (max 2)
+  subtrackHeights?: { [subtrackIdx: number]: number };
   isExpanded?: boolean;
 }
 
@@ -868,6 +869,8 @@ export interface Beat {
   tension?: number; // Dramatic tension level 0-100%
   characters?: string[]; // Characters featured in this beat
   startTime?: number; // Timeline start position in minutes or beats
+  groupId?: number; // Visual or sequence group association
+  groupTitle?: string; // Group / Sequence name
 }
 
 export type ConnectionStyle = 'curve' | 'zigzag';

@@ -456,6 +456,10 @@ export function parseCausalityProject(data: CausalityProjectData): CausalityImpo
       location: [location]
     };
 
+    const grp = beatToGroup.get(beatId);
+    const grpId = grp && grp.id ? groupIdToBackstageId.get(grp.id) : undefined;
+    const grpTitle = grp ? (grp.name || grp.title) : undefined;
+
     beats.push({
       id: bId,
       x,
@@ -474,7 +478,9 @@ export function parseCausalityProject(data: CausalityProjectData): CausalityImpo
       versions: [],
       boardId: 0,
       breakdown,
-      breakdownData: breakdown
+      breakdownData: breakdown,
+      groupId: grpId,
+      groupTitle: grpTitle
     });
 
     if (sn && sn.sceneNumber && typeof sn.sceneNumber.number === 'number' && sn.sceneNumber.number < 9999) {

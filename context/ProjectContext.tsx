@@ -250,8 +250,14 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
         if (session) {
           setSupabaseUser(session.user);
           setCurrentUser(session.user.email || 'Cloud User');
+          localStorage.setItem('currentUser', session.user.email || 'Cloud User');
           setCloudOffline(false);
           refreshProjectList(session.user.id).catch(e => console.warn('[ctx] refreshProjectList failed:', e));
+        } else {
+          const savedUser = localStorage.getItem('currentUser');
+          if (savedUser) {
+            setCurrentUser(savedUser);
+          }
         }
         setIsInitialLoading(false);
       })
@@ -259,6 +265,10 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
         clearTimeout(safetyTimer);
         if (!isMounted) return;
         console.warn('[ctx] getSession error, falling back to offline mode:', err);
+        const savedUser = localStorage.getItem('currentUser');
+        if (savedUser) {
+          setCurrentUser(savedUser);
+        }
         setIsInitialLoading(false);
       });
 
@@ -267,13 +277,20 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       if (session) {
         setSupabaseUser(session.user);
         setCurrentUser(session.user.email || 'Cloud User');
+        localStorage.setItem('currentUser', session.user.email || 'Cloud User');
         setCloudOffline(false);
         refreshProjectList(session.user.id).catch(e => console.warn('[ctx] refreshProjectList failed:', e));
       } else {
         setSupabaseUser(null);
-        if (isSupabaseConfigured) {
-            setCurrentUser(null);
-            setProjectList([]);
+        if (_event === 'SIGNED_OUT') {
+          setCurrentUser(null);
+          localStorage.removeItem('currentUser');
+          setProjectList([]);
+        } else {
+          const savedUser = localStorage.getItem('currentUser');
+          if (savedUser) {
+            setCurrentUser(savedUser);
+          }
         }
       }
     });

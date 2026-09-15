@@ -435,18 +435,20 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
               <>
                 <div className="fixed inset-0 z-[900]" onClick={() => setShowUserMenu(false)} />
                 <div className="absolute left-full bottom-2 ml-2 z-[901] w-64 bg-[#161616] border border-[#333] rounded-xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
-                  {isCloudActive ? (
+                  {currentUser ? (
                     <>
                       <div className="px-4 py-3 border-b border-[#2a2a2a]">
                         <div className={`text-[9px] font-black uppercase tracking-widest mb-1 flex items-center gap-1.5 ${
-                          cloudOffline ? 'text-amber-500' : 'text-emerald-500'
+                          isCloudActive ? (cloudOffline ? 'text-amber-500' : 'text-emerald-500') : 'text-gray-400'
                         }`}>
-                          {cloudOffline ? <WifiOff size={11} /> : <Cloud size={11} />}
-                          {cloudOffline ? 'Offline — Saved Locally' : 'Cloud Sync Active'}
+                          {isCloudActive ? (cloudOffline ? <WifiOff size={11} /> : <Cloud size={11} />) : <CloudOff size={11} />}
+                          {isCloudActive ? (cloudOffline ? 'Offline — Saved Locally' : 'Cloud Sync Active') : 'Local Writer Profile'}
                         </div>
-                        <div className="text-[13px] font-semibold text-white truncate">{currentUser || 'Cloud User'}</div>
+                        <div className="text-[13px] font-semibold text-white truncate">{currentUser}</div>
                         <div className="text-[10px] text-gray-500">
-                          {cloudOffline ? 'Network down — edits saved locally.' : 'Projects are backed up & synced'}
+                          {isCloudActive
+                            ? (cloudOffline ? 'Network down — edits saved locally.' : 'Projects are backed up & synced')
+                            : 'Working locally on this device.'}
                         </div>
                       </div>
                       <button
@@ -455,6 +457,14 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
                       >
                         <UsersIcon size={13} /> Project Collaboration
                       </button>
+                      {!isCloudActive && onOpenAuth && (
+                        <button
+                          onClick={() => { setShowUserMenu(false); onOpenAuth(); }}
+                          className="w-full flex items-center gap-2.5 px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-[#f5a623] hover:bg-[#f5a623]/10 border-b border-[#2a2a2a] transition-colors"
+                        >
+                          <LogIn size={13} /> Connect Cloud Account
+                        </button>
+                      )}
                       <button
                         onClick={async () => { setShowUserMenu(false); await logout(); }}
                         className="w-full flex items-center gap-2.5 px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-red-400 hover:bg-red-500/10 transition-colors"
@@ -466,10 +476,10 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
                     <>
                       <div className="px-4 py-3 border-b border-[#2a2a2a]">
                         <div className="text-[9px] font-black uppercase tracking-widest text-gray-500 mb-1 flex items-center gap-1.5">
-                          <CloudOff size={11} /> Local Mode
+                          <CloudOff size={11} /> Guest / Local Mode
                         </div>
                         <div className="text-[10px] text-gray-500 leading-relaxed">
-                          Working on this device. Sign in to sync across devices.
+                          Working on this device. Sign in to save and sync across devices.
                         </div>
                       </div>
                       <button
@@ -482,7 +492,7 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
                         onClick={() => { setShowUserMenu(false); onOpenAuth?.(); }}
                         className="w-full flex items-center gap-2.5 px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-[#f5a623] hover:bg-[#f5a623]/10 transition-colors"
                       >
-                        <LogIn size={13} /> Sign In to Cloud
+                        <LogIn size={13} /> Sign In
                       </button>
                     </>
                   )}
