@@ -1742,6 +1742,7 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
       ? `${slugPrefix} ${slugLoc} - ${slugTime}` 
       : `${slugPrefix} ${slugLoc}`;
     const beatName = beat.title || 'Untitled Beat';
+    const cleanSummary = (beat.summary || '').trim();
     const subBadgeLabel = subIdx === 0 ? `V${beat.timelineTrackIdx + 1}` : `${beat.timelineTrackIdx + 1}.${subIdx}`;
     const beatLinksCount = showDependencies && connections 
       ? connections.filter(c => c.from === beat.id || c.to === beat.id).length 
