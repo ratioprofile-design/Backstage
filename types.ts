@@ -253,6 +253,7 @@ export interface ProjectState {
   annotations: Annotation[];
   characterData: Record<string, CharacterData>;
   generatedShots: Shot[]; // Global shot list (optional/legacy use)
+  tracks?: TimelineTrack[]; // Multi-lane DAW timeline tracks
   
   scratchpad: string; // Legacy: Global scratchpad content
   globalNotes: Note[]; // New: Global sticky notes

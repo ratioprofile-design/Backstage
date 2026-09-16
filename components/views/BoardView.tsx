@@ -8,8 +8,9 @@ import {
   Maximize2, Minimize2, ZoomIn, ZoomOut,
   FileText, X, ArrowUp, ArrowDown, Check,
   Settings2, ArrowLeftRight, CornerDownLeft, BarChart3, HelpCircle,
-  ChevronDown, ChevronRight, Layers, Hash,
-  Network, Compass, GitBranch, Bookmark
+  ChevronDown, ChevronRight, ChevronLeft, Layers, Hash,
+  Network, Compass, GitBranch, Bookmark,
+  Scissors, SkipBack, SkipForward, Palette
 } from 'lucide-react';
 import { AISceneGeneratorModal } from '../AISceneGeneratorModal';
 
@@ -19,6 +20,144 @@ interface BoardViewProps {
 
 // 3 Subtracks per master track (DAW standard multi-lane architecture)
 export const MAX_SUBTRACKS_PER_TRACK = 2;
+
+export type DawThemeId = 'obsidian' | 'slate' | 'vintage' | 'paper' | 'platinum';
+
+export interface DawThemeConfig {
+  id: DawThemeId;
+  name: string;
+  isDark: boolean;
+  bgCanvas: string;
+  bgHeader: string;
+  bgStrip: string;
+  bgStripSub: string;
+  bgRuler: string;
+  bgCard: string;
+  borderRuler: string;
+  borderStrip: string;
+  borderLane: string;
+  borderCard: string;
+  textPrimary: string;
+  textMuted: string;
+  textSubtle: string;
+  gridMajor: string;
+  gridMid: string;
+  gridMinor: string;
+  accent: string;
+}
+
+const DAW_THEMES: Record<DawThemeId, DawThemeConfig> = {
+  obsidian: {
+    id: 'obsidian',
+    name: 'Obsidian Studio',
+    isDark: true,
+    bgCanvas: 'bg-[#08090d]',
+    bgHeader: 'bg-[#0e1017]',
+    bgStrip: 'bg-[#0d0f17]',
+    bgStripSub: 'bg-[#090a10]',
+    bgRuler: 'bg-[#0c0e15]',
+    bgCard: '#121522',
+    borderRuler: 'border-[#1e2235]',
+    borderStrip: 'border-[#1c1f2e]',
+    borderLane: 'border-white/[0.06]',
+    borderCard: 'border-white/10',
+    textPrimary: 'text-slate-100',
+    textMuted: 'text-slate-400',
+    textSubtle: 'text-slate-600',
+    gridMajor: 'border-white/10',
+    gridMid: 'border-white/5',
+    gridMinor: 'border-white/[0.02]',
+    accent: '#f59e0b'
+  },
+  slate: {
+    id: 'slate',
+    name: 'Cyber Slate',
+    isDark: true,
+    bgCanvas: 'bg-[#0b1120]',
+    bgHeader: 'bg-[#0f172a]',
+    bgStrip: 'bg-[#0f172a]',
+    bgStripSub: 'bg-[#0a0f1d]',
+    bgRuler: 'bg-[#0f172a]',
+    bgCard: '#1a2236',
+    borderRuler: 'border-slate-700/60',
+    borderStrip: 'border-slate-800',
+    borderLane: 'border-slate-800/80',
+    borderCard: 'border-slate-700/50',
+    textPrimary: 'text-slate-100',
+    textMuted: 'text-slate-400',
+    textSubtle: 'text-slate-500',
+    gridMajor: 'border-cyan-500/20',
+    gridMid: 'border-cyan-500/10',
+    gridMinor: 'border-slate-700/20',
+    accent: '#06b6d4'
+  },
+  vintage: {
+    id: 'vintage',
+    name: 'Vintage Console',
+    isDark: true,
+    bgCanvas: 'bg-[#12100e]',
+    bgHeader: 'bg-[#1a1714]',
+    bgStrip: 'bg-[#181512]',
+    bgStripSub: 'bg-[#100e0c]',
+    bgRuler: 'bg-[#1a1612]',
+    bgCard: '#241f1a',
+    borderRuler: 'border-[#332a22]',
+    borderStrip: 'border-[#2d241c]',
+    borderLane: 'border-amber-900/20',
+    borderCard: 'border-amber-700/30',
+    textPrimary: 'text-amber-100',
+    textMuted: 'text-amber-200/60',
+    textSubtle: 'text-amber-200/40',
+    gridMajor: 'border-amber-500/20',
+    gridMid: 'border-amber-500/10',
+    gridMinor: 'border-amber-900/15',
+    accent: '#d97706'
+  },
+  paper: {
+    id: 'paper',
+    name: 'Paper Script',
+    isDark: false,
+    bgCanvas: 'bg-[#f4f5f7]',
+    bgHeader: 'bg-[#ffffff]',
+    bgStrip: 'bg-[#fafbfc]',
+    bgStripSub: 'bg-[#f0f2f5]',
+    bgRuler: 'bg-[#f8fafc]',
+    bgCard: '#ffffff',
+    borderRuler: 'border-slate-300',
+    borderStrip: 'border-slate-200',
+    borderLane: 'border-slate-200',
+    borderCard: 'border-slate-300',
+    textPrimary: 'text-slate-900',
+    textMuted: 'text-slate-600',
+    textSubtle: 'text-slate-400',
+    gridMajor: 'border-slate-400/50',
+    gridMid: 'border-slate-300/60',
+    gridMinor: 'border-slate-200/70',
+    accent: '#d97706'
+  },
+  platinum: {
+    id: 'platinum',
+    name: 'Studio Platinum',
+    isDark: false,
+    bgCanvas: 'bg-[#e2e8f0]',
+    bgHeader: 'bg-[#f1f5f9]',
+    bgStrip: 'bg-[#f8fafc]',
+    bgStripSub: 'bg-[#e2e8f0]',
+    bgRuler: 'bg-[#e2e8f0]',
+    bgCard: '#ffffff',
+    borderRuler: 'border-slate-300',
+    borderStrip: 'border-slate-300',
+    borderLane: 'border-slate-300',
+    borderCard: 'border-slate-300',
+    textPrimary: 'text-slate-900',
+    textMuted: 'text-slate-600',
+    textSubtle: 'text-slate-400',
+    gridMajor: 'border-slate-400/40',
+    gridMid: 'border-slate-300/50',
+    gridMinor: 'border-slate-300/30',
+    accent: '#2563eb'
+  }
+};
 
 // Dynamic subtrack height: scales with lane height setting so detailed cards have full room
 export const getSubtrackHeight = (baseHeight: number = 112): number => {
@@ -79,24 +218,17 @@ const PRESET_ROLE_NAMES = [
   'Flashback / Lore'
 ];
 
-// Dramatic Act Milestones (Standard 110-120 page feature film structure)
-const ACT_MARKERS = [
-  { id: 'act1_start', page: 1, label: 'ACT I', sub: 'Setup & World', color: '#06b6d4' },
-  { id: 'inciting', page: 12, label: 'CATALYST', sub: 'Inciting Incident', color: '#f59e0b' },
-  { id: 'pp1', page: 25, label: 'PLOT POINT 1', sub: 'Break into Two', color: '#ec4899' },
-  { id: 'act2a', page: 35, label: 'ACT II-A', sub: 'Rising Action', color: '#3b82f6' },
-  { id: 'midpoint', page: 55, label: 'MIDPOINT', sub: 'Point of No Return', color: '#e11d48' },
-  { id: 'act2b', page: 65, label: 'ACT II-B', sub: 'Downward Spiral', color: '#8b5cf6' },
-  { id: 'allis_lost', page: 75, label: 'ALL IS LOST', sub: 'Dark Night', color: '#ef4444' },
-  { id: 'pp2', page: 85, label: 'PLOT POINT 2', sub: 'Break into Three', color: '#10b981' },
-  { id: 'act3', page: 95, label: 'ACT III', sub: 'Final Climax', color: '#06b6d4' },
-  { id: 'resolution', page: 108, label: 'FINALE', sub: 'Resolution', color: '#64748b' },
-];
+// Natural beat width calculated strictly from beat title character length (~7.8px/char + 80px badges/padding)
+export const getBeatTitleWidth = (title?: string): number => {
+  const clean = (title || 'Untitled Beat').trim();
+  return Math.max(90, Math.round(clean.length * 7.8 + 80));
+};
 
 export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
   const { 
     beats, setBeats, updateBeat, captureSnapshot,
-    currentProjectId, groups, connections
+    currentProjectId, groups, addGroup, connections,
+    appTheme
   } = useProject();
   const { aiAvailable } = useAiKeyStatus();
 
@@ -126,6 +258,41 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
       localStorage.setItem(tracksStorageKey, JSON.stringify(newTracks));
     } catch (e) {}
   };
+
+  // DAW Theme State & Persistence
+  const [dawThemeId, setDawThemeId] = useState<DawThemeId>(() => {
+    try {
+      const saved = localStorage.getItem('backstage_daw_theme') as DawThemeId;
+      if (saved && DAW_THEMES[saved]) return saved;
+    } catch (e) {}
+    return appTheme === 'light' ? 'paper' : 'obsidian';
+  });
+
+  const saveDawTheme = (themeId: DawThemeId) => {
+    setDawThemeId(themeId);
+    try {
+      localStorage.setItem('backstage_daw_theme', themeId);
+    } catch (e) {}
+  };
+
+  const currentTheme = DAW_THEMES[dawThemeId] || DAW_THEMES.obsidian;
+
+  // Sync DAW tracks dynamically when project changes or Causality file is imported
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(tracksStorageKey) || localStorage.getItem('backstage_daw_tracks');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setTracks(parsed.map((t: TimelineTrack) => ({
+            ...t,
+            height: (t.height === 162 || !t.height) ? 112 : t.height,
+            subtrackCount: typeof t.subtrackCount === 'number' ? Math.min(MAX_SUBTRACKS_PER_TRACK, Math.max(0, t.subtrackCount)) : 0
+          })));
+        }
+      }
+    } catch (e) {}
+  }, [tracksStorageKey, currentProjectId]);
 
   // Manually add a subtrack (up to 2 subtracks max per track)
   const handleAddSubtrack = (trackId: string) => {
@@ -228,16 +395,27 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
     initialHeight: number;
   } | null>(null);
 
-  // Beat Inline Editing State (double-click creation: title -> Enter -> summary -> Enter -> commit)
+  // Beat Inline Editing State (widened lane displaying both beat name and summary simultaneously)
   const [inlineEditState, setInlineEditState] = useState<{
     beatId: number;
     trackId: string;
     subtrackIdx: number;
     originalHeight?: number;
-    field: 'title' | 'summary';
     titleText: string;
     summaryText: string;
   } | null>(null);
+
+  // Beat Right-Click Context Menu State (Appears on top of everything: z-[99999])
+  const [beatContextMenu, setBeatContextMenu] = useState<{
+    beatId: number;
+    x: number;
+    y: number;
+  } | null>(null);
+
+  // Direct Page Number Navigation & Scrubber Hover State
+  const [isEditingPageInput, setIsEditingPageInput] = useState(false);
+  const [pageInputValue, setPageInputValue] = useState('');
+  const [rulerHoverPage, setRulerHoverPage] = useState<number | null>(null);
 
   // Dragging / Trimming Clip State (Tracks both master track and subtrack 0, 1, 2)
   const [isActuallyDragging, setIsActuallyDragging] = useState(false);
@@ -251,7 +429,41 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
     initialDuration: number;
     targetTrackIdx: number;
     targetSubtrackIdx: number;
+    initialTrackIdx: number;
+    initialSubtrackIdx: number;
   } | null>(null);
+
+  // Live Drag GPU Offset (No React Context re-renders during mouse movement = 120 FPS silky smooth)
+  const [liveDragOffset, setLiveDragOffset] = useState<{
+    beatId: number;
+    deltaPx: number;
+    deltaYPx: number;
+    targetTrackIdx: number;
+    targetSubtrackIdx: number;
+    targetStartPage: number;
+    newDurationPages?: number;
+  } | null>(null);
+  const pendingDragRef = useRef<{
+    beatId: number;
+    type: 'move' | 'trim-left' | 'trim-right';
+    finalStart: number;
+    finalTrack: number;
+    finalSubtrack: number;
+    finalDurationPages: number;
+  } | null>(null);
+
+  // Right-Click Marquee Drag Selection State to Group Clips Together
+  const [rightClickMarqueeBox, setRightClickMarqueeBox] = useState<{
+    startX: number;
+    startY: number;
+    currentX: number;
+    currentY: number;
+  } | null>(null);
+  const [marqueeSelectedBeatIds, setMarqueeSelectedBeatIds] = useState<number[]>([]);
+  const [showGroupModal, setShowGroupModal] = useState<boolean>(false);
+  const [newGroupName, setNewGroupName] = useState<string>('');
+  const [newGroupColor, setNewGroupColor] = useState<string>('#3b82f6');
+  const rightClickStartRef = useRef<{ startX: number; startY: number; isDragging: boolean } | null>(null);
 
   // References
   const timelineScrollRef = useRef<HTMLDivElement>(null);
@@ -288,26 +500,48 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
   // Dynamic VU Meter level based on active playhead scene tension
   const [vuLevel, setVuLevel] = useState(50);
 
-  // Computed layout for beats
+  // Natural Timeline scale: pixels per screenplay page adjusted by zoom
+  const effectivePxPerPage = pixelsPerPage * zoomLevel;
+
+  // Computed layout for beats (Visibility-First: Beat name length strictly determines width, zero lane collision)
   const beatsWithTimeline = useMemo(() => {
-    let accumulatedPage = 1.0;
-    return beats.map((b) => {
+    // Keep track of end page for each lane (trackIdx_subtrackIdx) to guarantee zero overlap
+    const laneEndMap = new Map<string, number>();
+
+    // Stable sort: respect user set startTime if valid, otherwise preserve existing order
+    const sortedBeats = [...beats].sort((a, b) => {
+      const aStart = typeof a.startTime === 'number' && a.startTime >= 1 ? a.startTime : 0;
+      const bStart = typeof b.startTime === 'number' && b.startTime >= 1 ? b.startTime : 0;
+      if (aStart > 0 && bStart > 0 && Math.abs(aStart - bStart) > 0.01) {
+        return aStart - bStart;
+      }
+      return 0;
+    });
+
+    return sortedBeats.map((b) => {
       const trackIdx = typeof b.trackIndex === 'number' && b.trackIndex >= 0 && b.trackIndex < tracks.length ? b.trackIndex : 0;
       const curTrack = tracks[trackIdx];
       const maxSub = Math.min(MAX_SUBTRACKS_PER_TRACK, Math.max(0, curTrack?.subtrackCount || 0));
       const subtrackIdx = typeof b.subtrackIndex === 'number' && b.subtrackIndex >= 0 && b.subtrackIndex <= maxSub ? b.subtrackIndex : 0;
-      const wordCount = (b.content || '').replace(/<[^>]*>/g, ' ').trim().split(/\s+/).filter(Boolean).length;
-      const defaultDuration = Math.max(1.5, Math.min(8.0, Math.round((wordCount / 220) * 2) / 2 || 2.5));
-      
-      const startPage = typeof b.startTime === 'number' && b.startTime >= 1 ? b.startTime : accumulatedPage;
-      // Duration in screenplay pages - scales correctly when rendered with effectivePxPerPage
+      const laneKey = `${trackIdx}_${subtrackIdx}`;
+
+      // Natural width is determined strictly by the beat's title so the full title is 100% visible
+      const minRequiredWidth = getBeatTitleWidth(b.title);
+      const naturalDuration = Math.max(1.0, Math.round((minRequiredWidth / effectivePxPerPage) * 10) / 10);
+
+      // Duration in pages: defaults to natural duration from title length, or user-customized duration if larger
       const durationPages = typeof (b as any).durationPages === 'number' && (b as any).durationPages > 0
-        ? (b as any).durationPages
+        ? Math.max(naturalDuration, (b as any).durationPages)
         : typeof b.durationWidth === 'number' && b.durationWidth > 0
-          ? (b.durationWidth / pixelsPerPage)
-          : defaultDuration;
-      
-      accumulatedPage = Math.max(accumulatedPage, startPage + durationPages);
+          ? Math.max(naturalDuration, Math.round((b.durationWidth / effectivePxPerPage) * 10) / 10)
+          : naturalDuration;
+
+      const lastEndOnLane = laneEndMap.get(laneKey) ?? 1.0;
+      const rawStart = typeof b.startTime === 'number' && b.startTime >= 1 ? b.startTime : lastEndOnLane;
+      // Guarantee zero overlap on this lane: must start at least at lastEndOnLane
+      const startPage = Math.max(rawStart, lastEndOnLane);
+      laneEndMap.set(laneKey, Math.round((startPage + durationPages + 0.1) * 10) / 10);
+
       const tension = typeof b.tension === 'number' ? b.tension : 50;
 
       return {
@@ -316,10 +550,11 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
         timelineSubtrackIdx: subtrackIdx,
         startPage,
         durationPages,
+        minRequiredWidth,
         tension
       };
     });
-  }, [beats, tracks, pixelsPerPage]);
+  }, [beats, tracks, effectivePxPerPage]);
 
   // Auto Scene Numbering State (Enabled by default: left-to-right chronological 1, 2, 3...)
   const [autoNumberingEnabled, setAutoNumberingEnabled] = useState<boolean>(() => {
@@ -466,16 +701,31 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
     });
   };
 
+  // Wheel-based zooming on timeline when holding Ctrl, Cmd, or Alt
+  useEffect(() => {
+    const el = timelineScrollRef.current;
+    if (!el) return;
+    const handleWheel = (e: WheelEvent) => {
+      if (e.ctrlKey || e.metaKey || e.altKey) {
+        e.preventDefault();
+        const delta = e.deltaY < 0 ? 0.15 : -0.15;
+        zoomAroundPlayhead(zoomLevel + delta);
+      }
+    };
+    el.addEventListener('wheel', handleWheel, { passive: false });
+    return () => el.removeEventListener('wheel', handleWheel);
+  }, [zoomLevel, playheadPage, trackHeaderDock, pixelsPerPage]);
+
   // Selected beat
   const selectedBeat = useMemo(() => {
     return beatsWithTimeline.find(b => b.id === selectedBeatId) || null;
   }, [beatsWithTimeline, selectedBeatId]);
 
-  // Total pages
+  // Total pages: dynamically stretches to fit all beat cards based on their title lengths
   const totalScreenplayPages = useMemo(() => {
-    if (beatsWithTimeline.length === 0) return 110;
+    if (beatsWithTimeline.length === 0) return 40;
     const maxEnd = Math.max(...beatsWithTimeline.map(b => b.startPage + b.durationPages));
-    return Math.max(110, Math.ceil(maxEnd + 6));
+    return Math.max(40, Math.ceil(maxEnd + 6));
   }, [beatsWithTimeline]);
 
   // Timecode readout (hh:mm:ss:ff)
@@ -755,6 +1005,26 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
         return;
       }
 
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        setPlayheadPage(p => Math.max(1, p - (e.shiftKey ? 1.0 : 0.5)));
+        return;
+      }
+
+      if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        setPlayheadPage(p => Math.min(totalScreenplayPages, p + (e.shiftKey ? 1.0 : 0.5)));
+        return;
+      }
+
+      if (e.key === 'Escape') {
+        if (beatContextMenu) {
+          e.preventDefault();
+          setBeatContextMenu(null);
+          return;
+        }
+      }
+
       if (e.key === 'Enter') {
         if (selectedBeatId !== null && !inlineEditState) {
           e.preventDefault();
@@ -783,12 +1053,34 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedBeatId, inlineEditState, onEditBeat, beats, zoomLevel, playheadPage, trackHeaderDock, pixelsPerPage]);
+  }, [selectedBeatId, inlineEditState, onEditBeat, beats, zoomLevel, playheadPage, trackHeaderDock, pixelsPerPage, beatContextMenu, totalScreenplayPages]);
 
   // Smooth Drag Move & Trim on Timeline (with RAF and position diffing)
+  // Track Lane vertical Y coordinate helper
+  const getTrackLaneY = useCallback((tIdx: number, sIdx: number) => {
+    let y = 0;
+    for (let i = 0; i < tIdx && i < tracks.length; i++) {
+      const t = tracks[i];
+      const mH = t.height || globalLaneHeight;
+      const subC = Math.min(MAX_SUBTRACKS_PER_TRACK, Math.max(0, t.subtrackCount || 0));
+      y += mH;
+      if (subC >= 1) y += getSpecificSubtrackHeight(t, 1, globalLaneHeight);
+      if (subC >= 2) y += getSpecificSubtrackHeight(t, 2, globalLaneHeight);
+    }
+    const cur = tracks[tIdx];
+    if (cur) {
+      const mH = cur.height || globalLaneHeight;
+      if (sIdx === 1) y += mH;
+      else if (sIdx === 2) y += mH + getSpecificSubtrackHeight(cur, 1, globalLaneHeight);
+    }
+    return y;
+  }, [tracks, globalLaneHeight]);
+
+  // 220FPS+ Ultra-Smooth Direct GPU DOM Dragging & Trimming (Zero React re-render overhead)
   const dragRafRef = useRef<number | null>(null);
   const pendingMouseCoordsRef = useRef<{ clientX: number; clientY: number } | null>(null);
   const lastAppliedDragRef = useRef<{ startTime?: number; trackIndex?: number; subtrackIndex?: number; durationWidth?: number } | null>(null);
+  const draggedDomElRef = useRef<HTMLElement | null>(null);
 
   const handleTimelineMouseDown = (e: React.MouseEvent, beatId: number, type: 'move' | 'trim-left' | 'trim-right') => {
     e.stopPropagation();
@@ -796,7 +1088,14 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
     if (!targetBeat) return;
 
     setSelectedBeatId(beatId);
-    setDragHoverTrack({ trackIdx: targetBeat.timelineTrackIdx, subtrackIdx: targetBeat.timelineSubtrackIdx });
+
+    // Grab actual DOM element for instantaneous direct GPU transformation
+    const el = document.querySelector(`[data-beat-id="${beatId}"]`) as HTMLElement | null;
+    draggedDomElRef.current = el;
+    if (el) {
+      el.style.willChange = 'transform, width';
+    }
+
     lastAppliedDragRef.current = {
       startTime: targetBeat.startPage,
       trackIndex: targetBeat.timelineTrackIdx,
@@ -811,11 +1110,11 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
       initialStartPage: targetBeat.startPage,
       initialDuration: targetBeat.durationPages,
       targetTrackIdx: targetBeat.timelineTrackIdx,
-      targetSubtrackIdx: targetBeat.timelineSubtrackIdx
+      targetSubtrackIdx: targetBeat.timelineSubtrackIdx,
+      initialTrackIdx: targetBeat.timelineTrackIdx,
+      initialSubtrackIdx: targetBeat.timelineSubtrackIdx
     });
   };
-
-  const effectivePxPerPage = pixelsPerPage * zoomLevel;
 
   useEffect(() => {
     if (!dragState) return;
@@ -830,8 +1129,8 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
       if (dragState.type === 'move') {
         const newStart = snapToGrid(Math.max(1, dragState.initialStartPage + deltaPages));
 
-        let targetTrack = dragState.targetTrackIdx;
-        let targetSubtrack = dragState.targetSubtrackIdx;
+        let targetTrack = dragState.initialTrackIdx;
+        let targetSubtrack = dragState.initialSubtrackIdx;
 
         if (tracksContainerRef.current) {
           const containerRect = tracksContainerRef.current.getBoundingClientRect();
@@ -870,29 +1169,52 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
           targetTrack = Math.max(0, Math.min(tracks.length - 1, targetTrack));
         }
 
-        const last = lastAppliedDragRef.current;
-        if (!last || last.startTime !== newStart || last.trackIndex !== targetTrack || last.subtrackIndex !== targetSubtrack) {
-          lastAppliedDragRef.current = { startTime: newStart, trackIndex: targetTrack, subtrackIndex: targetSubtrack };
-          setDragHoverTrack({ trackIdx: targetTrack, subtrackIdx: targetSubtrack });
-          updateBeat(dragState.beatId, { startTime: newStart, trackIndex: targetTrack, subtrackIndex: targetSubtrack });
+        const deltaYPx = getTrackLaneY(targetTrack, targetSubtrack) - getTrackLaneY(dragState.initialTrackIdx, dragState.initialSubtrackIdx);
+
+        // Direct GPU translation: Runs at 220FPS+ hardware refresh rate with ZERO React re-render overhead
+        if (draggedDomElRef.current) {
+          draggedDomElRef.current.style.transform = `translate3d(${deltaPx}px, ${deltaYPx}px, 0) scale(1.02)`;
+          draggedDomElRef.current.style.zIndex = '100';
+          draggedDomElRef.current.style.opacity = '0.92';
         }
+
+        pendingDragRef.current = {
+          beatId: dragState.beatId,
+          type: 'move',
+          finalStart: newStart,
+          finalTrack: targetTrack,
+          finalSubtrack: targetSubtrack,
+          finalDurationPages: dragState.initialDuration
+        };
       } else if (dragState.type === 'trim-right') {
         const newDur = Math.max(0.5, snapToGrid(dragState.initialDuration + deltaPages));
-        const newWidth = newDur * pixelsPerPage;
-        const last = lastAppliedDragRef.current;
-        if (!last || last.durationWidth !== newWidth) {
-          lastAppliedDragRef.current = { ...last, durationWidth: newWidth };
-          updateBeat(dragState.beatId, { durationWidth: newWidth });
+        if (draggedDomElRef.current) {
+          draggedDomElRef.current.style.width = `${newDur * effectivePxPerPage}px`;
         }
+        pendingDragRef.current = {
+          beatId: dragState.beatId,
+          type: 'trim-right',
+          finalStart: dragState.initialStartPage,
+          finalTrack: dragState.targetTrackIdx,
+          finalSubtrack: dragState.targetSubtrackIdx,
+          finalDurationPages: newDur
+        };
       } else if (dragState.type === 'trim-left') {
         const newStart = snapToGrid(Math.max(1, dragState.initialStartPage + deltaPages));
         const newDur = Math.max(0.5, dragState.initialDuration - (newStart - dragState.initialStartPage));
-        const newWidth = newDur * pixelsPerPage;
-        const last = lastAppliedDragRef.current;
-        if (!last || last.startTime !== newStart || last.durationWidth !== newWidth) {
-          lastAppliedDragRef.current = { startTime: newStart, durationWidth: newWidth };
-          updateBeat(dragState.beatId, { startTime: newStart, durationWidth: newWidth });
+        if (draggedDomElRef.current) {
+          const shiftPx = (newStart - dragState.initialStartPage) * effectivePxPerPage;
+          draggedDomElRef.current.style.transform = `translate3d(${shiftPx}px, 0, 0)`;
+          draggedDomElRef.current.style.width = `${newDur * effectivePxPerPage}px`;
         }
+        pendingDragRef.current = {
+          beatId: dragState.beatId,
+          type: 'trim-left',
+          finalStart: newStart,
+          finalTrack: dragState.targetTrackIdx,
+          finalSubtrack: dragState.targetSubtrackIdx,
+          finalDurationPages: newDur
+        };
       }
     };
 
@@ -902,6 +1224,8 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
         const dist = Math.hypot(e.clientX - dragState.startX, e.clientY - dragState.startY);
         if (dist > 3) {
           setIsActuallyDragging(true);
+          document.body.style.cursor = 'grabbing';
+          document.body.style.userSelect = 'none';
         }
       }
       if (!dragRafRef.current) {
@@ -910,25 +1234,78 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
     };
 
     const handleMouseUp = () => {
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
       if (dragRafRef.current) {
         cancelAnimationFrame(dragRafRef.current);
         dragRafRef.current = null;
       }
-      processDragFrame();
+      if (draggedDomElRef.current) {
+        draggedDomElRef.current.style.transform = '';
+        draggedDomElRef.current.style.zIndex = '';
+        draggedDomElRef.current.style.opacity = '';
+        draggedDomElRef.current.style.width = '';
+        draggedDomElRef.current.style.willChange = '';
+        draggedDomElRef.current = null;
+      }
+      if (pendingDragRef.current) {
+        const { beatId, type, finalStart, finalTrack, finalSubtrack, finalDurationPages } = pendingDragRef.current;
+        if (type === 'move') {
+          // Zero collision resolution: check other beats on the destination lane
+          const otherBeats = beatsWithTimeline
+            .filter(b => b.id !== beatId && b.timelineTrackIdx === finalTrack && b.timelineSubtrackIdx === finalSubtrack)
+            .sort((a, b) => a.startPage - b.startPage);
+
+          let resolvedStart = snapToGrid(Math.max(1, finalStart));
+          const beatDur = finalDurationPages || 1.5;
+
+          for (const other of otherBeats) {
+            const otherEnd = other.startPage + other.durationPages;
+            const myEnd = resolvedStart + beatDur;
+            if (!(myEnd <= other.startPage + 0.05 || resolvedStart >= otherEnd - 0.05)) {
+              // Collision! Snap to adjacent position without overlap
+              const after = Math.round((otherEnd + 0.1) * 10) / 10;
+              const before = Math.max(1, Math.round((other.startPage - beatDur - 0.1) * 10) / 10);
+              resolvedStart = Math.abs(resolvedStart - after) < Math.abs(resolvedStart - before) ? after : before;
+            }
+          }
+
+          updateBeat(beatId, {
+            startTime: resolvedStart,
+            trackIndex: finalTrack,
+            subtrackIndex: finalSubtrack
+          });
+        } else if (type === 'trim-right') {
+          updateBeat(beatId, {
+            durationWidth: Math.max(1.0, finalDurationPages) * pixelsPerPage,
+            durationPages: Math.max(1.0, finalDurationPages)
+          });
+        } else if (type === 'trim-left') {
+          updateBeat(beatId, {
+            startTime: finalStart,
+            durationWidth: Math.max(1.0, finalDurationPages) * pixelsPerPage,
+            durationPages: Math.max(1.0, finalDurationPages)
+          });
+        }
+        captureSnapshot();
+        if (autoNumberingEnabled) {
+          syncAutoSceneNumbers();
+        }
+      }
       setDragState(null);
       setIsActuallyDragging(false);
+      setLiveDragOffset(null);
       setDragHoverTrack(null);
+      pendingDragRef.current = null;
       lastAppliedDragRef.current = null;
       pendingMouseCoordsRef.current = null;
-      captureSnapshot();
-      if (autoNumberingEnabled) {
-        syncAutoSceneNumbers();
-      }
     };
 
     window.addEventListener('mousemove', handleMouseMove);
     window.addEventListener('mouseup', handleMouseUp);
     return () => {
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
       if (dragRafRef.current) {
         cancelAnimationFrame(dragRafRef.current);
         dragRafRef.current = null;
@@ -936,7 +1313,86 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [dragState, isActuallyDragging, effectivePxPerPage, tracks, globalLaneHeight]);
+  }, [dragState, isActuallyDragging, effectivePxPerPage, tracks, globalLaneHeight, getTrackLaneY, beatsWithTimeline, updateBeat, captureSnapshot, autoNumberingEnabled, pixelsPerPage]);
+
+  // Right-click drag marquee selection to group beats together
+  useEffect(() => {
+    const handleMouseDownGlobal = (e: MouseEvent) => {
+      // Button 2 is right click
+      if (e.button === 2) {
+        // Only trigger if inside timeline scroll container
+        if (timelineScrollRef.current && timelineScrollRef.current.contains(e.target as Node)) {
+          rightClickStartRef.current = { startX: e.clientX, startY: e.clientY, isDragging: false };
+        }
+      }
+    };
+
+    const handleMouseMoveGlobal = (e: MouseEvent) => {
+      if (!rightClickStartRef.current) return;
+      const dist = Math.hypot(e.clientX - rightClickStartRef.current.startX, e.clientY - rightClickStartRef.current.startY);
+      if (dist > 6) {
+        rightClickStartRef.current.isDragging = true;
+        setRightClickMarqueeBox({
+          startX: rightClickStartRef.current.startX,
+          startY: rightClickStartRef.current.startY,
+          currentX: e.clientX,
+          currentY: e.clientY
+        });
+
+        const minX = Math.min(rightClickStartRef.current.startX, e.clientX);
+        const maxX = Math.max(rightClickStartRef.current.startX, e.clientX);
+        const minY = Math.min(rightClickStartRef.current.startY, e.clientY);
+        const maxY = Math.max(rightClickStartRef.current.startY, e.clientY);
+
+        const beatEls = document.querySelectorAll('[data-beat-clip="true"]');
+        const selectedIds: number[] = [];
+        beatEls.forEach((el) => {
+          const rect = el.getBoundingClientRect();
+          const id = el.getAttribute('data-beat-id');
+          if (id) {
+            const intersects = !(rect.right < minX || rect.left > maxX || rect.bottom < minY || rect.top > maxY);
+            if (intersects) {
+              selectedIds.push(Number(id));
+            }
+          }
+        });
+        setMarqueeSelectedBeatIds(selectedIds);
+      }
+    };
+
+    const handleMouseUpGlobal = (e: MouseEvent) => {
+      if (e.button === 2 && rightClickStartRef.current) {
+        if (rightClickStartRef.current.isDragging) {
+          if (marqueeSelectedBeatIds.length > 0) {
+            setShowGroupModal(true);
+            setNewGroupName(`Sequence ${groups.length + 1}`);
+            setNewGroupColor(TRACK_PALETTE_COLORS[groups.length % TRACK_PALETTE_COLORS.length].hex || '#3b82f6');
+          }
+        }
+        rightClickStartRef.current = null;
+        setRightClickMarqueeBox(null);
+      }
+    };
+
+    const handleContextMenuGlobal = (e: MouseEvent) => {
+      if (rightClickStartRef.current?.isDragging) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    };
+
+    window.addEventListener('mousedown', handleMouseDownGlobal);
+    window.addEventListener('mousemove', handleMouseMoveGlobal);
+    window.addEventListener('mouseup', handleMouseUpGlobal);
+    window.addEventListener('contextmenu', handleContextMenuGlobal, true);
+
+    return () => {
+      window.removeEventListener('mousedown', handleMouseDownGlobal);
+      window.removeEventListener('mousemove', handleMouseMoveGlobal);
+      window.removeEventListener('mouseup', handleMouseUpGlobal);
+      window.removeEventListener('contextmenu', handleContextMenuGlobal, true);
+    };
+  }, [groups, marqueeSelectedBeatIds]);
 
   // Interactive Track Height Resizing Listener
   useEffect(() => {
@@ -1090,30 +1546,8 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
       });
     }
 
-    if (customSpans.length > 0) {
-      return customSpans.sort((a, b) => a.startPage - b.startPage);
-    }
-
-    // Default: Derive narrative sequence groups from dramatic ACT_MARKERS
-    const actSpans: DawGroupSpan[] = [];
-    for (let i = 0; i < ACT_MARKERS.length; i++) {
-      const cur = ACT_MARKERS[i];
-      const next = ACT_MARKERS[i + 1];
-      const startPage = cur.page;
-      const endPage = next ? next.page : totalScreenplayPages;
-      const memberBeats = beatsWithTimeline.filter(b => b.startPage >= startPage && b.startPage < endPage);
-      actSpans.push({
-        id: cur.id,
-        title: `${cur.label}${cur.sub ? ` • ${cur.sub}` : ''}`,
-        startPage,
-        endPage,
-        color: cur.color,
-        sceneCount: memberBeats.length,
-        beatIds: memberBeats.map(b => b.id)
-      });
-    }
-    return actSpans;
-  }, [groups, beatsWithTimeline, totalScreenplayPages]);
+    return customSpans.sort((a, b) => a.startPage - b.startPage);
+  }, [groups, beatsWithTimeline]);
 
   // Spatial anchor map for all beats (for causality dependency lines)
   const beatAnchorMap = useMemo(() => {
@@ -1244,20 +1678,22 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
 
     let origHeightToSave: number | undefined = undefined;
 
-    // If view is not in Detail view (112px), temporarily change this track to Detail view for naming & summary
-    if (startInlineEdit && currentTrackHeight < 112) {
+    // Expand active lane height to at least 120px so both beat name and summary fit cleanly
+    if (startInlineEdit && currentTrackHeight < 120) {
       origHeightToSave = currentTrackHeight;
       setTracks(prev => prev.map(t => {
         if (t.id !== curTrack.id) return t;
         if (safeSubtrackIdx === 0) {
-          return { ...t, height: 112 };
+          return { ...t, height: 120 };
         } else {
-          return { ...t, subtrackHeights: { ...(t.subtrackHeights || {}), [safeSubtrackIdx]: 112 } };
+          return { ...t, subtrackHeights: { ...(t.subtrackHeights || {}), [safeSubtrackIdx]: 120 } };
         }
       }));
     }
 
-    const defaultPages = 4.0; // Reasonably good scene length (4 pages)
+    // Default beat length matches beat name length (~8.5px/char + 110px padding for badge and controls)
+    const titleLen = newBeatTitle.length;
+    const defaultPages = Math.max(2.5, Math.round(((titleLen * 8.5 + 110) / pixelsPerPage) * 2) / 2);
     const newBeat: Beat = {
       id: newId,
       x: 100,
@@ -1287,7 +1723,6 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
         trackId: curTrack.id,
         subtrackIdx: safeSubtrackIdx,
         originalHeight: origHeightToSave,
-        field: 'title',
         titleText: newBeatTitle,
         summaryText: ''
       });
@@ -1297,6 +1732,128 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
       setTimeout(syncAutoSceneNumbers, 50);
     }
     return newId;
+  };
+
+  // Open simultaneous title + summary inline editor with widened lane
+  const startInlineEditForBeat = (targetBeatId: number) => {
+    const target = beatsWithTimeline.find(b => b.id === targetBeatId);
+    if (!target) return;
+    const curTrack = tracks[target.timelineTrackIdx];
+    if (!curTrack) return;
+    const currentTrackHeight = target.timelineSubtrackIdx === 0
+      ? (curTrack.height || globalLaneHeight)
+      : getSpecificSubtrackHeight(curTrack, target.timelineSubtrackIdx, globalLaneHeight);
+
+    let origH: number | undefined = undefined;
+    if (currentTrackHeight < 120) {
+      origH = currentTrackHeight;
+      setTracks(prev => prev.map(t => {
+        if (t.id !== curTrack.id) return t;
+        if (target.timelineSubtrackIdx === 0) {
+          return { ...t, height: 120 };
+        } else {
+          return { ...t, subtrackHeights: { ...(t.subtrackHeights || {}), [target.timelineSubtrackIdx]: 120 } };
+        }
+      }));
+    }
+
+    setInlineEditState({
+      beatId: target.id,
+      trackId: curTrack.id,
+      subtrackIdx: target.timelineSubtrackIdx,
+      originalHeight: origH,
+      titleText: target.title || 'Untitled Beat',
+      summaryText: target.summary || ''
+    });
+    setSelectedBeatId(target.id);
+  };
+
+  // Duplicate a beat clip immediately after the original
+  const handleDuplicateBeat = (targetBeatId: number) => {
+    const b = beatsWithTimeline.find(item => item.id === targetBeatId);
+    if (!b) return;
+    const newId = Date.now();
+    const newStart = snapToGrid(b.startPage + b.durationPages + 0.5);
+    const newBeat: Beat = {
+      ...b,
+      id: newId,
+      title: `${b.title} (Copy)`,
+      sceneNumber: String(beats.length + 1),
+      startTime: newStart,
+      durationWidth: b.durationPages * pixelsPerPage,
+    };
+    (newBeat as any).durationPages = b.durationPages;
+
+    setBeats(prev => [...prev, newBeat]);
+    setSelectedBeatId(newId);
+    captureSnapshot();
+    logTerminal('info', `Duplicated "${b.title}" to page ${newStart.toFixed(1)}.`);
+    setBeatContextMenu(null);
+  };
+
+  // Split a beat clip at the current playhead position
+  const handleSplitBeatAtPlayhead = (targetBeatId: number) => {
+    const b = beatsWithTimeline.find(item => item.id === targetBeatId);
+    if (!b) return;
+    const splitPoint = playheadPage;
+    if (splitPoint <= b.startPage || splitPoint >= b.startPage + b.durationPages) {
+      logTerminal('err', `Playhead (p.${playheadPage.toFixed(1)}) must be within Scene #${b.sceneNumber || b.id} (p.${b.startPage.toFixed(1)}–${(b.startPage + b.durationPages).toFixed(1)}) to split.`);
+      return;
+    }
+
+    const firstDur = splitPoint - b.startPage;
+    const secondDur = b.durationPages - firstDur;
+
+    // Update first beat duration
+    updateBeat(b.id, {
+      durationWidth: firstDur * pixelsPerPage,
+    });
+    (b as any).durationPages = firstDur;
+
+    // Create second beat part
+    const newId = Date.now();
+    const newBeat: Beat = {
+      id: newId,
+      x: b.x,
+      y: b.y,
+      title: `${b.title} (Part 2)`,
+      sceneNumber: `${b.sceneNumber || '1'}B`,
+      summary: b.summary || '',
+      slug: b.slug ? { ...b.slug } : { prefix: 'INT.', location: 'SCENE LOCATION', time: 'CONTINUOUS' },
+      content: b.content || '',
+      trackIndex: b.timelineTrackIdx,
+      subtrackIndex: b.timelineSubtrackIdx,
+      startTime: splitPoint,
+      durationWidth: secondDur * pixelsPerPage,
+      tension: b.tension
+    };
+    (newBeat as any).durationPages = secondDur;
+
+    setBeats(prev => [...prev, newBeat]);
+    setSelectedBeatId(newId);
+    captureSnapshot();
+    logTerminal('info', `Split beat into SC.${b.sceneNumber} (pp. ${b.startPage.toFixed(1)}–${splitPoint.toFixed(1)}) and Part 2 (pp. ${splitPoint.toFixed(1)}–${(splitPoint + secondDur).toFixed(1)}).`);
+    setBeatContextMenu(null);
+  };
+
+  // Move a beat clip to a specified track
+  const handleMoveBeatToTrack = (targetBeatId: number, targetTrackIdx: number, targetSubtrackIdx: number = 0) => {
+    updateBeat(targetBeatId, {
+      trackIndex: targetTrackIdx,
+      subtrackIndex: targetSubtrackIdx
+    });
+    captureSnapshot();
+    logTerminal('info', `Moved beat to track V${targetTrackIdx + 1}${targetSubtrackIdx > 0 ? `.${targetSubtrackIdx}` : ''}.`);
+    setBeatContextMenu(null);
+  };
+
+  // Delete a beat clip from the context menu
+  const handleDeleteBeatFromMenu = (targetBeatId: number) => {
+    setBeats(prev => prev.filter(b => b.id !== targetBeatId));
+    if (selectedBeatId === targetBeatId) setSelectedBeatId(null);
+    captureSnapshot();
+    logTerminal('info', `Deleted beat ID ${targetBeatId}.`);
+    setBeatContextMenu(null);
   };
 
   // Double click empty area to make a new beat
@@ -1311,6 +1868,76 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
     const clickX = e.clientX - rect.left;
     const targetPage = snapToGrid(Math.max(1, 1 + clickX / effectivePxPerPage));
     handleCreateBeat(trackIdx, subtrackIdx, targetPage, true);
+  };
+
+  // Create a sequence group from marquee-selected clips
+  const handleCreateGroupFromMarquee = () => {
+    if (marqueeSelectedBeatIds.length === 0) {
+      setShowGroupModal(false);
+      return;
+    }
+    const groupTitle = newGroupName.trim() || `Sequence ${groups.length + 1}`;
+    const groupColor = newGroupColor || '#3b82f6';
+
+    addGroup({
+      title: groupTitle,
+      color: groupColor,
+      x: 0,
+      y: 0,
+      width: 200,
+      height: 200
+    });
+
+    marqueeSelectedBeatIds.forEach(id => {
+      updateBeat(id, { groupTitle: groupTitle });
+    });
+
+    captureSnapshot();
+    setShowGroups(true);
+    setShowGroupModal(false);
+    setMarqueeSelectedBeatIds([]);
+    logTerminal('info', `Grouped ${marqueeSelectedBeatIds.length} scenes into sequence "${groupTitle}".`);
+  };
+
+  // Organizes beats on a track across its main track and subtracks in a rhythmic cascade (1 -> 1.1 -> 1.2 -> 1...)
+  const handleStaggerTrackSubtracks = (trackIdx: number) => {
+    const curTrack = tracks[trackIdx];
+    if (!curTrack) return;
+
+    // Ensure track has 2 subtracks enabled so subtracks 1 and 2 exist
+    if ((curTrack.subtrackCount || 0) < 2) {
+      const updated = tracks.map((t, idx) => idx === trackIdx ? { ...t, subtrackCount: 2 } : t);
+      setTracks(updated);
+      saveTracks(updated);
+    }
+
+    const trackBeats = beatsWithTimeline
+      .filter(b => b.timelineTrackIdx === trackIdx)
+      .sort((a, b) => a.startPage - b.startPage);
+
+    if (trackBeats.length === 0) return;
+
+    captureSnapshot();
+    let currentStart = Math.max(1, trackBeats[0].startPage);
+
+    trackBeats.forEach((beat, i) => {
+      const cycleSub = i % 3; // 0 = Track N, 1 = Track N.1, 2 = Track N.2
+      const titleWidth = getBeatTitleWidth(beat.title);
+      const durPages = Math.max(1.0, Math.round((titleWidth / effectivePxPerPage) * 10) / 10);
+
+      updateBeat(beat.id, {
+        trackIndex: trackIdx,
+        subtrackIndex: cycleSub,
+        startTime: Math.round(currentStart * 10) / 10,
+        durationWidth: titleWidth
+      });
+
+      // Flow each subsequent scene forward so they cascade neatly without overlap
+      currentStart += Math.max(0.8, durPages * 0.75);
+    });
+
+    logTerminal('info', `Staggered ${trackBeats.length} scenes on track ${trackIdx + 1} across subtracks (1 ➔ 1.1 ➔ 1.2).`);
+    if (autoNumberingEnabled) syncAutoSceneNumbers();
   };
 
   // Render Studio Track Strip (Docked on Left or Right) with Main Track + up to 2 Manual Subtracks
@@ -1386,6 +2013,16 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
             </div>
 
             <div className="flex items-center gap-1 shrink-0">
+              {/* Stagger Sequence Across Subtracks */}
+              <button
+                onClick={() => handleStaggerTrackSubtracks(trackIdx)}
+                className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold flex items-center gap-0.5 cursor-pointer bg-cyan-500/15 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/30 transition-colors"
+                title="Stagger beats across subtracks (1 ➔ 1.1 ➔ 1.2 ➔ 1...)"
+              >
+                <Layers size={10} />
+                <span>Stagger</span>
+              </button>
+
               {/* Manual + Subtrack Button (max 2) */}
               <button
                 onClick={() => handleAddSubtrack(track.id)}
@@ -1440,19 +2077,7 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
               </button>
             </div>
 
-            <div className="flex items-center gap-1 flex-1 min-w-0">
-              <input
-                type="range"
-                min="0"
-                max="100"
-                value={track.volume ?? 75}
-                onChange={(e) => updateTrack(track.id, { volume: Number(e.target.value) })}
-                className="w-full h-1 accent-amber-500 bg-[#252838] rounded cursor-pointer"
-                title={`Track Weight: ${track.volume ?? 75}%`}
-              />
-            </div>
-
-            <span className="text-[9px] font-mono px-1 py-0.2 rounded bg-white/5 text-slate-400 border border-white/5 shrink-0" title="Beats on Main track">
+            <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-white/5 text-slate-400 border border-white/5 shrink-0" title="Beats on Main track">
               {mainBeats.length} {mainBeats.length === 1 ? 'clip' : 'clips'}
             </span>
           </div>
@@ -1497,15 +2122,12 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
               const subNum = sIdx + 1; // 1 or 2
               const thisSubH = getSpecificSubtrackHeight(track, subNum, globalLaneHeight);
               const subBeats = trackBeats.filter(b => b.timelineSubtrackIdx === subNum);
-              const isSubHovered = dragState?.type === 'move' && dragHoverTrack?.trackIdx === trackIdx && dragHoverTrack?.subtrackIdx === subNum;
 
               return (
                 <div
                   key={`strip-sub-${subNum}`}
                   style={{ height: `${thisSubH}px` }}
-                  className={`px-3 flex items-center justify-between border-t border-white/[0.05] transition-colors group/sub relative ${
-                    isSubHovered ? 'bg-amber-400/[0.12]' : 'bg-[#0d0f18] hover:bg-white/[0.02]'
-                  }`}
+                  className={`px-3 flex items-center justify-between border-t border-white/[0.05] transition-colors group/sub relative ${currentTheme.bgStripSub} hover:bg-white/[0.03]`}
                 >
                   <div className="flex items-center gap-2 min-w-0">
                     <span 
@@ -1706,13 +2328,78 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
     );
   };
 
+  // Commit inline editing: save title & summary, adjust beat length to title, revert lane height
+  const commitInlineEdit = (targetBeatId: number) => {
+    if (!inlineEditState) return;
+    const targetBeat = beatsWithTimeline.find(b => b.id === targetBeatId);
+    const committedTitle = inlineEditState.titleText.trim() || 'Untitled Beat';
+    const committedSummary = inlineEditState.summaryText.trim();
+
+    // Beat length defaults to title length
+    const titleLen = committedTitle.length;
+    const defaultPages = Math.max(2.5, Math.round(((titleLen * 8.5 + 110) / pixelsPerPage) * 2) / 2);
+
+    updateBeat(targetBeatId, {
+      title: committedTitle,
+      summary: committedSummary,
+      durationPages: targetBeat && targetBeat.durationPages < defaultPages ? defaultPages : targetBeat?.durationPages
+    });
+
+    if (inlineEditState.originalHeight !== undefined) {
+      const origH = inlineEditState.originalHeight;
+      const tId = inlineEditState.trackId;
+      const sIdx = inlineEditState.subtrackIdx;
+      setTracks(prev => {
+        const reverted = prev.map(t => {
+          if (t.id !== tId) return t;
+          if (sIdx === 0) {
+            return { ...t, height: origH };
+          } else {
+            return { ...t, subtrackHeights: { ...(t.subtrackHeights || {}), [sIdx]: origH } };
+          }
+        });
+        saveTracks(reverted);
+        return reverted;
+      });
+    }
+
+    setInlineEditState(null);
+    captureSnapshot();
+    if (autoNumberingEnabled) syncAutoSceneNumbers();
+  };
+
+  // Cancel inline editing: revert lane height if it was expanded
+  const cancelInlineEdit = () => {
+    if (!inlineEditState) return;
+    if (inlineEditState.originalHeight !== undefined) {
+      const origH = inlineEditState.originalHeight;
+      const tId = inlineEditState.trackId;
+      const sIdx = inlineEditState.subtrackIdx;
+      setTracks(prev => {
+        const reverted = prev.map(t => {
+          if (t.id !== tId) return t;
+          if (sIdx === 0) {
+            return { ...t, height: origH };
+          } else {
+            return { ...t, subtrackHeights: { ...(t.subtrackHeights || {}), [sIdx]: origH } };
+          }
+        });
+        saveTracks(reverted);
+        return reverted;
+      });
+    }
+    setInlineEditState(null);
+  };
+
   // Render Rich Studio Beat Clip (Positioned in its respective main track or subtrack lane)
   const renderBeatClip = (beat: typeof beatsWithTimeline[0], track: TimelineTrack) => {
     const isSelected = selectedBeatId === beat.id;
     const isInlineEditing = inlineEditState?.beatId === beat.id;
     const isBeingDragged = isActuallyDragging && dragState?.beatId === beat.id && dragState.type === 'move';
     const clipLeft = (beat.startPage - 1) * effectivePxPerPage;
-    const clipWidth = Math.max(isInlineEditing ? 220 : 120, beat.durationPages * effectivePxPerPage);
+    // Beat length defaults to the beat name length (~7.8px/char + 80px badges/padding)
+    const minTitleWidth = getBeatTitleWidth(beat.title);
+    const clipWidth = Math.max(isInlineEditing ? 340 : minTitleWidth, beat.durationPages * effectivePxPerPage);
     const mainH = track.height || globalLaneHeight;
     const subIdx = beat.timelineSubtrackIdx ?? 0; // 0 = Main, 1 = Sub 1, 2 = Sub 2
     const sub1H = getSpecificSubtrackHeight(track, 1, globalLaneHeight);
@@ -1748,16 +2435,20 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
       ? connections.filter(c => c.from === beat.id || c.to === beat.id).length 
       : 0;
 
+    const isMarqueeSelected = marqueeSelectedBeatIds.includes(beat.id);
+
     // Viewport Virtualization: When handling 200+ beats, cull cards outside the visible window
     const headerOffset = trackHeaderDock === 'left' ? 256 : 0;
     const viewLeft = viewportMetrics.scrollLeft - headerOffset - 400;
     const viewRight = viewportMetrics.scrollLeft - headerOffset + viewportMetrics.clientWidth + 400;
     const isHorizontallyVisible = (clipLeft + clipWidth >= viewLeft) && (clipLeft <= viewRight);
 
-    if (!isHorizontallyVisible && !isSelected && !isBeingDragged && !isInlineEditing) {
+    if (!isHorizontallyVisible && !isSelected && !isBeingDragged && !isInlineEditing && !isMarqueeSelected) {
       return (
         <div
           key={beat.id}
+          data-beat-clip="true"
+          data-beat-id={beat.id}
           style={{
             left: `${clipLeft}px`,
             width: `${clipWidth}px`,
@@ -1773,40 +2464,64 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
       );
     }
 
+    // High performance GPU translation during live dragging (no React re-renders)
+    const liveDx = isBeingDragged && liveDragOffset && liveDragOffset.beatId === beat.id ? liveDragOffset.deltaPx : 0;
+    const liveDy = isBeingDragged && liveDragOffset && liveDragOffset.beatId === beat.id ? liveDragOffset.deltaYPx : 0;
+    const liveTransform = isBeingDragged 
+      ? `translate3d(${liveDx}px, ${liveDy}px, 0) scale(1.02)` 
+      : 'none';
+
     return (
       <div
         key={beat.id}
         data-beat-clip="true"
+        data-beat-id={beat.id}
         style={{
           left: `${clipLeft}px`,
           width: `${clipWidth}px`,
           height: `${clipHeight}px`,
           top: `${clipTop}px`,
-          borderColor: isSelected || isBeingDragged ? '#f59e0b' : `${track.color}50`,
-          backgroundColor: isBeingDragged ? '#1a1d2e' : isSelected ? '#151826' : '#10121d',
-          zIndex: isInlineEditing ? 40 : isBeingDragged ? 35 : isSelected ? 20 : 2,
-          transform: isBeingDragged ? 'scale(1.02)' : 'none',
-          willChange: isBeingDragged ? 'left, top' : 'auto',
+          borderColor: isMarqueeSelected ? '#06b6d4' : isSelected ? '#f59e0b' : isBeingDragged ? `${track.color}90` : `${track.color}50`,
+          backgroundColor: isBeingDragged ? (currentTheme.isDark ? '#1a1d2e' : '#f1f5f9') : isMarqueeSelected ? '#0e2433' : isSelected ? (currentTheme.isDark ? '#151826' : '#ffffff') : currentTheme.bgCard,
+          zIndex: isInlineEditing ? 40 : isBeingDragged ? 35 : isMarqueeSelected ? 25 : isSelected ? 20 : 2,
+          transform: liveTransform,
+          willChange: isBeingDragged ? 'transform' : 'auto',
+          transition: isBeingDragged ? 'none' : 'border-color 0.15s, box-shadow 0.15s',
         }}
         onMouseDown={(e) => {
           if (isInlineEditing) {
             e.stopPropagation();
             return;
           }
-          handleTimelineMouseDown(e, beat.id, 'move');
+          if (e.button === 0) {
+            handleTimelineMouseDown(e, beat.id, 'move');
+          }
         }}
         onDoubleClick={(e) => {
           e.stopPropagation();
           e.preventDefault();
           if (isInlineEditing) return;
-          onEditBeat(beat.id);
+          startInlineEditForBeat(beat.id);
+        }}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          if (rightClickStartRef.current?.isDragging) return;
+          setSelectedBeatId(beat.id);
+          const menuW = 224;
+          const menuH = 280;
+          const x = Math.min(window.innerWidth - menuW - 16, Math.max(16, e.clientX));
+          const y = Math.min(window.innerHeight - menuH - 16, Math.max(16, e.clientY));
+          setBeatContextMenu({ beatId: beat.id, x, y });
         }}
         className={`absolute rounded-lg border shadow-sm select-none overflow-hidden flex flex-col justify-between ${
           isBeingDragged 
-            ? 'shadow-[0_16px_36px_rgba(0,0,0,0.85)] ring-2 ring-amber-400 cursor-grabbing transition-none' 
-            : isSelected 
-              ? 'shadow-[0_4px_16px_rgba(245,158,11,0.25)] ring-1 ring-amber-400 cursor-grab transition-[border-color,box-shadow]' 
-              : 'hover:border-white/40 hover:shadow-md cursor-grab transition-[border-color,box-shadow]'
+            ? 'shadow-[0_24px_50px_rgba(0,0,0,0.85)] cursor-grabbing' 
+            : isMarqueeSelected
+              ? 'shadow-[0_0_20px_rgba(6,182,212,0.5)] ring-2 ring-cyan-400 cursor-pointer'
+              : isSelected 
+                ? 'shadow-[0_4px_16px_rgba(245,158,11,0.25)] ring-1 ring-amber-400 cursor-grab' 
+                : 'hover:border-white/40 hover:shadow-md cursor-grab'
         }`}
       >
         {/* Left Trim Handle */}
@@ -1817,126 +2532,74 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
         />
 
         {isInlineEditing ? (
-          /* INLINE EDITING: Step 1 (Beat Name) -> Enter -> Step 2 (Summary) -> Enter -> Commit */
+          /* INLINE EDITING: Widened Active Lane showing BOTH Beat Name and Summary simultaneously */
           <div 
-            className="h-full px-2 py-1.5 flex flex-col justify-center gap-1 min-w-0 bg-[#141726] border border-amber-400 rounded-lg shadow-xl"
+            className="h-full p-2 flex flex-col justify-between gap-1.5 min-w-0 bg-[#121422] border-2 border-amber-400 rounded-lg shadow-2xl z-50 select-text"
             onClick={(e) => e.stopPropagation()}
             onMouseDown={(e) => e.stopPropagation()}
             onDoubleClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between gap-1 text-[9px] font-mono font-bold text-amber-400">
-              <span className="truncate">{inlineEditState.field === 'title' ? 'BEAT NAME' : 'BEAT SUMMARY'}</span>
-              <span className="text-[8px] text-slate-400 bg-black/40 px-1 py-0.2 rounded font-normal shrink-0">
-                {inlineEditState.field === 'title' ? 'Enter ➜ Summary' : 'Enter ➜ Commit'}
+            <div className="flex items-center justify-between gap-1 text-[9px] font-mono font-bold text-amber-400 shrink-0">
+              <span className="flex items-center gap-1 uppercase tracking-wider">
+                <Edit3 size={11} /> Edit Scene [SC.{sceneNo}]
               </span>
+              <div className="flex items-center gap-1 shrink-0">
+                <button
+                  onClick={() => commitInlineEdit(beat.id)}
+                  className="px-2 py-0.5 rounded bg-amber-400 hover:bg-amber-300 text-black font-bold text-[9px] cursor-pointer shadow-xs transition-colors"
+                  title="Save changes (Enter in Title or Cmd+Enter in Summary)"
+                >
+                  Save
+                </button>
+                <button
+                  onClick={cancelInlineEdit}
+                  className="px-1.5 py-0.5 rounded bg-white/10 hover:bg-white/20 text-slate-300 text-[9px] cursor-pointer transition-colors"
+                  title="Cancel (Escape)"
+                >
+                  ✕
+                </button>
+              </div>
             </div>
 
-            {inlineEditState.field === 'title' ? (
-              <input
-                type="text"
-                autoFocus
-                value={inlineEditState.titleText}
-                onChange={(e) => setInlineEditState({ ...inlineEditState, titleText: e.target.value })}
-                onFocus={(e) => e.target.select()}
-                onKeyDown={(e) => {
-                  e.stopPropagation();
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    const committedTitle = inlineEditState.titleText.trim() || 'Untitled Beat';
-                    updateBeat(beat.id, { title: committedTitle });
-                    setInlineEditState({
-                      ...inlineEditState,
-                      titleText: committedTitle,
-                      field: 'summary',
-                      summaryText: beat.summary || ''
-                    });
-                  } else if (e.key === 'Escape') {
-                    e.preventDefault();
-                    updateBeat(beat.id, { title: inlineEditState.titleText.trim() || 'Untitled Beat' });
-                    if (inlineEditState.originalHeight !== undefined) {
-                      const origH = inlineEditState.originalHeight;
-                      const tId = inlineEditState.trackId;
-                      const sIdx = inlineEditState.subtrackIdx;
-                      setTracks(prev => {
-                        const reverted = prev.map(t => {
-                          if (t.id !== tId) return t;
-                          if (sIdx === 0) {
-                            return { ...t, height: origH };
-                          } else {
-                            return { ...t, subtrackHeights: { ...(t.subtrackHeights || {}), [sIdx]: origH } };
-                          }
-                        });
-                        saveTracks(reverted);
-                        return reverted;
-                      });
-                    }
-                    setInlineEditState(null);
-                  }
-                }}
-                placeholder="Beat name..."
-                className="w-full bg-[#0d0e17] border border-amber-400/80 rounded px-1.5 py-0.5 text-xs text-white font-bold outline-none shadow-inner"
-              />
-            ) : (
-              <input
-                type="text"
-                autoFocus
-                value={inlineEditState.summaryText}
-                onChange={(e) => setInlineEditState({ ...inlineEditState, summaryText: e.target.value })}
-                onFocus={(e) => e.target.select()}
-                onKeyDown={(e) => {
-                  e.stopPropagation();
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    const committedSummary = inlineEditState.summaryText.trim();
-                    updateBeat(beat.id, { summary: committedSummary });
-                    if (inlineEditState.originalHeight !== undefined) {
-                      const origH = inlineEditState.originalHeight;
-                      const tId = inlineEditState.trackId;
-                      const sIdx = inlineEditState.subtrackIdx;
-                      setTracks(prev => {
-                        const reverted = prev.map(t => {
-                          if (t.id !== tId) return t;
-                          if (sIdx === 0) {
-                            return { ...t, height: origH };
-                          } else {
-                            return { ...t, subtrackHeights: { ...(t.subtrackHeights || {}), [sIdx]: origH } };
-                          }
-                        });
-                        saveTracks(reverted);
-                        return reverted;
-                      });
-                    }
-                    setInlineEditState(null);
-                    captureSnapshot();
-                    if (autoNumberingEnabled) syncAutoSceneNumbers();
-                  } else if (e.key === 'Escape') {
-                    e.preventDefault();
-                    updateBeat(beat.id, { summary: inlineEditState.summaryText.trim() });
-                    if (inlineEditState.originalHeight !== undefined) {
-                      const origH = inlineEditState.originalHeight;
-                      const tId = inlineEditState.trackId;
-                      const sIdx = inlineEditState.subtrackIdx;
-                      setTracks(prev => {
-                        const reverted = prev.map(t => {
-                          if (t.id !== tId) return t;
-                          if (sIdx === 0) {
-                            return { ...t, height: origH };
-                          } else {
-                            return { ...t, subtrackHeights: { ...(t.subtrackHeights || {}), [sIdx]: origH } };
-                          }
-                        });
-                        saveTracks(reverted);
-                        return reverted;
-                      });
-                    }
-                    setInlineEditState(null);
-                    captureSnapshot();
-                  }
-                }}
-                placeholder="Summary (Enter to commit)..."
-                className="w-full bg-[#0d0e17] border border-amber-400/80 rounded px-1.5 py-0.5 text-[11px] text-slate-100 outline-none shadow-inner"
-              />
-            )}
+            {/* Beat Name Input */}
+            <input
+              type="text"
+              autoFocus
+              value={inlineEditState.titleText}
+              onChange={(e) => setInlineEditState({ ...inlineEditState, titleText: e.target.value })}
+              onFocus={(e) => e.target.select()}
+              onKeyDown={(e) => {
+                e.stopPropagation();
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  commitInlineEdit(beat.id);
+                } else if (e.key === 'Escape') {
+                  e.preventDefault();
+                  cancelInlineEdit();
+                }
+              }}
+              placeholder="Beat name / headline..."
+              className="w-full bg-[#090a12] border border-white/15 focus:border-amber-400 rounded px-2 py-1 text-xs text-white font-bold outline-none shadow-inner shrink-0"
+            />
+
+            {/* Beat Summary Textarea */}
+            <textarea
+              rows={2}
+              value={inlineEditState.summaryText}
+              onChange={(e) => setInlineEditState({ ...inlineEditState, summaryText: e.target.value })}
+              onKeyDown={(e) => {
+                e.stopPropagation();
+                if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                  e.preventDefault();
+                  commitInlineEdit(beat.id);
+                } else if (e.key === 'Escape') {
+                  e.preventDefault();
+                  cancelInlineEdit();
+                }
+              }}
+              placeholder="Dramatic summary (Cmd+Enter to save)..."
+              className="w-full flex-1 bg-[#090a12] border border-white/15 focus:border-amber-400 rounded px-2 py-1 text-[11px] text-slate-200 resize-none outline-none shadow-inner leading-tight"
+            />
           </div>
         ) : viewMode === 'compact' ? (
           /* COMPACT VIEW: Scene No & Beat Name only */
@@ -1974,11 +2637,6 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
                 >
                   <FileText size={10} />
                 </button>
-                {isBeingDragged && (
-                  <span className="text-[8px] font-mono font-black px-1 py-0.2 rounded bg-amber-400 text-black uppercase animate-pulse">
-                    ➜ {dragHoverTrack ? (dragHoverTrack.subtrackIdx === 0 ? `V${dragHoverTrack.trackIdx + 1}` : `V${dragHoverTrack.trackIdx + 1}.${dragHoverTrack.subtrackIdx}`) : subBadgeLabel}
-                  </span>
-                )}
                 <span className="text-[9px] font-mono text-slate-400">
                   {beat.durationPages.toFixed(1)}p
                 </span>
@@ -2028,11 +2686,6 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
                 >
                   <FileText size={10} />
                 </button>
-                {isBeingDragged && (
-                  <span className="text-[9px] font-mono font-black px-1.5 py-0.2 rounded bg-amber-400 text-black uppercase animate-pulse">
-                    ➜ {dragHoverTrack ? (dragHoverTrack.subtrackIdx === 0 ? `V${dragHoverTrack.trackIdx + 1}` : `V${dragHoverTrack.trackIdx + 1}.${dragHoverTrack.subtrackIdx}`) : subBadgeLabel}
-                  </span>
-                )}
                 <span className="text-[9px] font-mono text-slate-400">
                   {beat.durationPages.toFixed(1)}p
                 </span>
@@ -2089,11 +2742,6 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
                 >
                   <FileText size={10} />
                 </button>
-                {isBeingDragged && (
-                  <span className="text-[9px] font-mono font-black px-1.5 py-0.2 rounded bg-amber-400 text-black uppercase animate-pulse">
-                    ➜ {dragHoverTrack ? (dragHoverTrack.subtrackIdx === 0 ? `V${dragHoverTrack.trackIdx + 1}` : `V${dragHoverTrack.trackIdx + 1}.${dragHoverTrack.subtrackIdx}`) : subBadgeLabel}
-                  </span>
-                )}
                 <span className="text-[9px] font-mono text-slate-400">
                   {beat.durationPages.toFixed(1)}p
                 </span>
@@ -2128,20 +2776,27 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
   };
 
   return (
-    <div className="w-full h-full flex flex-col bg-[#090a10] text-slate-200 select-none overflow-hidden font-sans">
+    <div className={`w-full h-full flex flex-col ${currentTheme.bgCanvas} ${currentTheme.textPrimary} select-none overflow-hidden font-sans relative`}>
       
       {/* 1. STUDIO HARDWARE TRANSPORT CONSOLE */}
-      <header className="h-12 px-3 bg-[#0e1017] border-b border-[#1c1f2e] flex items-center justify-between shrink-0 z-30 shadow-md">
+      <header className={`h-12 px-3 ${currentTheme.bgHeader} ${currentTheme.borderStrip} border-b flex items-center justify-between shrink-0 z-30 shadow-md`}>
         
         {/* Left: Transport Buttons */}
         <div className="flex items-center gap-2">
-          <div className="flex items-center bg-[#141622] p-1 rounded-lg border border-[#24283b] shadow-inner gap-1">
+          <div className="flex items-center bg-[#141622] p-1 rounded-lg border border-[#24283b] shadow-inner gap-0.5">
             <button
               onClick={() => setPlayheadPage(1.0)}
               className="p-1.5 rounded hover:bg-white/10 text-slate-400 hover:text-white transition-all cursor-pointer"
               title="Return to Start (Home)"
             >
-              <RotateCcw size={13} />
+              <SkipBack size={13} />
+            </button>
+            <button
+              onClick={() => setPlayheadPage(p => Math.max(1, p - 1.0))}
+              className="p-1.5 rounded hover:bg-white/10 text-slate-400 hover:text-white transition-all cursor-pointer"
+              title="Step Back 1 Page (Left Arrow)"
+            >
+              <ChevronLeft size={13} />
             </button>
             <button
               onClick={() => setIsPlaying(!isPlaying)}
@@ -2156,8 +2811,22 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
               <span>{isPlaying ? 'PAUSE' : 'PLAY'}</span>
             </button>
             <button
+              onClick={() => setPlayheadPage(p => Math.min(totalScreenplayPages, p + 1.0))}
+              className="p-1.5 rounded hover:bg-white/10 text-slate-400 hover:text-white transition-all cursor-pointer"
+              title="Step Forward 1 Page (Right Arrow)"
+            >
+              <ChevronRight size={13} />
+            </button>
+            <button
+              onClick={() => setPlayheadPage(totalScreenplayPages)}
+              className="p-1.5 rounded hover:bg-white/10 text-slate-400 hover:text-white transition-all cursor-pointer"
+              title="Jump to End of Screenplay"
+            >
+              <SkipForward size={13} />
+            </button>
+            <button
               onClick={() => setIsLooping(!isLooping)}
-              className={`p-1.5 rounded text-xs transition-all cursor-pointer ${
+              className={`p-1.5 rounded text-xs transition-all cursor-pointer ml-1 ${
                 isLooping ? 'bg-cyan-500/20 text-cyan-400' : 'text-slate-400 hover:text-white'
               }`}
               title="Toggle Act II Loop"
@@ -2178,9 +2847,40 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
 
           <div className="flex items-baseline gap-1.5">
             <span className="text-[10px] text-slate-500 uppercase">PAGE</span>
-            <span className="font-bold text-slate-200">
-              {playheadPage.toFixed(1)} <span className="text-slate-500 font-normal">/ {totalScreenplayPages}p</span>
-            </span>
+            {isEditingPageInput ? (
+              <input
+                type="text"
+                autoFocus
+                value={pageInputValue}
+                onChange={(e) => setPageInputValue(e.target.value)}
+                onBlur={() => {
+                  const num = parseFloat(pageInputValue);
+                  if (!isNaN(num)) setPlayheadPage(Math.max(1, Math.min(totalScreenplayPages, num)));
+                  setIsEditingPageInput(false);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    const num = parseFloat(pageInputValue);
+                    if (!isNaN(num)) setPlayheadPage(Math.max(1, Math.min(totalScreenplayPages, num)));
+                    setIsEditingPageInput(false);
+                  } else if (e.key === 'Escape') {
+                    setIsEditingPageInput(false);
+                  }
+                }}
+                className="w-14 bg-black border border-amber-400 rounded px-1 py-0 text-amber-400 font-mono font-bold text-xs outline-none"
+              />
+            ) : (
+              <span 
+                className="font-bold text-slate-200 cursor-pointer hover:text-amber-400 transition-colors"
+                onClick={() => {
+                  setPageInputValue(playheadPage.toFixed(1));
+                  setIsEditingPageInput(true);
+                }}
+                title="Click to jump to specific page"
+              >
+                {playheadPage.toFixed(1)} <span className="text-slate-500 font-normal">/ {totalScreenplayPages}p</span>
+              </span>
+            )}
           </div>
 
           <div className="h-4 w-px bg-white/10" />
@@ -2320,6 +3020,27 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
             <Compass size={12} />
             <span>Map</span>
           </button>
+
+          {/* DAW Theme Selector (Both Light & Dark themes) */}
+          <div className="flex items-center gap-1 bg-[#141622] px-2 py-1 rounded border border-[#24283b]">
+            <Palette size={12} className="text-amber-400 shrink-0" />
+            <select
+              value={dawThemeId}
+              onChange={(e) => saveDawTheme(e.target.value as DawThemeId)}
+              className="bg-transparent text-slate-200 font-bold outline-none cursor-pointer text-xs"
+              title="DAW Visual Theme (Dark & Light studio styles)"
+            >
+              <optgroup label="Dark Themes" className="bg-[#141622] text-slate-300">
+                <option value="obsidian" className="bg-[#141622]">Obsidian Studio</option>
+                <option value="slate" className="bg-[#141622]">Cyber Slate</option>
+                <option value="vintage" className="bg-[#141622]">Vintage Console</option>
+              </optgroup>
+              <optgroup label="Light Themes" className="bg-[#141622] text-slate-300">
+                <option value="paper" className="bg-[#141622]">Paper Script</option>
+                <option value="platinum" className="bg-[#141622]">Studio Platinum</option>
+              </optgroup>
+            </select>
+          </div>
 
           {/* Zoom controls (anchored to playhead) */}
           <div className="flex items-center bg-[#141622] px-1.5 py-1 rounded border border-[#24283b] gap-1">
@@ -2479,7 +3200,7 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
         ref={timelineScrollRef}
         onScroll={handleTimelineScroll}
         onMouseDown={handleDeselectIfBackground}
-        className="flex-1 overflow-auto bg-[#08090f] relative flex flex-col select-none"
+        className={`flex-1 overflow-auto ${currentTheme.bgCanvas} relative flex flex-col select-none`}
       >
         <div 
           style={{ minWidth: `${totalTimelineWidth + 260}px` }}
@@ -2487,10 +3208,10 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
         >
           
           {/* STICKY TOP RULER ROW */}
-          <div className="h-9 flex sticky top-0 z-30 bg-[#0e1018] border-b border-[#1c1f2e] shadow-sm">
+          <div className={`h-9 flex sticky top-0 z-30 ${currentTheme.bgRuler} ${currentTheme.borderRuler} border-b shadow-sm`}>
             {/* Left Corner: Track header banner (if left-docked) */}
             {trackHeaderDock === 'left' && (
-              <div className="w-64 shrink-0 sticky left-0 z-40 bg-[#12141f] border-r border-[#1c1f2e] px-3 flex items-center justify-between text-xs font-mono font-bold text-slate-400 shadow-md">
+              <div className={`w-64 shrink-0 sticky left-0 z-40 ${currentTheme.bgStrip} ${currentTheme.borderStrip} border-r px-3 flex items-center justify-between text-xs font-mono font-bold ${currentTheme.textMuted} shadow-md`}>
                 <span className="uppercase tracking-wider">Tracks ({tracks.length})</span>
                 <button 
                   onClick={addCustomTrack}
@@ -2504,28 +3225,32 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
 
             {/* Act Milestones & Screenplay Page Ruler Canvas */}
             <div 
-              onClick={handleRulerMouseDown}
+              onMouseDown={handleRulerMouseDown}
+              onMouseMove={(e) => {
+                const rect = e.currentTarget.getBoundingClientRect();
+                const curX = e.clientX - rect.left;
+                setRulerHoverPage(snapToGrid(Math.max(1, 1 + curX / effectivePxPerPage)));
+              }}
+              onMouseLeave={() => setRulerHoverPage(null)}
               style={{ width: `${totalTimelineWidth}px` }}
-              className="flex-1 h-full relative cursor-pointer overflow-hidden select-none"
+              className="flex-1 h-full relative cursor-ew-resize overflow-visible select-none group/ruler"
             >
-              {/* Act Regions */}
-              {ACT_MARKERS.map((marker, idx) => {
-                const nextMarker = ACT_MARKERS[idx + 1];
-                const markerX = (marker.page - 1) * effectivePxPerPage;
-                const nextX = nextMarker ? (nextMarker.page - 1) * effectivePxPerPage : totalTimelineWidth;
-                const width = Math.max(20, nextX - markerX);
+              {/* User Sequences & Group Regions on Ruler */}
+              {showGroups && dawGroupSpans.map((span) => {
+                const markerX = (span.startPage - 1) * effectivePxPerPage;
+                const width = Math.max(30, (span.endPage - span.startPage) * effectivePxPerPage);
 
                 return (
                   <div
-                    key={marker.id}
-                    style={{ left: `${markerX}px`, width: `${width}px`, borderLeftColor: `${marker.color}40` }}
-                    className="absolute top-0 bottom-0 border-l px-2 py-1 overflow-hidden pointer-events-none"
+                    key={`ruler-group-${span.id}`}
+                    style={{ left: `${markerX}px`, width: `${width}px`, borderLeftColor: `${span.color}60` }}
+                    className="absolute top-0 bottom-0 border-l px-2 py-1 overflow-hidden pointer-events-none bg-white/[0.02]"
                   >
                     <div className="flex items-center gap-1.5">
-                      <span className="text-[10px] font-mono font-black uppercase tracking-wider truncate" style={{ color: marker.color }}>
-                        {marker.label}
+                      <span className="text-[10px] font-mono font-black uppercase tracking-wider truncate" style={{ color: span.color }}>
+                        {span.title}
                       </span>
-                      <span className="text-[9px] text-slate-500 font-mono">p.{marker.page}</span>
+                      <span className="text-[9px] text-slate-500 font-mono">p.{Math.round(span.startPage)}</span>
                     </div>
                   </div>
                 );
@@ -2546,6 +3271,34 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
                   </div>
                 );
               })}
+
+              {/* Ruler Hover Guide Line & Tooltip */}
+              {rulerHoverPage !== null && (
+                <div
+                  style={{ left: `${(rulerHoverPage - 1) * effectivePxPerPage}px` }}
+                  className="absolute top-0 bottom-0 w-px border-l border-dashed border-amber-400/60 pointer-events-none z-40"
+                >
+                  <span className="absolute top-0.5 left-1 text-[8px] font-mono bg-black/80 px-1 rounded text-amber-300 pointer-events-none shadow">
+                    p.{rulerHoverPage.toFixed(1)}
+                  </span>
+                </div>
+              )}
+
+              {/* Interactive Playhead Scrubber Handle on Ruler */}
+              <div
+                style={{ left: `${(playheadPage - 1) * effectivePxPerPage}px` }}
+                className="absolute top-0 bottom-0 pointer-events-none z-50 flex flex-col items-center -translate-x-1/2"
+              >
+                {/* Grab handle badge */}
+                <div 
+                  className="px-1.5 py-0.5 bg-amber-400 text-black font-mono font-black text-[9px] rounded-t-sm shadow-[0_2px_8px_rgba(245,158,11,0.6)] flex items-center gap-0.5 tracking-tight pointer-events-auto cursor-ew-resize hover:scale-105 transition-transform"
+                  title={`Playhead: p.${playheadPage.toFixed(1)} • Drag to scrub`}
+                >
+                  <span>{playheadPage.toFixed(1)}p</span>
+                </div>
+                {/* Downward triangle pointer */}
+                <div className="w-0 h-0 border-l-[5px] border-l-transparent border-r-[5px] border-r-transparent border-t-[6px] border-t-amber-400 -mt-px shadow-sm pointer-events-none" />
+              </div>
             </div>
 
             {/* Right Corner: Track header banner (if right-docked) */}
@@ -2634,17 +3387,6 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
           {/* MAIN ARRANGEMENT: UNIFIED ROWS (TRACK STRIP + LANE GRID) */}
           <div ref={tracksContainerRef} className="flex-1 flex flex-col relative">
             
-            {/* Act Boundary Vertical Drop Lines */}
-            {ACT_MARKERS.map((marker) => {
-              const x = (marker.page - 1) * effectivePxPerPage + (trackHeaderDock === 'left' ? 256 : 0);
-              return (
-                <div
-                  key={`drop-${marker.id}`}
-                  style={{ left: `${x}px`, borderColor: marker.color }}
-                  className="absolute top-0 bottom-0 w-px border-l border-dashed pointer-events-none z-1 opacity-20"
-                />
-              );
-            })}
 
             {/* Sequence & Group Lane Vertical Shading Bands */}
             {showGroups && dawGroupSpans.map((span, idx) => {
@@ -2678,11 +3420,11 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
                 <div 
                   key={track.id}
                   style={{ height: `${totalLaneH}px` }}
-                  className="flex w-full border-b border-[#181a26] relative group"
+                  className={`flex w-full border-b ${currentTheme.borderLane} relative group`}
                 >
                   {/* Left Docked Track Strip */}
                   {trackHeaderDock === 'left' && (
-                    <div className="w-64 shrink-0 sticky left-0 z-40 bg-[#0e1017] border-r border-[#1c1f2e] shadow-2xl flex select-none">
+                    <div className={`w-64 shrink-0 sticky left-0 z-40 ${currentTheme.bgStrip} border-r ${currentTheme.borderStrip} shadow-2xl flex select-none`}>
                       {renderTrackStripItem(track, trackIdx)}
                     </div>
                   )}
@@ -2695,11 +3437,7 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
                     {/* 1. Main Track Canvas Lane */}
                     <div
                       style={{ height: `${mainH}px` }}
-                      className={`absolute left-0 right-0 top-0 border-b border-white/[0.06] transition-colors ${
-                        dragState?.type === 'move' && dragHoverTrack?.trackIdx === trackIdx && dragHoverTrack?.subtrackIdx === 0
-                          ? 'bg-amber-400/[0.08]'
-                          : ''
-                      }`}
+                      className={`absolute left-0 right-0 top-0 ${currentTheme.borderLane} border-b transition-colors`}
                       onDoubleClick={(e) => handleLaneDoubleClick(e, trackIdx, 0)}
                     >
                       {/* Sticky Main watermark */}
@@ -2708,23 +3446,6 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
                           V{trackIdx + 1} • MAIN
                         </span>
                       </div>
-
-                      {/* Main Track Height Resizer Handle across Lane Canvas */}
-                      <div
-                        onMouseDown={(e) => {
-                          e.stopPropagation();
-                          e.preventDefault();
-                          setResizingTrack({
-                            trackId: track.id,
-                            subtrackIdx: 0,
-                            startY: e.clientY,
-                            initialHeight: mainH
-                          });
-                        }}
-                        style={{ width: `${totalTimelineWidth}px` }}
-                        className="absolute bottom-0 left-0 h-2 cursor-row-resize z-20 hover:bg-amber-400/40 transition-colors pointer-events-auto"
-                        title="Drag up/down to adjust Main Track height"
-                      />
                     </div>
 
                     {/* 2. Manual Subtrack Lanes (up to 2) */}
@@ -2732,7 +3453,6 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
                       const subNum = sIdx + 1; // 1 or 2
                       const thisSubH = subNum === 1 ? sub1H : sub2H;
                       const topY = mainH + (sIdx === 0 ? 0 : sub1H);
-                      const isSubHovered = dragState?.type === 'move' && dragHoverTrack?.trackIdx === trackIdx && dragHoverTrack?.subtrackIdx === subNum;
 
                       return (
                         <div
@@ -2741,8 +3461,8 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
                             top: `${topY}px`,
                             height: `${thisSubH}px`,
                           }}
-                          className={`absolute left-0 right-0 border-b border-white/[0.04] transition-colors ${
-                            isSubHovered ? 'bg-amber-400/[0.08]' : sIdx % 2 === 0 ? 'bg-white/[0.012]' : 'bg-transparent'
+                          className={`absolute left-0 right-0 ${currentTheme.borderLane} border-b transition-colors ${
+                            sIdx % 2 === 0 ? 'bg-white/[0.012]' : 'bg-transparent'
                           }`}
                           onDoubleClick={(e) => handleLaneDoubleClick(e, trackIdx, subNum)}
                         >
@@ -2752,23 +3472,6 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
                               V{trackIdx + 1}.{subNum} • SUB {subNum}
                             </span>
                           </div>
-
-                          {/* Subtrack Height Resizer Handle across Lane Canvas */}
-                          <div
-                            onMouseDown={(e) => {
-                              e.stopPropagation();
-                              e.preventDefault();
-                              setResizingTrack({
-                                trackId: track.id,
-                                subtrackIdx: subNum,
-                                startY: e.clientY,
-                                initialHeight: thisSubH
-                              });
-                            }}
-                            style={{ width: `${totalTimelineWidth}px` }}
-                            className="absolute bottom-0 left-0 h-2 cursor-row-resize z-20 hover:bg-amber-400/40 transition-colors pointer-events-auto"
-                            title={`Drag up/down to adjust Subtrack ${subNum} height`}
-                          />
                         </div>
                       );
                     })}
@@ -2784,7 +3487,7 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
                           key={pageNum}
                           style={{ left: `${x}px` }}
                           className={`absolute top-0 bottom-0 pointer-events-none ${
-                            isMajor ? 'border-l border-white/10' : isMid ? 'border-l border-white/5' : 'border-l border-white/[0.02]'
+                            isMajor ? currentTheme.gridMajor : isMid ? currentTheme.gridMid : currentTheme.gridMinor
                           }`}
                         />
                       );
@@ -2798,13 +3501,61 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
 
                   {/* Right Docked Track Strip */}
                   {trackHeaderDock === 'right' && (
-                    <div className="w-64 shrink-0 sticky right-0 z-40 bg-[#0e1017] border-l border-[#1c1f2e] shadow-2xl flex select-none">
+                    <div className={`w-64 shrink-0 sticky right-0 z-40 ${currentTheme.bgStrip} ${currentTheme.borderStrip} border-l shadow-2xl flex select-none`}>
                       {renderTrackStripItem(track, trackIdx)}
                     </div>
                   )}
                 </div>
               );
             })}
+
+            {/* Extended Left Panel Row to Bottom of Timeline Canvas */}
+            <div className="flex-1 flex w-full relative min-h-[160px]">
+              {trackHeaderDock === 'left' && (
+                <div className={`w-64 shrink-0 sticky left-0 z-40 ${currentTheme.bgStrip} border-r ${currentTheme.borderStrip} shadow-2xl flex flex-col items-center justify-start p-3 select-none`}>
+                  <button
+                    onClick={addCustomTrack}
+                    className="w-full py-2 px-3 rounded-lg border border-dashed border-white/10 hover:border-amber-400/50 hover:bg-amber-400/5 text-slate-400 hover:text-amber-400 flex items-center justify-center gap-1.5 text-xs font-mono transition-all cursor-pointer group"
+                    title="Add a new track lane"
+                  >
+                    <Plus size={13} className="group-hover:scale-110 transition-transform" />
+                    <span>Add Track Lane</span>
+                  </button>
+                  {tracks.length === 0 && (
+                    <div className="text-center mt-6 px-2">
+                      <p className="text-xs font-bold text-slate-300 mb-1">No Tracks Created</p>
+                      <p className="text-[11px] text-slate-500 font-mono">
+                        Click "Add Track Lane" above to create your first narrative track.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Lane Canvas Grid Extension */}
+              <div 
+                style={{ width: `${totalTimelineWidth}px` }}
+                className="flex-1 relative bg-[radial-gradient(#ffffff03_1px,transparent_1px)] [background-size:24px_24px]"
+                onDoubleClick={() => {
+                  if (tracks.length === 0) {
+                    addCustomTrack();
+                  }
+                }}
+              />
+
+              {trackHeaderDock === 'right' && (
+                <div className={`w-64 shrink-0 sticky right-0 z-40 ${currentTheme.bgStrip} border-l ${currentTheme.borderStrip} shadow-2xl flex flex-col items-center justify-start p-3 select-none`}>
+                  <button
+                    onClick={addCustomTrack}
+                    className="w-full py-2 px-3 rounded-lg border border-dashed border-white/10 hover:border-amber-400/50 hover:bg-amber-400/5 text-slate-400 hover:text-amber-400 flex items-center justify-center gap-1.5 text-xs font-mono transition-all cursor-pointer group"
+                    title="Add a new track lane"
+                  >
+                    <Plus size={13} className="group-hover:scale-110 transition-transform" />
+                    <span>Add Track Lane</span>
+                  </button>
+                </div>
+              )}
+            </div>
 
             {/* Causality Cause-and-Effect SVG Dependency Connectors */}
             {showDependencies && visibleConnections.length > 0 && (
@@ -2908,6 +3659,45 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
           </div>
 
         </div>
+      </div>
+
+      {/* Floating Always-Accessible Timeline Zoom HUD Pill */}
+      <div className={`absolute bottom-6 right-8 z-40 flex items-center ${currentTheme.isDark ? 'bg-[#10121d]/95 border-white/20 shadow-[0_8px_32px_rgba(0,0,0,0.85)] text-slate-200' : 'bg-white/95 border-slate-300 shadow-xl text-slate-800'} backdrop-blur-md px-2.5 py-1.5 rounded-full border gap-1.5 text-xs font-mono select-none pointer-events-auto`}>
+        <button
+          onClick={() => zoomAroundPlayhead(zoomLevel - 0.2)}
+          className={`w-6 h-6 rounded-full hover:bg-white/10 ${currentTheme.textMuted} hover:${currentTheme.textPrimary} flex items-center justify-center cursor-pointer transition-colors`}
+          title="Zoom Out (- or _)"
+        >
+          <ZoomOut size={13} />
+        </button>
+        <button
+          onClick={() => zoomAroundPlayhead(1.0)}
+          className={`px-2 py-0.5 rounded text-[11px] font-bold ${currentTheme.textPrimary} hover:text-amber-400 cursor-pointer transition-colors`}
+          title="Click to reset to 100% Zoom"
+        >
+          {Math.round(zoomLevel * 100)}%
+        </button>
+        <button
+          onClick={() => zoomAroundPlayhead(zoomLevel + 0.2)}
+          className={`w-6 h-6 rounded-full hover:bg-white/10 ${currentTheme.textMuted} hover:${currentTheme.textPrimary} flex items-center justify-center cursor-pointer transition-colors`}
+          title="Zoom In (+ or =)"
+        >
+          <ZoomIn size={13} />
+        </button>
+        <div className={`w-px h-3.5 ${currentTheme.isDark ? 'bg-white/20' : 'bg-slate-300'}`} />
+        <button
+          onClick={() => {
+            if (timelineScrollRef.current) {
+              const containerWidth = timelineScrollRef.current.clientWidth - (trackHeaderDock === 'left' ? 256 : 0);
+              const targetZoom = Math.max(0.4, Math.min(2.5, containerWidth / (totalScreenplayPages * pixelsPerPage)));
+              zoomAroundPlayhead(targetZoom);
+            }
+          }}
+          className={`px-2 py-0.5 rounded-full hover:bg-white/10 text-[10px] font-bold ${currentTheme.textMuted} hover:text-cyan-400 cursor-pointer transition-colors`}
+          title="Fit entire screenplay in view"
+        >
+          FIT
+        </button>
       </div>
 
       {/* 3. COLLAPSIBLE STUDIO DRAWER (DAW TERMINAL, INSPECTOR, TENSION ARC) */}
@@ -3208,6 +3998,249 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
         isOpen={isAiModalOpen}
         onClose={() => setIsAiModalOpen(false)}
       />
+
+      {/* Beat Right-Click Context Menu (Fixed z-[99999], on top of everything) */}
+      {beatContextMenu && (() => {
+        const menuBeat = beatsWithTimeline.find(b => b.id === beatContextMenu.beatId);
+        if (!menuBeat) return null;
+        const canSplit = playheadPage > menuBeat.startPage && playheadPage < (menuBeat.startPage + menuBeat.durationPages);
+
+        return (
+          <>
+            {/* Fullscreen Backdrop to dismiss on outside click */}
+            <div 
+              className="fixed inset-0 z-[99998]" 
+              onClick={() => setBeatContextMenu(null)}
+              onContextMenu={(e) => { e.preventDefault(); setBeatContextMenu(null); }}
+            />
+
+            {/* Context Menu Card */}
+            <div
+              style={{
+                position: 'fixed',
+                left: `${beatContextMenu.x}px`,
+                top: `${beatContextMenu.y}px`,
+                zIndex: 99999,
+              }}
+              onClick={(e) => e.stopPropagation()}
+              className="w-56 bg-[#131522]/95 backdrop-blur-xl border border-white/10 rounded-xl shadow-[0_20px_50px_rgba(0,0,0,0.85)] ring-1 ring-black/60 p-1.5 text-xs text-slate-200 animate-in fade-in zoom-in-95 duration-100 select-none flex flex-col gap-0.5 pointer-events-auto"
+            >
+              {/* Header with Scene & Title */}
+              <div className="px-2 py-1 border-b border-white/5 mb-0.5">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <span className="text-[9px] font-mono font-black px-1.5 py-0.2 rounded bg-amber-400 text-black shrink-0">
+                    SC.{menuBeat.sceneNumber || '1'}
+                  </span>
+                  <span className="text-xs font-bold text-white truncate">
+                    {menuBeat.title || 'Untitled Beat'}
+                  </span>
+                </div>
+                <div className="text-[10px] font-mono text-slate-400 mt-0.5">
+                  pp. {menuBeat.startPage.toFixed(1)}–{(menuBeat.startPage + menuBeat.durationPages).toFixed(1)} ({menuBeat.durationPages.toFixed(1)}p)
+                </div>
+              </div>
+
+              {/* Action 1: Edit Full Scene Script */}
+              <button
+                onClick={() => {
+                  onEditBeat(menuBeat.id);
+                  setBeatContextMenu(null);
+                }}
+                className="w-full px-2 py-1.5 rounded-lg hover:bg-amber-400/15 hover:text-amber-300 flex items-center gap-2 text-left cursor-pointer transition-colors"
+              >
+                <FileText size={13} className="text-amber-400 shrink-0" />
+                <span className="font-semibold">Edit Scene Script</span>
+              </button>
+
+              {/* Action 2: Quick Edit Name & Summary (widens lane) */}
+              <button
+                onClick={() => {
+                  startInlineEditForBeat(menuBeat.id);
+                  setBeatContextMenu(null);
+                }}
+                className="w-full px-2 py-1.5 rounded-lg hover:bg-white/5 hover:text-cyan-300 flex items-center gap-2 text-left cursor-pointer transition-colors"
+              >
+                <Edit3 size={13} className="text-cyan-400 shrink-0" />
+                <span>Quick Edit Name & Summary</span>
+              </button>
+
+              {/* Action 3: Duplicate Scene */}
+              <button
+                onClick={() => handleDuplicateBeat(menuBeat.id)}
+                className="w-full px-2 py-1.5 rounded-lg hover:bg-white/5 hover:text-emerald-300 flex items-center gap-2 text-left cursor-pointer transition-colors"
+              >
+                <Copy size={13} className="text-emerald-400 shrink-0" />
+                <span>Duplicate Scene</span>
+              </button>
+
+              {/* Action 4: Split at Playhead */}
+              <button
+                onClick={() => handleSplitBeatAtPlayhead(menuBeat.id)}
+                disabled={!canSplit}
+                className={`w-full px-2 py-1.5 rounded-lg flex items-center gap-2 text-left transition-colors ${
+                  canSplit
+                    ? 'hover:bg-white/5 hover:text-indigo-300 text-slate-200 cursor-pointer'
+                    : 'opacity-40 cursor-not-allowed text-slate-500'
+                }`}
+                title={canSplit ? `Split scene at playhead page ${playheadPage.toFixed(1)}` : 'Position playhead inside scene to split'}
+              >
+                <Scissors size={13} className="text-indigo-400 shrink-0" />
+                <span>Split at Playhead {canSplit ? `(p.${playheadPage.toFixed(1)})` : ''}</span>
+              </button>
+
+              <div className="h-px bg-white/5 my-0.5" />
+
+              {/* Action 5: Move to Track */}
+              <div className="px-2 py-1">
+                <div className="text-[9px] uppercase font-mono text-slate-500 mb-1 flex items-center justify-between">
+                  <span>Move to Track</span>
+                  <ArrowLeftRight size={10} />
+                </div>
+                <div className="grid grid-cols-4 gap-1">
+                  {tracks.map((t, idx) => (
+                    <button
+                      key={t.id}
+                      onClick={() => handleMoveBeatToTrack(menuBeat.id, idx, 0)}
+                      style={{ borderColor: `${t.color}60` }}
+                      className={`px-1 py-1 rounded text-[10px] font-mono font-bold border transition-colors cursor-pointer text-center ${
+                        menuBeat.timelineTrackIdx === idx && menuBeat.timelineSubtrackIdx === 0
+                          ? 'bg-white/20 text-white'
+                          : 'bg-white/5 hover:bg-white/10 text-slate-300'
+                      }`}
+                      title={t.label}
+                    >
+                      V{idx + 1}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="h-px bg-white/5 my-0.5" />
+
+              {/* Action 6: Delete Scene */}
+              <button
+                onClick={() => handleDeleteBeatFromMenu(menuBeat.id)}
+                className="w-full px-2 py-1.5 rounded-lg hover:bg-red-500/15 text-red-400 hover:text-red-300 flex items-center gap-2 text-left cursor-pointer transition-colors"
+              >
+                <Trash2 size={13} className="shrink-0" />
+                <span className="font-semibold">Delete Scene</span>
+              </button>
+            </div>
+          </>
+        );
+      })()}
+
+      {/* Right-Click Drag Selection Marquee Overlay */}
+      {rightClickMarqueeBox && (
+        <div
+          style={{
+            left: `${Math.min(rightClickMarqueeBox.startX, rightClickMarqueeBox.currentX)}px`,
+            top: `${Math.min(rightClickMarqueeBox.startY, rightClickMarqueeBox.currentY)}px`,
+            width: `${Math.abs(rightClickMarqueeBox.currentX - rightClickMarqueeBox.startX)}px`,
+            height: `${Math.abs(rightClickMarqueeBox.currentY - rightClickMarqueeBox.startY)}px`,
+          }}
+          className="fixed border-2 border-dashed border-cyan-400 bg-cyan-500/10 pointer-events-none z-[99998] rounded backdrop-blur-[0.5px]"
+        >
+          <div className="absolute top-1 left-2 bg-black/85 text-cyan-300 font-mono text-[10px] font-bold px-2 py-0.5 rounded border border-cyan-500/40 shadow-lg flex items-center gap-1.5">
+            <Layers size={11} className="text-cyan-400" />
+            <span>{marqueeSelectedBeatIds.length} scenes selected to group</span>
+          </div>
+        </div>
+      )}
+
+      {/* Group Creation Popover Modal (Triggered when releasing right-click marquee) */}
+      {showGroupModal && (
+        <div className="fixed inset-0 z-[99999] flex items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in">
+          <div 
+            className="w-96 bg-[#131522] border border-[#2c3048] rounded-2xl p-5 shadow-2xl text-slate-100 animate-in zoom-in-95"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between pb-3 mb-3.5 border-b border-white/10">
+              <div className="flex items-center gap-2 font-mono font-bold text-sm text-cyan-400">
+                <Layers size={16} />
+                <span>Create Sequence Group</span>
+              </div>
+              <button
+                onClick={() => {
+                  setShowGroupModal(false);
+                  setMarqueeSelectedBeatIds([]);
+                }}
+                className="p-1 rounded-lg hover:bg-white/10 text-slate-400 hover:text-white cursor-pointer"
+              >
+                <X size={14} />
+              </button>
+            </div>
+
+            <div className="text-xs text-slate-400 mb-3">
+              Group <span className="font-bold text-cyan-300">{marqueeSelectedBeatIds.length} selected scenes</span> into a cohesive narrative sequence with vertical lane shading.
+            </div>
+
+            {/* Sequence Title */}
+            <div className="mb-3.5">
+              <label className="block text-[10px] uppercase font-mono text-slate-400 mb-1">Sequence / Group Title</label>
+              <input
+                type="text"
+                autoFocus
+                value={newGroupName}
+                onChange={(e) => setNewGroupName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleCreateGroupFromMarquee();
+                  } else if (e.key === 'Escape') {
+                    setShowGroupModal(false);
+                    setMarqueeSelectedBeatIds([]);
+                  }
+                }}
+                placeholder="e.g. Inciting Incident & Escape..."
+                className="w-full bg-[#1c2033] border border-[#2d334e] focus:border-cyan-400 rounded-lg px-3 py-2 text-sm text-white font-semibold outline-none"
+              />
+            </div>
+
+            {/* Sequence Color Swatch */}
+            <div className="mb-4">
+              <label className="block text-[10px] uppercase font-mono text-slate-400 mb-1.5">Sequence Color</label>
+              <div className="grid grid-cols-5 gap-1.5">
+                {TRACK_PALETTE_COLORS.map(p => (
+                  <button
+                    key={p.hex}
+                    type="button"
+                    onClick={() => setNewGroupColor(p.hex)}
+                    style={{ backgroundColor: p.hex }}
+                    className={`h-7 rounded-lg flex items-center justify-center cursor-pointer transition-transform ${
+                      newGroupColor === p.hex ? 'ring-2 ring-white scale-110 shadow-md' : 'opacity-70 hover:opacity-100'
+                    }`}
+                  >
+                    {newGroupColor === p.hex && <Check size={12} className="text-black font-black" />}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Footer Buttons */}
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-white/5">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowGroupModal(false);
+                  setMarqueeSelectedBeatIds([]);
+                }}
+                className="px-3 py-1.5 rounded-lg hover:bg-white/5 text-xs text-slate-400 hover:text-white cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleCreateGroupFromMarquee}
+                className="px-4 py-1.5 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-black font-bold text-xs cursor-pointer shadow-[0_0_12px_rgba(6,182,212,0.4)] transition-colors flex items-center gap-1.5"
+              >
+                <Layers size={13} />
+                <span>Group {marqueeSelectedBeatIds.length} Scenes</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );

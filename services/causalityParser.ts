@@ -13,7 +13,7 @@
  * - Whiteboard coordinates, groups, and connections
  */
 
-import { Beat, Group, Connection, CharacterData, ProjectState, Slugline, BreakdownData } from '../types';
+import { Beat, Group, Connection, CharacterData, ProjectState, Slugline, BreakdownData, TimelineTrack } from '../types';
 
 export interface CausalityLink {
   id1: string;
@@ -32,12 +32,14 @@ export interface CausalityProjectData {
 export interface CausalityImportResult {
   success: boolean;
   projectState?: Partial<ProjectState>;
+  tracks?: TimelineTrack[];
   stats: {
     beatsCount: number;
     groupsCount: number;
     charactersCount: number;
     connectionsCount: number;
     screenplayWordsCount: number;
+    tracksCount?: number;
   };
   projectName?: string;
   warning?: string;
@@ -161,11 +163,13 @@ export function parseCausalityProject(data: CausalityProjectData): CausalityImpo
   const whiteboardBlocks = getObjectMap(['whiteboardBlocks', 'WhiteboardBlock', 'blocks']);
   const whiteboardGroups = getObjectMap(['whiteboardGroups', 'WhiteboardGroup', 'groups']);
   const beatAliases = getObjectMap(['beatAliases', 'BeatAlias', 'aliases']);
+  const rawTracks = getObjectMap(['tracks', 'Track', 'timelineTracks', 'TimelineTrack', 'lanes', 'Lane', 'trackObjects', 'TimeTrack', 'timeTracks']);
 
   // 1. Build Graph Links Index
   const aliasToBeat = new Map<string, string>();
   const aliasToBlock = new Map<string, string>();
   const aliasToGroup = new Map<string, string>();
+  const aliasToTrack = new Map<string, string>();
   const beatToSnippet = new Map<string, string>();
   const beatToSnippets = new Map<string, string[]>();
   const beatToTimeslice = new Map<string, string>();
@@ -173,6 +177,7 @@ export function parseCausalityProject(data: CausalityProjectData): CausalityImpo
   const usageToBeat = new Map<string, string>();
   const usageToChar = new Map<string, string>();
   const beatToCharacters = new Map<string, Set<string>>();
+  const beatToTrack = new Map<string, string>();
 
   for (const [linkName, linkList] of Object.entries(links)) {
     if (!Array.isArray(linkList)) continue;
@@ -200,8 +205,18 @@ export function parseCausalityProject(data: CausalityProjectData): CausalityImpo
         usageToBeat.set(link.id1, link.id2);
       } else if (lower === 'beatcharacterusage.character') {
         usageToChar.set(link.id1, link.id2);
+      } else if (lower.includes('beat') && (lower.includes('track') || lower.includes('lane'))) {
+        beatToTrack.set(link.id1, link.id2);
+      } else if (lower.includes('alias') && (lower.includes('track') || lower.includes('lane'))) {
+        aliasToTrack.set(link.id1, link.id2);
       }
     }
+  }
+
+  // Resolve Alias -> Track mapping to Beat -> Track
+  for (const [aliasId, trackId] of aliasToTrack.entries()) {
+    const bId = aliasToBeat.get(aliasId);
+    if (bId) beatToTrack.set(bId, trackId);
   }
 
   // Resolve Beat -> Characters mapping
@@ -333,6 +348,76 @@ export function parseCausalityProject(data: CausalityProjectData): CausalityImpo
     }
   }
 
+  // 4B. Extract Timeline Lane Tracks
+  const tracks: TimelineTrack[] = [];
+  const trackIdToIndex = new Map<string, number>();
+  const TRACK_COLORS = ['#06b6d4', '#f59e0b', '#f43f5e', '#a855f7', '#10b981', '#3b82f6', '#ec4899', '#8b5cf6'];
+
+  const rawTrackEntries = Object.entries(rawTracks);
+  if (rawTrackEntries.length > 0) {
+    rawTrackEntries.forEach(([rawId, rawTrack], idx) => {
+      const tId = rawTrack.id || rawId;
+      trackIdToIndex.set(tId, idx);
+      trackIdToIndex.set(rawId, idx);
+      tracks.push({
+        id: `v${idx + 1}`,
+        label: rawTrack.name || rawTrack.title || rawTrack.label || `Track ${idx + 1}`,
+        type: idx === 0 ? 'main' : 'subplot',
+        color: rawTrack.color || TRACK_COLORS[idx % TRACK_COLORS.length],
+        height: 112,
+        subtrackCount: 0
+      });
+    });
+  } else {
+    const uniqueTrackIds = Array.from(new Set(beatToTrack.values())).filter(Boolean);
+    if (uniqueTrackIds.length > 0) {
+      uniqueTrackIds.forEach((tId, idx) => {
+        trackIdToIndex.set(tId, idx);
+        tracks.push({
+          id: `v${idx + 1}`,
+          label: `Track ${idx + 1} (${tId.slice(0, 8)})`,
+          type: idx === 0 ? 'main' : 'subplot',
+          color: TRACK_COLORS[idx % TRACK_COLORS.length],
+          height: 112,
+          subtrackCount: 0
+        });
+      });
+    } else {
+      // Check whiteboard blocks Y-position clustering for horizontal swimlanes
+      const yValues: number[] = [];
+      for (const [aliasId, beatId] of aliasToBeat.entries()) {
+        const blockId = aliasToBlock.get(aliasId);
+        const block = blockId ? whiteboardBlocks[blockId] : null;
+        if (block && typeof block.y === 'number') {
+          yValues.push(block.y);
+        }
+      }
+
+      const sortedY = [...new Set(yValues.map(y => Math.round(y / 120) * 120))].sort((a, b) => a - b);
+      if (sortedY.length > 1) {
+        sortedY.forEach((clusterY, idx) => {
+          trackIdToIndex.set(`cluster_${clusterY}`, idx);
+          tracks.push({
+            id: `v${idx + 1}`,
+            label: idx === 0 ? 'A-Story / Main Thread' : idx === 1 ? 'B-Story / Subplot' : `Lane ${idx + 1}`,
+            type: idx === 0 ? 'main' : 'subplot',
+            color: TRACK_COLORS[idx % TRACK_COLORS.length],
+            height: 112,
+            subtrackCount: 0
+          });
+        });
+      } else {
+        tracks.push(
+          { id: 'v1', label: 'A-Story / Main Protagonist', type: 'main', color: '#06b6d4', height: 112, subtrackCount: 0 },
+          { id: 'v2', label: 'B-Story / Allies & Romance', type: 'subplot', color: '#f59e0b', height: 112, subtrackCount: 0 },
+          { id: 'v3', label: 'Antagonist & Obstacles', type: 'parallel', color: '#f43f5e', height: 112, subtrackCount: 0 },
+          { id: 'v4', label: 'Atmosphere & Lore', type: 'broll', color: '#a855f7', height: 112, subtrackCount: 0 },
+          { id: 'v5', label: 'Theme & Philosophy', type: 'theme', color: '#10b981', height: 112, subtrackCount: 0 }
+        );
+      }
+    }
+  }
+
   // 5. Build Backstage Beats with FULL SCREENPLAY and exact Scene Headings
   const beats: Beat[] = [];
   let totalScreenplayWords = 0;
@@ -460,6 +545,26 @@ export function parseCausalityProject(data: CausalityProjectData): CausalityImpo
     const grpId = grp && grp.id ? groupIdToBackstageId.get(grp.id) : undefined;
     const grpTitle = grp ? (grp.name || grp.title) : undefined;
 
+    // Determine assigned DAW timeline trackIndex for this beat
+    let assignedTrackIdx = 0;
+    const directTrackId = beatToTrack.get(beatId) || (b as any).track || (b as any).lane || (b as any).trackId;
+    if (directTrackId && trackIdToIndex.has(directTrackId)) {
+      assignedTrackIdx = trackIdToIndex.get(directTrackId)!;
+    } else {
+      const blk = beatToBlock.get(beatId);
+      if (blk && typeof blk.y === 'number') {
+        const clusterKey = `cluster_${Math.round(blk.y / 120) * 120}`;
+        if (trackIdToIndex.has(clusterKey)) {
+          assignedTrackIdx = trackIdToIndex.get(clusterKey)!;
+        }
+      }
+    }
+    if (assignedTrackIdx < 0 || assignedTrackIdx >= tracks.length) {
+      assignedTrackIdx = 0;
+    }
+
+    const durationWidth = Math.max(120, Math.min(600, title.length * 10 + 40));
+
     beats.push({
       id: bId,
       x,
@@ -480,7 +585,11 @@ export function parseCausalityProject(data: CausalityProjectData): CausalityImpo
       breakdown,
       breakdownData: breakdown,
       groupId: grpId,
-      groupTitle: grpTitle
+      groupTitle: grpTitle,
+      trackIndex: assignedTrackIdx,
+      subtrackIndex: 0,
+      startTime: 1.0 + (i * 3.5),
+      durationWidth
     });
 
     if (sn && sn.sceneNumber && typeof sn.sceneNumber.number === 'number' && sn.sceneNumber.number < 9999) {
@@ -505,6 +614,7 @@ export function parseCausalityProject(data: CausalityProjectData): CausalityImpo
   const resultState: Partial<ProjectState> = {
     beats,
     groups,
+    tracks,
     connections,
     characterData,
     nextId: nextNumericId + 20,
@@ -517,9 +627,11 @@ export function parseCausalityProject(data: CausalityProjectData): CausalityImpo
     success: beats.length > 0,
     projectState: resultState,
     projectName: name,
+    tracks,
     stats: {
       beatsCount: beats.length,
       groupsCount: groups.length,
+      tracksCount: tracks.length,
       charactersCount: Object.keys(characterData).length,
       connectionsCount: connections.length,
       screenplayWordsCount: totalScreenplayWords

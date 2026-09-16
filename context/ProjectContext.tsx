@@ -311,6 +311,13 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const parsed = parseCausalityProject(data);
       if (parsed.success && parsed.projectState) {
         processedData = { ...INITIAL_STATE, ...parsed.projectState };
+        if (Array.isArray(parsed.tracks) && parsed.tracks.length > 0) {
+          try {
+            const projectKey = data.id || 'default';
+            localStorage.setItem(`backstage_daw_tracks_${projectKey}`, JSON.stringify(parsed.tracks));
+            localStorage.setItem('backstage_daw_tracks', JSON.stringify(parsed.tracks));
+          } catch (e) {}
+        }
       }
     }
     
