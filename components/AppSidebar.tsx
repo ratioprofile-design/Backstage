@@ -10,6 +10,8 @@ import {
 } from 'lucide-react';
 import { useAiKeyStatus } from '../context/AiKeyStatusContext';
 import { InviteManagerModal } from './InviteManagerModal';
+import { ThemeToggleButton } from './ThemeToggleButton';
+import { translateUi } from '../services/appTranslations';
 
 interface AppSidebarProps {
   currentView: ViewMode;
@@ -40,6 +42,7 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
     projectList, currentProjectId, fileHandle,
     undo, redo, canUndo, canRedo,
     appTheme, setAppTheme, appAccentColor = '#f5a623',
+    appLanguage,
     navLayout, setNavLayout,
     hasUnsavedChanges, isSaving, currentUser, isCloudMode,
     cloudOffline, supabaseUser, logout
@@ -81,23 +84,23 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
 
   const navItems = useMemo(() => {
     const list = [
-      { id: 'board' as ViewMode, label: 'Beats DAW', icon: SlidersHorizontal },
-      { id: 'excalidraw' as ViewMode, label: 'Excalidraw', icon: PenTool },
-      { id: 'script' as ViewMode, label: 'Script', icon: FileText },
-      { id: 'casting' as ViewMode, label: 'Casting & Roster', icon: Users },
-      { id: 'breakdown' as ViewMode, label: 'Breakdown', icon: Layers },
-      { id: 'continuity' as ViewMode, label: 'Continuity', icon: Clock },
-      { id: 'crew' as ViewMode, label: 'Crew', icon: Users },
-      { id: 'shotlist' as ViewMode, label: 'Shot Division', icon: Video },
-      { id: 'storyboard' as ViewMode, label: 'Storyboard', icon: ImageIcon, hidden: !isStoryboardFeatureEnabled },
-      { id: 'schedule' as ViewMode, label: 'Production Plan', icon: Calendar },
-      { id: 'dood' as ViewMode, label: 'DOOD', icon: CalendarCheck },
-      { id: 'documents' as ViewMode, label: 'Vault', icon: Files },
-      { id: 'callsheet' as ViewMode, label: 'Call Sheet', icon: ClipboardList },
-      { id: 'statistics' as ViewMode, label: 'Statistics', icon: TrendingUp },
+      { id: 'board' as ViewMode, label: translateUi('Beats DAW', appLanguage), icon: SlidersHorizontal },
+      { id: 'excalidraw' as ViewMode, label: translateUi('Excalidraw', appLanguage), icon: PenTool },
+      { id: 'script' as ViewMode, label: translateUi('Script', appLanguage), icon: FileText },
+      { id: 'casting' as ViewMode, label: translateUi('Casting & Roster', appLanguage), icon: Users },
+      { id: 'breakdown' as ViewMode, label: translateUi('Breakdown', appLanguage), icon: Layers },
+      { id: 'continuity' as ViewMode, label: translateUi('Continuity', appLanguage), icon: Clock },
+      { id: 'crew' as ViewMode, label: translateUi('Crew', appLanguage), icon: Users },
+      { id: 'shotlist' as ViewMode, label: translateUi('Shot Division', appLanguage), icon: Video },
+      { id: 'storyboard' as ViewMode, label: translateUi('Storyboard', appLanguage), icon: ImageIcon, hidden: !isStoryboardFeatureEnabled },
+      { id: 'schedule' as ViewMode, label: translateUi('Production Plan', appLanguage), icon: Calendar },
+      { id: 'dood' as ViewMode, label: translateUi('DOOD', appLanguage), icon: CalendarCheck },
+      { id: 'documents' as ViewMode, label: translateUi('Vault', appLanguage), icon: Files },
+      { id: 'callsheet' as ViewMode, label: translateUi('Call Sheet', appLanguage), icon: ClipboardList },
+      { id: 'statistics' as ViewMode, label: translateUi('Statistics', appLanguage), icon: TrendingUp },
     ];
     return list.filter(item => !item.hidden);
-  }, [isStoryboardFeatureEnabled]);
+  }, [isStoryboardFeatureEnabled, appLanguage]);
 
   // Live Goal Progress Calculation
   const progressDisplay = useMemo(() => {
@@ -139,9 +142,8 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
         >
           {!isCollapsed ? (
             <div
-              onClick={() => onViewChange('backstage')}
-              className="flex items-center gap-2.5 cursor-pointer group min-w-0 flex-1 mr-2"
-              title="Open Backstage Settings"
+              className="flex items-center gap-2.5 min-w-0 flex-1 mr-2 select-none"
+              title={fileHandle ? fileHandle.name : activeProjectName}
             >
               <div
                 className="w-7 h-7 rounded flex items-center justify-center shrink-0 border transition-all"
@@ -150,11 +152,11 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
                   borderColor: `${appAccentColor}40`
                 }}
               >
-                <Film size={15} style={{ color: appAccentColor }} className="group-hover:scale-110 transition-transform" />
+                <Film size={15} style={{ color: appAccentColor }} />
               </div>
               <div className="flex flex-col min-w-0">
-                <span className="text-[13px] font-black uppercase tracking-tight truncate group-hover:text-amber-400 transition-colors">
-                  Backstage
+                <span className="text-[13px] font-black uppercase tracking-tight truncate">
+                  {translateUi('Backstage', appLanguage)}
                 </span>
                 <span
                   className="text-[8px] font-mono uppercase tracking-widest truncate font-semibold"
@@ -165,17 +167,16 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
               </div>
             </div>
           ) : (
-            <button
-              onClick={() => onViewChange('backstage')}
-              className="w-8 h-8 rounded flex items-center justify-center border transition-all group"
+            <div
+              className="w-8 h-8 rounded flex items-center justify-center border transition-all select-none"
               style={{
                 backgroundColor: `${appAccentColor}15`,
                 borderColor: `${appAccentColor}40`
               }}
-              title="Backstage Settings"
+              title={translateUi('Backstage', appLanguage)}
             >
-              <Film size={16} style={{ color: appAccentColor }} className="group-hover:scale-110 transition-transform" />
-            </button>
+              <Film size={16} style={{ color: appAccentColor }} />
+            </div>
           )}
 
           {/* Collapse / Expand Toggle Button */}
@@ -187,7 +188,7 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
                   ? 'text-gray-400 hover:text-gray-700 hover:bg-gray-100'
                   : 'text-gray-400 hover:text-white hover:bg-[#222]'
               }`}
-              title="Collapse Sidebar"
+              title={translateUi('Collapse Sidebar', appLanguage)}
             >
               <PanelLeftClose size={16} />
             </button>
@@ -204,7 +205,7 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
                   ? 'text-gray-400 hover:text-gray-700 hover:bg-gray-100'
                   : 'text-gray-400 hover:text-white hover:bg-[#222]'
               }`}
-              title="Expand Sidebar"
+              title={translateUi('Expand Sidebar', appLanguage)}
             >
               <PanelLeft size={16} />
             </button>
@@ -315,12 +316,12 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
               onClick={() => onViewChange('goals')}
               className={`p-1.5 rounded-lg transition-colors ${
                 currentView === 'goals'
-                  ? 'text-amber-400 bg-amber-500/10'
+                  ? 'bg-amber-500/20 text-amber-400'
                   : isLight
                     ? 'text-gray-500 hover:text-gray-900 hover:bg-gray-200/80'
                     : 'text-gray-400 hover:text-white hover:bg-[#1e1e24]'
               }`}
-              title="Goals & Deadlines"
+              title={translateUi('Goals & Deadlines', appLanguage)}
             >
               {progressDisplay?.isDone ? (
                 <CheckCircle2 size={15} className="text-emerald-400" />
@@ -330,17 +331,7 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
             </button>
 
             {/* THEME TOGGLE */}
-            <button
-              onClick={() => setAppTheme(appTheme === 'light' ? 'dark' : 'light')}
-              className={`p-1.5 rounded-lg transition-colors ${
-                isLight
-                  ? 'text-gray-500 hover:text-gray-900 hover:bg-gray-200/80'
-                  : 'text-gray-400 hover:text-white hover:bg-[#1e1e24]'
-              }`}
-              title={`Switch to ${appTheme === 'light' ? 'Dark' : 'Light'} Mode`}
-            >
-              {appTheme === 'light' ? <Moon size={15} /> : <Sun size={15} />}
-            </button>
+            <ThemeToggleButton variant="sidebar" size={15} />
 
             {/* UNDO / REDO (expanded view) */}
             {!isCollapsed && (
@@ -349,7 +340,7 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
                   onClick={undo}
                   disabled={!canUndo}
                   className="p-1 rounded text-gray-400 hover:text-white disabled:text-gray-600 disabled:hover:text-gray-600 transition-colors"
-                  title="Undo (Ctrl+Z)"
+                  title={translateUi('Undo (Ctrl+Z)', appLanguage)}
                 >
                   <RotateCcw size={13} />
                 </button>
@@ -357,7 +348,7 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
                   onClick={redo}
                   disabled={!canRedo}
                   className="p-1 rounded text-gray-400 hover:text-white disabled:text-gray-600 disabled:hover:text-gray-600 transition-colors"
-                  title="Redo (Ctrl+Y)"
+                  title={translateUi('Redo (Ctrl+Y)', appLanguage)}
                 >
                   <RotateCw size={13} />
                 </button>
@@ -367,12 +358,12 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
             {/* SETTINGS GEAR */}
             <button
               onClick={() => onOpenSettings?.()}
-              className={`p-1.5 rounded-lg transition-colors ${
+              className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
                 isLight
                   ? 'text-gray-500 hover:text-gray-900 hover:bg-gray-200/80'
                   : 'text-gray-400 hover:text-white hover:bg-[#1e1e24]'
               }`}
-              title="Settings & Preferences"
+              title={translateUi('Open Backstage Settings Panel', appLanguage)}
             >
               <Settings size={15} />
             </button>
@@ -387,7 +378,7 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
               } rounded-md transition-colors ${
                 isLight ? 'hover:bg-gray-100' : 'hover:bg-[#1a1a1e]'
               }`}
-              title={isCloudActive ? `Signed in as ${currentUser}` : 'Account & Cloud'}
+              title={isCloudActive ? `Signed in as ${currentUser}` : translateUi('Local Mode', appLanguage)}
             >
               <div className="flex items-center gap-2 min-w-0">
                 <div className="relative shrink-0">
@@ -416,13 +407,13 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
                 {!isCollapsed && (
                   <div className="flex flex-col text-left min-w-0 flex-1">
                     <span className="text-[11px] font-semibold truncate">
-                      {currentUser || 'Local User'}
+                      {currentUser || translateUi('Local User', appLanguage)}
                     </span>
                     <span className="text-[9px] font-mono text-gray-400 truncate flex items-center gap-1">
                       {isCloudActive ? (
-                        cloudOffline ? <><WifiOff size={8} /> Offline</> : <><Cloud size={8} className="text-emerald-400" /> Synced</>
+                        cloudOffline ? <><WifiOff size={8} /> {translateUi('Offline', appLanguage)}</> : <><Cloud size={8} className="text-emerald-400" /> {translateUi('Synced', appLanguage)}</>
                       ) : (
-                        <><CloudOff size={8} /> Local Mode</>
+                        <><CloudOff size={8} /> {translateUi('Local Mode', appLanguage)}</>
                       )}
                     </span>
                   </div>
@@ -442,57 +433,57 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
                           isCloudActive ? (cloudOffline ? 'text-amber-500' : 'text-emerald-500') : 'text-gray-400'
                         }`}>
                           {isCloudActive ? (cloudOffline ? <WifiOff size={11} /> : <Cloud size={11} />) : <CloudOff size={11} />}
-                          {isCloudActive ? (cloudOffline ? 'Offline — Saved Locally' : 'Cloud Sync Active') : 'Local Writer Profile'}
+                          {isCloudActive ? (cloudOffline ? translateUi('Offline — Saved Locally', appLanguage) : translateUi('Cloud Sync Active', appLanguage)) : translateUi('Local Writer Profile', appLanguage)}
                         </div>
                         <div className="text-[13px] font-semibold text-white truncate">{currentUser}</div>
                         <div className="text-[10px] text-gray-500">
                           {isCloudActive
                             ? (cloudOffline ? 'Network down — edits saved locally.' : 'Projects are backed up & synced')
-                            : 'Working locally on this device.'}
+                            : translateUi('Working locally on this device.', appLanguage)}
                         </div>
                       </div>
                       <button
                         onClick={() => { setShowUserMenu(false); setIsInviteModalOpen(true); }}
                         className="w-full flex items-center gap-2.5 px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-amber-500 hover:bg-amber-500/10 border-b border-[#2a2a2a] transition-colors"
                       >
-                        <UsersIcon size={13} /> Project Collaboration
+                        <UsersIcon size={13} /> {translateUi('Project Collaboration', appLanguage)}
                       </button>
                       {!isCloudActive && onOpenAuth && (
                         <button
                           onClick={() => { setShowUserMenu(false); onOpenAuth(); }}
                           className="w-full flex items-center gap-2.5 px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-[#f5a623] hover:bg-[#f5a623]/10 border-b border-[#2a2a2a] transition-colors"
                         >
-                          <LogIn size={13} /> Connect Cloud Account
+                          <LogIn size={13} /> {translateUi('Connect Cloud Account', appLanguage)}
                         </button>
                       )}
                       <button
                         onClick={async () => { setShowUserMenu(false); await logout(); }}
                         className="w-full flex items-center gap-2.5 px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-red-400 hover:bg-red-500/10 transition-colors"
                       >
-                        <LogOut size={13} /> Sign Out
+                        <LogOut size={13} /> {translateUi('Sign Out', appLanguage)}
                       </button>
                     </>
                   ) : (
                     <>
                       <div className="px-4 py-3 border-b border-[#2a2a2a]">
                         <div className="text-[9px] font-black uppercase tracking-widest text-gray-500 mb-1 flex items-center gap-1.5">
-                          <CloudOff size={11} /> Guest / Local Mode
+                          <CloudOff size={11} /> {translateUi('Local Mode', appLanguage)}
                         </div>
                         <div className="text-[10px] text-gray-500 leading-relaxed">
-                          Working on this device. Sign in to save and sync across devices.
+                          {translateUi('Working on this device. Sign in to save and sync across devices.', appLanguage)}
                         </div>
                       </div>
                       <button
                         onClick={() => { setShowUserMenu(false); setIsInviteModalOpen(true); }}
                         className="w-full flex items-center gap-2.5 px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-amber-500 hover:bg-amber-500/10 border-b border-[#2a2a2a] transition-colors"
                       >
-                        <UsersIcon size={13} /> Project Collaboration
+                        <UsersIcon size={13} /> {translateUi('Project Collaboration', appLanguage)}
                       </button>
                       <button
                         onClick={() => { setShowUserMenu(false); onOpenAuth?.(); }}
                         className="w-full flex items-center gap-2.5 px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-[#f5a623] hover:bg-[#f5a623]/10 transition-colors"
                       >
-                        <LogIn size={13} /> Sign In
+                        <LogIn size={13} /> {translateUi('Sign In', appLanguage)}
                       </button>
                     </>
                   )}

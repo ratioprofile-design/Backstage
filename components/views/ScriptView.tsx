@@ -25,7 +25,8 @@ import DiffModal from '../DiffModal';
 import ScriptArchiveModal from '../ScriptArchiveModal';
 import TamilTranscoderModal from '../TamilTranscoderModal';
 import { Archive } from 'lucide-react';
-import { runLinePaginationPass, estimateBeatHeight } from '../../utils/screenplayPaginationEngine';
+// Trigger pagination pass with actualDomTop
+import { runLinePaginationPass, estimateBeatHeight, A4_PAGE_WRITABLE_HEIGHT } from '../../utils/screenplayPaginationEngine';
 import { isTauri } from '../../utils/desktop';
 
 const DEFAULT_STORYLINE_COLORS = (typeof STORYLINE_COLORS !== 'undefined' && Array.isArray(STORYLINE_COLORS)) 
@@ -37,7 +38,7 @@ const A4_HEIGHT = 1123;
 const MARGIN_LEFT = 144;
 const MARGIN_RIGHT = 96;
 const MARGIN_TOP = 96;
-const MARGIN_BOTTOM = 96;
+const MARGIN_BOTTOM = 60;
 const PAGE_GAP = 20; 
 const BEAT_SPACING = 0; 
 const CONTINUOUS_OVERSCROLL = 400; 
@@ -182,7 +183,7 @@ interface BeatEditorBlockProps { beat: Beat; isActive: boolean; isReady: boolean
 const BeatEditorBlock: React.FC<BeatEditorBlockProps> = React.memo(({ beat, isActive, isReady, uniqueCharacters, setActiveFormat, onUpdateContent, onFocus, editorRefCallback }) => {
     const debouncedSave = useDebounce((content: string) => { onUpdateContent(beat.id, content); }, 500);
     const handleImmediateSave = (content: string) => { onUpdateContent(beat.id, content); };
-    return ( <ScriptEditor ref={editorRefCallback} id={`editor-${beat.id}`} initialHtml={beat.content} onSave={debouncedSave} onSaveImmediate={handleImmediateSave} suggestions={uniqueCharacters} readOnly={isReady} onFocus={onFocus} onActiveFormatChange={setActiveFormat} className="script-body min-h-[1.5em] outline-none" isActive={isActive} /> );
+    return ( <ScriptEditor ref={editorRefCallback} id={`editor-${beat.id}`} initialHtml={beat.content} onSave={debouncedSave} onSaveImmediate={handleImmediateSave} suggestions={uniqueCharacters} readOnly={isReady} onFocus={onFocus} onActiveFormatChange={setActiveFormat} className="script-body flow-root min-h-[1.5em] outline-none" isActive={isActive} /> );
 }, (prev, next) => { return prev.beat.id === next.beat.id && prev.beat.content === next.beat.content && prev.isActive === next.isActive && prev.isReady === next.isReady; });
 
 const SummaryCardsPanel = ({ 
@@ -834,7 +835,7 @@ const ContextMenuItem = ({ icon: Icon, label, onClick, danger, submenu, active, 
 };
 
 const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'casting') => void }> = ({ onNavigateToView }) => {
-  const { beats, groups, connections, updateBeat, addBeat, setBeats, setConnections, scriptViewMode, setScriptViewMode, scriptConfig, setScriptConfig, scratchpadConfig, characterData, breakdownLanguage, setBreakdownLanguage, scratchpad, setScratchpad, globalNotes, setGlobalNotes, captureSnapshot, reorderBeats, setActiveBoardId, appTheme, appAccentColor = '#f5a623', generalAiModel, openrouterKey, userRole, isTamilMode, tamilFontFamily } = useProject();
+  const { beats, groups, connections, updateBeat, addBeat, setBeats, setConnections, scriptViewMode, setScriptViewMode, scriptConfig, setScriptConfig, scratchpadConfig, characterData, breakdownLanguage, setBreakdownLanguage, scratchpad, setScratchpad, globalNotes, setGlobalNotes, captureSnapshot, reorderBeats, setActiveBoardId, appTheme, appAccentColor = '#f5a623', generalAiModel, openrouterKey, userRole, isTamilMode, tamilFontScale, tamilFontFamily } = useProject();
   const { aiAvailable } = useAiKeyStatus();
   const isScriptReadOnly = false;
 
@@ -1082,11 +1083,11 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'cast
     const map: Record<number, number> = {};
     sortedBeats.forEach((b) => {
       const h = estimateBeatHeight(b);
-      const pg = Math.max(1, Math.floor(totalH / 931) + 1);
+      const pg = Math.max(1, Math.floor(totalH / A4_PAGE_WRITABLE_HEIGHT) + 1);
       map[b.id] = pg;
       totalH += h;
     });
-    const pgs = Math.max(1, Math.ceil(totalH / 931));
+    const pgs = Math.max(1, Math.ceil(totalH / A4_PAGE_WRITABLE_HEIGHT));
     return { totalPages: pgs, beatPageMap: map };
   }, [sortedBeats]);
 
@@ -1138,7 +1139,7 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'cast
 
   useLayoutEffect(() => {
     triggerPagination();
-  }, [sortedBeats, triggerPagination, zoom, scriptConfig.paperTheme]);
+  }, [sortedBeats, triggerPagination, zoom, scriptConfig, isTamilMode, tamilFontScale, tamilFontFamily]);
 
   useEffect(() => {
     const el = contentRef.current;
@@ -2159,7 +2160,7 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'cast
                                             )}
                                             <div 
                                                 id={`beat-${beat.id}`} 
-                                                className={`beat-block group relative ${activeBeatId === beat.id ? 'z-20' : 'z-10'}`} 
+                                                className={`beat-block flow-root group relative ${activeBeatId === beat.id ? 'z-20' : 'z-10'}`} 
                                                 onFocusCapture={() => setActiveBeatId(beat.id)} 
                                                 onClick={() => setActiveBeatId(beat.id)} 
                                                 onContextMenu={(e) => handleScriptContextMenu(e, beat.id)}

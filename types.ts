@@ -246,6 +246,8 @@ export interface CharacterData {
   billingNumber?: number;
 }
 
+export type ThemeAnimationStyle = 'circle' | 'wipe-right' | 'wipe-down' | 'diagonal' | 'diamond' | 'dissolve';
+
 export interface ProjectState {
   beats: Beat[];
   groups: Group[]; // Visual groupings for beats
@@ -310,8 +312,9 @@ export interface ProjectState {
   // App Customization
   appTheme?: 'dark' | 'light' | 'system';
   appAccentColor?: string;
-  appLanguage?: 'english' | 'tamil' | 'spanish' | 'french' | 'german' | 'hindi';
+  appLanguage?: 'english' | 'tamil' | 'spanish' | 'french' | 'german';
   navLayout?: 'horizontal' | 'vertical';
+  themeAnimationStyle?: ThemeAnimationStyle;
 
   // Board Layers
   boardLayerOrder: BoardLayer[];
@@ -385,7 +388,7 @@ export interface ProjectContextType extends ProjectState {
   updateGroup: (id: number, updates: Partial<Group>) => void;
   removeGroup: (id: number) => void;
 
-  loadProject: (data: ProjectState) => void;
+  loadProject: (data: ProjectState | any, options?: { projectName?: string }) => void;
   saveProject: () => void;
   saveProjectAs: () => Promise<void>;
   downloadProject: () => void;
@@ -410,11 +413,13 @@ export interface ProjectContextType extends ProjectState {
   setStoryboardFeatureEnabled: (enabled: boolean) => void;
   
   // App Customization Setters
-  setAppTheme: (theme: 'dark' | 'light' | 'system') => void;
+  setAppTheme: (theme: 'dark' | 'light' | 'system', event?: any) => void;
   setAppAccentColor: (color: string) => void;
-  setAppLanguage: (lang: 'english' | 'tamil' | 'spanish' | 'french' | 'german' | 'hindi') => void;
+  setAppLanguage: (lang: 'english' | 'tamil' | 'spanish' | 'french' | 'german') => void;
   navLayout: 'horizontal' | 'vertical';
   setNavLayout: (layout: 'horizontal' | 'vertical') => void;
+  themeAnimationStyle: ThemeAnimationStyle;
+  setThemeAnimationStyle: (style: ThemeAnimationStyle) => void;
 
   // Breakdown Configuration
   setBreakdownLanguage: (lang: 'english' | 'tamil') => void;
@@ -867,11 +872,13 @@ export interface Beat {
   trackIndex?: number; // NLE Timeline Track index (0 = V1, 1 = V2, 2 = V3, etc.)
   subtrackIndex?: number; // Subtrack index (0 = Subtrack 1, 1 = Subtrack 2, 2 = Subtrack 3)
   durationWidth?: number; // Visual duration width on timeline (px)
+  durationPages?: number; // Screenplay page duration (e.g. 2.5 pages)
   tension?: number; // Dramatic tension level 0-100%
   characters?: string[]; // Characters featured in this beat
   startTime?: number; // Timeline start position in minutes or beats
   groupId?: number; // Visual or sequence group association
   groupTitle?: string; // Group / Sequence name
+  isDisabled?: boolean; // Disabled / omitted beat (excluded from screenplay)
 }
 
 export type ConnectionStyle = 'curve' | 'zigzag';

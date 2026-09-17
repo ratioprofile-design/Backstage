@@ -4,7 +4,7 @@ import {
   ProjectState, ProjectContextType, Beat, Group, Connection, Annotation, 
   CharacterData, Shot, Note, ScriptConfig, ScratchpadConfig, StoryboardConfig, 
   WritingGoal, ProjectMetadata, BeatStatus, BeatVersion,
-  BoardLayer
+  BoardLayer, TimelineTrack, ThemeAnimationStyle
 } from '../types';
 import { INITIAL_STATE } from '../constants';
 import { supabase, upsertProject, fetchProjectData, fetchUserProjects, fetchInvitedProjects, isSupabaseConfigured } from '../services/supabase';
@@ -108,6 +108,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const isSavingRef = useRef(false);
   const hasUnsavedChangesRef = useRef(false);
   const isRemoteUpdateRef = useRef(false); // Flag to prevent remote data from triggering "unsaved changes"
+  const isImportingRef = useRef(false); // Flag to prevent window focus from wiping freshly imported projects
   const cloudOfflineRef = useRef(false);
 
   // Update refs when state changes
@@ -165,26 +166,184 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [appAccentColor, setAppAccentColorState] = useState<string>(() => {
     return localStorage.getItem('app_accent') || INITIAL_STATE.appAccentColor || '#f5a623';
   });
-  const [appLanguage, setAppLanguageState] = useState<'english' | 'tamil' | 'spanish' | 'french' | 'german' | 'hindi'>(() => {
-    return (localStorage.getItem('app_language') as any) || INITIAL_STATE.appLanguage || 'english';
+  const [appLanguage, setAppLanguageState] = useState<'english' | 'tamil' | 'spanish' | 'french' | 'german'>(() => {
+    const saved = localStorage.getItem('app_language');
+    if (saved === 'hindi') return 'english';
+    return (saved as any) || INITIAL_STATE.appLanguage || 'english';
   });
 
-  const setAppTheme = useCallback((theme: 'dark' | 'light' | 'system') => {
-    setAppThemeState(theme);
-    localStorage.setItem('app_theme', theme);
+  const [themeAnimationStyle, setThemeAnimationStyleState] = useState<ThemeAnimationStyle>(() => {
+    return (localStorage.getItem('app_theme_animation') as ThemeAnimationStyle) || INITIAL_STATE.themeAnimationStyle || 'circle';
+  });
+  const themeAnimationStyleRef = useRef(themeAnimationStyle);
+  useEffect(() => { themeAnimationStyleRef.current = themeAnimationStyle; }, [themeAnimationStyle]);
 
-    // Synchronize screenplay paperTheme when switching app theme
-    // When switching to dark mode, paper style switches to dark mode
-    // When switching to light mode, paper style switches to white
-    const isDark = theme === 'dark' || (theme === 'system' && typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches);
-    const targetPaper: 'dark' | 'white' = isDark ? 'dark' : 'white';
-
-    setScriptConfig(prev => ({
-      ...prev,
-      paperTheme: targetPaper,
-    }));
-
+  const setThemeAnimationStyle = useCallback((style: ThemeAnimationStyle) => {
+    themeAnimationStyleRef.current = style;
+    setThemeAnimationStyleState(style);
+    localStorage.setItem('app_theme_animation', style);
     setHasUnsavedChanges(true);
+  }, []);
+
+  const setAppTheme = useCallback((theme: 'dark' | 'light' | 'system', event?: any) => {
+    const updateThemeState = () => {
+      setAppThemeState(theme);
+      localStorage.setItem('app_theme', theme);
+
+      // Synchronize screenplay paperTheme when switching app theme
+      // When switching to dark mode, paper style switches to dark mode
+      // When switching to light mode, paper style switches to white
+      const isDark = theme === 'dark' || (theme === 'system' && typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+      const targetPaper: 'dark' | 'white' = isDark ? 'dark' : 'white';
+
+      setScriptConfig(prev => ({
+        ...prev,
+        paperTheme: targetPaper,
+      }));
+
+      // Synchronously update document classes so snapshot captures the new state
+      if (typeof document !== 'undefined') {
+        if (isDark) {
+          document.documentElement.classList.add('dark-theme');
+          document.documentElement.classList.remove('light-theme');
+          document.body.classList.add('dark-theme');
+          document.body.classList.remove('light-theme');
+        } else {
+          document.documentElement.classList.add('light-theme');
+          document.documentElement.classList.remove('dark-theme');
+          document.body.classList.add('light-theme');
+          document.body.classList.remove('dark-theme');
+        }
+      }
+
+      setHasUnsavedChanges(true);
+    };
+
+    // Check if View Transition API is supported and user hasn't requested reduced motion
+    const canViewTransition =
+      typeof document !== 'undefined' &&
+      'startViewTransition' in document &&
+      typeof (document as any).startViewTransition === 'function' &&
+      typeof window !== 'undefined' &&
+      !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    if (!canViewTransition) {
+      if (typeof document !== 'undefined') {
+        document.documentElement.classList.add('theme-transitioning');
+        setTimeout(() => {
+          document.documentElement.classList.remove('theme-transitioning');
+        }, 500);
+      }
+      updateThemeState();
+      return;
+    }
+
+    try {
+      // Determine origin coordinates for ripple / focal wipes
+      let x = typeof window !== 'undefined' ? window.innerWidth / 2 : 0;
+      let y = typeof window !== 'undefined' ? window.innerHeight / 2 : 0;
+
+      if (event && typeof event.clientX === 'number' && typeof event.clientY === 'number') {
+        x = event.clientX;
+        y = event.clientY;
+      } else if (event?.currentTarget && typeof event.currentTarget.getBoundingClientRect === 'function') {
+        const rect = event.currentTarget.getBoundingClientRect();
+        x = rect.left + rect.width / 2;
+        y = rect.top + rect.height / 2;
+      }
+
+      const style = themeAnimationStyleRef.current || 'circle';
+      const endRadius = typeof window !== 'undefined'
+        ? Math.hypot(Math.max(x, window.innerWidth - x), Math.max(y, window.innerHeight - y))
+        : 1000;
+
+      let keyframes: Keyframe[] | PropertyIndexedKeyframes = {
+        clipPath: [
+          `circle(0px at ${x}px ${y}px)`,
+          `circle(${endRadius}px at ${x}px ${y}px)`
+        ]
+      };
+      let animOptions: KeyframeAnimationOptions = {
+        duration: 460,
+        easing: 'cubic-bezier(0.4, 0, 0.2, 1)',
+        pseudoElement: '::view-transition-new(root)'
+      };
+
+      if (style === 'wipe-right') {
+        keyframes = {
+          clipPath: [
+            'polygon(0 0, 0 0, 0 100%, 0 100%)',
+            'polygon(0 0, 100% 0, 100% 100%, 0 100%)'
+          ]
+        };
+        animOptions = {
+          duration: 440,
+          easing: 'cubic-bezier(0.25, 1, 0.5, 1)',
+          pseudoElement: '::view-transition-new(root)'
+        };
+      } else if (style === 'wipe-down') {
+        keyframes = {
+          clipPath: [
+            'polygon(0 0, 100% 0, 100% 0, 0 0)',
+            'polygon(0 0, 100% 0, 100% 100%, 0 100%)'
+          ]
+        };
+        animOptions = {
+          duration: 440,
+          easing: 'cubic-bezier(0.25, 1, 0.5, 1)',
+          pseudoElement: '::view-transition-new(root)'
+        };
+      } else if (style === 'diagonal') {
+        keyframes = {
+          clipPath: [
+            'polygon(0 0, 0 0, 0 0)',
+            'polygon(0 0, 260% 0, 0 260%)'
+          ]
+        };
+        animOptions = {
+          duration: 460,
+          easing: 'cubic-bezier(0.25, 1, 0.5, 1)',
+          pseudoElement: '::view-transition-new(root)'
+        };
+      } else if (style === 'diamond') {
+        const maxD = (typeof window !== 'undefined'
+          ? Math.max(x, window.innerWidth - x) + Math.max(y, window.innerHeight - y)
+          : 1000) * 1.3;
+        keyframes = {
+          clipPath: [
+            `polygon(${x}px ${y}px, ${x}px ${y}px, ${x}px ${y}px, ${x}px ${y}px)`,
+            `polygon(${x}px ${y - maxD}px, ${x + maxD}px ${y}px, ${x}px ${y + maxD}px, ${x - maxD}px ${y}px)`
+          ]
+        };
+        animOptions = {
+          duration: 480,
+          easing: 'cubic-bezier(0.33, 1, 0.68, 1)',
+          pseudoElement: '::view-transition-new(root)'
+        };
+      } else if (style === 'dissolve') {
+        keyframes = {
+          opacity: [0, 1],
+          transform: ['scale(0.98)', 'scale(1)']
+        };
+        animOptions = {
+          duration: 360,
+          easing: 'cubic-bezier(0.4, 0, 0.2, 1)',
+          pseudoElement: '::view-transition-new(root)'
+        };
+      }
+
+      const transition = (document as any).startViewTransition(() => {
+        updateThemeState();
+      });
+
+      transition.ready.then(() => {
+        document.documentElement.animate(keyframes, animOptions);
+      }).catch((err: any) => {
+        console.warn('Theme transition animation warning:', err);
+      });
+    } catch {
+      updateThemeState();
+    }
   }, []);
 
   // Listen for OS theme changes when theme is set to 'system'
@@ -207,7 +366,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setHasUnsavedChanges(true);
   }, []);
 
-  const setAppLanguage = useCallback((lang: 'english' | 'tamil' | 'spanish' | 'french' | 'german' | 'hindi') => {
+  const setAppLanguage = useCallback((lang: 'english' | 'tamil' | 'spanish' | 'french' | 'german') => {
     setAppLanguageState(lang);
     localStorage.setItem('app_language', lang);
     setHasUnsavedChanges(true);
@@ -302,23 +461,27 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     };
   }, []);
 
-  const applyProjectState = useCallback((data: any) => {
+  const applyProjectState = useCallback((data: any, options?: { projectName?: string }) => {
     if (!data) return;
+
+    isImportingRef.current = true;
 
     const isCausality = isCausalityData(data);
     let processedData = data;
+    let importedTracks: TimelineTrack[] | undefined = undefined;
+
     if (isCausality) {
       const parsed = parseCausalityProject(data);
       if (parsed.success && parsed.projectState) {
         processedData = { ...INITIAL_STATE, ...parsed.projectState };
-        if (Array.isArray(parsed.tracks) && parsed.tracks.length > 0) {
-          try {
-            const projectKey = data.id || 'default';
-            localStorage.setItem(`backstage_daw_tracks_${projectKey}`, JSON.stringify(parsed.tracks));
-            localStorage.setItem('backstage_daw_tracks', JSON.stringify(parsed.tracks));
-          } catch (e) {}
-        }
+        importedTracks = parsed.tracks;
+      } else {
+        isImportingRef.current = false;
+        alert(parsed.error || "Failed to parse Causality file. Please verify file format.");
+        return;
       }
+    } else if (Array.isArray(data.tracks) && data.tracks.length > 0) {
+      importedTracks = data.tracks;
     }
     
     // Auto-detect and filter out any preloaded demo datasets (never filter user Causality imports)
@@ -331,6 +494,62 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     isRemoteUpdateRef.current = true; // Block auto-save trigger
     
+    const finalTracks = importedTracks || cleanData.tracks;
+
+    // Remove legacy un-namespaced tracks key to prevent cross-project contamination
+    try {
+      localStorage.removeItem('backstage_daw_tracks');
+    } catch (e) {}
+
+    // If this is an imported Causality project or an explicit new project import, register in projectList and switch active ID
+    if (isCausality || options?.projectName) {
+      const newProjId = `proj_${Date.now()}`;
+      const projName = options?.projectName || (cleanData as any).projectName || 'Imported Causality Story';
+      const newMeta: ProjectMetadata = {
+        id: newProjId,
+        name: projName,
+        created: Date.now(),
+        lastModified: Date.now()
+      };
+
+      setCurrentProjectId(newProjId);
+      localStorage.setItem('currentProjectId', newProjId);
+      
+      if (Array.isArray(finalTracks) && finalTracks.length > 0) {
+        try {
+          localStorage.setItem(`backstage_daw_tracks_${newProjId}`, JSON.stringify(finalTracks));
+        } catch (e) {}
+      }
+
+      try {
+        localStorage.setItem(`project_data_${newProjId}`, JSON.stringify(cleanData));
+      } catch (e) {}
+
+      setProjectList(prev => {
+        const updated = [newMeta, ...prev.filter(p => p.id !== newProjId)];
+        localStorage.setItem('projectList', JSON.stringify(updated));
+        return updated;
+      });
+
+      // Notify BoardView and other views of the imported project and tracks
+      window.dispatchEvent(new CustomEvent('project_imported', { 
+        detail: { projectId: newProjId, tracks: finalTracks } 
+      }));
+      window.dispatchEvent(new CustomEvent('daw_tracks_updated', { 
+        detail: { projectId: newProjId, tracks: finalTracks } 
+      }));
+    } else if (currentProjectId && Array.isArray(finalTracks) && finalTracks.length > 0) {
+      try {
+        localStorage.setItem(`backstage_daw_tracks_${currentProjectId}`, JSON.stringify(finalTracks));
+      } catch (e) {}
+      window.dispatchEvent(new CustomEvent('project_imported', { 
+        detail: { projectId: currentProjectId, tracks: finalTracks } 
+      }));
+      window.dispatchEvent(new CustomEvent('daw_tracks_updated', { 
+        detail: { projectId: currentProjectId, tracks: finalTracks } 
+      }));
+    }
+
     setBeats(Array.isArray(cleanData.beats) ? cleanData.beats : INITIAL_STATE.beats);
     setGroups(Array.isArray(cleanData.groups) ? cleanData.groups : INITIAL_STATE.groups);
     setConnections(Array.isArray(cleanData.connections) ? cleanData.connections : INITIAL_STATE.connections);
@@ -358,14 +577,22 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (cleanData.appTheme) setAppThemeState(cleanData.appTheme);
     if (cleanData.appAccentColor) setAppAccentColorState(cleanData.appAccentColor);
     if (cleanData.appLanguage) setAppLanguageState(cleanData.appLanguage);
+    if (cleanData.themeAnimationStyle) {
+      setThemeAnimationStyleState(cleanData.themeAnimationStyle);
+      localStorage.setItem('app_theme_animation', cleanData.themeAnimationStyle);
+    }
     if (cleanData.navLayout) {
       setNavLayoutState(cleanData.navLayout);
       localStorage.setItem('app_nav_layout', cleanData.navLayout);
     }
     
-    // Reset the flag after a brief timeout to allow state to settle
-    setTimeout(() => { isRemoteUpdateRef.current = false; setHasUnsavedChanges(false); }, 50);
-  }, []);
+    // Reset the flag after a timeout to allow state to settle
+    setTimeout(() => { 
+      isRemoteUpdateRef.current = false; 
+      isImportingRef.current = false;
+      setHasUnsavedChanges(false); 
+    }, 1000);
+  }, [currentProjectId]);
 
   // REALTIME SUBSCRIPTION FOR INSTANT UPDATES
   useEffect(() => {
@@ -626,6 +853,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   // and re-fetching can overwrite in-progress work with stale storage/file data)
   useEffect(() => {
       const handleFocus = () => {
+          if (isImportingRef.current) return;
           if (supabaseUser && currentProjectId && !hasUnsavedChangesRef.current && !isSavingRef.current) {
               selectProject(currentProjectId, { silent: true });
           }
@@ -666,6 +894,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       dailyStats, sessionStartCount, lastSessionDate, boardLayerOrder,
       characterDesignLocked,
       collaborators,
+      themeAnimationStyle,
       lastInstanceId: INSTANCE_ID // Tag the update with this instance ID
     };
     let saved = false;
@@ -761,6 +990,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       writingGoal, geminiApiKey: '', openrouterKey, generalAiModel, 
       dailyStats, sessionStartCount, lastSessionDate, boardLayerOrder,
       characterDesignLocked,
+      themeAnimationStyle,
       lastInstanceId: INSTANCE_ID // Tag the update with this instance ID
     };
     if (isTauri()) {
@@ -1001,7 +1231,8 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     beats, groups, connections, annotations, characterData, generatedShots, scratchpad, globalNotes, panX, panY, scale, nextId, nextAnnoId, activeBoardId, isTamilMode, tamilFontScale, tamilFontFamily, userDictionary, isOsInputMode, osInputShortcut, scriptConfig, scriptViewMode, scratchpadConfig, storyboardConfig, isStoryboardFeatureEnabled,     breakdownLanguage, breakdownLockedOnly, isPdfDropEnabled, isRedoEnabled, writingGoal, geminiApiKey: '', openrouterKey, setOpenrouterKey, generalAiModel, setGeneralAiModel, dailyStats, sessionStartCount, lastSessionDate, boardLayerOrder, characterDesignLocked, setCharacterDesignLocked: setCharacterDesignLockedWrapped, appTheme, appAccentColor, appLanguage, currentUser, currentProjectId, projectList, hasUnsavedChanges, schemaError, isSaving, fileHandle, filePath, setFilePath,   isInitialLoading, isCloudMode: !!supabaseUser, supabaseUser, cloudOffline, login, logout, selectProject, createProject, deleteProject, closeProject, clearSchemaError: () => { setSchemaError(null); if (supabaseUser) refreshProjectList(supabaseUser.id); }, setBeats: setBeatsWrapped, setGroups: setGroupsWrapped, setConnections: setConnectionsWrapped, setAnnotations: setAnnotationsWrapped, setCharacterData: setCharacterDataWrapped, setGeneratedShots, setScratchpad: setScratchpadWrapped, setGlobalNotes: setGlobalNotesWrapped, updateGeneratedShot: (id, u) => { setGeneratedShots(p => p.map(s => s.id === id ? { ...s, ...u } : s)); setHasUnsavedChanges(true); }, addGeneratedShot: (i) => { const n = { id: `shot-${Date.now()}`, shotSize: 'WIDE', angle: 'EYE LEVEL', description: '', subject: '', scene: '?', imageHistory: [] }; const s = [...generatedShots]; s.splice(i + 1, 0, n); setGeneratedShots(s); captureSnapshot(); }, removeGeneratedShot: (id) => { setGeneratedShots(p => p.filter(s => s.id !== id)); captureSnapshot(); }, moveGeneratedShot: (f, t) => { const s = [...generatedShots]; const [m] = s.splice(f, 1); s.splice(t, 0, m); setGeneratedShots(s); captureSnapshot(); }, setPan: (x, y) => { setPanX(x); setPanY(y); }, setScale, updateBeat, addBeat, reorderBeats, addGroup: (g) => { const id = nextId; setNextId(p => p + 1); setGroups(p => [...p, { ...g, id, boardId: activeBoardId }]); captureSnapshot(); }, updateGroup: (id, u) => { setGroups(p => p.map(g => g.id === id ? { ...g, ...u } : g)); setHasUnsavedChanges(true); }, removeGroup: (id) => { setGroups(p => p.filter(g => g.id !== id)); captureSnapshot(); }, loadProject: applyProjectState, saveProject, saveProjectAs, setActiveBoardId, setTamilMode, setTamilFontScale, setTamilFontFamily, learnTamilWord: (e, t) => { setUserDictionary(p => { const c = p[e.toLowerCase()] || []; if (!c.includes(t)) return { ...p, [e.toLowerCase()]: [t, ...c] }; return p; }); }, setOsInputMode, setOsInputShortcut, setScriptConfig, setScriptViewMode, setScratchpadConfig, setStoryboardConfig, setStoryboardFeatureEnabled, setAppTheme, setAppAccentColor, setAppLanguage, setBreakdownLanguage, setBreakdownLockedOnly, setPdfDropEnabled, setRedoEnabled, setWritingGoal, setGeminiApiKey: () => {}, setBoardLayerOrder, setNextId, undo, redo, canUndo: historyIndexRef.current > 0, canRedo: historyIndexRef.current < historyRef.current.length - 1, captureSnapshot, downloadProject, autoGenerate5Scenes, autoGenerateScenes,
     userRole, updateUserRole, grokKey, setGrokKey,
     collaborators, setCollaborators: setCollaboratorsWrapped,
-    navLayout, setNavLayout
+    navLayout, setNavLayout,
+    themeAnimationStyle, setThemeAnimationStyle
   };
 
   return <ProjectContext.Provider value={value}>{children}</ProjectContext.Provider>;

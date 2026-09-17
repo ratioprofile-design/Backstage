@@ -158,7 +158,6 @@ export const APP_LANGUAGES = [
   { label: 'Spanish (Español)', value: 'spanish', flag: '🇪🇸' },
   { label: 'French (Français)', value: 'french', flag: '🇫🇷' },
   { label: 'German (Deutsch)', value: 'german', flag: '🇩🇪' },
-  { label: 'Hindi (हिंदी)', value: 'hindi', flag: '🇮🇳' },
 ];
 
 export const BREAKDOWN_LANGUAGES = [
@@ -184,6 +183,7 @@ export const INITIAL_STATE: ProjectState = {
   appAccentColor: '#f5a623',
   appLanguage: 'english',
   navLayout: 'vertical',
+  themeAnimationStyle: 'circle',
 
   panX: 0,
   panY: 0,

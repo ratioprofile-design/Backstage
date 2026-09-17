@@ -12,6 +12,8 @@ import { useAiKeyStatus } from '../context/AiKeyStatusContext';
 import { AISceneGeneratorModal } from './AISceneGeneratorModal';
 import { InviteManagerModal } from './InviteManagerModal';
 import { Users as UsersIcon } from 'lucide-react';
+import { ThemeToggleButton } from './ThemeToggleButton';
+import { translateUi } from '../services/appTranslations';
 
 interface AppHeaderProps {
   currentView: ViewMode;
@@ -43,6 +45,7 @@ const AppHeader: React.FC<AppHeaderProps> = ({
       undo, redo, canUndo, canRedo,
       saveProject, saveProjectAs, hasUnsavedChanges, currentUser, isCloudMode, isSaving, fileHandle,
       autoGenerate5Scenes, appTheme, setAppTheme, logout, cloudOffline, supabaseUser, userRole, appAccentColor,
+      appLanguage,
       collaborators = []
   } = useProject();
 
@@ -79,24 +82,24 @@ const AppHeader: React.FC<AppHeaderProps> = ({
 
   const views = useMemo(() => {
     const list = [
-      { id: 'board', label: 'Beats DAW' },
-      { id: 'excalidraw', label: 'Excalidraw' },
-      { id: 'script', label: 'Script' },
-      { id: 'casting', label: 'Casting & Roster' },
-      { id: 'breakdown', label: 'Breakdown' },
-      { id: 'continuity', label: 'Continuity' },
-      { id: 'crew', label: 'Crew' },
-      { id: 'shotlist', label: 'Shot Division' },
-      { id: 'storyboard', label: 'Storyboard', hidden: !isStoryboardFeatureEnabled },
-      { id: 'schedule', label: 'Production Plan' },
-      { id: 'dood', label: 'DOOD' },
-      { id: 'documents', label: 'Vault' },
-      { id: 'callsheet', label: 'Call Sheet' },
-      { id: 'statistics', label: 'Statistics' }
+      { id: 'board', label: translateUi('Beats DAW Short', appLanguage) !== 'Beats DAW Short' ? translateUi('Beats DAW Short', appLanguage) : 'Beats DAW' },
+      { id: 'excalidraw', label: translateUi('Excalidraw Short', appLanguage) !== 'Excalidraw Short' ? translateUi('Excalidraw Short', appLanguage) : 'Excalidraw' },
+      { id: 'script', label: translateUi('Script', appLanguage) },
+      { id: 'casting', label: translateUi('Casting', appLanguage) },
+      { id: 'breakdown', label: translateUi('Breakdown', appLanguage) },
+      { id: 'continuity', label: translateUi('Continuity', appLanguage) },
+      { id: 'crew', label: translateUi('Crew', appLanguage) },
+      { id: 'shotlist', label: translateUi('Shot Division', appLanguage) },
+      { id: 'storyboard', label: translateUi('Storyboard', appLanguage), hidden: !isStoryboardFeatureEnabled },
+      { id: 'schedule', label: translateUi('Schedule', appLanguage) },
+      { id: 'dood', label: translateUi('DOOD Short', appLanguage) !== 'DOOD Short' ? translateUi('DOOD Short', appLanguage) : 'DOOD' },
+      { id: 'documents', label: translateUi('Documents', appLanguage) },
+      { id: 'callsheet', label: translateUi('Call Sheet', appLanguage) },
+      { id: 'statistics', label: translateUi('Statistics', appLanguage) }
     ];
 
     return list.filter(v => !v.hidden);
-  }, [isStoryboardFeatureEnabled]);
+  }, [isStoryboardFeatureEnabled, appLanguage]);
 
   // Handle saved confirmation effect
   useEffect(() => {
@@ -174,18 +177,17 @@ const AppHeader: React.FC<AppHeaderProps> = ({
         {/* LEFT: Cinematic Logo */}
         <div className="flex items-center gap-4 h-full flex-1">
           <div 
-              onClick={() => onViewChange('backstage')}
-              className="flex items-center gap-3 cursor-pointer group select-none h-full"
-              title="Open Backstage (Settings)"
+              className="flex items-center gap-3 select-none h-full"
+              title={fileHandle ? fileHandle.name : activeProjectName}
           >
-              <div className="w-8 h-8 rounded bg-gradient-to-br from-[#222] to-[#111] border border-[#333] flex items-center justify-center group-hover:border-[#f5a623] transition-all shadow-sm relative">
-                  <Film size={16} className="text-[#f5a623] group-hover:scale-110 transition-transform duration-300" />
+              <div className="w-8 h-8 rounded bg-gradient-to-br from-[#222] to-[#111] border border-[#333] flex items-center justify-center shadow-sm relative">
+                  <Film size={16} className="text-[#f5a623]" />
               </div>
               
               <div className="flex items-center gap-2 transition-all">
                   <div className="flex flex-col justify-center pt-0.5">
-                      <span className="text-[13px] font-black tracking-tight text-white uppercase leading-none group-hover:text-[#f5a623] transition-colors duration-300">
-                          Backstage
+                      <span className="text-[13px] font-black tracking-tight text-white uppercase leading-none">
+                          {translateUi('Backstage', appLanguage)}
                       </span>
                       <span 
                           className="text-[7px] font-bold tracking-[0.2em] uppercase leading-none mt-0.5 ml-[1px] truncate max-w-[120px]"
@@ -205,7 +207,7 @@ const AppHeader: React.FC<AppHeaderProps> = ({
                   ? 'bg-amber-500/20 border-amber-500 text-amber-400 shadow-[0_0_12px_rgba(245,166,35,0.3)]'
                   : 'bg-[#18181c] border-[#333] text-gray-400 hover:text-amber-400 hover:border-amber-500/50 hover:bg-[#222]'
               }`}
-              title="Inbox - Production Tasks & Modification History"
+              title={translateUi('Inbox', appLanguage)}
           >
               <Inbox size={18} className="group-hover:scale-110 transition-transform duration-300" />
               {unreadCount > 0 && (
@@ -220,7 +222,7 @@ const AppHeader: React.FC<AppHeaderProps> = ({
               onClick={() => onAskAnything?.()}
               disabled={!aiAvailable}
               className="w-9 h-9 rounded-lg transition-all duration-300 border flex items-center justify-center group cursor-pointer bg-gradient-to-br from-[#252018] to-[#1a1a1a] border-[#f5a623]/40 text-[#f5a623] hover:border-[#f5a623] hover:shadow-[0_0_12px_rgba(245,166,35,0.35)] disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:border-[#f5a623]/40 disabled:hover:shadow-none"
-              title={`Ask Anything (AI Assistant) — ${aiStatusTitle}`}
+              title={translateUi('Ask Anything (AI Assistant)', appLanguage)}
           >
               <Sparkles size={16} className="fill-[#f5a623]/30 group-hover:scale-110 transition-transform duration-300" />
           </button>
@@ -246,7 +248,7 @@ const AppHeader: React.FC<AppHeaderProps> = ({
             </div>
           ) : (
             <div className="flex items-center gap-2 px-3 py-1 bg-[#1a1a1e] border border-[#333] rounded-[4px]">
-              <span className="text-[10px] font-mono uppercase tracking-widest text-gray-500">Active View:</span>
+              <span className="text-[10px] font-mono uppercase tracking-widest text-gray-500">{translateUi('Active View:', appLanguage)}</span>
               <span className="text-[12px] font-black uppercase tracking-wider" style={{ color: appAccentColor || '#f5a623' }}>
                 {views.find(v => v.id === currentView)?.label || (currentView as string).toUpperCase()}
               </span>
@@ -259,7 +261,7 @@ const AppHeader: React.FC<AppHeaderProps> = ({
                 onClick={undo}
                 disabled={!canUndo}
                 className={`px-3 py-1.5 flex items-center justify-center transition-all ${!canUndo ? 'text-[#444] cursor-not-allowed' : 'text-[#888] hover:text-white hover:bg-[#2a2a2a]'}`}
-                title="Undo (Ctrl+Z)"
+                title={translateUi('Undo (Ctrl+Z)', appLanguage)}
              >
                 <RotateCcw size={14} />
              </button>
@@ -268,7 +270,7 @@ const AppHeader: React.FC<AppHeaderProps> = ({
                 onClick={redo}
                 disabled={!canRedo}
                 className={`px-3 py-1.5 flex items-center justify-center transition-all ${!canRedo ? 'text-[#444] cursor-not-allowed' : 'text-[#888] hover:text-white hover:bg-[#2a2a2a]'}`}
-                title="Redo (Ctrl+Y)"
+                title={translateUi('Redo (Ctrl+Y)', appLanguage)}
              >
                 <RotateCw size={14} />
              </button>
@@ -286,14 +288,14 @@ const AppHeader: React.FC<AppHeaderProps> = ({
                     ? 'bg-[#1a1a1a] border-[#333] hover:border-[#555]' 
                     : 'bg-[#222] border-[#444] text-[#888] hover:border-[#666] hover:text-[#ccc]'
             }`}
-            title={writingGoal.isActive && progressDisplay ? `Goal Progress: ${progressDisplay.current}/${progressDisplay.target} ${progressDisplay.unit} (${progressDisplay.percent}%) — ${progressDisplay.label}` : "Set Deadline / Writing Goal"}
+            title={writingGoal.isActive && progressDisplay ? `${translateUi('Goal Progress:', appLanguage)} ${progressDisplay.current}/${progressDisplay.target} ${progressDisplay.unit} (${progressDisplay.percent}%) — ${progressDisplay.label}` : translateUi('Set Deadline / Writing Goal', appLanguage)}
           >
              {/* Progress Bar Background */}
              {writingGoal.isActive && progressDisplay && (
                   <div 
                      className={`absolute left-0 top-0 bottom-0 transition-all duration-500 ease-out pointer-events-none ${
                          progressDisplay.showTotal
-                             ? (progressDisplay.iDone ? 'bg-green-500/30' : 'bg-[#f5a623]/30') 
+                             ? (progressDisplay.isDone ? 'bg-green-500/30' : 'bg-[#f5a623]/30') 
                              : 'bg-blue-600/40' 
                      }`}
                      style={{ width: `${progressDisplay.percent}%` }}
@@ -303,29 +305,23 @@ const AppHeader: React.FC<AppHeaderProps> = ({
              {writingGoal.isActive && progressDisplay ? (
                  <div className={`z-10 ${
                      progressDisplay.showTotal
-                         ? (progressDisplay.iDone ? 'text-green-500' : 'text-[#f5a623]') 
+                         ? (progressDisplay.isDone ? 'text-green-500' : 'text-[#f5a623]') 
                          : 'text-blue-400'
                  }`}>
-                     {progressDisplay.iDone ? <CheckCircle2 size={14} /> : (progressDisplay.showTotal ? <Target size={14} /> : <TrendingUp size={14} />)}
+                     {progressDisplay.isDone ? <CheckCircle2 size={14} /> : (progressDisplay.showTotal ? <Target size={14} /> : <TrendingUp size={14} />)}
                  </div>
              ) : (
                  <Clock size={14} className="z-10" />
              )}
           </button>
           {/* THEME TOGGLE BUTTON */}
-          <button
-            onClick={() => setAppTheme(appTheme === 'light' ? 'dark' : 'light')}
-            className="w-9 h-9 rounded-[4px] bg-[#222] border border-[#3d3d3d] hover:border-[#f5a623] flex items-center justify-center text-amber-400 hover:text-amber-300 transition-all shadow-sm"
-            title={`Switch to ${appTheme === 'light' ? 'Dark' : 'Light'} Theme`}
-          >
-            {appTheme === 'light' ? <Moon size={16} /> : <Sun size={16} />}
-          </button>
+          <ThemeToggleButton variant="header" size={16} />
 
           {/* SETTINGS GEAR BUTTON */}
           <button
             onClick={() => onOpenSettings?.()}
-            className="w-9 h-9 rounded-[4px] bg-[#222] border border-[#3d3d3d] hover:border-[#f5a623] flex items-center justify-center text-gray-300 hover:text-white transition-all shadow-sm"
-            title="App Settings & Navigation Layout"
+            className="w-9 h-9 rounded-[4px] bg-[#222] border border-[#3d3d3d] hover:border-[#f5a623] flex items-center justify-center text-gray-300 hover:text-white transition-all shadow-sm cursor-pointer"
+            title={translateUi('Open Backstage Settings Panel', appLanguage)}
           >
             <Settings size={16} />
           </button>

@@ -450,12 +450,12 @@ export const estimateBeatHeight = (beat: Beat): number => {
 export const A4_PAGE_WIDTH = 794;
 export const A4_PAGE_HEIGHT = 1123;
 export const A4_MARGIN_TOP = 96;
-export const A4_MARGIN_BOTTOM = 96;
+export const A4_MARGIN_BOTTOM = 60; // Standard 0.625" screenplay bottom margin
 export const A4_MARGIN_LEFT = 144;
 export const A4_MARGIN_RIGHT = 96;
 export const A4_PAGE_GAP = 20;
 export const A4_PAGE_STRIDE = A4_PAGE_HEIGHT + A4_PAGE_GAP; // 1143
-export const A4_PAGE_WRITABLE_HEIGHT = A4_PAGE_HEIGHT - A4_MARGIN_TOP - A4_MARGIN_BOTTOM; // 931
+export const A4_PAGE_WRITABLE_HEIGHT = A4_PAGE_HEIGHT - A4_MARGIN_TOP - A4_MARGIN_BOTTOM; // 967
 
 export interface LinePaginationResult {
   totalPages: number;
@@ -465,13 +465,24 @@ export interface LinePaginationResult {
 /**
  * Performs a precision line-level screenplay pagination pass across all scenes.
  * Measures exact DOM bounding rects of scene headings and screenplay lines (.sc-line),
- * enforces orphan rules, and pushes overflowing elements across the dead zone (232px)
- * onto the top of the next A4 sheet.
+ * enforces orphan rules, and pushes overflowing elements across the dead zone (212px)
+ * onto the top of the next A4 sheet with zero cumulative drift across any page count.
  */
 export const runLinePaginationPass = (
   container: HTMLElement
 ): LinePaginationResult => {
   if (!container) return { totalPages: 1, beatPageMap: {} };
+
+  // Step 1: Temporarily clear active page break margins to measure pure, natural DOM coordinates.
+  const activeBreakElements = Array.from(
+    container.querySelectorAll('[data-page-break], .slugline-banner, .sc-line')
+  ) as HTMLElement[];
+  activeBreakElements.forEach(el => {
+    if (el.dataset.pageBreak || el.style.marginTop) {
+      el.style.marginTop = '';
+      el.removeAttribute('data-page-break');
+    }
+  });
 
   const containerRect = container.getBoundingClientRect();
   const zoom = Math.max(0.1, containerRect.width / A4_PAGE_WIDTH);
@@ -481,8 +492,7 @@ export const runLinePaginationPass = (
     return { totalPages: 1, beatPageMap: {} };
   }
 
-  // Measure natural continuous coordinates of all elements without mutating the DOM.
-  // We account for any active page-break margins in the DOM by tracking currentDomShift.
+  // Step 2: Measure natural coordinates of all elements in exact document order
   interface MeasItem {
     el: HTMLElement;
     type: 'slugline' | 'line';
@@ -491,27 +501,27 @@ export const runLinePaginationPass = (
     height: number;
     isCharacter: boolean;
     isDialogue: boolean;
+    isParenthetical: boolean;
+    isTransition: boolean;
   }
 
   const elements: MeasItem[] = [];
-  let currentDomShift = 0;
 
   beatBlocks.forEach(beatBlock => {
     const beatId = parseInt(beatBlock.id.replace('beat-', ''), 10);
     const slugBanner = beatBlock.querySelector('.slugline-banner') as HTMLElement | null;
     if (slugBanner) {
-      if (slugBanner.dataset.pageBreak === 'true') {
-        currentDomShift += parseFloat(slugBanner.style.marginTop || '0') || 0;
-      }
       const rect = slugBanner.getBoundingClientRect();
       elements.push({
         el: slugBanner,
         type: 'slugline',
         beatId,
-        naturalTop: ((rect.top - containerRect.top) / zoom) - currentDomShift,
+        naturalTop: (rect.top - containerRect.top) / zoom,
         height: Math.max(24, rect.height / zoom),
         isCharacter: false,
         isDialogue: false,
+        isParenthetical: false,
+        isTransition: false,
       });
     }
     const scriptBody = beatBlock.querySelector('.script-body') as HTMLElement | null;
@@ -519,20 +529,21 @@ export const runLinePaginationPass = (
       const children = Array.from(scriptBody.children) as HTMLElement[];
       children.forEach(child => {
         if (child.classList.contains('autocomplete-portal') || child.tagName === 'STYLE') return;
-        if (child.dataset.pageBreak === 'true') {
-          currentDomShift += parseFloat(child.style.marginTop || '0') || 0;
-        }
         const rect = child.getBoundingClientRect();
         const isChar = child.classList.contains('sc-character');
         const isDial = child.classList.contains('sc-dialogue');
+        const isParen = child.classList.contains('sc-parenthetical');
+        const isTrans = child.classList.contains('sc-transition') || /^(CUT TO|FADE OUT|DISSOLVE TO|SMASH CUT|FADE IN|MATCH CUT|TRANSITION)/i.test((child.textContent || '').trim());
         elements.push({
           el: child,
           type: 'line',
           beatId,
-          naturalTop: ((rect.top - containerRect.top) / zoom) - currentDomShift,
+          naturalTop: (rect.top - containerRect.top) / zoom,
           height: Math.max(18, rect.height / zoom),
           isCharacter: isChar,
           isDialogue: isDial,
+          isParenthetical: isParen,
+          isTransition: isTrans,
         });
       });
     }
@@ -542,17 +553,27 @@ export const runLinePaginationPass = (
     return { totalPages: 1, beatPageMap: {} };
   }
 
-  // Step 3: Pure mathematical simulation of page boundaries
+  // Step 3: Pure mathematical simulation of page boundaries with exact realTop propagation.
+  // By propagating realTop from element to element via naturalDelta and anchoring directly to
+  // nextPageWritableStart upon page break, we guarantee zero cumulative drift across any page count.
   const beatPageMap: Record<number, number> = {};
   const breakMargins: number[] = new Array(elements.length).fill(0);
-  let shift = 0;
+  const breakPageIndices: number[] = new Array(elements.length).fill(0);
+  const realTop: number[] = new Array(elements.length).fill(0);
+
   let pageIndex = 0; // 0 = Page 1, 1 = Page 2...
+  realTop[0] = elements[0].naturalTop;
+  beatPageMap[elements[0].beatId] = 1;
 
   for (let i = 0; i < elements.length; i++) {
     const item = elements[i];
-    const currentTop = item.naturalTop + shift;
-    const height = item.height;
 
+    if (i > 0) {
+      const naturalDelta = Math.max(0, item.naturalTop - elements[i - 1].naturalTop);
+      realTop[i] = realTop[i - 1] + naturalDelta;
+    }
+
+    const height = item.height;
     const pageWritableStart = pageIndex * A4_PAGE_STRIDE + A4_MARGIN_TOP;
     const pageWritableEnd = pageIndex * A4_PAGE_STRIDE + (A4_PAGE_HEIGHT - A4_MARGIN_BOTTOM);
 
@@ -562,24 +583,61 @@ export const runLinePaginationPass = (
       // Heading requires banner + space for at least 3 lines of action (~110px)
       threshold = Math.max(height + 66, 110);
     } else if (item.isCharacter) {
-      // Character cue requires cue + dialogue below it
+      // Character cue requires cue + dialogue (or parenthetical + dialogue) below it
+      const nextItem = i + 1 < elements.length ? elements[i + 1] : null;
+      let dialogueHeight = 44;
+      let parenHeight = 0;
+      if (nextItem && nextItem.isParenthetical) {
+        parenHeight = nextItem.height;
+        const afterParen = i + 2 < elements.length ? elements[i + 2] : null;
+        dialogueHeight = (afterParen && afterParen.isDialogue) ? afterParen.height : 44;
+      } else if (nextItem && nextItem.isDialogue) {
+        dialogueHeight = nextItem.height;
+      }
+      threshold = height + parenHeight + dialogueHeight;
+
+      // If dialogue is followed by a scene-ending transition, protect the transition from orphaning
+      const offsetAfterDial = (nextItem && nextItem.isParenthetical) ? 3 : 2;
+      const afterDial = i + offsetAfterDial < elements.length ? elements[i + offsetAfterDial] : null;
+      if (afterDial && afterDial.beatId === item.beatId && afterDial.isTransition) {
+        threshold += afterDial.height;
+      }
+    } else if (item.isParenthetical) {
+      // Parenthetical must not be orphaned without dialogue below it
       const nextItem = i + 1 < elements.length ? elements[i + 1] : null;
       const dialogueHeight = (nextItem && nextItem.isDialogue) ? nextItem.height : 44;
       threshold = height + dialogueHeight;
     }
 
-    const overflows = (currentTop + threshold > pageWritableEnd);
+    // Soft bottom flex: allow up to 24px into the bottom margin if finishing a scene or transition,
+    // avoiding breaking a scene across pages when only 1-2 lines remain and preventing large empty gaps.
+    const isLastOfBeat = (i + 1 >= elements.length || elements[i + 1].beatId !== item.beatId);
+    const effectivePageEnd = (isLastOfBeat || item.isTransition)
+      ? pageWritableEnd + 24
+      : pageWritableEnd;
 
-    // Only jump if we are not already at the top writable line of the page
-    if (overflows && currentTop > pageWritableStart + 5) {
+    let overflows = (realTop[i] + threshold > effectivePageEnd);
+
+    // A transition ending a scene must not be orphaned alone at the top of the next page before a new scene heading
+    const nextItem = i + 1 < elements.length ? elements[i + 1] : null;
+    const isNextNewScene = nextItem && nextItem.type === 'slugline';
+    if (overflows && item.isTransition && isNextNewScene && (realTop[i] + height <= pageIndex * A4_PAGE_STRIDE + (A4_PAGE_HEIGHT - 30))) {
+      overflows = false;
+    }
+
+    // Jump to next page if overflowing and not already at the top writable line of the page
+    if (overflows && realTop[i] > pageWritableStart + 5 && i > 0) {
       pageIndex++;
       const nextPageWritableStart = pageIndex * A4_PAGE_STRIDE + A4_MARGIN_TOP;
-      const jump = Math.max(0, Math.round(nextPageWritableStart - currentTop));
+      const prevBottom = realTop[i - 1] + elements[i - 1].height;
+      const jump = Math.max(0, Math.round(nextPageWritableStart - prevBottom));
 
       breakMargins[i] = jump;
-      shift += jump;
+      breakPageIndices[i] = pageIndex;
+      realTop[i] = prevBottom + jump;
     } else {
       breakMargins[i] = 0;
+      breakPageIndices[i] = pageIndex;
     }
 
     if (!beatPageMap[item.beatId]) {
@@ -587,29 +645,46 @@ export const runLinePaginationPass = (
     }
   }
 
-  // Step 4: Write pass - apply the computed margins to the DOM with subpixel deadband
+  // Step 4: Write pass - apply initial computed margins to the DOM
   for (let i = 0; i < elements.length; i++) {
     const el = elements[i].el;
-    const margin = Math.round(breakMargins[i]);
-    const currentMargin = parseFloat(el.style.marginTop || '0') || 0;
+    const margin = breakMargins[i];
 
-    // Subpixel deadband: do not mutate DOM if the change is negligible (<= 1.5px)
-    const needsUpdate = (margin === 0 && currentMargin > 0) ||
-                        (margin > 0 && currentMargin === 0) ||
-                        (margin > 0 && Math.abs(margin - currentMargin) > 1.5);
+    if (margin > 0) {
+      el.style.marginTop = `${margin}px`;
+      el.dataset.pageBreak = 'true';
+    } else {
+      el.style.marginTop = '';
+      el.removeAttribute('data-page-break');
+    }
+  }
 
-    if (needsUpdate) {
-      const targetMargin = margin > 0 ? `${margin}px` : '';
-      el.style.marginTop = targetMargin;
-      if (margin > 0) {
-        el.dataset.pageBreak = 'true';
-      } else {
-        el.removeAttribute('data-page-break');
+  // Step 5: High-precision DOM calibration pass.
+  // In real browser engines, font half-leading, subpixel anti-aliasing, and margin-collapse
+  // dynamics introduce 1-3px of variance per page break. Over 50-100+ pages, this creates
+  // cumulative drift that can push content into the page header and overlap page numbers.
+  // We calibrate every page-break element in document order to snap EXACTLY to nextPageWritableStart.
+  const calibContainerRect = container.getBoundingClientRect();
+  for (let i = 0; i < elements.length; i++) {
+    if (breakMargins[i] > 0) {
+      const el = elements[i].el;
+      const targetPage = breakPageIndices[i];
+      const targetDomTop = targetPage * A4_PAGE_STRIDE + A4_MARGIN_TOP;
+
+      const postRect = el.getBoundingClientRect();
+      const currentDomTop = (postRect.top - calibContainerRect.top) / zoom;
+      const error = Math.round(targetDomTop - currentDomTop);
+
+      if (error !== 0) {
+        const adjustedMargin = Math.max(0, breakMargins[i] + error);
+        breakMargins[i] = adjustedMargin;
+        el.style.marginTop = `${adjustedMargin}px`;
       }
     }
   }
 
   const totalPages = Math.max(1, pageIndex + 1);
+
   return { totalPages, beatPageMap };
 };
 

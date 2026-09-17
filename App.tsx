@@ -31,6 +31,7 @@ import InboxModal, { DEFAULT_INBOX_TASKS } from './components/InboxModal';
 import InboxView from './components/views/InboxView';
 import { AIAssistantModal } from './components/AIAssistantModal';
 import RoleSelectorModal from './components/RoleSelectorModal';
+import { CausalityImportModal } from './components/CausalityImportModal';
 import { ViewMode, ScriptConfig, AppTask, ProjectState } from './types';
 import { INITIAL_STATE } from './constants';
 import { Loader2, Film, Cloud } from 'lucide-react';
@@ -220,9 +221,16 @@ const AppContent: React.FC = () => {
   const [refreshKey, setRefreshKey] = useState(0);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(() => {
     return localStorage.getItem('sidebar_collapsed') === 'true';
   });
+
+  useEffect(() => {
+    const handleOpenImport = () => setIsImportModalOpen(true);
+    window.addEventListener('open_causality_import', handleOpenImport);
+    return () => window.removeEventListener('open_causality_import', handleOpenImport);
+  }, []);
 
   const handleToggleSidebar = useCallback(() => {
     setIsSidebarCollapsed(prev => {
@@ -289,7 +297,8 @@ const AppContent: React.FC = () => {
         reader.onload = (event) => {
           try {
             const parsed = JSON.parse(event.target?.result as string);
-            loadProject(parsed);
+            const projName = file.name.replace(/\.[^/.]+$/, "");
+            loadProject(parsed, { projectName: projName });
             setShowWelcome(false);
           } catch (err) {
             console.error("Drag-and-drop import failed", err);
@@ -314,7 +323,8 @@ const AppContent: React.FC = () => {
       const fs = await getTauriFs();
       if (!fs) return false;
       const content = await fs.readTextFile(path);
-      loadProject(JSON.parse(content));
+      const projName = path.split(/[/\\]/).pop()?.replace(/\.[^/.]+$/, '') || 'Imported Project';
+      loadProject(JSON.parse(content), { projectName: projName });
       setFilePath(path);
       setRecentFiles(addRecentFile(path));
       return true;
@@ -357,7 +367,8 @@ const AppContent: React.FC = () => {
             reader.onload = (event) => {
               try {
                 const parsed = JSON.parse(event.target?.result as string);
-                loadProject(parsed);
+                const projName = file.name.replace(/\.[^/.]+$/, "");
+                loadProject(parsed, { projectName: projName });
                 setShowWelcome(false);
               } catch (err) {
                 console.error("Failed to load project", err);
@@ -768,6 +779,15 @@ const AppContent: React.FC = () => {
           onSuccess={() => setShowAuthModal(false)}
         />
       )}
+
+      <CausalityImportModal
+        isOpen={isImportModalOpen}
+        onClose={() => setIsImportModalOpen(false)}
+        onImport={(importedState, options) => {
+          loadProject(importedState, options);
+          setCurrentView('board');
+        }}
+      />
     </>
   );
 };

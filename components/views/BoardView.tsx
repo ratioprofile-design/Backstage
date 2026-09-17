@@ -10,9 +10,11 @@ import {
   Settings2, ArrowLeftRight, CornerDownLeft, BarChart3, HelpCircle,
   ChevronDown, ChevronRight, ChevronLeft, Layers, Hash,
   Network, Compass, GitBranch, Bookmark,
-  Scissors, SkipBack, SkipForward, Palette
+  Scissors, SkipBack, SkipForward, Palette, ScrollText
 } from 'lucide-react';
 import { AISceneGeneratorModal } from '../AISceneGeneratorModal';
+import { ScriptRollingPreviewModal } from '../ScriptRollingPreviewModal';
+import { translateUi } from '../../services/appTranslations';
 
 interface BoardViewProps {
   onEditBeat: (id: number) => void;
@@ -117,22 +119,22 @@ const DAW_THEMES: Record<DawThemeId, DawThemeConfig> = {
     id: 'paper',
     name: 'Paper Script',
     isDark: false,
-    bgCanvas: 'bg-[#f4f5f7]',
+    bgCanvas: 'bg-[#f4f5f8]',
     bgHeader: 'bg-[#ffffff]',
-    bgStrip: 'bg-[#fafbfc]',
-    bgStripSub: 'bg-[#f0f2f5]',
-    bgRuler: 'bg-[#f8fafc]',
+    bgStrip: 'bg-[#edf0f4]',
+    bgStripSub: 'bg-[#e4e8ef]',
+    bgRuler: 'bg-[#e9edf2]',
     bgCard: '#ffffff',
-    borderRuler: 'border-slate-300',
-    borderStrip: 'border-slate-200',
-    borderLane: 'border-slate-200',
-    borderCard: 'border-slate-300',
+    borderRuler: 'border-slate-300/80',
+    borderStrip: 'border-slate-300/80',
+    borderLane: 'border-slate-300/70',
+    borderCard: 'border-slate-300/80',
     textPrimary: 'text-slate-900',
     textMuted: 'text-slate-600',
     textSubtle: 'text-slate-400',
-    gridMajor: 'border-slate-400/50',
-    gridMid: 'border-slate-300/60',
-    gridMinor: 'border-slate-200/70',
+    gridMajor: 'border-slate-400/40',
+    gridMid: 'border-slate-300/50',
+    gridMinor: 'border-slate-200/60',
     accent: '#d97706'
   },
   platinum: {
@@ -140,8 +142,8 @@ const DAW_THEMES: Record<DawThemeId, DawThemeConfig> = {
     name: 'Studio Platinum',
     isDark: false,
     bgCanvas: 'bg-[#e2e8f0]',
-    bgHeader: 'bg-[#f1f5f9]',
-    bgStrip: 'bg-[#f8fafc]',
+    bgHeader: 'bg-[#f8fafc]',
+    bgStrip: 'bg-[#f1f5f9]',
     bgStripSub: 'bg-[#e2e8f0]',
     bgRuler: 'bg-[#e2e8f0]',
     bgCard: '#ffffff',
@@ -228,16 +230,18 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
   const { 
     beats, setBeats, updateBeat, captureSnapshot,
     currentProjectId, groups, addGroup, connections,
-    appTheme
+    appTheme, appAccentColor = '#f5a623', appLanguage = 'english'
   } = useProject();
   const { aiAvailable } = useAiKeyStatus();
 
   const tracksStorageKey = `backstage_daw_tracks_${currentProjectId || 'default'}`;
 
-  // DAW Tracks State
+  // DAW Tracks State - strictly scoped to active project
   const [tracks, setTracks] = useState<TimelineTrack[]>(() => {
     try {
-      const saved = localStorage.getItem(tracksStorageKey) || localStorage.getItem('backstage_daw_tracks');
+      // Clean up legacy global key if present to prevent cross-project track leakage
+      localStorage.removeItem('backstage_daw_tracks');
+      const saved = localStorage.getItem(tracksStorageKey);
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) {
@@ -272,27 +276,78 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
     setDawThemeId(themeId);
     try {
       localStorage.setItem('backstage_daw_theme', themeId);
+      if (DAW_THEMES[themeId]?.isDark) {
+        localStorage.setItem('backstage_daw_dark_theme', themeId);
+      } else {
+        localStorage.setItem('backstage_daw_light_theme', themeId);
+      }
     } catch (e) {}
   };
+
+  // Synchronize DAW theme when user toggles app-wide theme between Dark and Light mode
+  useEffect(() => {
+    if (appTheme === 'light') {
+      setDawThemeId(prev => {
+        if (DAW_THEMES[prev]?.isDark) {
+          const savedLight = (localStorage.getItem('backstage_daw_light_theme') as DawThemeId) || 'paper';
+          return DAW_THEMES[savedLight] && !DAW_THEMES[savedLight].isDark ? savedLight : 'paper';
+        }
+        return prev;
+      });
+    } else if (appTheme === 'dark') {
+      setDawThemeId(prev => {
+        if (!DAW_THEMES[prev]?.isDark) {
+          const savedDark = (localStorage.getItem('backstage_daw_dark_theme') as DawThemeId) || 'obsidian';
+          return DAW_THEMES[savedDark] && DAW_THEMES[savedDark].isDark ? savedDark : 'obsidian';
+        }
+        return prev;
+      });
+    }
+  }, [appTheme]);
 
   const currentTheme = DAW_THEMES[dawThemeId] || DAW_THEMES.obsidian;
 
   // Sync DAW tracks dynamically when project changes or Causality file is imported
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem(tracksStorageKey) || localStorage.getItem('backstage_daw_tracks');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          setTracks(parsed.map((t: TimelineTrack) => ({
+    const reloadTracks = (e?: any) => {
+      try {
+        if (e?.detail?.tracks && Array.isArray(e.detail.tracks) && e.detail.tracks.length > 0) {
+          setTracks(e.detail.tracks.map((t: TimelineTrack) => ({
             ...t,
             height: (t.height === 162 || !t.height) ? 112 : t.height,
             subtrackCount: typeof t.subtrackCount === 'number' ? Math.min(MAX_SUBTRACKS_PER_TRACK, Math.max(0, t.subtrackCount)) : 0
           })));
+          return;
         }
-      }
-    } catch (e) {}
+        const saved = localStorage.getItem(tracksStorageKey);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setTracks(parsed.map((t: TimelineTrack) => ({
+              ...t,
+              height: (t.height === 162 || !t.height) ? 112 : t.height,
+              subtrackCount: typeof t.subtrackCount === 'number' ? Math.min(MAX_SUBTRACKS_PER_TRACK, Math.max(0, t.subtrackCount)) : 0
+            })));
+            return;
+          }
+        }
+      } catch (e) {}
+      setTracks(DEFAULT_TRACKS);
+    };
+
+    reloadTracks();
+    window.addEventListener('project_imported', reloadTracks);
+    window.addEventListener('daw_tracks_updated', reloadTracks);
+    return () => {
+      window.removeEventListener('project_imported', reloadTracks);
+      window.removeEventListener('daw_tracks_updated', reloadTracks);
+    };
   }, [tracksStorageKey, currentProjectId]);
+
+  const handleResetToDefaultTracks = () => {
+    saveTracks(DEFAULT_TRACKS);
+    logTerminal('info', 'DAW tracks reset to default narrative structure (A-Story, B-Story, Antagonist, Atmosphere, Theme).');
+  };
 
   // Manually add a subtrack (up to 2 subtracks max per track)
   const handleAddSubtrack = (trackId: string) => {
@@ -364,11 +419,24 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [playheadPage, setPlayheadPage] = useState(1.0);
   const [tempoBpm] = useState(120);
+  const [playbackSpeed, setPlaybackSpeed] = useState(1.0);
+  const [isScriptRollingOpen, setIsScriptRollingOpen] = useState(false);
   const [isLooping, setIsLooping] = useState(false);
   const [loopRange] = useState<{ start: number; end: number }>({ start: 25, end: 55 });
   const [snapGrid, setSnapGrid] = useState<'quarter' | 'half' | 'page' | 'free'>('half');
   const [zoomLevel, setZoomLevel] = useState(1.0);
   const [pixelsPerPage] = useState(28);
+
+  // Unified play toggle: automatically opens the script rolling teleprompter preview when playback starts
+  const handleTogglePlay = useCallback(() => {
+    setIsPlaying(prev => {
+      const next = !prev;
+      if (next) {
+        setIsScriptRollingOpen(true);
+      }
+      return next;
+    });
+  }, []);
 
   // Selection & Inspector State
   const [selectedBeatId, setSelectedBeatId] = useState<number | null>(null);
@@ -412,9 +480,7 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
     y: number;
   } | null>(null);
 
-  // Direct Page Number Navigation & Scrubber Hover State
-  const [isEditingPageInput, setIsEditingPageInput] = useState(false);
-  const [pageInputValue, setPageInputValue] = useState('');
+  // Scrubber Hover State
   const [rulerHoverPage, setRulerHoverPage] = useState<number | null>(null);
 
   // Dragging / Trimming Clip State (Tracks both master track and subtrack 0, 1, 2)
@@ -497,8 +563,6 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
   // Viewport tracking for 200+ beat horizontal virtualization & mini-map scrubbing
   const [viewportMetrics, setViewportMetrics] = useState({ scrollLeft: 0, clientWidth: 1200 });
 
-  // Dynamic VU Meter level based on active playhead scene tension
-  const [vuLevel, setVuLevel] = useState(50);
 
   // Natural Timeline scale: pixels per screenplay page adjusted by zoom
   const effectivePxPerPage = pixelsPerPage * zoomLevel;
@@ -728,20 +792,6 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
     return Math.max(40, Math.ceil(maxEnd + 6));
   }, [beatsWithTimeline]);
 
-  // Timecode readout (hh:mm:ss:ff)
-  const timecodeDisplay = useMemo(() => {
-    const totalSeconds = playheadPage * 60;
-    const hrs = Math.floor(totalSeconds / 3600);
-    const mins = Math.floor((totalSeconds % 3600) / 60);
-    const secs = Math.floor(totalSeconds % 60);
-    const frames = Math.floor((totalSeconds % 1) * 24);
-    return `${String(hrs).padStart(2, '0')}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}:${String(frames).padStart(2, '0')}`;
-  }, [playheadPage]);
-
-  // Current active scene at playhead
-  const activeBeatAtPlayhead = useMemo(() => {
-    return beatsWithTimeline.find(b => playheadPage >= b.startPage && playheadPage < (b.startPage + b.durationPages));
-  }, [beatsWithTimeline, playheadPage]);
 
   // Track management operations
   const updateTrack = (trackId: string, updates: Partial<TimelineTrack>) => {
@@ -823,19 +873,6 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
     setEditingTrackLabel(label);
   };
 
-  // Playhead VU meter animation based on actual beat tension
-  useEffect(() => {
-    if (!isPlaying) {
-      setVuLevel(activeBeatAtPlayhead?.tension || selectedBeat?.tension || 40);
-      return;
-    }
-    const interval = setInterval(() => {
-      const base = activeBeatAtPlayhead?.tension || 45;
-      const jitter = (Math.random() - 0.5) * 8;
-      setVuLevel(Math.min(95, Math.max(15, Math.round(base + jitter))));
-    }, 120);
-    return () => clearInterval(interval);
-  }, [isPlaying, activeBeatAtPlayhead, selectedBeat]);
 
   // Transport playback loop
   useEffect(() => {
@@ -851,7 +888,7 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
       lastPlayTimeRef.current = timestamp;
 
       const pagesPerSecond = (tempoBpm / 120) / 60;
-      const advancePages = deltaSeconds * pagesPerSecond * 4;
+      const advancePages = deltaSeconds * pagesPerSecond * 4 * playbackSpeed;
 
       setPlayheadPage(prev => {
         let next = prev + advancePages;
@@ -871,7 +908,7 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
     return () => {
       if (playRafRef.current) cancelAnimationFrame(playRafRef.current);
     };
-  }, [isPlaying, tempoBpm, isLooping, loopRange, totalScreenplayPages]);
+  }, [isPlaying, tempoBpm, playbackSpeed, isLooping, loopRange, totalScreenplayPages]);
 
   // Snap position helper
   const snapToGrid = (page: number): number => {
@@ -925,6 +962,7 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
         break;
       case 'play':
         setIsPlaying(true);
+        setIsScriptRollingOpen(true);
         break;
       case 'pause':
         setIsPlaying(false);
@@ -1035,7 +1073,7 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
 
       if (e.code === 'Space') {
         e.preventDefault();
-        setIsPlaying(p => !p);
+        handleTogglePlay();
       } else if (e.code === 'Home') {
         e.preventDefault();
         setPlayheadPage(1.0);
@@ -1549,6 +1587,58 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
     return customSpans.sort((a, b) => a.startPage - b.startPage);
   }, [groups, beatsWithTimeline]);
 
+  interface DawGroupSpanWithTier extends DawGroupSpan {
+    tier: number;
+  }
+
+  // Interval-partitioning algorithm: stacks overlapping chapter / sequence groups one by one into distinct tiers
+  const { tieredGroupSpans, maxGroupTiers } = useMemo(() => {
+    if (!dawGroupSpans || dawGroupSpans.length === 0) {
+      return { tieredGroupSpans: [] as DawGroupSpanWithTier[], maxGroupTiers: 1 };
+    }
+
+    const tierEndPages: number[] = [];
+    const tiered: DawGroupSpanWithTier[] = dawGroupSpans.map((span) => {
+      // Calculate visual label width in pages based on title length and zoom level
+      const estimatedPx = Math.max(70, Math.min(260, span.title.length * 7.5 + 40));
+      const visualPageSpan = estimatedPx / Math.max(1, effectivePxPerPage);
+      const safetyBuffer = Math.max(0.4, 12 / Math.max(1, effectivePxPerPage));
+      const spanEnd = Math.max(span.endPage, span.startPage + visualPageSpan) + safetyBuffer;
+
+      // Find the first tier where this group capsule will not collide
+      let assignedTier = -1;
+      for (let t = 0; t < tierEndPages.length; t++) {
+        if (span.startPage >= tierEndPages[t]) {
+          assignedTier = t;
+          tierEndPages[t] = spanEnd;
+          break;
+        }
+      }
+
+      if (assignedTier === -1) {
+        assignedTier = tierEndPages.length;
+        tierEndPages.push(spanEnd);
+      }
+
+      return {
+        ...span,
+        tier: assignedTier
+      };
+    });
+
+    return {
+      tieredGroupSpans: tiered,
+      maxGroupTiers: Math.max(1, tierEndPages.length)
+    };
+  }, [dawGroupSpans, effectivePxPerPage]);
+
+  // Adaptive ruler height that scales smoothly with the number of stacked tiers
+  const rulerHeight = useMemo(() => {
+    if (!showGroups || tieredGroupSpans.length === 0) return 36;
+    const tiers = Math.min(4, maxGroupTiers);
+    return Math.max(36, 18 + tiers * 18);
+  }, [showGroups, tieredGroupSpans.length, maxGroupTiers]);
+
   // Spatial anchor map for all beats (for causality dependency lines)
   const beatAnchorMap = useMemo(() => {
     const map = new Map<number, {
@@ -1956,8 +2046,10 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
       <div 
         key={track.id}
         style={{ height: `${totalH}px` }}
-        className={`w-full flex flex-col justify-between border-b border-[#1c1f2e] select-none transition-all relative ${
-          isDimmed ? 'bg-[#0c0d14] opacity-50' : 'bg-[#10121a]'
+        className={`w-full flex flex-col justify-between border-b ${currentTheme.borderStrip} select-none transition-all relative ${
+          isDimmed 
+            ? (currentTheme.isDark ? 'bg-[#0c0d14] opacity-50' : 'bg-slate-200/70 opacity-60') 
+            : currentTheme.bgStrip
         }`}
       >
         {/* Color stripe on edge */}
@@ -1969,13 +2061,13 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
         {/* 1. Main Master Track Section */}
         <div 
           style={{ height: `${mainH}px` }}
-          className="px-3 pt-2.5 pb-2 flex flex-col justify-between border-b border-white/[0.06] bg-[#121420]"
+          className={`px-3 pt-2.5 pb-2 flex flex-col justify-between border-b ${currentTheme.borderLane} ${currentTheme.bgStrip}`}
         >
-          {/* Top Line: Number, Title, + Sub button, Settings */}
+          {/* Row 1: Track Number, Full Track Name Heading & Settings */}
           <div className="flex items-center justify-between gap-1.5 min-w-0">
-            <div className="flex items-center gap-1.5 min-w-0 flex-1">
+            <div className="flex items-center gap-2 min-w-0 flex-1">
               <span 
-                className="w-5 h-5 rounded flex items-center justify-center font-mono font-black text-[10px] shrink-0 text-black shadow-sm"
+                className="w-5 h-5 rounded flex items-center justify-center font-mono font-black text-[10px] shrink-0 text-black shadow-xs"
                 style={{ backgroundColor: track.color }}
               >
                 {String(trackIdx + 1).padStart(2, '0')}
@@ -1992,31 +2084,91 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
                     if (e.key === 'Escape') setEditingTrackId(null);
                   }}
                   onBlur={() => renameTrack(track.id, editingTrackLabel)}
-                  className="bg-[#1e2233] border border-amber-400 rounded px-1.5 py-0.5 text-xs text-white outline-none w-full font-sans font-semibold"
+                  className={`${currentTheme.isDark ? 'bg-[#1e2233] text-white' : 'bg-white text-slate-900 shadow-xs'} border border-amber-400 rounded px-1.5 py-0.5 text-xs outline-none w-full font-sans font-semibold`}
                   onClick={(e) => e.stopPropagation()}
                 />
               ) : (
                 <div 
-                  className="truncate cursor-pointer group/title flex items-center gap-1"
+                  className="truncate cursor-pointer group/title flex items-center gap-1.5 min-w-0 flex-1"
                   onDoubleClick={() => {
                     setEditingTrackId(track.id);
                     setEditingTrackLabel(track.label);
                   }}
-                  title="Double-click to rename track"
+                  title={`${track.label} (Double-click to rename)`}
                 >
-                  <span className="text-xs font-semibold text-slate-100 truncate group-hover/title:text-amber-400 transition-colors">
+                  <span className={`text-xs font-bold ${currentTheme.textPrimary} truncate group-hover/title:text-amber-500 transition-colors tracking-tight`}>
                     {track.label}
                   </span>
-                  <Edit3 size={11} className="opacity-0 group-hover/title:opacity-60 text-slate-400 shrink-0" />
+                  <Edit3 size={11} className={`opacity-0 group-hover/title:opacity-60 ${currentTheme.textMuted} shrink-0`} />
                 </div>
               )}
             </div>
 
+            <button
+              onClick={() => setActiveTrackSettingsId(activeTrackSettingsId === track.id ? null : track.id)}
+              className={`p-1 rounded transition-colors shrink-0 cursor-pointer ${
+                activeTrackSettingsId === track.id 
+                  ? 'bg-amber-500 text-black' 
+                  : currentTheme.isDark 
+                    ? 'text-slate-400 hover:text-white hover:bg-white/10' 
+                    : 'text-slate-500 hover:text-slate-900 hover:bg-slate-200/80'
+              }`}
+              title="Track Settings & Color"
+            >
+              <Settings2 size={13} />
+            </button>
+          </div>
+
+          {/* Row 2: Controls (Mute, Solo, Clips) & Structure Actions (Stagger, +Sub) */}
+          <div className="flex items-center justify-between gap-1.5 mt-1">
+            {/* Left: Audio/Channel Controls */}
+            <div className="flex items-center gap-1 shrink-0">
+              <button
+                onClick={() => updateTrack(track.id, { isMuted: !track.isMuted })}
+                className={`w-5 h-4 rounded text-[9px] font-mono font-bold flex items-center justify-center transition-all cursor-pointer ${
+                  track.isMuted 
+                    ? 'bg-red-500 text-white shadow-[0_0_8px_#ef4444]' 
+                    : currentTheme.isDark 
+                      ? 'bg-[#1b1e2a] hover:bg-[#252838] text-slate-400 hover:text-slate-200 border border-white/5' 
+                      : 'bg-slate-200/90 hover:bg-slate-300 text-slate-700 hover:text-slate-900 border border-slate-300'
+                }`}
+                title={track.isMuted ? "Unmute Track" : "Mute Track"}
+              >
+                M
+              </button>
+              <button
+                onClick={() => updateTrack(track.id, { isSolo: !track.isSolo })}
+                className={`w-5 h-4 rounded text-[9px] font-mono font-bold flex items-center justify-center transition-all cursor-pointer ${
+                  track.isSolo 
+                    ? 'bg-amber-400 text-black shadow-[0_0_8px_#f59e0b]' 
+                    : currentTheme.isDark 
+                      ? 'bg-[#1b1e2a] hover:bg-[#252838] text-slate-400 hover:text-slate-200 border border-white/5' 
+                      : 'bg-slate-200/90 hover:bg-slate-300 text-slate-700 hover:text-slate-900 border border-slate-300'
+                }`}
+                title={track.isSolo ? "Unsolo Track" : "Solo Track"}
+              >
+                S
+              </button>
+
+              <span className={`text-[9px] font-mono px-1.5 py-0.2 rounded border shrink-0 ${
+                currentTheme.isDark 
+                  ? 'bg-white/5 text-slate-400 border-white/5' 
+                  : 'bg-slate-200/80 text-slate-700 border-slate-300'
+              }`} title="Beats on Main track">
+                {mainBeats.length} {mainBeats.length === 1 ? 'clip' : 'clips'}
+              </span>
+            </div>
+
+            {/* Right: Track Actions (Stagger & +Sub) */}
             <div className="flex items-center gap-1 shrink-0">
               {/* Stagger Sequence Across Subtracks */}
               <button
                 onClick={() => handleStaggerTrackSubtracks(trackIdx)}
-                className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold flex items-center gap-0.5 cursor-pointer bg-cyan-500/15 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/30 transition-colors"
+                className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-bold flex items-center gap-1 cursor-pointer transition-colors ${
+                  currentTheme.isDark 
+                    ? 'bg-cyan-500/15 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/30' 
+                    : 'bg-cyan-50 hover:bg-cyan-100 text-cyan-800 border border-cyan-300'
+                }`}
                 title="Stagger beats across subtracks (1 ➔ 1.1 ➔ 1.2 ➔ 1...)"
               >
                 <Layers size={10} />
@@ -2029,66 +2181,24 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
                 disabled={subCount >= MAX_SUBTRACKS_PER_TRACK}
                 className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-bold flex items-center gap-0.5 cursor-pointer transition-colors ${
                   subCount >= MAX_SUBTRACKS_PER_TRACK
-                    ? 'opacity-30 cursor-not-allowed bg-white/5 text-slate-500'
-                    : 'bg-amber-500/15 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30'
+                    ? (currentTheme.isDark ? 'opacity-30 cursor-not-allowed bg-white/5 text-slate-500' : 'opacity-30 cursor-not-allowed bg-slate-200 text-slate-400')
+                    : (currentTheme.isDark ? 'bg-amber-500/15 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30' : 'bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300')
                 }`}
                 title={subCount >= MAX_SUBTRACKS_PER_TRACK ? 'Maximum 2 subtracks reached' : 'Add Subtrack (up to 2 max)'}
               >
                 <Plus size={10} />
                 <span>Sub</span>
               </button>
-
-              <button
-                onClick={() => setActiveTrackSettingsId(activeTrackSettingsId === track.id ? null : track.id)}
-                className={`p-1 rounded transition-colors shrink-0 cursor-pointer ${
-                  activeTrackSettingsId === track.id ? 'bg-amber-500 text-black' : 'text-slate-400 hover:text-white hover:bg-white/10'
-                }`}
-                title="Track Settings"
-              >
-                <Settings2 size={13} />
-              </button>
             </div>
-          </div>
-
-          {/* Controls: Mute, Solo, Volume, Main Beats count */}
-          <div className="flex items-center justify-between gap-2 mt-1">
-            <div className="flex items-center gap-1 shrink-0">
-              <button
-                onClick={() => updateTrack(track.id, { isMuted: !track.isMuted })}
-                className={`w-4 h-4 rounded text-[9px] font-mono font-bold flex items-center justify-center transition-all cursor-pointer ${
-                  track.isMuted 
-                    ? 'bg-red-500 text-white shadow-[0_0_8px_#ef4444]' 
-                    : 'bg-[#1b1e2a] hover:bg-[#252838] text-slate-400 hover:text-slate-200'
-                }`}
-                title="Mute Track"
-              >
-                M
-              </button>
-              <button
-                onClick={() => updateTrack(track.id, { isSolo: !track.isSolo })}
-                className={`w-4 h-4 rounded text-[9px] font-mono font-bold flex items-center justify-center transition-all cursor-pointer ${
-                  track.isSolo 
-                    ? 'bg-amber-400 text-black shadow-[0_0_8px_#f59e0b]' 
-                    : 'bg-[#1b1e2a] hover:bg-[#252838] text-slate-400 hover:text-slate-200'
-                }`}
-                title="Solo Track"
-              >
-                S
-              </button>
-            </div>
-
-            <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-white/5 text-slate-400 border border-white/5 shrink-0" title="Beats on Main track">
-              {mainBeats.length} {mainBeats.length === 1 ? 'clip' : 'clips'}
-            </span>
           </div>
 
           {/* Role badge if roomy */}
           {mainH >= 90 && (
             <div className="flex items-center justify-between text-[10px] text-slate-500 font-mono pt-1">
-              <span className="uppercase tracking-wider truncate text-[9px] text-slate-400">{track.type || 'Main Lane'}</span>
+              <span className={`uppercase tracking-wider truncate text-[9px] ${currentTheme.isDark ? 'text-slate-400' : 'text-slate-600'}`}>{track.type || 'Main Lane'}</span>
               <button
                 onClick={() => handleCreateBeat(trackIdx, 0)}
-                className="text-amber-400 hover:underline flex items-center gap-0.5 text-[10px] cursor-pointer"
+                className={`${currentTheme.isDark ? 'text-amber-400' : 'text-amber-600'} hover:underline flex items-center gap-0.5 text-[10px] cursor-pointer font-bold`}
                 title="Add Beat to Main Track"
               >
                 <Plus size={10} /> Beat
@@ -2111,7 +2221,7 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
             className="absolute bottom-0 left-0 right-0 h-2 cursor-row-resize z-30 group/main-strip-resizer flex items-center justify-center hover:bg-amber-400/50 transition-colors"
             title="Drag up/down to adjust Main Track height"
           >
-            <div className="w-8 h-0.5 bg-white/20 group-hover/main-strip-resizer:bg-amber-400 rounded-full pointer-events-none" />
+            <div className={`w-8 h-0.5 ${currentTheme.isDark ? 'bg-white/20' : 'bg-slate-400'} group-hover/main-strip-resizer:bg-amber-400 rounded-full pointer-events-none`} />
           </div>
         </div>
 
@@ -2127,7 +2237,7 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
                 <div
                   key={`strip-sub-${subNum}`}
                   style={{ height: `${thisSubH}px` }}
-                  className={`px-3 flex items-center justify-between border-t border-white/[0.05] transition-colors group/sub relative ${currentTheme.bgStripSub} hover:bg-white/[0.03]`}
+                  className={`px-3 flex items-center justify-between border-t ${currentTheme.borderLane} transition-colors group/sub relative ${currentTheme.bgStripSub} ${currentTheme.isDark ? 'hover:bg-white/[0.03]' : 'hover:bg-black/[0.03]'}`}
                 >
                   <div className="flex items-center gap-2 min-w-0">
                     <span 
@@ -2136,18 +2246,18 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
                     >
                       {trackIdx + 1}.{subNum}
                     </span>
-                    <span className="text-[11px] font-mono text-slate-300">
+                    <span className={`text-[11px] font-mono ${currentTheme.isDark ? 'text-slate-300' : 'text-slate-700'}`}>
                       Subtrack {subNum}
                     </span>
                   </div>
 
                   <div className="flex items-center gap-1.5 shrink-0">
-                    <span className="text-[9px] font-mono text-slate-500">
+                    <span className={`text-[9px] font-mono ${currentTheme.isDark ? 'text-slate-500' : 'text-slate-500'}`}>
                       {subBeats.length}
                     </span>
                     <button
                       onClick={() => handleCreateBeat(trackIdx, subNum)}
-                      className="w-4 h-4 rounded hover:bg-white/10 text-slate-500 hover:text-amber-400 flex items-center justify-center cursor-pointer transition-colors"
+                      className={`w-4 h-4 rounded ${currentTheme.isDark ? 'hover:bg-white/10 text-slate-500 hover:text-amber-400' : 'hover:bg-slate-200 text-slate-600 hover:text-amber-600'} flex items-center justify-center cursor-pointer transition-colors`}
                       title={`Add Beat to Subtrack ${subNum}`}
                     >
                       <Plus size={11} />
@@ -2176,7 +2286,7 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
                     className="absolute bottom-0 left-0 right-0 h-2 cursor-row-resize z-30 group/sub-strip-resizer flex items-center justify-center hover:bg-amber-400/50 transition-colors"
                     title={`Drag up/down to adjust Subtrack ${subNum} height`}
                   >
-                    <div className="w-8 h-0.5 bg-white/20 group-hover/sub-strip-resizer:bg-amber-400 rounded-full pointer-events-none" />
+                    <div className={`w-8 h-0.5 ${currentTheme.isDark ? 'bg-white/20' : 'bg-slate-400'} group-hover/sub-strip-resizer:bg-amber-400 rounded-full pointer-events-none`} />
                   </div>
                 </div>
               );
@@ -2187,17 +2297,21 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
         {/* Track Customization Popover */}
         {activeTrackSettingsId === track.id && (
           <div 
-            className={`absolute ${trackHeaderDock === 'left' ? 'left-full ml-2' : 'right-full mr-2'} top-0 w-80 bg-[#141724] border border-[#2d3248] rounded-xl p-3.5 shadow-2xl z-50 text-xs text-slate-200 animate-in fade-in zoom-in-95 backdrop-blur-md`}
+            className={`absolute ${trackHeaderDock === 'left' ? 'left-full ml-2' : 'right-full mr-2'} top-0 w-80 ${
+              currentTheme.isDark 
+                ? 'bg-[#141724] border-[#2d3248] text-slate-200' 
+                : 'bg-white border-slate-300 text-slate-800 shadow-[0_12px_32px_rgba(0,0,0,0.15)]'
+            } border rounded-xl p-3.5 shadow-2xl z-50 text-xs animate-in fade-in zoom-in-95 backdrop-blur-md`}
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between pb-2 mb-2.5 border-b border-white/10">
-              <span className="font-bold text-xs uppercase tracking-wider text-amber-400 font-mono flex items-center gap-1.5">
+            <div className={`flex items-center justify-between pb-2 mb-2.5 border-b ${currentTheme.isDark ? 'border-white/10' : 'border-slate-200'}`}>
+              <span className={`font-bold text-xs uppercase tracking-wider ${currentTheme.isDark ? 'text-amber-400' : 'text-amber-600'} font-mono flex items-center gap-1.5`}>
                 <Settings2 size={13} />
                 Track Customization
               </span>
               <button 
                 onClick={() => setActiveTrackSettingsId(null)}
-                className="p-1 rounded hover:bg-white/10 text-slate-400 hover:text-white cursor-pointer"
+                className={`p-1 rounded ${currentTheme.isDark ? 'hover:bg-white/10 text-slate-400 hover:text-white' : 'hover:bg-slate-100 text-slate-500 hover:text-slate-900'} cursor-pointer`}
               >
                 <X size={13} />
               </button>
@@ -2205,24 +2319,28 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
 
             {/* Track Name */}
             <div className="mb-2.5">
-              <label className="block text-[9px] uppercase font-mono text-slate-400 mb-1">Track Name</label>
+              <label className={`block text-[9px] uppercase font-mono ${currentTheme.isDark ? 'text-slate-400' : 'text-slate-600'} mb-1`}>Track Name</label>
               <input
                 type="text"
                 value={track.label}
                 onChange={(e) => updateTrack(track.id, { label: e.target.value })}
-                className="w-full bg-[#1b1f30] border border-[#2b3046] focus:border-amber-400 rounded px-2.5 py-1 text-slate-100 text-xs outline-none font-semibold"
+                className={`w-full ${currentTheme.isDark ? 'bg-[#1b1f30] border-[#2b3046] text-slate-100' : 'bg-slate-50 border-slate-300 text-slate-900'} border focus:border-amber-400 rounded px-2.5 py-1 text-xs outline-none font-semibold`}
               />
             </div>
 
             {/* Role Presets */}
             <div className="mb-2.5">
-              <label className="block text-[9px] uppercase font-mono text-slate-400 mb-1">Role Presets</label>
+              <label className={`block text-[9px] uppercase font-mono ${currentTheme.isDark ? 'text-slate-400' : 'text-slate-600'} mb-1`}>Role Presets</label>
               <div className="flex flex-wrap gap-1">
                 {PRESET_ROLE_NAMES.slice(0, 6).map(p => (
                   <button
                     key={p}
                     onClick={() => updateTrack(track.id, { label: p })}
-                    className="px-2 py-0.5 rounded text-[10px] bg-white/5 hover:bg-amber-400/20 hover:text-amber-300 text-slate-300 border border-white/5 transition-colors cursor-pointer"
+                    className={`px-2 py-0.5 rounded text-[10px] ${
+                      currentTheme.isDark 
+                        ? 'bg-white/5 hover:bg-amber-400/20 hover:text-amber-300 text-slate-300 border-white/5' 
+                        : 'bg-slate-100 hover:bg-amber-100 hover:text-amber-900 text-slate-700 border-slate-200'
+                    } border transition-colors cursor-pointer`}
                   >
                     {p}
                   </button>
@@ -2233,8 +2351,8 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
             {/* Track Height Adjustment */}
             <div className="mb-2.5">
               <div className="flex items-center justify-between mb-1">
-                <label className="text-[9px] uppercase font-mono text-slate-400">Track Height</label>
-                <span className="text-[10px] font-mono text-amber-400 font-bold">{track.height || globalLaneHeight}px</span>
+                <label className={`text-[9px] uppercase font-mono ${currentTheme.isDark ? 'text-slate-400' : 'text-slate-600'}`}>Track Height</label>
+                <span className={`text-[10px] font-mono ${currentTheme.isDark ? 'text-amber-400' : 'text-amber-600'} font-bold`}>{track.height || globalLaneHeight}px</span>
               </div>
               <input
                 type="range"
@@ -2242,7 +2360,7 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
                 max="300"
                 value={track.height || globalLaneHeight}
                 onChange={(e) => updateTrack(track.id, { height: Number(e.target.value) })}
-                className="w-full accent-amber-400 cursor-pointer h-1.5 bg-[#1b1f30] rounded"
+                className={`w-full accent-amber-500 cursor-pointer h-1.5 ${currentTheme.isDark ? 'bg-[#1b1f30]' : 'bg-slate-200'} rounded`}
               />
               <div className="flex gap-1 mt-1.5">
                 {[
@@ -2256,8 +2374,10 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
                     onClick={() => updateTrack(track.id, { height: preset.h })}
                     className={`flex-1 py-0.5 rounded text-[9px] font-mono border transition-colors cursor-pointer ${
                       (track.height || globalLaneHeight) === preset.h
-                        ? 'bg-amber-400/20 text-amber-300 border-amber-400/50 font-bold'
-                        : 'bg-white/5 text-slate-400 border-white/5 hover:text-white'
+                        ? 'bg-amber-400/20 text-amber-500 border-amber-400 font-bold'
+                        : currentTheme.isDark
+                          ? 'bg-white/5 text-slate-400 border-white/5 hover:text-white'
+                          : 'bg-slate-100 text-slate-600 border-slate-200 hover:text-slate-900'
                     }`}
                   >
                     {preset.label}
@@ -2268,7 +2388,7 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
 
             {/* Color Swatches */}
             <div className="mb-2.5">
-              <label className="block text-[9px] uppercase font-mono text-slate-400 mb-1">Color Palette</label>
+              <label className={`block text-[9px] uppercase font-mono ${currentTheme.isDark ? 'text-slate-400' : 'text-slate-600'} mb-1`}>Color Palette</label>
               <div className="grid grid-cols-5 gap-1.5">
                 {TRACK_PALETTE_COLORS.map(p => (
                   <button
@@ -2276,7 +2396,7 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
                     onClick={() => updateTrack(track.id, { color: p.hex })}
                     style={{ backgroundColor: p.hex }}
                     className={`h-5 rounded flex items-center justify-center cursor-pointer transition-transform ${
-                      track.color === p.hex ? 'ring-2 ring-white scale-110 shadow-md' : 'opacity-70 hover:opacity-100'
+                      track.color === p.hex ? 'ring-2 ring-black scale-110 shadow-md' : 'opacity-70 hover:opacity-100'
                     }`}
                   >
                     {track.color === p.hex && <Check size={10} className="text-black font-black" />}
@@ -2286,12 +2406,12 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
             </div>
 
             {/* Actions: Reorder, Duplicate, Delete */}
-            <div className="pt-2 border-t border-white/10 flex items-center justify-between">
+            <div className={`pt-2 border-t ${currentTheme.isDark ? 'border-white/10' : 'border-slate-200'} flex items-center justify-between`}>
               <div className="flex items-center gap-1">
                 <button
                   onClick={() => moveTrackOrder(track.id, 'up')}
                   disabled={trackIdx === 0}
-                  className="p-1.5 rounded bg-[#1c2032] hover:bg-white/10 text-slate-300 disabled:opacity-30 cursor-pointer"
+                  className={`p-1.5 rounded ${currentTheme.isDark ? 'bg-[#1c2032] hover:bg-white/10 text-slate-300' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'} disabled:opacity-30 cursor-pointer`}
                   title="Move Track Up"
                 >
                   <ArrowUp size={12} />
@@ -2299,14 +2419,14 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
                 <button
                   onClick={() => moveTrackOrder(track.id, 'down')}
                   disabled={trackIdx === tracks.length - 1}
-                  className="p-1.5 rounded bg-[#1c2032] hover:bg-white/10 text-slate-300 disabled:opacity-30 cursor-pointer"
+                  className={`p-1.5 rounded ${currentTheme.isDark ? 'bg-[#1c2032] hover:bg-white/10 text-slate-300' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'} disabled:opacity-30 cursor-pointer`}
                   title="Move Track Down"
                 >
                   <ArrowDown size={12} />
                 </button>
                 <button
                   onClick={() => duplicateTrack(track.id)}
-                  className="p-1.5 rounded bg-[#1c2032] hover:bg-white/10 text-slate-300 cursor-pointer"
+                  className={`p-1.5 rounded ${currentTheme.isDark ? 'bg-[#1c2032] hover:bg-white/10 text-slate-300' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'} cursor-pointer`}
                   title="Duplicate Track"
                 >
                   <Copy size={12} />
@@ -2316,7 +2436,7 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
               {tracks.length > 1 && (
                 <button
                   onClick={() => deleteTrack(track.id)}
-                  className="px-2.5 py-1 bg-red-500/20 hover:bg-red-500/30 text-red-400 border border-red-500/30 rounded text-[10px] font-bold flex items-center gap-1 cursor-pointer"
+                  className="px-2.5 py-1 bg-red-500/20 hover:bg-red-500/30 text-red-500 border border-red-500/30 rounded text-[10px] font-bold flex items-center gap-1 cursor-pointer"
                 >
                   <Trash2 size={11} /> Delete
                 </button>
@@ -2481,8 +2601,8 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
           width: `${clipWidth}px`,
           height: `${clipHeight}px`,
           top: `${clipTop}px`,
-          borderColor: isMarqueeSelected ? '#06b6d4' : isSelected ? '#f59e0b' : isBeingDragged ? `${track.color}90` : `${track.color}50`,
-          backgroundColor: isBeingDragged ? (currentTheme.isDark ? '#1a1d2e' : '#f1f5f9') : isMarqueeSelected ? '#0e2433' : isSelected ? (currentTheme.isDark ? '#151826' : '#ffffff') : currentTheme.bgCard,
+          borderColor: isMarqueeSelected ? '#06b6d4' : isSelected ? '#f59e0b' : isBeingDragged ? `${track.color}90` : `${track.color}${currentTheme.isDark ? '50' : '75'}`,
+          backgroundColor: isBeingDragged ? (currentTheme.isDark ? '#1a1d2e' : '#f1f5f9') : isMarqueeSelected ? (currentTheme.isDark ? '#0e2433' : '#e0f2fe') : isSelected ? (currentTheme.isDark ? '#151826' : '#ffffff') : currentTheme.bgCard,
           zIndex: isInlineEditing ? 40 : isBeingDragged ? 35 : isMarqueeSelected ? 25 : isSelected ? 20 : 2,
           transform: liveTransform,
           willChange: isBeingDragged ? 'transform' : 'auto',
@@ -2514,14 +2634,16 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
           const y = Math.min(window.innerHeight - menuH - 16, Math.max(16, e.clientY));
           setBeatContextMenu({ beatId: beat.id, x, y });
         }}
-        className={`absolute rounded-lg border shadow-sm select-none overflow-hidden flex flex-col justify-between ${
+        className={`absolute rounded-lg border select-none overflow-hidden flex flex-col justify-between ${
           isBeingDragged 
             ? 'shadow-[0_24px_50px_rgba(0,0,0,0.85)] cursor-grabbing' 
             : isMarqueeSelected
               ? 'shadow-[0_0_20px_rgba(6,182,212,0.5)] ring-2 ring-cyan-400 cursor-pointer'
               : isSelected 
                 ? 'shadow-[0_4px_16px_rgba(245,158,11,0.25)] ring-1 ring-amber-400 cursor-grab' 
-                : 'hover:border-white/40 hover:shadow-md cursor-grab'
+                : currentTheme.isDark
+                  ? 'hover:border-white/40 hover:shadow-md cursor-grab shadow-sm'
+                  : 'hover:border-slate-400 hover:shadow-md cursor-grab border-slate-300/80 shadow-xs'
         }`}
       >
         {/* Left Trim Handle */}
@@ -2534,12 +2656,16 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
         {isInlineEditing ? (
           /* INLINE EDITING: Widened Active Lane showing BOTH Beat Name and Summary simultaneously */
           <div 
-            className="h-full p-2 flex flex-col justify-between gap-1.5 min-w-0 bg-[#121422] border-2 border-amber-400 rounded-lg shadow-2xl z-50 select-text"
+            className={`h-full p-2 flex flex-col justify-between gap-1.5 min-w-0 ${
+              currentTheme.isDark 
+                ? 'bg-[#121422] border-2 border-amber-400' 
+                : 'bg-white border-2 border-amber-500 shadow-2xl'
+            } rounded-lg shadow-2xl z-50 select-text`}
             onClick={(e) => e.stopPropagation()}
             onMouseDown={(e) => e.stopPropagation()}
             onDoubleClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between gap-1 text-[9px] font-mono font-bold text-amber-400 shrink-0">
+            <div className={`flex items-center justify-between gap-1 text-[9px] font-mono font-bold ${currentTheme.isDark ? 'text-amber-400' : 'text-amber-600'} shrink-0`}>
               <span className="flex items-center gap-1 uppercase tracking-wider">
                 <Edit3 size={11} /> Edit Scene [SC.{sceneNo}]
               </span>
@@ -2553,7 +2679,7 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
                 </button>
                 <button
                   onClick={cancelInlineEdit}
-                  className="px-1.5 py-0.5 rounded bg-white/10 hover:bg-white/20 text-slate-300 text-[9px] cursor-pointer transition-colors"
+                  className={`px-1.5 py-0.5 rounded ${currentTheme.isDark ? 'bg-white/10 hover:bg-white/20 text-slate-300' : 'bg-slate-200 hover:bg-slate-300 text-slate-700'} text-[9px] cursor-pointer transition-colors`}
                   title="Cancel (Escape)"
                 >
                   ✕
@@ -2579,7 +2705,11 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
                 }
               }}
               placeholder="Beat name / headline..."
-              className="w-full bg-[#090a12] border border-white/15 focus:border-amber-400 rounded px-2 py-1 text-xs text-white font-bold outline-none shadow-inner shrink-0"
+              className={`w-full ${
+                currentTheme.isDark 
+                  ? 'bg-[#090a12] border-white/15 text-white' 
+                  : 'bg-slate-50 border-slate-300 text-slate-900'
+              } border focus:border-amber-400 rounded px-2 py-1 text-xs font-bold outline-none shadow-inner shrink-0`}
             />
 
             {/* Beat Summary Textarea */}
@@ -2598,7 +2728,11 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
                 }
               }}
               placeholder="Dramatic summary (Cmd+Enter to save)..."
-              className="w-full flex-1 bg-[#090a12] border border-white/15 focus:border-amber-400 rounded px-2 py-1 text-[11px] text-slate-200 resize-none outline-none shadow-inner leading-tight"
+              className={`w-full flex-1 ${
+                currentTheme.isDark 
+                  ? 'bg-[#090a12] border-white/15 text-slate-200' 
+                  : 'bg-slate-50 border-slate-300 text-slate-800'
+              } border focus:border-amber-400 rounded px-2 py-1 text-[11px] resize-none outline-none shadow-inner leading-tight`}
             />
           </div>
         ) : viewMode === 'compact' ? (
@@ -2621,7 +2755,7 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
                     {subBadgeLabel}
                   </span>
                 )}
-                <span className="text-xs font-bold text-slate-100 truncate group-hover:text-amber-400 transition-colors">
+                <span className={`text-xs font-bold ${currentTheme.isDark ? 'text-slate-100 group-hover:text-amber-400' : 'text-slate-900 group-hover:text-amber-600'} truncate transition-colors`}>
                   {beatName}
                 </span>
               </div>
@@ -2632,12 +2766,12 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
                     e.stopPropagation();
                     onEditBeat(beat.id);
                   }}
-                  className="opacity-0 group-hover:opacity-100 hover:text-amber-400 text-slate-400 transition-opacity p-0.5 cursor-pointer pointer-events-auto"
+                  className={`opacity-0 group-hover:opacity-100 ${currentTheme.isDark ? 'hover:text-amber-400 text-slate-400' : 'hover:text-amber-600 text-slate-500'} transition-opacity p-0.5 cursor-pointer pointer-events-auto`}
                   title="Open in Script Editor"
                 >
                   <FileText size={10} />
                 </button>
-                <span className="text-[9px] font-mono text-slate-400">
+                <span className={`text-[9px] font-mono ${currentTheme.isDark ? 'text-slate-400' : 'text-slate-500'}`}>
                   {beat.durationPages.toFixed(1)}p
                 </span>
               </div>
@@ -2648,8 +2782,8 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
           <div className="h-full flex flex-col justify-between min-w-0 select-none overflow-hidden">
             {/* Header: Scene No + Subtrack + Location & Setting + Duration */}
             <div 
-              className="h-6 px-2.5 flex items-center justify-between border-b border-white/5 shrink-0"
-              style={{ backgroundColor: `${track.color}18` }}
+              className={`h-6 px-2.5 flex items-center justify-between border-b ${currentTheme.isDark ? 'border-white/5' : 'border-slate-200/80'} shrink-0`}
+              style={{ backgroundColor: `${track.color}${currentTheme.isDark ? '18' : '22'}` }}
             >
               <div className="flex items-center gap-1.5 min-w-0">
                 <span 
@@ -2668,7 +2802,7 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
                   </span>
                 )}
                 <span 
-                  className="text-[10px] font-mono font-bold text-slate-300 uppercase truncate"
+                  className={`text-[10px] font-mono font-bold ${currentTheme.isDark ? 'text-slate-300' : 'text-slate-600'} uppercase truncate`}
                   title={locationAndSetting}
                 >
                   {locationAndSetting}
@@ -2681,12 +2815,12 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
                     e.stopPropagation();
                     onEditBeat(beat.id);
                   }}
-                  className="opacity-0 group-hover:opacity-100 hover:text-amber-400 text-slate-400 transition-opacity p-0.5 cursor-pointer pointer-events-auto"
+                  className={`opacity-0 group-hover:opacity-100 ${currentTheme.isDark ? 'hover:text-amber-400 text-slate-400' : 'hover:text-amber-600 text-slate-500'} transition-opacity p-0.5 cursor-pointer pointer-events-auto`}
                   title="Open in Script Editor"
                 >
                   <FileText size={10} />
                 </button>
-                <span className="text-[9px] font-mono text-slate-400">
+                <span className={`text-[9px] font-mono ${currentTheme.isDark ? 'text-slate-400' : 'text-slate-500'}`}>
                   {beat.durationPages.toFixed(1)}p
                 </span>
               </div>
@@ -2694,7 +2828,7 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
 
             {/* Body: Beat Name (Full vertical room, clean and bold) */}
             <div className="px-2.5 py-1.5 flex-1 flex items-center min-w-0 overflow-hidden">
-              <div className="text-xs font-bold text-slate-100 truncate group-hover:text-amber-400 transition-colors">
+              <div className={`text-xs font-bold ${currentTheme.isDark ? 'text-slate-100 group-hover:text-amber-400' : 'text-slate-900 group-hover:text-amber-600'} truncate transition-colors`}>
                 {beatName}
               </div>
             </div>
@@ -2704,8 +2838,8 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
           <div className="h-full flex flex-col justify-between min-w-0 select-none overflow-hidden">
             {/* Header: Scene No + Subtrack + Location & Setting + Script button + Duration */}
             <div 
-              className="h-6 px-2.5 flex items-center justify-between border-b border-white/5 shrink-0"
-              style={{ backgroundColor: `${track.color}18` }}
+              className={`h-6 px-2.5 flex items-center justify-between border-b ${currentTheme.isDark ? 'border-white/5' : 'border-slate-200/80'} shrink-0`}
+              style={{ backgroundColor: `${track.color}${currentTheme.isDark ? '18' : '22'}` }}
             >
               <div className="flex items-center gap-1.5 min-w-0">
                 <span 
@@ -2724,7 +2858,7 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
                   </span>
                 )}
                 <span 
-                  className="text-[10px] font-mono font-bold text-slate-300 uppercase truncate"
+                  className={`text-[10px] font-mono font-bold ${currentTheme.isDark ? 'text-slate-300' : 'text-slate-600'} uppercase truncate`}
                   title={locationAndSetting}
                 >
                   {locationAndSetting}
@@ -2737,12 +2871,12 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
                     e.stopPropagation();
                     onEditBeat(beat.id);
                   }}
-                  className="opacity-0 group-hover:opacity-100 hover:text-amber-400 text-slate-400 transition-opacity p-0.5 cursor-pointer pointer-events-auto"
+                  className={`opacity-0 group-hover:opacity-100 ${currentTheme.isDark ? 'hover:text-amber-400 text-slate-400' : 'hover:text-amber-600 text-slate-500'} transition-opacity p-0.5 cursor-pointer pointer-events-auto`}
                   title="Open in Script Editor"
                 >
                   <FileText size={10} />
                 </button>
-                <span className="text-[9px] font-mono text-slate-400">
+                <span className={`text-[9px] font-mono ${currentTheme.isDark ? 'text-slate-400' : 'text-slate-500'}`}>
                   {beat.durationPages.toFixed(1)}p
                 </span>
               </div>
@@ -2750,11 +2884,11 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
 
             {/* Body: Beat Name & Full Visible Summary */}
             <div className="px-2.5 py-1.5 flex-1 flex flex-col justify-start min-w-0 overflow-hidden">
-              <div className="text-xs font-bold text-slate-100 truncate group-hover:text-amber-400 transition-colors shrink-0">
+              <div className={`text-xs font-bold ${currentTheme.isDark ? 'text-slate-100 group-hover:text-amber-400' : 'text-slate-900 group-hover:text-amber-600'} truncate transition-colors shrink-0`}>
                 {beatName}
               </div>
               <div 
-                className={`text-[11px] text-slate-300 leading-snug mt-1 ${
+                className={`text-[11px] ${currentTheme.isDark ? 'text-slate-300' : 'text-slate-700'} leading-snug mt-1 ${
                   clipHeight >= 80 ? 'line-clamp-4' : 'line-clamp-3'
                 } select-text`}
                 title={cleanSummary || 'No summary'}
@@ -2783,51 +2917,64 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
         
         {/* Left: Transport Buttons */}
         <div className="flex items-center gap-2">
-          <div className="flex items-center bg-[#141622] p-1 rounded-lg border border-[#24283b] shadow-inner gap-0.5">
+          <div className={`flex items-center ${currentTheme.isDark ? 'bg-[#141622] border-[#24283b]' : 'bg-slate-100 border-slate-300'} p-1 rounded-lg border shadow-xs gap-0.5`}>
             <button
               onClick={() => setPlayheadPage(1.0)}
-              className="p-1.5 rounded hover:bg-white/10 text-slate-400 hover:text-white transition-all cursor-pointer"
-              title="Return to Start (Home)"
+              className={`p-1.5 rounded ${currentTheme.isDark ? 'hover:bg-white/10 text-slate-400 hover:text-white' : 'hover:bg-slate-200 text-slate-600 hover:text-slate-900'} transition-all cursor-pointer`}
+              title={translateUi('Return to Start (Home)', appLanguage)}
             >
               <SkipBack size={13} />
             </button>
             <button
               onClick={() => setPlayheadPage(p => Math.max(1, p - 1.0))}
-              className="p-1.5 rounded hover:bg-white/10 text-slate-400 hover:text-white transition-all cursor-pointer"
-              title="Step Back 1 Page (Left Arrow)"
+              className={`p-1.5 rounded ${currentTheme.isDark ? 'hover:bg-white/10 text-slate-400 hover:text-white' : 'hover:bg-slate-200 text-slate-600 hover:text-slate-900'} transition-all cursor-pointer`}
+              title={translateUi('Step Back 1 Page (Left Arrow)', appLanguage)}
             >
               <ChevronLeft size={13} />
             </button>
             <button
-              onClick={() => setIsPlaying(!isPlaying)}
+              onClick={handleTogglePlay}
               className={`px-3 py-1 rounded-md flex items-center gap-1.5 font-bold text-xs transition-all cursor-pointer shadow ${
                 isPlaying 
                   ? 'bg-amber-500 text-black shadow-[0_0_12px_rgba(245,158,11,0.4)]' 
-                  : 'bg-[#23273a] hover:bg-[#2d324b] text-white'
+                  : currentTheme.isDark ? 'bg-[#23273a] hover:bg-[#2d324b] text-white' : 'bg-slate-200 hover:bg-slate-300 text-slate-800'
               }`}
-              title="Play / Pause (Spacebar)"
+              title={translateUi('Play / Pause (Spacebar) • Automatically rolls script preview', appLanguage)}
             >
-              {isPlaying ? <Pause size={13} className="fill-black" /> : <Play size={13} className="fill-white" />}
-              <span>{isPlaying ? 'PAUSE' : 'PLAY'}</span>
+              {isPlaying ? <Pause size={13} className="fill-black" /> : <Play size={13} className={currentTheme.isDark ? "fill-white" : "fill-slate-800"} />}
+              <span>{isPlaying ? translateUi('PAUSE', appLanguage) : translateUi('PLAY', appLanguage)}</span>
+            </button>
+            <button
+              onClick={() => setIsScriptRollingOpen(p => !p)}
+              className={`px-2.5 py-1 rounded-md flex items-center gap-1.5 font-bold text-xs transition-all cursor-pointer shadow ${
+                isScriptRollingOpen
+                  ? 'bg-amber-500/20 text-amber-400 border border-amber-500/50'
+                  : currentTheme.isDark ? 'bg-[#1a1d2c] hover:bg-[#25293d] text-slate-300' : 'bg-slate-200 hover:bg-slate-300 text-slate-800'
+              }`}
+              title={translateUi('Toggle Script Rolling Teleprompter Preview', appLanguage)}
+            >
+              <ScrollText size={13} style={{ color: isScriptRollingOpen ? (currentTheme.accent || appAccentColor) : undefined }} />
+              <span className="hidden md:inline">{translateUi('SCRIPT PREVIEW', appLanguage)}</span>
+              {isPlaying && <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-ping" />}
             </button>
             <button
               onClick={() => setPlayheadPage(p => Math.min(totalScreenplayPages, p + 1.0))}
-              className="p-1.5 rounded hover:bg-white/10 text-slate-400 hover:text-white transition-all cursor-pointer"
-              title="Step Forward 1 Page (Right Arrow)"
+              className={`p-1.5 rounded ${currentTheme.isDark ? 'hover:bg-white/10 text-slate-400 hover:text-white' : 'hover:bg-slate-200 text-slate-600 hover:text-slate-900'} transition-all cursor-pointer`}
+              title={translateUi('Step Forward 1 Page (Right Arrow)', appLanguage)}
             >
               <ChevronRight size={13} />
             </button>
             <button
               onClick={() => setPlayheadPage(totalScreenplayPages)}
-              className="p-1.5 rounded hover:bg-white/10 text-slate-400 hover:text-white transition-all cursor-pointer"
-              title="Jump to End of Screenplay"
+              className={`p-1.5 rounded ${currentTheme.isDark ? 'hover:bg-white/10 text-slate-400 hover:text-white' : 'hover:bg-slate-200 text-slate-600 hover:text-slate-900'} transition-all cursor-pointer`}
+              title={translateUi('Jump to End of Screenplay', appLanguage)}
             >
               <SkipForward size={13} />
             </button>
             <button
               onClick={() => setIsLooping(!isLooping)}
               className={`p-1.5 rounded text-xs transition-all cursor-pointer ml-1 ${
-                isLooping ? 'bg-cyan-500/20 text-cyan-400' : 'text-slate-400 hover:text-white'
+                isLooping ? 'bg-cyan-500/20 text-cyan-500' : currentTheme.isDark ? 'text-slate-400 hover:text-white' : 'text-slate-600 hover:text-slate-900'
               }`}
               title="Toggle Act II Loop"
             >
@@ -2836,105 +2983,26 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
           </div>
         </div>
 
-        {/* Center: Precision Matte LCD Display */}
-        <div className="flex items-center gap-3 bg-[#07080d] px-3.5 py-1 rounded-lg border border-[#1b1e2c] font-mono text-xs shadow-inner">
-          <div className="flex items-baseline gap-1.5">
-            <span className="text-[10px] text-slate-500 uppercase">SMPTE</span>
-            <span className="font-bold text-amber-400 tracking-wider">{timecodeDisplay}</span>
-          </div>
-
-          <div className="h-4 w-px bg-white/10" />
-
-          <div className="flex items-baseline gap-1.5">
-            <span className="text-[10px] text-slate-500 uppercase">PAGE</span>
-            {isEditingPageInput ? (
-              <input
-                type="text"
-                autoFocus
-                value={pageInputValue}
-                onChange={(e) => setPageInputValue(e.target.value)}
-                onBlur={() => {
-                  const num = parseFloat(pageInputValue);
-                  if (!isNaN(num)) setPlayheadPage(Math.max(1, Math.min(totalScreenplayPages, num)));
-                  setIsEditingPageInput(false);
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    const num = parseFloat(pageInputValue);
-                    if (!isNaN(num)) setPlayheadPage(Math.max(1, Math.min(totalScreenplayPages, num)));
-                    setIsEditingPageInput(false);
-                  } else if (e.key === 'Escape') {
-                    setIsEditingPageInput(false);
-                  }
-                }}
-                className="w-14 bg-black border border-amber-400 rounded px-1 py-0 text-amber-400 font-mono font-bold text-xs outline-none"
-              />
-            ) : (
-              <span 
-                className="font-bold text-slate-200 cursor-pointer hover:text-amber-400 transition-colors"
-                onClick={() => {
-                  setPageInputValue(playheadPage.toFixed(1));
-                  setIsEditingPageInput(true);
-                }}
-                title="Click to jump to specific page"
-              >
-                {playheadPage.toFixed(1)} <span className="text-slate-500 font-normal">/ {totalScreenplayPages}p</span>
-              </span>
-            )}
-          </div>
-
-          <div className="h-4 w-px bg-white/10" />
-
-          {/* Active Beat Snippet */}
-          <div className="flex items-center gap-1.5 max-w-[200px] truncate text-[11px] text-cyan-400 font-sans font-medium">
-            <span className="font-bold font-mono text-slate-500">
-              {activeBeatAtPlayhead ? `SC.${activeBeatAtPlayhead.sceneNumber || '?'}` : '—'}
-            </span>
-            <span className="truncate">
-              {activeBeatAtPlayhead?.title || 'Interlude'}
-            </span>
-          </div>
-
-          {/* Dynamic 8-Segment Dramatic VU Intensity Meter */}
-          <div className="flex items-center gap-0.5 bg-black/60 px-1.5 py-1 rounded border border-white/5">
-            {Array.from({ length: 8 }).map((_, i) => {
-              const active = (i / 8) * 100 <= vuLevel;
-              const isPeak = i >= 6;
-              const isWarn = i >= 4 && i < 6;
-              return (
-                <div
-                  key={i}
-                  className={`w-1.5 h-2.5 rounded-xs transition-colors duration-75 ${
-                    active 
-                      ? isPeak ? 'bg-red-500 shadow-[0_0_6px_#ef4444]' : isWarn ? 'bg-amber-400' : 'bg-emerald-400'
-                      : 'bg-white/10'
-                  }`}
-                />
-              );
-            })}
-          </div>
-        </div>
-
         {/* Right: Grid, Zoom, Add Beat, AI, Dock & CLI Tools */}
         <div className="flex items-center gap-2 text-xs font-mono">
           {/* Snap Selector */}
-          <div className="flex items-center gap-1 bg-[#141622] px-2 py-1 rounded border border-[#24283b]">
-            <span className="text-[10px] text-slate-500">SNAP:</span>
+          <div className={`flex items-center gap-1 ${currentTheme.isDark ? 'bg-[#141622] border-[#24283b]' : 'bg-slate-100 border-slate-300'} px-2 py-1 rounded border`}>
+            <span className={`text-[10px] ${currentTheme.isDark ? 'text-slate-500' : 'text-slate-500'} font-semibold`}>{translateUi('SNAP:', appLanguage)}</span>
             <select
               value={snapGrid}
               onChange={(e: any) => setSnapGrid(e.target.value)}
-              className="bg-transparent text-slate-200 font-bold outline-none cursor-pointer text-xs"
+              className={`bg-transparent ${currentTheme.isDark ? 'text-slate-200' : 'text-slate-800'} font-bold outline-none cursor-pointer text-xs`}
             >
-              <option value="quarter" className="bg-[#141622]">1/4p</option>
-              <option value="half" className="bg-[#141622]">1/2p</option>
-              <option value="page" className="bg-[#141622]">1p</option>
-              <option value="free" className="bg-[#141622]">Free</option>
+              <option value="quarter" className={currentTheme.isDark ? 'bg-[#141622] text-slate-200' : 'bg-white text-slate-800'}>1/4p</option>
+              <option value="half" className={currentTheme.isDark ? 'bg-[#141622] text-slate-200' : 'bg-white text-slate-800'}>1/2p</option>
+              <option value="page" className={currentTheme.isDark ? 'bg-[#141622] text-slate-200' : 'bg-white text-slate-800'}>1p</option>
+              <option value="free" className={currentTheme.isDark ? 'bg-[#141622] text-slate-200' : 'bg-white text-slate-800'}>Free</option>
             </select>
           </div>
 
           {/* View Mode / Lane Height Selector */}
-          <div className="flex items-center gap-1 bg-[#141622] px-2 py-1 rounded border border-[#24283b]">
-            <span className="text-[10px] text-slate-400 font-semibold">VIEW:</span>
+          <div className={`flex items-center gap-1 ${currentTheme.isDark ? 'bg-[#141622] border-[#24283b]' : 'bg-slate-100 border-slate-300'} px-2 py-1 rounded border`}>
+            <span className={`text-[10px] ${currentTheme.isDark ? 'text-slate-400' : 'text-slate-500'} font-semibold`}>{translateUi('VIEW:', appLanguage)}</span>
             <select
               value={globalLaneHeight}
               onChange={(e) => {
@@ -2945,11 +3013,11 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
                 } catch (err) {}
                 saveTracks(tracks.map(t => ({ ...t, height: newH })));
               }}
-              className="bg-transparent text-slate-200 font-bold outline-none cursor-pointer text-xs"
+              className={`bg-transparent ${currentTheme.isDark ? 'text-slate-200' : 'text-slate-800'} font-bold outline-none cursor-pointer text-xs`}
             >
-              <option value={64} className="bg-[#141622]">Compact</option>
-              <option value={84} className="bg-[#141622]">Standard</option>
-              <option value={112} className="bg-[#141622]">Detail</option>
+              <option value={64} className={currentTheme.isDark ? 'bg-[#141622] text-slate-200' : 'bg-white text-slate-800'}>{translateUi('Compact', appLanguage)}</option>
+              <option value={84} className={currentTheme.isDark ? 'bg-[#141622] text-slate-200' : 'bg-white text-slate-800'}>{translateUi('Standard', appLanguage)}</option>
+              <option value={112} className={currentTheme.isDark ? 'bg-[#141622] text-slate-200' : 'bg-white text-slate-800'}>{translateUi('Detail', appLanguage)}</option>
             </select>
           </div>
 
@@ -2958,13 +3026,13 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
             onClick={toggleAutoNumbering}
             className={`px-2 py-1 rounded flex items-center gap-1 font-bold border transition-all cursor-pointer text-xs ${
               autoNumberingEnabled 
-                ? 'bg-amber-400/20 border-amber-400/60 text-amber-300 shadow-[0_0_8px_rgba(245,158,11,0.2)]' 
-                : 'bg-[#141622] border-[#24283b] text-slate-500 hover:text-slate-300'
+                ? 'bg-amber-400/20 border-amber-400/60 text-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.2)]' 
+                : currentTheme.isDark ? 'bg-[#141622] border-[#24283b] text-slate-500 hover:text-slate-300' : 'bg-slate-100 border-slate-300 text-slate-600 hover:text-slate-900'
             }`}
             title={`Auto Scene Numbering: ${autoNumberingEnabled ? 'ON (Chronological 1..N Left-to-Right)' : 'OFF (Click to enable)'}`}
           >
             <Hash size={12} />
-            <span>Auto #</span>
+            <span>{translateUi('Auto #', appLanguage)}</span>
           </button>
 
           {/* Causality Dependency Links Toggle */}
@@ -2976,13 +3044,13 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
             }}
             className={`px-2 py-1 rounded flex items-center gap-1 font-bold border transition-all cursor-pointer text-xs ${
               showDependencies 
-                ? 'bg-cyan-500/20 border-cyan-500/60 text-cyan-300 shadow-[0_0_8px_rgba(6,182,212,0.2)]' 
-                : 'bg-[#141622] border-[#24283b] text-slate-500 hover:text-slate-300'
+                ? 'bg-cyan-500/20 border-cyan-500/60 text-cyan-600 shadow-[0_0_8px_rgba(6,182,212,0.2)]' 
+                : currentTheme.isDark ? 'bg-[#141622] border-[#24283b] text-slate-500 hover:text-slate-300' : 'bg-slate-100 border-slate-300 text-slate-600 hover:text-slate-900'
             }`}
             title={`Causality Dependency Lines: ${showDependencies ? 'VISIBLE' : 'HIDDEN'} (${connections?.length || 0} links)`}
           >
             <Network size={12} />
-            <span>Links ({connections?.length || 0})</span>
+            <span>{translateUi('Links', appLanguage)} ({connections?.length || 0})</span>
           </button>
 
           {/* Sequences & Act Groups Toggle */}
@@ -2994,13 +3062,13 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
             }}
             className={`px-2 py-1 rounded flex items-center gap-1 font-bold border transition-all cursor-pointer text-xs ${
               showGroups 
-                ? 'bg-purple-500/20 border-purple-500/60 text-purple-300 shadow-[0_0_8px_rgba(168,85,247,0.2)]' 
-                : 'bg-[#141622] border-[#24283b] text-slate-500 hover:text-slate-300'
+                ? 'bg-purple-500/20 border-purple-500/60 text-purple-600 shadow-[0_0_8px_rgba(168,85,247,0.2)]' 
+                : currentTheme.isDark ? 'bg-[#141622] border-[#24283b] text-slate-500 hover:text-slate-300' : 'bg-slate-100 border-slate-300 text-slate-600 hover:text-slate-900'
             }`}
             title={`Act & Sequence Groups: ${showGroups ? 'EXPANDED' : 'COLLAPSED'}`}
           >
             <Layers size={12} />
-            <span>Groups</span>
+            <span>{translateUi('Groups', appLanguage)}</span>
           </button>
 
           {/* Mini-Map Macro Overview Toggle */}
@@ -3012,49 +3080,49 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
             }}
             className={`px-2 py-1 rounded flex items-center gap-1 font-bold border transition-all cursor-pointer text-xs ${
               showMiniMap 
-                ? 'bg-emerald-500/20 border-emerald-500/60 text-emerald-300 shadow-[0_0_8px_rgba(16,185,129,0.2)]' 
-                : 'bg-[#141622] border-[#24283b] text-slate-500 hover:text-slate-300'
+                ? 'bg-emerald-500/20 border-emerald-500/60 text-emerald-600 shadow-[0_0_8px_rgba(16,185,129,0.2)]' 
+                : currentTheme.isDark ? 'bg-[#141622] border-[#24283b] text-slate-500 hover:text-slate-300' : 'bg-slate-100 border-slate-300 text-slate-600 hover:text-slate-900'
             }`}
             title={`Macro Mini-Map Overview: ${showMiniMap ? 'SHOWN' : 'HIDDEN'}`}
           >
             <Compass size={12} />
-            <span>Map</span>
+            <span>{translateUi('Map', appLanguage)}</span>
           </button>
 
           {/* DAW Theme Selector (Both Light & Dark themes) */}
-          <div className="flex items-center gap-1 bg-[#141622] px-2 py-1 rounded border border-[#24283b]">
-            <Palette size={12} className="text-amber-400 shrink-0" />
+          <div className={`flex items-center gap-1 ${currentTheme.isDark ? 'bg-[#141622] border-[#24283b]' : 'bg-slate-100 border-slate-300'} px-2 py-1 rounded border`}>
+            <Palette size={12} className="text-amber-500 shrink-0" />
             <select
               value={dawThemeId}
               onChange={(e) => saveDawTheme(e.target.value as DawThemeId)}
-              className="bg-transparent text-slate-200 font-bold outline-none cursor-pointer text-xs"
+              className={`bg-transparent ${currentTheme.isDark ? 'text-slate-200' : 'text-slate-800'} font-bold outline-none cursor-pointer text-xs`}
               title="DAW Visual Theme (Dark & Light studio styles)"
             >
-              <optgroup label="Dark Themes" className="bg-[#141622] text-slate-300">
-                <option value="obsidian" className="bg-[#141622]">Obsidian Studio</option>
-                <option value="slate" className="bg-[#141622]">Cyber Slate</option>
-                <option value="vintage" className="bg-[#141622]">Vintage Console</option>
+              <optgroup label={translateUi('Dark Themes', appLanguage)} className={currentTheme.isDark ? 'bg-[#141622] text-slate-300' : 'bg-white text-slate-800'}>
+                <option value="obsidian" className={currentTheme.isDark ? 'bg-[#141622] text-slate-200' : 'bg-white text-slate-800'}>Obsidian Studio</option>
+                <option value="slate" className={currentTheme.isDark ? 'bg-[#141622] text-slate-200' : 'bg-white text-slate-800'}>Cyber Slate</option>
+                <option value="vintage" className={currentTheme.isDark ? 'bg-[#141622] text-slate-200' : 'bg-white text-slate-800'}>Vintage Console</option>
               </optgroup>
-              <optgroup label="Light Themes" className="bg-[#141622] text-slate-300">
-                <option value="paper" className="bg-[#141622]">Paper Script</option>
-                <option value="platinum" className="bg-[#141622]">Studio Platinum</option>
+              <optgroup label={translateUi('Light Themes', appLanguage)} className={currentTheme.isDark ? 'bg-[#141622] text-slate-300' : 'bg-white text-slate-800'}>
+                <option value="paper" className={currentTheme.isDark ? 'bg-[#141622] text-slate-200' : 'bg-white text-slate-800'}>Paper Script</option>
+                <option value="platinum" className={currentTheme.isDark ? 'bg-[#141622] text-slate-200' : 'bg-white text-slate-800'}>Studio Platinum</option>
               </optgroup>
             </select>
           </div>
 
           {/* Zoom controls (anchored to playhead) */}
-          <div className="flex items-center bg-[#141622] px-1.5 py-1 rounded border border-[#24283b] gap-1">
+          <div className={`flex items-center ${currentTheme.isDark ? 'bg-[#141622] border-[#24283b]' : 'bg-slate-100 border-slate-300'} px-1.5 py-1 rounded border gap-1`}>
             <button 
               onClick={() => zoomAroundPlayhead(zoomLevel - 0.2)}
-              className="text-slate-400 hover:text-white p-0.5 cursor-pointer"
+              className={`${currentTheme.isDark ? 'text-slate-400 hover:text-white' : 'text-slate-600 hover:text-slate-900'} p-0.5 cursor-pointer`}
               title="Zoom Out (- or _)"
             >
               <ZoomOut size={12} />
             </button>
-            <span className="text-[10px] w-7 text-center text-slate-300 font-mono">{Math.round(zoomLevel * 100)}%</span>
+            <span className={`text-[10px] w-7 text-center ${currentTheme.isDark ? 'text-slate-300' : 'text-slate-700'} font-mono`}>{Math.round(zoomLevel * 100)}%</span>
             <button 
               onClick={() => zoomAroundPlayhead(zoomLevel + 0.2)}
-              className="text-slate-400 hover:text-white p-0.5 cursor-pointer"
+              className={`${currentTheme.isDark ? 'text-slate-400 hover:text-white' : 'text-slate-600 hover:text-slate-900'} p-0.5 cursor-pointer`}
               title="Zoom In (+ or =)"
             >
               <ZoomIn size={12} />
@@ -3065,17 +3133,17 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
           <button
             onClick={() => handleCreateBeat(0, 0)}
             className="px-2.5 py-1 bg-amber-500 hover:bg-amber-400 text-black font-bold rounded flex items-center gap-1 shadow-[0_0_10px_rgba(245,158,11,0.3)] transition-all cursor-pointer"
-            title="Create New Beat on Track 1, Subtrack 1"
+            title={translateUi('Create New Beat on Track 1, Subtrack 1', appLanguage)}
           >
             <Plus size={13} />
-            <span>Beat</span>
+            <span>{translateUi('Beat', appLanguage)}</span>
           </button>
 
           {/* AI Generate Button */}
           <button
             onClick={() => setIsAiModalOpen(true)}
             disabled={!aiAvailable}
-            className="p-1.5 bg-[#211b2f] hover:bg-[#2e2442] border border-violet-500/40 text-violet-300 rounded transition-all cursor-pointer disabled:opacity-40"
+            className={`p-1.5 ${currentTheme.isDark ? 'bg-[#211b2f] hover:bg-[#2e2442] border-violet-500/40 text-violet-300' : 'bg-violet-50 hover:bg-violet-100 border-violet-300 text-violet-700'} border rounded transition-all cursor-pointer disabled:opacity-40`}
             title={aiAvailable ? "AI Beat Generator" : "Add AI key in Backstage"}
           >
             <Sparkles size={13} className="text-violet-400" />
@@ -3084,7 +3152,7 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
           {/* Dock Position Switcher */}
           <button
             onClick={() => setTrackHeaderDock(d => d === 'left' ? 'right' : 'left')}
-            className="p-1.5 rounded bg-[#141622] border border-[#24283b] text-slate-400 hover:text-white transition-colors cursor-pointer"
+            className={`p-1.5 rounded ${currentTheme.isDark ? 'bg-[#141622] border-[#24283b] text-slate-400 hover:text-white' : 'bg-slate-100 border-slate-300 text-slate-600 hover:text-slate-900'} border transition-colors cursor-pointer`}
             title={`Dock track channel strips to ${trackHeaderDock === 'left' ? 'Right' : 'Left'}`}
           >
             <ArrowLeftRight size={13} />
@@ -3095,30 +3163,30 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
             onClick={() => setIsTerminalOpen(!isTerminalOpen)}
             className={`px-2 py-1 rounded flex items-center gap-1 font-bold border transition-all cursor-pointer ${
               isTerminalOpen 
-                ? 'bg-cyan-500/20 border-cyan-500 text-cyan-300 shadow-[0_0_10px_rgba(6,182,212,0.3)]' 
-                : 'bg-[#141622] border-[#24283b] text-slate-400 hover:text-white'
+                ? 'bg-cyan-500/20 border-cyan-500 text-cyan-600 shadow-[0_0_10px_rgba(6,182,212,0.3)]' 
+                : currentTheme.isDark ? 'bg-[#141622] border-[#24283b] text-slate-400 hover:text-white' : 'bg-slate-100 border-slate-300 text-slate-600 hover:text-slate-900'
             }`}
-            title="Toggle DAW Terminal (~ or `)"
+            title={translateUi('Toggle DAW Terminal (~ or `)', appLanguage)}
           >
             <TerminalIcon size={13} />
-            <span>CLI</span>
+            <span>{translateUi('CLI', appLanguage)}</span>
           </button>
         </div>
       </header>
 
       {/* MACRO OVERVIEW MINI-MAP (Full 200+ beat navigation strip) */}
       {showMiniMap && (
-        <div className="h-7 bg-[#0b0c14] border-b border-[#1c1f2e] px-3 flex items-center gap-3 select-none shrink-0 z-20">
-          <div className="flex items-center gap-1.5 shrink-0 text-slate-400 font-mono text-[10px]">
-            <Compass size={12} className="text-amber-400" />
-            <span className="font-bold text-slate-300">MACRO</span>
-            <span className="text-slate-500">({beats.length} beats / {totalScreenplayPages}p)</span>
+        <div className={`h-7 ${currentTheme.isDark ? 'bg-[#0b0c14] border-[#1c1f2e]' : 'bg-slate-100 border-slate-300'} border-b px-3 flex items-center gap-3 select-none shrink-0 z-20`}>
+          <div className="flex items-center gap-1.5 shrink-0 font-mono text-[10px]">
+            <Compass size={12} className="text-amber-500" />
+            <span className={`font-bold ${currentTheme.isDark ? 'text-slate-300' : 'text-slate-700'}`}>MACRO</span>
+            <span className={currentTheme.isDark ? 'text-slate-500' : 'text-slate-500'}>({beats.length} beats / {totalScreenplayPages}p)</span>
           </div>
 
           <div
             ref={miniMapRef}
             onMouseDown={handleMiniMapMouseDown}
-            className="flex-1 h-4 bg-[#07080d] border border-white/10 rounded relative cursor-pointer overflow-hidden group shadow-inner"
+            className={`flex-1 h-4 ${currentTheme.isDark ? 'bg-[#07080d] border-white/10' : 'bg-slate-200 border-slate-300'} border rounded relative cursor-pointer overflow-hidden group shadow-inner`}
             title="Click or drag to scrub entire 200+ beat screenplay timeline"
           >
             {/* Act / Group region indicators in mini-map */}
@@ -3208,18 +3276,41 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
         >
           
           {/* STICKY TOP RULER ROW */}
-          <div className={`h-9 flex sticky top-0 z-30 ${currentTheme.bgRuler} ${currentTheme.borderRuler} border-b shadow-sm`}>
+          <div 
+            style={{ height: `${rulerHeight}px` }} 
+            className={`flex sticky top-0 z-30 ${currentTheme.bgRuler} ${currentTheme.borderRuler} border-b shadow-sm transition-all`}
+          >
             {/* Left Corner: Track header banner (if left-docked) */}
             {trackHeaderDock === 'left' && (
-              <div className={`w-64 shrink-0 sticky left-0 z-40 ${currentTheme.bgStrip} ${currentTheme.borderStrip} border-r px-3 flex items-center justify-between text-xs font-mono font-bold ${currentTheme.textMuted} shadow-md`}>
-                <span className="uppercase tracking-wider">Tracks ({tracks.length})</span>
-                <button 
-                  onClick={addCustomTrack}
-                  className="px-1.5 py-0.5 rounded bg-white/5 hover:bg-white/10 text-slate-300 hover:text-amber-400 flex items-center gap-1 text-[10px] cursor-pointer"
-                  title="Add New Narrative Track"
-                >
-                  <Plus size={11} /> Track
-                </button>
+              <div 
+                style={{ height: `${rulerHeight}px` }}
+                className={`w-64 shrink-0 sticky left-0 z-40 ${currentTheme.bgStrip} ${currentTheme.borderStrip} border-r px-3 flex flex-col justify-center text-xs font-mono font-bold ${currentTheme.textMuted} shadow-md`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="uppercase tracking-wider">Tracks ({tracks.length})</span>
+                  <div className="flex items-center gap-1">
+                    <button 
+                      onClick={handleResetToDefaultTracks}
+                      className={`px-1.5 py-0.5 rounded ${currentTheme.isDark ? 'bg-white/5 hover:bg-white/10 text-slate-300 hover:text-amber-400' : 'bg-slate-200 hover:bg-slate-300 text-slate-700 hover:text-amber-600'} flex items-center gap-1 text-[10px] cursor-pointer`}
+                      title="Reset to 5 Standard Narrative Tracks"
+                    >
+                      <RotateCcw size={10} /> Reset
+                    </button>
+                    <button 
+                      onClick={addCustomTrack}
+                      className={`px-1.5 py-0.5 rounded ${currentTheme.isDark ? 'bg-white/5 hover:bg-white/10 text-slate-300 hover:text-amber-400' : 'bg-slate-200 hover:bg-slate-300 text-slate-700 hover:text-amber-600'} flex items-center gap-1 text-[10px] cursor-pointer`}
+                      title="Add New Narrative Track"
+                    >
+                      <Plus size={11} /> Track
+                    </button>
+                  </div>
+                </div>
+                {showGroups && tieredGroupSpans.length > 0 && maxGroupTiers > 1 && (
+                  <div className="flex items-center gap-1 text-[9px] text-purple-400 mt-1 font-mono font-semibold">
+                    <Layers size={10} />
+                    <span>Chapters: {maxGroupTiers} stacked tiers</span>
+                  </div>
+                )}
               </div>
             )}
 
@@ -3235,23 +3326,47 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
               style={{ width: `${totalTimelineWidth}px` }}
               className="flex-1 h-full relative cursor-ew-resize overflow-visible select-none group/ruler"
             >
-              {/* User Sequences & Group Regions on Ruler */}
-              {showGroups && dawGroupSpans.map((span) => {
+              {/* User Sequences & Group Regions on Ruler - Stacked Tiers (One by One) */}
+              {showGroups && tieredGroupSpans.map((span) => {
                 const markerX = (span.startPage - 1) * effectivePxPerPage;
-                const width = Math.max(30, (span.endPage - span.startPage) * effectivePxPerPage);
+                const width = Math.max(40, (span.endPage - span.startPage) * effectivePxPerPage);
+                const tierTop = 3 + (span.tier % 4) * 18;
 
                 return (
                   <div
                     key={`ruler-group-${span.id}`}
-                    style={{ left: `${markerX}px`, width: `${width}px`, borderLeftColor: `${span.color}60` }}
-                    className="absolute top-0 bottom-0 border-l px-2 py-1 overflow-hidden pointer-events-none bg-white/[0.02]"
+                    style={{
+                      left: `${markerX}px`,
+                      width: `${width}px`,
+                      top: `${tierTop}px`,
+                      height: '16px',
+                      borderColor: `${span.color}70`,
+                      backgroundColor: currentTheme.isDark ? `${span.color}22` : `${span.color}25`,
+                    }}
+                    className="absolute rounded border px-1.5 flex items-center justify-between gap-1 overflow-hidden pointer-events-auto cursor-pointer hover:brightness-125 transition-all shadow-2xs z-10 select-none group/ruler-group"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (timelineScrollRef.current) {
+                        timelineScrollRef.current.scrollTo({
+                          left: Math.max(0, markerX - 60),
+                          behavior: 'smooth'
+                        });
+                      }
+                    }}
+                    title={`${span.title} (pp. ${span.startPage.toFixed(1)}–${span.endPage.toFixed(1)} • ${span.sceneCount} scenes). Click to jump.`}
                   >
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-[10px] font-mono font-black uppercase tracking-wider truncate" style={{ color: span.color }}>
+                    <div className="flex items-center gap-1 min-w-0 flex-1">
+                      <div className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: span.color }} />
+                      <span 
+                        className="text-[9px] font-mono font-bold uppercase tracking-wider truncate" 
+                        style={{ color: span.color }}
+                      >
                         {span.title}
                       </span>
-                      <span className="text-[9px] text-slate-500 font-mono">p.{Math.round(span.startPage)}</span>
                     </div>
+                    <span className={`text-[8px] font-mono shrink-0 ${currentTheme.isDark ? 'text-slate-300' : 'text-slate-700'} font-semibold ml-1`}>
+                      p.{Math.round(span.startPage)}
+                    </span>
                   </div>
                 );
               })}
@@ -3265,7 +3380,7 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
                   <div
                     key={pageNum}
                     style={{ left: `${x}px` }}
-                    className="absolute bottom-0 h-2.5 border-l border-white/20 text-[8px] font-mono text-slate-500 pl-1 pointer-events-none"
+                    className={`absolute bottom-0 h-2.5 border-l ${currentTheme.isDark ? 'border-white/20 text-slate-500' : 'border-slate-400 text-slate-600 font-semibold'} text-[8px] font-mono pl-1 pointer-events-none`}
                   >
                     {pageNum}p
                   </div>
@@ -3303,86 +3418,30 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
 
             {/* Right Corner: Track header banner (if right-docked) */}
             {trackHeaderDock === 'right' && (
-              <div className="w-64 shrink-0 sticky right-0 z-40 bg-[#12141f] border-l border-[#1c1f2e] px-3 flex items-center justify-between text-xs font-mono font-bold text-slate-400 shadow-md">
+              <div 
+                style={{ height: `${rulerHeight}px` }}
+                className={`w-64 shrink-0 sticky right-0 z-40 ${currentTheme.bgStrip} border-l ${currentTheme.borderStrip} px-3 flex items-center justify-between text-xs font-mono font-bold ${currentTheme.textMuted} shadow-md`}
+              >
                 <span className="uppercase tracking-wider">Tracks ({tracks.length})</span>
-                <button 
-                  onClick={addCustomTrack}
-                  className="px-1.5 py-0.5 rounded bg-white/5 hover:bg-white/10 text-slate-300 hover:text-amber-400 flex items-center gap-1 text-[10px] cursor-pointer"
-                  title="Add New Narrative Track"
-                >
-                  <Plus size={11} /> Track
-                </button>
+                <div className="flex items-center gap-1">
+                  <button 
+                    onClick={handleResetToDefaultTracks}
+                    className={`px-1.5 py-0.5 rounded ${currentTheme.isDark ? 'bg-white/5 hover:bg-white/10 text-slate-300 hover:text-amber-400' : 'bg-slate-200 hover:bg-slate-300 text-slate-700 hover:text-amber-600'} flex items-center gap-1 text-[10px] cursor-pointer`}
+                    title="Reset to 5 Standard Narrative Tracks"
+                  >
+                    <RotateCcw size={10} /> Reset
+                  </button>
+                  <button 
+                    onClick={addCustomTrack}
+                    className={`px-1.5 py-0.5 rounded ${currentTheme.isDark ? 'bg-white/5 hover:bg-white/10 text-slate-300 hover:text-amber-400' : 'bg-slate-200 hover:bg-slate-300 text-slate-700 hover:text-amber-600'} flex items-center gap-1 text-[10px] cursor-pointer`}
+                    title="Add New Narrative Track"
+                  >
+                    <Plus size={11} /> Track
+                  </button>
+                </div>
               </div>
             )}
           </div>
-
-          {/* STICKY SEQUENCE / GROUP BANNER ROW */}
-          {showGroups && (
-            <div className="h-7 flex sticky top-9 z-29 bg-[#0b0d14] border-b border-[#1c1f2e] shadow-xs">
-              {/* Left corner spacer matching dock */}
-              {trackHeaderDock === 'left' && (
-                <div className="w-64 shrink-0 sticky left-0 z-35 bg-[#0e1017] border-r border-[#1c1f2e] px-3 flex items-center gap-1.5 text-[10px] font-mono font-bold text-slate-400">
-                  <Layers size={11} className="text-amber-400" />
-                  <span className="uppercase tracking-wider">Sequences / Acts ({dawGroupSpans.length})</span>
-                </div>
-              )}
-
-              {/* Horizontal Group Capsules */}
-              <div 
-                style={{ width: `${totalTimelineWidth}px` }}
-                className="flex-1 h-full relative overflow-hidden select-none"
-              >
-                {dawGroupSpans.map((span) => {
-                  const x = (span.startPage - 1) * effectivePxPerPage;
-                  const w = Math.max(30, (span.endPage - span.startPage) * effectivePxPerPage);
-                  return (
-                    <div
-                      key={span.id}
-                      onClick={() => {
-                        if (timelineScrollRef.current) {
-                          timelineScrollRef.current.scrollTo({
-                            left: Math.max(0, x - 40),
-                            behavior: 'smooth'
-                          });
-                        }
-                      }}
-                      style={{
-                        left: `${x}px`,
-                        width: `${w}px`,
-                        borderColor: `${span.color}50`,
-                        backgroundColor: `${span.color}15`,
-                      }}
-                      className="absolute top-1 bottom-1 rounded border px-2 flex items-center justify-between gap-1 overflow-hidden cursor-pointer hover:brightness-125 transition-all group shadow-xs"
-                      title={`${span.title} (pp. ${Math.round(span.startPage)}–${Math.round(span.endPage)} • ${span.sceneCount} beats). Click to jump.`}
-                    >
-                      <div className="flex items-center gap-1.5 min-w-0">
-                        <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: span.color }} />
-                        <span className="text-[10px] font-mono font-bold truncate" style={{ color: span.color }}>
-                          {span.title}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-1 shrink-0 text-[9px] font-mono opacity-70">
-                        <span className="bg-black/40 px-1 py-0.2 rounded text-slate-300 font-semibold">
-                          {span.sceneCount} sc
-                        </span>
-                        <span className="text-slate-400 hidden sm:inline">
-                          p.{Math.round(span.startPage)}–{Math.round(span.endPage)}
-                        </span>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-
-              {/* Right corner spacer if right-docked */}
-              {trackHeaderDock === 'right' && (
-                <div className="w-64 shrink-0 sticky right-0 z-35 bg-[#0e1017] border-l border-[#1c1f2e] px-3 flex items-center gap-1.5 text-[10px] font-mono font-bold text-slate-400">
-                  <Layers size={11} className="text-amber-400" />
-                  <span className="uppercase tracking-wider">Sequences ({dawGroupSpans.length})</span>
-                </div>
-              )}
-            </div>
-          )}
 
           {/* MAIN ARRANGEMENT: UNIFIED ROWS (TRACK STRIP + LANE GRID) */}
           <div ref={tracksContainerRef} className="flex-1 flex flex-col relative">
@@ -3704,15 +3763,17 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
       {isTerminalOpen && (
         <div 
           style={{ height: `${terminalHeight}px` }}
-          className="border-t border-[#1c1f2e] bg-[#0c0d14] flex flex-col shrink-0 z-30 shadow-2xl transition-all"
+          className={`border-t ${currentTheme.borderStrip} ${currentTheme.isDark ? 'bg-[#0c0d14]' : 'bg-slate-100'} flex flex-col shrink-0 z-30 shadow-2xl transition-all`}
         >
           {/* Drawer Tabs Header */}
-          <div className="h-8 px-3 bg-[#11131c] border-b border-[#1c1f2e] flex items-center justify-between shrink-0">
+          <div className={`h-8 px-3 ${currentTheme.isDark ? 'bg-[#11131c] border-[#1c1f2e]' : 'bg-slate-200/80 border-slate-300'} border-b flex items-center justify-between shrink-0`}>
             <div className="flex items-center gap-1 font-mono text-xs">
               <button
                 onClick={() => setTerminalTab('cli')}
                 className={`px-3 py-0.5 rounded text-[11px] font-bold transition-all cursor-pointer ${
-                  terminalTab === 'cli' ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40' : 'text-slate-400 hover:text-white'
+                  terminalTab === 'cli' 
+                    ? 'bg-cyan-500/20 text-cyan-500 border border-cyan-500/40' 
+                    : currentTheme.isDark ? 'text-slate-400 hover:text-white' : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
                 &gt;_ DAW SHELL
@@ -3720,7 +3781,9 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
               <button
                 onClick={() => setTerminalTab('inspector')}
                 className={`px-3 py-0.5 rounded text-[11px] font-bold transition-all cursor-pointer ${
-                  terminalTab === 'inspector' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40' : 'text-slate-400 hover:text-white'
+                  terminalTab === 'inspector' 
+                    ? 'bg-amber-500/20 text-amber-500 border border-amber-500/40' 
+                    : currentTheme.isDark ? 'text-slate-400 hover:text-white' : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
                 CLIP INSPECTOR {selectedBeat ? `[SC.${selectedBeat.sceneNumber || selectedBeat.id}]` : ''}
@@ -3728,7 +3791,9 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
               <button
                 onClick={() => setTerminalTab('tension')}
                 className={`px-3 py-0.5 rounded text-[11px] font-bold transition-all cursor-pointer ${
-                  terminalTab === 'tension' ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40' : 'text-slate-400 hover:text-white'
+                  terminalTab === 'tension' 
+                    ? 'bg-emerald-500/20 text-emerald-500 border border-emerald-500/40' 
+                    : currentTheme.isDark ? 'text-slate-400 hover:text-white' : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
                 TENSION ARC
@@ -3738,14 +3803,14 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
             <div className="flex items-center gap-1">
               <button
                 onClick={() => setTerminalHeight(p => p === 240 ? 400 : 240)}
-                className="p-1 hover:bg-white/10 rounded text-slate-400 hover:text-white cursor-pointer"
+                className={`p-1 ${currentTheme.isDark ? 'hover:bg-white/10 text-slate-400 hover:text-white' : 'hover:bg-slate-300 text-slate-600 hover:text-slate-900'} rounded cursor-pointer`}
                 title={terminalHeight === 240 ? "Maximize Drawer" : "Minimize Drawer"}
               >
                 {terminalHeight === 240 ? <Maximize2 size={12} /> : <Minimize2 size={12} />}
               </button>
               <button
                 onClick={() => setIsTerminalOpen(false)}
-                className="p-1 hover:bg-white/10 rounded text-slate-400 hover:text-white cursor-pointer"
+                className={`p-1 ${currentTheme.isDark ? 'hover:bg-white/10 text-slate-400 hover:text-white' : 'hover:bg-slate-300 text-slate-600 hover:text-slate-900'} rounded cursor-pointer`}
                 title="Close Drawer"
               >
                 <X size={12} />
@@ -3812,30 +3877,30 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
 
           {/* TAB 2: CLIP INSPECTOR */}
           {terminalTab === 'inspector' && (
-            <div className="flex-1 p-4 bg-[#0a0c13] text-xs overflow-y-auto">
+            <div className={`flex-1 p-4 ${currentTheme.isDark ? 'bg-[#0a0c13]' : 'bg-white'} text-xs overflow-y-auto`}>
               {selectedBeat ? (
                 <div className="grid grid-cols-1 md:grid-cols-5 gap-3.5">
                   {/* Title & Scene # */}
                   <div>
-                    <label className="block text-[10px] uppercase font-mono text-slate-400 mb-1">Beat Title</label>
+                    <label className={`block text-[10px] uppercase font-mono ${currentTheme.isDark ? 'text-slate-400' : 'text-slate-600'} mb-1`}>Beat Title</label>
                     <input
                       type="text"
                       value={selectedBeat.title}
                       onChange={(e) => updateBeat(selectedBeat.id, { title: e.target.value })}
-                      className="w-full bg-[#141724] border border-[#262b3f] focus:border-amber-400 rounded px-2.5 py-1.5 text-white font-bold outline-none"
+                      className={`w-full ${currentTheme.isDark ? 'bg-[#141724] border-[#262b3f] text-white' : 'bg-slate-50 border-slate-300 text-slate-900'} border focus:border-amber-400 rounded px-2.5 py-1.5 font-bold outline-none`}
                     />
                   </div>
 
                   {/* Slugline / Location */}
                   <div>
-                    <label className="block text-[10px] uppercase font-mono text-slate-400 mb-1">Slugline / Location</label>
+                    <label className={`block text-[10px] uppercase font-mono ${currentTheme.isDark ? 'text-slate-400' : 'text-slate-600'} mb-1`}>Slugline / Location</label>
                     <div className="flex gap-1.5">
                       <select
                         value={selectedBeat.slug?.prefix || 'INT.'}
                         onChange={(e) => updateBeat(selectedBeat.id, { 
                           slug: { ...selectedBeat.slug, prefix: e.target.value as any } 
                         })}
-                        className="bg-[#141724] border border-[#262b3f] rounded px-2 py-1.5 text-white font-mono text-xs outline-none"
+                        className={`${currentTheme.isDark ? 'bg-[#141724] border-[#262b3f] text-white' : 'bg-slate-50 border-slate-300 text-slate-900'} border rounded px-2 py-1.5 font-mono text-xs outline-none`}
                       >
                         <option value="INT.">INT.</option>
                         <option value="EXT.">EXT.</option>
@@ -3848,19 +3913,19 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
                           slug: { ...selectedBeat.slug, location: e.target.value } 
                         })}
                         placeholder="LOCATION"
-                        className="flex-1 bg-[#141724] border border-[#262b3f] focus:border-amber-400 rounded px-2.5 py-1.5 text-white font-mono text-xs outline-none uppercase"
+                        className={`flex-1 ${currentTheme.isDark ? 'bg-[#141724] border-[#262b3f] text-white' : 'bg-slate-50 border-slate-300 text-slate-900'} border focus:border-amber-400 rounded px-2.5 py-1.5 font-mono text-xs outline-none uppercase`}
                       />
                     </div>
                   </div>
 
                   {/* Track & 3 Subtracks Assignment */}
                   <div>
-                    <label className="block text-[10px] uppercase font-mono text-slate-400 mb-1">Track & Subtrack</label>
+                    <label className={`block text-[10px] uppercase font-mono ${currentTheme.isDark ? 'text-slate-400' : 'text-slate-600'} mb-1`}>Track & Subtrack</label>
                     <div className="flex flex-col gap-1">
                       <select
                         value={selectedBeat.trackIndex ?? 0}
                         onChange={(e) => updateBeat(selectedBeat.id, { trackIndex: Number(e.target.value) })}
-                        className="w-full bg-[#141724] border border-[#262b3f] focus:border-amber-400 rounded px-2 py-1 text-white text-xs outline-none"
+                        className={`w-full ${currentTheme.isDark ? 'bg-[#141724] border-[#262b3f] text-white' : 'bg-slate-50 border-slate-300 text-slate-900'} border focus:border-amber-400 rounded px-2 py-1 text-xs outline-none`}
                       >
                         {tracks.map((t, i) => (
                           <option key={t.id} value={i}>{`V${i + 1}: ${t.label}`}</option>
@@ -3886,7 +3951,7 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
                                 className={`flex-1 py-1 text-[10px] font-mono font-bold rounded cursor-pointer transition-all truncate px-1 text-center border ${
                                   isCurrent
                                     ? 'bg-amber-400 text-black border-amber-400 shadow-xs'
-                                    : 'bg-[#141622] border-[#262b3f] text-slate-400 hover:text-white'
+                                    : currentTheme.isDark ? 'bg-[#141622] border-[#262b3f] text-slate-400 hover:text-white' : 'bg-slate-100 border-slate-300 text-slate-700 hover:text-slate-900'
                                 }`}
                               >
                                 {label}
@@ -3901,8 +3966,8 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
                   {/* Dramatic Tension Slider */}
                   <div>
                     <div className="flex justify-between items-center mb-1">
-                      <label className="text-[10px] uppercase font-mono text-slate-400">Dramatic Tension</label>
-                      <span className="text-[10px] font-mono font-bold text-amber-400">{selectedBeat.tension || 50}%</span>
+                      <label className={`text-[10px] uppercase font-mono ${currentTheme.isDark ? 'text-slate-400' : 'text-slate-600'}`}>Dramatic Tension</label>
+                      <span className="text-[10px] font-mono font-bold text-amber-500">{selectedBeat.tension || 50}%</span>
                     </div>
                     <input
                       type="range"
@@ -3910,7 +3975,7 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
                       max="100"
                       value={selectedBeat.tension || 50}
                       onChange={(e) => updateBeat(selectedBeat.id, { tension: Number(e.target.value) })}
-                      className="w-full h-1.5 accent-amber-500 bg-[#252838] rounded cursor-pointer mt-2"
+                      className={`w-full h-1.5 accent-amber-500 ${currentTheme.isDark ? 'bg-[#252838]' : 'bg-slate-200'} rounded cursor-pointer mt-2`}
                     />
                   </div>
 
@@ -3927,9 +3992,9 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
                 </div>
               ) : (
                 <div className="h-full flex flex-col items-center justify-center text-slate-500 text-xs gap-1">
-                  <HelpCircle size={20} className="text-slate-600 mb-1" />
-                  <span>No scene clip selected.</span>
-                  <span className="text-[11px] text-slate-600">Click any beat clip on the timeline above to inspect and edit its dramatic attributes.</span>
+                  <HelpCircle size={20} className={`${currentTheme.isDark ? 'text-slate-600' : 'text-slate-400'} mb-1`} />
+                  <span className={currentTheme.isDark ? 'text-slate-400' : 'text-slate-600'}>No scene clip selected.</span>
+                  <span className={`text-[11px] ${currentTheme.isDark ? 'text-slate-600' : 'text-slate-400'}`}>Click any beat clip on the timeline above to inspect and edit its dramatic attributes.</span>
                 </div>
               )}
             </div>
@@ -3937,19 +4002,19 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
 
           {/* TAB 3: TENSION ARC VISUALIZER */}
           {terminalTab === 'tension' && (
-            <div className="flex-1 p-3 bg-[#08090f] flex flex-col justify-between">
-              <div className="flex items-center justify-between pb-1.5 text-xs text-slate-400 font-mono">
-                <span className="flex items-center gap-1.5 text-amber-400 font-bold">
+            <div className={`flex-1 p-3 ${currentTheme.isDark ? 'bg-[#08090f]' : 'bg-slate-50'} flex flex-col justify-between`}>
+              <div className={`flex items-center justify-between pb-1.5 text-xs ${currentTheme.isDark ? 'text-slate-400' : 'text-slate-600'} font-mono`}>
+                <span className="flex items-center gap-1.5 text-amber-500 font-bold">
                   <BarChart3 size={13} /> SCREENPLAY DRAMATIC TENSION ARC
                 </span>
                 <span>{beatsWithTimeline.length} scenes plotted across {totalScreenplayPages} pages</span>
               </div>
-              <div className="flex-1 w-full bg-[#0d0f18] rounded-lg border border-white/5 relative overflow-hidden p-2">
+              <div className={`flex-1 w-full ${currentTheme.isDark ? 'bg-[#0d0f18] border-white/5' : 'bg-white border-slate-200 shadow-inner'} rounded-lg border relative overflow-hidden p-2`}>
                 <svg className="w-full h-full">
                   {/* Grid horizontal markers */}
-                  <line x1="0" y1="25%" x2="100%" y2="25%" stroke="#ffffff08" strokeDasharray="3,3" />
-                  <line x1="0" y1="50%" x2="100%" y2="50%" stroke="#ffffff08" strokeDasharray="3,3" />
-                  <line x1="0" y1="75%" x2="100%" y2="75%" stroke="#ffffff08" strokeDasharray="3,3" />
+                  <line x1="0" y1="25%" x2="100%" y2="25%" stroke={currentTheme.isDark ? "#ffffff08" : "#0000000d"} strokeDasharray="3,3" />
+                  <line x1="0" y1="50%" x2="100%" y2="50%" stroke={currentTheme.isDark ? "#ffffff08" : "#0000000d"} strokeDasharray="3,3" />
+                  <line x1="0" y1="75%" x2="100%" y2="75%" stroke={currentTheme.isDark ? "#ffffff08" : "#0000000d"} strokeDasharray="3,3" />
 
                   {beatsWithTimeline.length > 1 && (() => {
                     const sorted = [...beatsWithTimeline].sort((a, b) => a.startPage - b.startPage);
@@ -3977,7 +4042,7 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
                               cx={cx}
                               cy={cy}
                               r={selectedBeatId === b.id ? 5 : 3}
-                              fill={selectedBeatId === b.id ? '#ffffff' : '#f59e0b'}
+                              fill={selectedBeatId === b.id ? (currentTheme.isDark ? '#ffffff' : '#0f172a') : '#f59e0b'}
                               className="cursor-pointer"
                               onClick={() => setSelectedBeatId(b.id)}
                             />
@@ -4023,19 +4088,23 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
                 zIndex: 99999,
               }}
               onClick={(e) => e.stopPropagation()}
-              className="w-56 bg-[#131522]/95 backdrop-blur-xl border border-white/10 rounded-xl shadow-[0_20px_50px_rgba(0,0,0,0.85)] ring-1 ring-black/60 p-1.5 text-xs text-slate-200 animate-in fade-in zoom-in-95 duration-100 select-none flex flex-col gap-0.5 pointer-events-auto"
+              className={`w-56 backdrop-blur-xl rounded-xl p-1.5 text-xs animate-in fade-in zoom-in-95 duration-100 select-none flex flex-col gap-0.5 pointer-events-auto ${
+                currentTheme.isDark
+                  ? 'bg-[#131522]/95 border border-white/10 ring-1 ring-black/60 text-slate-200 shadow-[0_20px_50px_rgba(0,0,0,0.85)]'
+                  : 'bg-white/98 border border-slate-300 ring-1 ring-black/5 text-slate-800 shadow-[0_20px_50px_rgba(0,0,0,0.15)]'
+              }`}
             >
               {/* Header with Scene & Title */}
-              <div className="px-2 py-1 border-b border-white/5 mb-0.5">
+              <div className={`px-2 py-1 border-b mb-0.5 ${currentTheme.isDark ? 'border-white/5' : 'border-slate-200'}`}>
                 <div className="flex items-center gap-1.5 min-w-0">
                   <span className="text-[9px] font-mono font-black px-1.5 py-0.2 rounded bg-amber-400 text-black shrink-0">
                     SC.{menuBeat.sceneNumber || '1'}
                   </span>
-                  <span className="text-xs font-bold text-white truncate">
+                  <span className={`text-xs font-bold truncate ${currentTheme.isDark ? 'text-white' : 'text-slate-900'}`}>
                     {menuBeat.title || 'Untitled Beat'}
                   </span>
                 </div>
-                <div className="text-[10px] font-mono text-slate-400 mt-0.5">
+                <div className={`text-[10px] font-mono mt-0.5 ${currentTheme.isDark ? 'text-slate-400' : 'text-slate-500'}`}>
                   pp. {menuBeat.startPage.toFixed(1)}–{(menuBeat.startPage + menuBeat.durationPages).toFixed(1)} ({menuBeat.durationPages.toFixed(1)}p)
                 </div>
               </div>
@@ -4046,9 +4115,13 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
                   onEditBeat(menuBeat.id);
                   setBeatContextMenu(null);
                 }}
-                className="w-full px-2 py-1.5 rounded-lg hover:bg-amber-400/15 hover:text-amber-300 flex items-center gap-2 text-left cursor-pointer transition-colors"
+                className={`w-full px-2 py-1.5 rounded-lg flex items-center gap-2 text-left cursor-pointer transition-colors ${
+                  currentTheme.isDark
+                    ? 'hover:bg-amber-400/15 text-slate-200 hover:text-amber-300'
+                    : 'hover:bg-amber-500/15 text-slate-800 hover:text-amber-800'
+                }`}
               >
-                <FileText size={13} className="text-amber-400 shrink-0" />
+                <FileText size={13} className="text-amber-500 shrink-0" />
                 <span className="font-semibold">Edit Scene Script</span>
               </button>
 
@@ -4058,18 +4131,26 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
                   startInlineEditForBeat(menuBeat.id);
                   setBeatContextMenu(null);
                 }}
-                className="w-full px-2 py-1.5 rounded-lg hover:bg-white/5 hover:text-cyan-300 flex items-center gap-2 text-left cursor-pointer transition-colors"
+                className={`w-full px-2 py-1.5 rounded-lg flex items-center gap-2 text-left cursor-pointer transition-colors ${
+                  currentTheme.isDark
+                    ? 'hover:bg-white/5 hover:text-cyan-300 text-slate-200'
+                    : 'hover:bg-cyan-50 hover:text-cyan-800 text-slate-700'
+                }`}
               >
-                <Edit3 size={13} className="text-cyan-400 shrink-0" />
+                <Edit3 size={13} className="text-cyan-500 shrink-0" />
                 <span>Quick Edit Name & Summary</span>
               </button>
 
               {/* Action 3: Duplicate Scene */}
               <button
                 onClick={() => handleDuplicateBeat(menuBeat.id)}
-                className="w-full px-2 py-1.5 rounded-lg hover:bg-white/5 hover:text-emerald-300 flex items-center gap-2 text-left cursor-pointer transition-colors"
+                className={`w-full px-2 py-1.5 rounded-lg flex items-center gap-2 text-left cursor-pointer transition-colors ${
+                  currentTheme.isDark
+                    ? 'hover:bg-white/5 hover:text-emerald-300 text-slate-200'
+                    : 'hover:bg-emerald-50 hover:text-emerald-800 text-slate-700'
+                }`}
               >
-                <Copy size={13} className="text-emerald-400 shrink-0" />
+                <Copy size={13} className="text-emerald-500 shrink-0" />
                 <span>Duplicate Scene</span>
               </button>
 
@@ -4079,20 +4160,22 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
                 disabled={!canSplit}
                 className={`w-full px-2 py-1.5 rounded-lg flex items-center gap-2 text-left transition-colors ${
                   canSplit
-                    ? 'hover:bg-white/5 hover:text-indigo-300 text-slate-200 cursor-pointer'
-                    : 'opacity-40 cursor-not-allowed text-slate-500'
+                    ? currentTheme.isDark
+                      ? 'hover:bg-white/5 hover:text-indigo-300 text-slate-200 cursor-pointer'
+                      : 'hover:bg-indigo-50 hover:text-indigo-800 text-slate-700 cursor-pointer'
+                    : currentTheme.isDark ? 'opacity-40 cursor-not-allowed text-slate-500' : 'opacity-40 cursor-not-allowed text-slate-400'
                 }`}
                 title={canSplit ? `Split scene at playhead page ${playheadPage.toFixed(1)}` : 'Position playhead inside scene to split'}
               >
-                <Scissors size={13} className="text-indigo-400 shrink-0" />
+                <Scissors size={13} className="text-indigo-500 shrink-0" />
                 <span>Split at Playhead {canSplit ? `(p.${playheadPage.toFixed(1)})` : ''}</span>
               </button>
 
-              <div className="h-px bg-white/5 my-0.5" />
+              <div className={`h-px my-0.5 ${currentTheme.isDark ? 'bg-white/5' : 'bg-slate-200'}`} />
 
               {/* Action 5: Move to Track */}
               <div className="px-2 py-1">
-                <div className="text-[9px] uppercase font-mono text-slate-500 mb-1 flex items-center justify-between">
+                <div className={`text-[9px] uppercase font-mono mb-1 flex items-center justify-between ${currentTheme.isDark ? 'text-slate-500' : 'text-slate-500 font-semibold'}`}>
                   <span>Move to Track</span>
                   <ArrowLeftRight size={10} />
                 </div>
@@ -4104,8 +4187,8 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
                       style={{ borderColor: `${t.color}60` }}
                       className={`px-1 py-1 rounded text-[10px] font-mono font-bold border transition-colors cursor-pointer text-center ${
                         menuBeat.timelineTrackIdx === idx && menuBeat.timelineSubtrackIdx === 0
-                          ? 'bg-white/20 text-white'
-                          : 'bg-white/5 hover:bg-white/10 text-slate-300'
+                          ? currentTheme.isDark ? 'bg-white/20 text-white' : 'bg-slate-900 text-white'
+                          : currentTheme.isDark ? 'bg-white/5 hover:bg-white/10 text-slate-300' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
                       }`}
                       title={t.label}
                     >
@@ -4115,12 +4198,16 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
                 </div>
               </div>
 
-              <div className="h-px bg-white/5 my-0.5" />
+              <div className={`h-px my-0.5 ${currentTheme.isDark ? 'bg-white/5' : 'bg-slate-200'}`} />
 
               {/* Action 6: Delete Scene */}
               <button
                 onClick={() => handleDeleteBeatFromMenu(menuBeat.id)}
-                className="w-full px-2 py-1.5 rounded-lg hover:bg-red-500/15 text-red-400 hover:text-red-300 flex items-center gap-2 text-left cursor-pointer transition-colors"
+                className={`w-full px-2 py-1.5 rounded-lg flex items-center gap-2 text-left cursor-pointer transition-colors ${
+                  currentTheme.isDark
+                    ? 'hover:bg-red-500/15 text-red-400 hover:text-red-300'
+                    : 'hover:bg-red-50 text-red-600 hover:text-red-700'
+                }`}
               >
                 <Trash2 size={13} className="shrink-0" />
                 <span className="font-semibold">Delete Scene</span>
@@ -4152,11 +4239,15 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
       {showGroupModal && (
         <div className="fixed inset-0 z-[99999] flex items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in">
           <div 
-            className="w-96 bg-[#131522] border border-[#2c3048] rounded-2xl p-5 shadow-2xl text-slate-100 animate-in zoom-in-95"
+            className={`w-96 rounded-2xl p-5 shadow-2xl animate-in zoom-in-95 border ${
+              currentTheme.isDark 
+                ? 'bg-[#131522] border-[#2c3048] text-slate-100' 
+                : 'bg-white border-slate-300 text-slate-800'
+            }`}
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between pb-3 mb-3.5 border-b border-white/10">
-              <div className="flex items-center gap-2 font-mono font-bold text-sm text-cyan-400">
+            <div className={`flex items-center justify-between pb-3 mb-3.5 border-b ${currentTheme.isDark ? 'border-white/10' : 'border-slate-200'}`}>
+              <div className={`flex items-center gap-2 font-mono font-bold text-sm ${currentTheme.isDark ? 'text-cyan-400' : 'text-cyan-700'}`}>
                 <Layers size={16} />
                 <span>Create Sequence Group</span>
               </div>
@@ -4165,19 +4256,21 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
                   setShowGroupModal(false);
                   setMarqueeSelectedBeatIds([]);
                 }}
-                className="p-1 rounded-lg hover:bg-white/10 text-slate-400 hover:text-white cursor-pointer"
+                className={`p-1 rounded-lg cursor-pointer transition-colors ${
+                  currentTheme.isDark ? 'hover:bg-white/10 text-slate-400 hover:text-white' : 'hover:bg-slate-100 text-slate-500 hover:text-slate-800'
+                }`}
               >
                 <X size={14} />
               </button>
             </div>
 
-            <div className="text-xs text-slate-400 mb-3">
-              Group <span className="font-bold text-cyan-300">{marqueeSelectedBeatIds.length} selected scenes</span> into a cohesive narrative sequence with vertical lane shading.
+            <div className={`text-xs mb-3 ${currentTheme.isDark ? 'text-slate-400' : 'text-slate-600'}`}>
+              Group <span className={`font-bold ${currentTheme.isDark ? 'text-cyan-300' : 'text-cyan-700'}`}>{marqueeSelectedBeatIds.length} selected scenes</span> into a cohesive narrative sequence with vertical lane shading.
             </div>
 
             {/* Sequence Title */}
             <div className="mb-3.5">
-              <label className="block text-[10px] uppercase font-mono text-slate-400 mb-1">Sequence / Group Title</label>
+              <label className={`block text-[10px] uppercase font-mono mb-1 ${currentTheme.isDark ? 'text-slate-400' : 'text-slate-600 font-semibold'}`}>Sequence / Group Title</label>
               <input
                 type="text"
                 autoFocus
@@ -4193,13 +4286,17 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
                   }
                 }}
                 placeholder="e.g. Inciting Incident & Escape..."
-                className="w-full bg-[#1c2033] border border-[#2d334e] focus:border-cyan-400 rounded-lg px-3 py-2 text-sm text-white font-semibold outline-none"
+                className={`w-full rounded-lg px-3 py-2 text-sm font-semibold outline-none border transition-colors ${
+                  currentTheme.isDark
+                    ? 'bg-[#1c2033] border-[#2d334e] focus:border-cyan-400 text-white'
+                    : 'bg-slate-50 border-slate-300 focus:border-cyan-600 text-slate-900'
+                }`}
               />
             </div>
 
             {/* Sequence Color Swatch */}
             <div className="mb-4">
-              <label className="block text-[10px] uppercase font-mono text-slate-400 mb-1.5">Sequence Color</label>
+              <label className={`block text-[10px] uppercase font-mono mb-1.5 ${currentTheme.isDark ? 'text-slate-400' : 'text-slate-600 font-semibold'}`}>Sequence Color</label>
               <div className="grid grid-cols-5 gap-1.5">
                 {TRACK_PALETTE_COLORS.map(p => (
                   <button
@@ -4208,7 +4305,9 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
                     onClick={() => setNewGroupColor(p.hex)}
                     style={{ backgroundColor: p.hex }}
                     className={`h-7 rounded-lg flex items-center justify-center cursor-pointer transition-transform ${
-                      newGroupColor === p.hex ? 'ring-2 ring-white scale-110 shadow-md' : 'opacity-70 hover:opacity-100'
+                      newGroupColor === p.hex 
+                        ? currentTheme.isDark ? 'ring-2 ring-white scale-110 shadow-md' : 'ring-2 ring-slate-900 scale-110 shadow-md' 
+                        : 'opacity-70 hover:opacity-100'
                     }`}
                   >
                     {newGroupColor === p.hex && <Check size={12} className="text-black font-black" />}
@@ -4218,14 +4317,16 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
             </div>
 
             {/* Footer Buttons */}
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-white/5">
+            <div className={`flex items-center justify-end gap-2 pt-2 border-t ${currentTheme.isDark ? 'border-white/5' : 'border-slate-200'}`}>
               <button
                 type="button"
                 onClick={() => {
                   setShowGroupModal(false);
                   setMarqueeSelectedBeatIds([]);
                 }}
-                className="px-3 py-1.5 rounded-lg hover:bg-white/5 text-xs text-slate-400 hover:text-white cursor-pointer"
+                className={`px-3 py-1.5 rounded-lg text-xs cursor-pointer transition-colors ${
+                  currentTheme.isDark ? 'hover:bg-white/5 text-slate-400 hover:text-white' : 'hover:bg-slate-100 text-slate-600 hover:text-slate-900'
+                }`}
               >
                 Cancel
               </button>
@@ -4241,6 +4342,22 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
           </div>
         </div>
       )}
+
+      {/* 8. Script Rolling Preview / Teleprompter Popup Window */}
+      <ScriptRollingPreviewModal
+        isOpen={isScriptRollingOpen}
+        onClose={() => setIsScriptRollingOpen(false)}
+        isPlaying={isPlaying}
+        onTogglePlay={handleTogglePlay}
+        playheadPage={playheadPage}
+        onSeek={(p) => setPlayheadPage(p)}
+        beats={beatsWithTimeline}
+        totalScreenplayPages={totalScreenplayPages}
+        appAccentColor={currentTheme.accent || appAccentColor}
+        playbackSpeed={playbackSpeed}
+        onPlaybackSpeedChange={setPlaybackSpeed}
+        dawThemeIsDark={currentTheme.isDark}
+      />
 
     </div>
   );

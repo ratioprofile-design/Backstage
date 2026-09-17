@@ -15,7 +15,7 @@ import {
   BoxSelect, Scan, Grid, Zap, Cloud, AlertTriangle, RefreshCw, Wand2,
   Moon, Sun, Coffee, Download, XCircle, Sparkles, Wifi, ShieldCheck, ShieldAlert,
   Key, Cpu, ListChecks, StickyNote, List, Hash, RotateCw, CheckSquare, Quote, WifiOff,
-  Palette, Languages, CheckCircle2, ChevronRight, Folder, Pipette, Layout
+  Palette, Languages, CheckCircle2, ChevronRight, Folder, Pipette, Layout, X
 } from 'lucide-react';
 import PrintPreviewModal from '../PrintPreviewModal';
 import { 
@@ -27,6 +27,8 @@ import { BlockEditor } from '../BlockEditor';
 import { isSupabaseConfigured } from '../../services/supabase';
 import { testApiKey, testGrokKey } from '../../services/gemini';
 import { useAiKeyStatus } from '../../context/AiKeyStatusContext';
+import { ThemeAnimationSelector } from '../ThemeAnimationSelector';
+import { translateUi } from '../../services/appTranslations';
 
 const TEXT_COLORS = [
   { name: 'Black', value: '#000000', class: 'bg-black' },
@@ -85,39 +87,49 @@ const SidebarItem = ({ active, onClick, icon: Icon, label, desc, accentColor = '
   </button>
 );
 
-const ViewContainer = ({ title, subtitle, children }: any) => (
-  <div className="flex-1 overflow-y-auto p-6 md:p-10 animate-in fade-in duration-300">
-    <div className="max-w-5xl mx-auto">
-        <div className="mb-8 pb-4 border-b border-[#222]">
-            <h3 className="text-2xl font-black text-white uppercase tracking-tighter mb-1">{title}</h3>
-            {subtitle && <p className="text-xs font-mono text-gray-500 uppercase tracking-widest">{subtitle}</p>}
-        </div>
-        {children}
-    </div>
-  </div>
-);
-
-const LargeActionCard = ({ onClick, icon: Icon, title, desc, accent, disabled, accentColor = '#f5a623' }: any) => (
-  <div 
-    onClick={disabled ? undefined : onClick} 
-    className={`bg-[#111] p-6 rounded-sm border border-[#222] transition-all relative overflow-hidden ${
-      disabled ? 'opacity-50 cursor-not-allowed' : 'hover:border-[#444] cursor-pointer hover:bg-[#151515] group h-full flex flex-col'
-    }`}
-  >
-    {!disabled && (
-        <div className={`absolute top-0 right-0 p-4 opacity-10 transition-opacity group-hover:opacity-20 ${accent ? accent : 'text-gray-500'}`}>
-            <Icon size={64} />
-        </div>
-    )}
-    <div className="flex items-center gap-4 mb-3 relative z-10">
-      <div className="p-2.5 bg-[#000] border border-[#333] rounded-sm transition-colors">
-        <Icon size={20} className={disabled ? 'text-gray-700' : 'text-gray-300 group-hover:text-white'} />
+const ViewContainer = ({ title, subtitle, children }: any) => {
+  const { appLanguage } = useProject();
+  const localizedTitle = translateUi(title, appLanguage);
+  const localizedSubtitle = subtitle ? translateUi(subtitle, appLanguage) : '';
+  return (
+    <div className="flex-1 overflow-y-auto p-6 md:p-10 animate-in fade-in duration-300">
+      <div className="max-w-5xl mx-auto">
+          <div className="mb-8 pb-4 border-b border-[#222]">
+              <h3 className="text-2xl font-black text-white uppercase tracking-tighter mb-1">{localizedTitle}</h3>
+              {localizedSubtitle && <p className="text-xs font-mono text-gray-500 uppercase tracking-widest">{localizedSubtitle}</p>}
+          </div>
+          {children}
       </div>
-      <span className={`text-sm font-bold uppercase tracking-wider ${disabled ? 'text-gray-600' : 'text-gray-100'}`}>{title}</span>
     </div>
-    <p className={`text-[11px] font-mono leading-relaxed relative z-10 ${disabled ? 'text-gray-700' : 'text-gray-400'}`}>{desc}</p>
-  </div>
-);
+  );
+};
+
+const LargeActionCard = ({ onClick, icon: Icon, title, desc, accent, disabled, accentColor = '#f5a623' }: any) => {
+  const { appLanguage } = useProject();
+  const localizedTitle = translateUi(title, appLanguage);
+  const localizedDesc = desc ? translateUi(desc, appLanguage) : '';
+  return (
+    <div 
+      onClick={disabled ? undefined : onClick} 
+      className={`bg-[#111] p-6 rounded-sm border border-[#222] transition-all relative overflow-hidden ${
+        disabled ? 'opacity-50 cursor-not-allowed' : 'hover:border-[#444] cursor-pointer hover:bg-[#151515] group h-full flex flex-col'
+      }`}
+    >
+      {!disabled && (
+          <div className={`absolute top-0 right-0 p-4 opacity-10 transition-opacity group-hover:opacity-20 ${accent ? accent : 'text-gray-500'}`}>
+              <Icon size={64} />
+          </div>
+      )}
+      <div className="flex items-center gap-4 mb-3 relative z-10">
+        <div className="p-2.5 bg-[#000] border border-[#333] rounded-sm transition-colors">
+          <Icon size={20} className={disabled ? 'text-gray-700' : 'text-gray-300 group-hover:text-white'} />
+        </div>
+        <span className={`text-sm font-bold uppercase tracking-wider ${disabled ? 'text-gray-600' : 'text-gray-100'}`}>{localizedTitle}</span>
+      </div>
+      <p className={`text-[11px] font-mono leading-relaxed relative z-10 ${disabled ? 'text-gray-700' : 'text-gray-400'}`}>{localizedDesc}</p>
+    </div>
+  );
+};
 
 const Label = ({ children }: any) => (
   <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-2">{children}</label>
@@ -215,9 +227,10 @@ const ColorPicker = ({ value, onChange }: { value: string; onChange: (v: string)
 
 interface BackstageViewProps {
   onNavigateToBoard?: () => void;
+  onClose?: () => void;
 }
 
-const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
+const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard, onClose }) => {
   const { 
     scriptConfig, setScriptConfig, scriptViewMode, setScriptViewMode,
     isTamilMode, setTamilMode, 
@@ -244,7 +257,7 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
 
   const isLight = appTheme === 'light' || (appTheme === 'system' && typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: light)').matches);
 
-  const [activeCategory, setActiveCategory] = useState<'appearance' | 'project' | 'formatting' | 'scratchpad' | 'board' | 'ai' | 'features'>('appearance');
+  const [activeCategory, setActiveCategory] = useState<'project' | 'appearance' | 'formatting' | 'scratchpad' | 'board' | 'ai' | 'features'>('project');
   const [selectedFormatElement, setSelectedFormatElement] = useState<keyof ScriptConfig | 'visualization'>('action');
   
   // Preview States
@@ -332,7 +345,8 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
       reader.onload = (event) => {
         try {
           const data = JSON.parse(event.target?.result as string);
-          loadProject(data);
+          const projName = file.name.replace(/\.[^/.]+$/, "");
+          loadProject(data, { projectName: projName });
           alert("Project Loaded Successfully!");
           if (onNavigateToBoard) {
             onNavigateToBoard();
@@ -364,7 +378,8 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
           if (fs) {
             const content = await fs.readTextFile(selected as string);
             const data = JSON.parse(content);
-            loadProject(data);
+            const projName = (selected as string).split(/[/\\]/).pop()?.replace(/\.[^/.]+$/, '') || 'Imported Project';
+            loadProject(data, { projectName: projName });
             setFilePath(selected as string);
             addRecentFile(selected as string);
             alert("Project Loaded Successfully!");
@@ -485,76 +500,85 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
         <div className={`w-64 border-r flex flex-col shrink-0 z-20 shadow-xl ${isLight ? 'bg-white border-slate-200' : 'bg-[#0a0a0a] border-[#222]'}`}>
            <div className="p-6">
               <h2 className="text-xs font-black uppercase tracking-[0.2em] flex items-center gap-2 mb-1" style={{ color: appAccentColor }}>
-                  <SettingsIcon size={14} /> Backstage Settings
+                  <SettingsIcon size={14} /> {translateUi('Backstage Settings', appLanguage)}
               </h2>
-              <p className="text-[10px] text-gray-500 font-mono">SYSTEM & DISPLAY CONFIG</p>
+              <p className="text-[10px] text-gray-500 font-mono">{translateUi('SYSTEM & DISPLAY CONFIG', appLanguage)}</p>
            </div>
            
            <nav className="flex-1 space-y-px mt-1 overflow-y-auto">
               <SidebarItem 
-                  active={activeCategory === 'appearance'} 
-                  onClick={() => setActiveCategory('appearance')} 
-                  icon={Palette} 
-                  label="Appearance & Themes" 
-                  desc="Dark/Light Mode & Colors"
-                  accentColor={appAccentColor}
-              />
-              <SidebarItem 
                   active={activeCategory === 'project'} 
                   onClick={() => setActiveCategory('project')} 
                   icon={Save} 
-                  label="Project & Files" 
-                  desc="Save, Load & Export"
+                  label={translateUi('Project & Files', appLanguage)} 
+                  desc={translateUi('Save, Load & Export', appLanguage)}
+                  accentColor={appAccentColor}
+              />
+              <SidebarItem 
+                  active={activeCategory === 'appearance'} 
+                  onClick={() => setActiveCategory('appearance')} 
+                  icon={Palette} 
+                  label={translateUi('Appearance & Themes', appLanguage)} 
+                  desc={translateUi('Dark/Light Mode & Colors', appLanguage)}
                   accentColor={appAccentColor}
               />
               <SidebarItem 
                   active={activeCategory === 'formatting'} 
                   onClick={() => setActiveCategory('formatting')} 
                   icon={Type} 
-                  label="Script Typography" 
-                  desc="Fonts, Spacing & Layout"
+                  label={translateUi('Script Typography', appLanguage)} 
+                  desc={translateUi('Fonts, Spacing & Layout', appLanguage)}
                   accentColor={appAccentColor}
               />
               <SidebarItem 
                   active={activeCategory === 'scratchpad'} 
                   onClick={() => setActiveCategory('scratchpad')} 
                   icon={StickyNote} 
-                  label="Notes & Scratchpad" 
-                  desc="Editor & Markdown Style"
+                  label={translateUi('Notes & Scratchpad', appLanguage)} 
+                  desc={translateUi('Editor & Markdown Style', appLanguage)}
                   accentColor={appAccentColor}
               />
               <SidebarItem 
                   active={activeCategory === 'board'} 
                   onClick={() => setActiveCategory('board')} 
                   icon={Layers} 
-                  label="Board Layers" 
-                  desc="Z-Index Layer Stack"
+                  label={translateUi('Board Layers', appLanguage)} 
+                  desc={translateUi('Z-Index Layer Stack', appLanguage)}
                   accentColor={appAccentColor}
               />
               <SidebarItem 
                   active={activeCategory === 'ai'} 
                   onClick={() => setActiveCategory('ai')} 
                   icon={Sparkles} 
-                  label="AI" 
-                  desc="Models, Keys & Assistant"
+                  label={translateUi('AI', appLanguage)} 
+                  desc={translateUi('Models, Keys & Assistant', appLanguage)}
                   accentColor={appAccentColor}
               />
               <SidebarItem 
                   active={activeCategory === 'features'} 
                   onClick={() => setActiveCategory('features')} 
                   icon={Sliders} 
-                  label="System Tools" 
-                  desc="Tamil, OS Keys & Exports"
+                  label={translateUi('System Tools', appLanguage)} 
+                  desc={translateUi('Tamil, OS Keys & Exports', appLanguage)}
                   accentColor={appAccentColor}
               />
            </nav>
            
-           <div className="p-4 border-t border-[#222]">
+           <div className="p-4 border-t border-[#222] space-y-2">
+              {onClose && (
+                <button 
+                    onClick={onClose}
+                    className="w-full py-2.5 rounded-sm font-bold text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-2 cursor-pointer shadow-sm hover:brightness-110"
+                    style={{ backgroundColor: appAccentColor, color: '#000' }}
+                >
+                    <Check size={14} /> {translateUi('Done / Close', appLanguage)}
+                </button>
+              )}
               <button 
                   onClick={closeProject}
-                  className="w-full py-3 rounded-sm border border-red-900/30 bg-red-900/5 text-red-500 hover:bg-red-900/20 hover:text-red-400 text-[10px] font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 group"
+                  className="w-full py-2.5 rounded-sm border border-red-900/30 bg-red-900/5 text-red-500 hover:bg-red-900/20 hover:text-red-400 text-[10px] font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 group cursor-pointer"
               >
-                  <LogOut size={12} className="group-hover:-translate-x-1 transition-transform"/> Exit Project
+                  <LogOut size={12} className="group-hover:-translate-x-1 transition-transform"/> {translateUi('Exit Project', appLanguage)}
               </button>
            </div>
         </div>
@@ -565,6 +589,23 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
               className="absolute top-0 right-0 w-[500px] h-[500px] rounded-full blur-[120px] pointer-events-none -translate-y-1/2 translate-x-1/3 opacity-15"
               style={{ backgroundColor: appAccentColor }}
             />
+
+            {onClose && (
+              <div className="absolute top-4 right-6 z-30 flex items-center gap-2">
+                <button
+                  onClick={onClose}
+                  className={`px-3 py-1.5 rounded-lg border transition-all flex items-center gap-1.5 cursor-pointer shadow-md text-xs font-bold uppercase tracking-wider ${
+                    isLight 
+                      ? 'bg-white/95 border-slate-300 text-slate-700 hover:text-black hover:bg-white hover:border-slate-400 shadow-slate-200' 
+                      : 'bg-[#18181c]/95 border-[#333] text-gray-300 hover:text-white hover:bg-[#222228] hover:border-gray-500'
+                  }`}
+                  title="Close Backstage Settings (Esc)"
+                >
+                  <X size={14} />
+                  <span>{translateUi('Close', appLanguage)}</span>
+                </button>
+              </div>
+            )}
 
             {/* TAB 1: APPEARANCE & THEMES */}
             {activeCategory === 'appearance' && (
@@ -644,7 +685,7 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
                             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-6">
                               {/* Dark Mode Option */}
                               <div 
-                                onClick={() => setAppTheme('dark')}
+                                onClick={(e) => setAppTheme('dark', e)}
                                 className={`p-5 rounded-lg border cursor-pointer transition-all flex flex-col justify-between h-32 relative overflow-hidden group ${
                                   appTheme === 'dark' ? 'bg-[#181818] border-2 shadow-lg' : 'bg-[#0f0f0f] border-[#222] hover:border-[#444] hover:bg-[#141414]'
                                 }`}
@@ -664,7 +705,7 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
 
                               {/* Light Mode Option */}
                               <div 
-                                onClick={() => setAppTheme('light')}
+                                onClick={(e) => setAppTheme('light', e)}
                                 className={`p-5 rounded-lg border cursor-pointer transition-all flex flex-col justify-between h-32 relative overflow-hidden group ${
                                   appTheme === 'light' ? 'bg-[#181818] border-2 shadow-lg' : 'bg-[#0f0f0f] border-[#222] hover:border-[#444] hover:bg-[#141414]'
                                 }`}
@@ -684,7 +725,7 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
 
                               {/* System Preference */}
                               <div 
-                                onClick={() => setAppTheme('system')}
+                                onClick={(e) => setAppTheme('system', e)}
                                 className={`p-5 rounded-lg border cursor-pointer transition-all flex flex-col justify-between h-32 relative overflow-hidden group ${
                                   appTheme === 'system' ? 'bg-[#181818] border-2 shadow-lg' : 'bg-[#0f0f0f] border-[#222] hover:border-[#444] hover:bg-[#141414]'
                                 }`}
@@ -704,7 +745,12 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard }) => {
                             </div>
                         </div>
 
-                        {/* 2. ACCENT COLOR PALETTE */}
+                        {/* 2. THEME SWITCH ANIMATION STYLE */}
+                        <div className="md:col-span-2 bg-[#111] p-6 rounded-sm border border-[#222]">
+                          <ThemeAnimationSelector variant="detailed" columns={3} showTestButton={true} />
+                        </div>
+
+                        {/* 3. ACCENT COLOR PALETTE */}
                         <div className="md:col-span-2 bg-[#111] p-6 rounded-sm border border-[#222]">
                             <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
                               <div>
