@@ -19,8 +19,10 @@ import {
   Utensils,
   Calendar,
   Layers,
-  ClipboardList
+  ClipboardList,
+  Files
 } from 'lucide-react';
+import { saveCallSheetToVault } from '../../services/documentsStorage';
 
 const DEFAULT_CALL_SHEET: CallSheet = {
   id: 'cs-default',
@@ -102,9 +104,17 @@ export const CallSheetView: React.FC = () => {
     }
   });
 
+  const [vaultToast, setVaultToast] = useState<string | null>(null);
+
   const handleSave = () => {
     setIsEditing(false);
     localStorage.setItem('backstage_active_callsheet', JSON.stringify(sheetData));
+  };
+
+  const handleSaveToVault = () => {
+    saveCallSheetToVault(sheetData);
+    setVaultToast(`✓ Saved Shoot Day ${sheetData.shootDay} Call Sheet directly to Document Vault!`);
+    setTimeout(() => setVaultToast(null), 3000);
   };
 
   // Auto-Fill from project's beats (scenes) and characters
@@ -220,6 +230,17 @@ export const CallSheetView: React.FC = () => {
           )}
 
           <button
+            onClick={handleSaveToVault}
+            className={`px-3 py-1.5 text-xs font-bold rounded-lg border flex items-center gap-1.5 transition-colors ${
+              isLight ? 'bg-white hover:bg-slate-50 border-slate-200 text-slate-700' : 'bg-[#18181b] hover:bg-[#27272a] border-[#333] text-gray-200'
+            }`}
+            title="Archive this Call Sheet directly into the Production Document Vault"
+          >
+            <Files size={14} className="text-[#f5a623]" />
+            Save to Vault
+          </button>
+
+          <button
             onClick={() => window.print()}
             className="px-4 py-1.5 text-xs font-bold rounded-lg bg-[#f5a623] hover:bg-[#e09612] text-black flex items-center gap-1.5 shadow-sm transition-all"
           >
@@ -228,6 +249,13 @@ export const CallSheetView: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {vaultToast && (
+        <div className="fixed top-6 right-6 z-50 px-4 py-2.5 rounded-xl bg-emerald-600 text-white font-medium text-xs shadow-xl flex items-center gap-2 animate-in fade-in slide-in-from-top-3">
+          <Check size={16} />
+          {vaultToast}
+        </div>
+      )}
 
       {/* Official Call Sheet Paper Container */}
       <div className={`max-w-5xl mx-auto rounded-xl border p-8 shadow-2xl transition-all ${

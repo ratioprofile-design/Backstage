@@ -28,6 +28,7 @@ import { Archive } from 'lucide-react';
 // Trigger pagination pass with actualDomTop
 import { runLinePaginationPass, estimateBeatHeight, A4_PAGE_WRITABLE_HEIGHT } from '../../utils/screenplayPaginationEngine';
 import { isTauri } from '../../utils/desktop';
+import { saveVoiceNoteToVault } from '../../services/documentsStorage';
 
 const DEFAULT_STORYLINE_COLORS = (typeof STORYLINE_COLORS !== 'undefined' && Array.isArray(STORYLINE_COLORS)) 
   ? STORYLINE_COLORS 
@@ -913,6 +914,16 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'cast
           } else if (activeBeat) {
             const currentNotes = Array.isArray(activeBeat.notes) ? activeBeat.notes : [];
             updateBeat(activeBeat.id, { notes: [...currentNotes, newNote] });
+          }
+
+          // Automatically catalog into Document Vault
+          try {
+            const vaultTitle = activeBeat 
+              ? `Sc. ${activeBeat.sceneNumber || activeBeat.id} Voice Idea (${activeBeat.title || 'Scene'})` 
+              : `Voice Memo (${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})`;
+            saveVoiceNoteToVault(vaultTitle, base64Audio, recordingDuration || 15, `Voice memo recorded in Script View for ${activeBeat ? `Scene ${activeBeat.sceneNumber}` : 'Global Scratchpad'}`);
+          } catch (vErr) {
+            console.warn('Could not auto-save voice note to vault:', vErr);
           }
         };
         reader.readAsDataURL(blob);

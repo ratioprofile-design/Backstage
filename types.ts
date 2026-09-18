@@ -1085,14 +1085,47 @@ export interface DocumentAnnotation {
   replies?: CommentReply[];
 }
 
-export type DocumentFormat = 'pdf' | 'docx' | 'image' | 'sheet' | 'text' | 'breakdown' | 'callsheet' | 'lookbook' | 'script' | 'safety' | 'permit' | 'contract' | 'other';
+export type DocumentFormat = 
+  | 'pdf' 
+  | 'docx' 
+  | 'image' 
+  | 'sheet' 
+  | 'text' 
+  | 'breakdown' 
+  | 'callsheet' 
+  | 'lookbook' 
+  | 'script' 
+  | 'safety' 
+  | 'permit' 
+  | 'contract' 
+  | 'audio' 
+  | 'note' 
+  | 'snapshot' 
+  | 'export' 
+  | 'other';
+
+export type DocumentCategory = 
+  | 'SCRIPT' 
+  | 'LOOKBOOK' 
+  | 'CALLSHEET' 
+  | 'BREAKDOWN' 
+  | 'SCHEDULE' 
+  | 'STORYBOARD' 
+  | 'PERMIT' 
+  | 'SAFETY' 
+  | 'CONTRACT' 
+  | 'VOICE_NOTE' 
+  | 'NOTE' 
+  | 'SNAPSHOT' 
+  | 'EXPORT' 
+  | 'OTHER';
 
 export interface ProductionDocument {
   id: string;
   projectId?: string;
   title: string;
   titleTa?: string;
-  category: 'SCRIPT' | 'LOOKBOOK' | 'CALLSHEET' | 'BREAKDOWN' | 'SCHEDULE' | 'STORYBOARD' | 'PERMIT' | 'SAFETY' | 'CONTRACT' | 'OTHER';
+  category: DocumentCategory;
   fileName: string;
   fileSize?: string;
   fileType?: DocumentFormat;
@@ -1100,12 +1133,18 @@ export interface ProductionDocument {
   uploadedAt: string;
   pdfDataUrl?: string;
   imageDataUrl?: string;
+  audioUrl?: string;
+  durationSeconds?: number;
   htmlContent?: string;
   textContent?: string;
   sheetData?: any[][];
-  builtInType?: 'lookbook' | 'callsheet' | 'safety' | 'permit' | 'contract' | 'script' | 'breakdown' | 'schedule' | 'storyboard' | 'excalidraw';
+  builtInType?: 'lookbook' | 'callsheet' | 'safety' | 'permit' | 'contract' | 'script' | 'breakdown' | 'schedule' | 'storyboard' | 'excalidraw' | 'audio' | 'note' | 'snapshot' | 'export';
   annotations: DocumentAnnotation[];
   author?: string;
+  isArchived?: boolean;
+  archivedAt?: string;
+  tags?: string[];
+  status?: 'draft' | 'review' | 'approved' | 'confidential' | 'archived';
 }
 
 export interface CastCallItem {
