@@ -181,6 +181,16 @@ const AppContent: React.FC = () => {
   // Global Keyboard Shortcuts for Undo/Redo
   useEffect(() => {
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
+        const target = e.target as HTMLElement;
+        if (
+            ['INPUT', 'TEXTAREA', 'SELECT'].includes(target?.tagName) ||
+            target?.isContentEditable ||
+            target?.closest?.('[contenteditable="true"]') ||
+            target?.closest?.('.script-body')
+        ) {
+            return;
+        }
+
         // Industry standard shortcuts
         const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
         const cmd = isMac ? e.metaKey : e.ctrlKey;
@@ -273,18 +283,18 @@ const AppContent: React.FC = () => {
       {(currentView === 'board' || currentView === 'excalidraw') && (
         <div className="fixed inset-0 pointer-events-none z-[1000] overflow-hidden">
             {openBeatIds.map((id, index) => (
-              <div key={id} className="pointer-events-auto absolute" style={{ zIndex: 1000 + index }}>
-                  <EditorModal 
-                    beatId={id} 
-                    onClose={() => handleCloseBeat(id)} 
-                    onFocus={() => handleFocusBeat(id)}
-                    initialOffset={index * 30}
-                    onViewInScript={() => {
-                      handleCloseBeat(id);
-                      setCurrentView('script');
-                    }}
-                  />
-              </div>
+              <EditorModal 
+                key={id}
+                beatId={id} 
+                zIndex={1000 + index}
+                onClose={() => handleCloseBeat(id)} 
+                onFocus={() => handleFocusBeat(id)}
+                initialOffset={index * 35}
+                onViewInScript={() => {
+                  handleCloseBeat(id);
+                  setCurrentView('script');
+                }}
+              />
             ))}
         </div>
       )}

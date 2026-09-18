@@ -229,7 +229,7 @@ export const getBeatTitleWidth = (title?: string): number => {
 export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
   const { 
     beats, setBeats, updateBeat, captureSnapshot,
-    currentProjectId, groups, addGroup, connections,
+    currentProjectId, groups, addGroup, connections, activeBoardId,
     appTheme, appAccentColor = '#f5a623', appLanguage = 'english'
   } = useProject();
   const { aiAvailable } = useAiKeyStatus();
@@ -1027,7 +1027,20 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
   // Keyboard shortcut listener (Space = Play/Pause, +/= = Zoom In, -/_ = Zoom Out)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement)?.tagName)) return;
+      const target = e.target as HTMLElement;
+      if (
+        ['INPUT', 'TEXTAREA', 'SELECT'].includes(target?.tagName) ||
+        target?.isContentEditable ||
+        target?.closest?.('[contenteditable="true"]') ||
+        target?.closest?.('.script-body') ||
+        target?.closest?.('.slug-input') ||
+        target?.closest?.('[role="dialog"]') ||
+        target?.closest?.('.modal-container') ||
+        target?.closest?.('.window-drag-handle') ||
+        target?.closest?.('.fixed')
+      ) {
+        return;
+      }
 
       // Zoom In: + or =
       if (e.key === '+' || e.key === '=' || e.code === 'Equal' || e.code === 'NumpadAdd') {
@@ -1081,7 +1094,7 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
         e.preventDefault();
         setIsTerminalOpen(p => !p);
       } else if (e.code === 'Delete' || e.code === 'Backspace') {
-        if (selectedBeatId !== null) {
+        if (selectedBeatId !== null && !inlineEditState) {
           e.preventDefault();
           setBeats(beats.filter(b => b.id !== selectedBeatId));
           captureSnapshot();
@@ -1791,13 +1804,14 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
       title: newBeatTitle,
       sceneNumber: String(beats.length + 1),
       summary: '',
-      slug: { prefix: 'INT.', location: 'SCENE LOCATION', time: 'DAY' },
-      content: '<p>Scene action begins...</p>',
+      slug: { prefix: '', location: '', time: '' },
+      content: '<div class="sc-line sc-action"><br></div>',
       trackIndex: safeTrackIdx,
       subtrackIndex: safeSubtrackIdx,
       startTime: startPage,
       durationWidth: defaultPages * pixelsPerPage,
-      tension: 50
+      tension: 50,
+      boardId: (activeBoardId !== undefined ? activeBoardId : 0)
     };
     (newBeat as any).durationPages = defaultPages;
 
@@ -1909,7 +1923,7 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
       title: `${b.title} (Part 2)`,
       sceneNumber: `${b.sceneNumber || '1'}B`,
       summary: b.summary || '',
-      slug: b.slug ? { ...b.slug } : { prefix: 'INT.', location: 'SCENE LOCATION', time: 'CONTINUOUS' },
+      slug: b.slug ? { ...b.slug } : { prefix: 'INT.', location: '', time: 'CONTINUOUS' },
       content: b.content || '',
       trackIndex: b.timelineTrackIdx,
       subtrackIndex: b.timelineSubtrackIdx,
@@ -2542,12 +2556,14 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
 
     const autoNum = autoSceneMap.get(beat.id) ?? 1;
     const sceneNo = autoNumberingEnabled ? String(autoNum) : (beat.sceneNumber || String(autoNum));
-    const slugPrefix = (beat.slug?.prefix || 'INT.').trim();
-    const slugLoc = (beat.slug?.location || 'SCENE').trim();
+    const slugPrefix = (beat.slug?.prefix || '').trim();
+    const slugLoc = (beat.slug?.location || '').trim();
     const slugTime = (beat.slug?.time || '').trim();
-    const locationAndSetting = slugTime 
-      ? `${slugPrefix} ${slugLoc} - ${slugTime}` 
-      : `${slugPrefix} ${slugLoc}`;
+    const locationAndSetting = slugLoc 
+      ? (slugTime 
+          ? `${slugPrefix ? slugPrefix + ' ' : ''}${slugLoc} - ${slugTime}` 
+          : `${slugPrefix ? slugPrefix + ' ' : ''}${slugLoc}`)
+      : (slugPrefix ? slugPrefix : 'UNASSIGNED SCENE');
     const beatName = beat.title || 'Untitled Beat';
     const cleanSummary = (beat.summary || '').trim();
     const subBadgeLabel = subIdx === 0 ? `V${beat.timelineTrackIdx + 1}` : `${beat.timelineTrackIdx + 1}.${subIdx}`;

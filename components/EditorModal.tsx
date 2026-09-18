@@ -1,4 +1,3 @@
-
 import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { useProject } from '../context/ProjectContext';
 import { ScriptEditor } from './ScriptEditor';
@@ -9,13 +8,11 @@ import {
   X, Save, CheckCircle2, Cloud, 
   Clock, Bold, Italic, Underline,
   Palette, Highlighter, ChevronDown,
-  AlignLeft, Hash, Type, History, RotateCcw,
-  Check, CircleDashed, ArchiveRestore, Plus,
-  Layers, ChevronRight, GripHorizontal, Calendar,
-  PanelLeft, Lock, StickyNote, Trash2, Columns2, Split,
-  FileText,
-  PenTool,
-  GripVertical
+  AlignLeft, Type, History, RotateCcw,
+  CircleDashed, ArchiveRestore, Plus,
+  Layers, ChevronRight, GripHorizontal,
+  PanelLeft, Lock, StickyNote, Trash2, Columns2,
+  PenTool, GripVertical, Minus, Maximize2, Minimize2
 } from 'lucide-react';
 import DiffModal from './DiffModal';
 import { BlockEditor } from './BlockEditor';
@@ -25,11 +22,17 @@ interface EditorModalProps {
   onClose: () => void;
   onViewInScript?: () => void;
   onFocus?: () => void;
+  onMinimize?: () => void;
   initialOffset?: number;
+  zIndex?: number;
+  isActive?: boolean;
+  isMinimized?: boolean;
+  forcedPosition?: { x: number; y: number } | null;
 }
 
 const TEXT_COLORS = [
     { label: 'White', value: '#ffffff' },
+    { label: 'Black', value: '#000000' },
     { label: 'Amber', value: '#f5a623' },
     { label: 'Red', value: '#ef4444' },
     { label: 'Blue', value: '#3b82f6' },
@@ -46,7 +49,7 @@ const HILITE_COLORS = [
     { label: 'Blue', value: 'rgba(59,130,246,0.3)' },
 ];
 
-const ColorDropdown = ({ icon: Icon, type, title, options, onSelect }: any) => {
+const ColorDropdown = ({ icon: Icon, type, title, options, onSelect, isLight }: any) => {
     const [isOpen, setIsOpen] = useState(false);
     const containerRef = useRef<HTMLDivElement>(null);
 
@@ -64,19 +67,25 @@ const ColorDropdown = ({ icon: Icon, type, title, options, onSelect }: any) => {
         <div className="relative" ref={containerRef}>
             <button 
                 onMouseDown={(e) => { e.preventDefault(); setIsOpen(!isOpen); }}
-                className={`h-6 px-1.5 rounded-none flex items-center gap-1 transition-all duration-300 ${
+                className={`h-6 px-1.5 rounded flex items-center gap-1 transition-all duration-200 ${
                     isOpen 
-                    ? 'bg-[#f5a623]/20 text-[#f5a623]' 
-                    : 'text-gray-400 hover:text-white hover:bg-white/10'
+                    ? 'bg-amber-500/20 text-amber-500' 
+                    : isLight 
+                      ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/70' 
+                      : 'text-gray-400 hover:text-white hover:bg-white/10'
                 }`}
                 title={title}
             >
-                <Icon size={14} />
+                <Icon size={13} />
                 <ChevronDown size={10} className="opacity-50" />
             </button>
             
             {isOpen && (
-                <div className="absolute top-full right-0 mt-1 bg-[#222] border border-[#333] shadow-xl p-2 z-50 grid grid-cols-5 gap-1 w-48 rounded-none">
+                <div className={`absolute top-full right-0 mt-1 border shadow-2xl p-2 z-50 grid grid-cols-4 gap-1.5 w-44 rounded-lg ${
+                    isLight 
+                      ? 'bg-white border-slate-200 shadow-slate-400/20' 
+                      : 'bg-[#1e2028] border-[#333644] shadow-black/80'
+                }`}>
                     {options.map((opt: any) => (
                         <button
                             key={opt.value || 'none'}
@@ -85,7 +94,9 @@ const ColorDropdown = ({ icon: Icon, type, title, options, onSelect }: any) => {
                                 onSelect(opt.value);
                                 setIsOpen(false);
                             }}
-                            className="w-6 h-6 border border-white/10 hover:scale-110 transition-transform relative rounded-none"
+                            className={`w-7 h-7 border rounded hover:scale-110 transition-transform relative ${
+                                isLight ? 'border-slate-300' : 'border-white/15'
+                            }`}
                             style={{ backgroundColor: opt.value || 'transparent' }}
                             title={opt.label}
                         >
@@ -165,9 +176,24 @@ const calculateGraphOrder = (beats: Beat[], connections: Connection[]) => {
     return { connectedSet, orders };
 };
 
-const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScript, onFocus, initialOffset = 0 }) => {
-  const { beats, updateBeat, scriptConfig, groups, connections, setConnections, scratchpadConfig, captureSnapshot } = useProject();
+export const EditorModal: React.FC<EditorModalProps> = ({ 
+  beatId, 
+  onClose, 
+  onViewInScript, 
+  onFocus, 
+  onMinimize,
+  initialOffset = 0, 
+  zIndex = 1000,
+  isActive = true,
+  isMinimized = false,
+  forcedPosition = null
+}) => {
+  const { 
+    beats, updateBeat, groups, connections, scratchpadConfig, appTheme 
+  } = useProject();
   
+  const isLight = appTheme === 'light' || (appTheme === 'system' && typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: light)').matches);
+
   const beat = beats.find(b => b.id === beatId);
   const isReady = beat?.status === 'ready';
   const isReadOnly = isReady; 
@@ -185,20 +211,64 @@ const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScri
   const [diffVersion, setDiffVersion] = useState<BeatVersion | null>(null);
   const [confirmDeleteNoteId, setConfirmDeleteNoteId] = useState<string | null>(null);
   const [isDualView, setIsDualView] = useState(false);
+  const [isMaximized, setIsMaximized] = useState(false);
   const [isDraggingWindow, setIsDraggingWindow] = useState(false);
+
+  // Persistent coordinate state - prevents window jumping on focus or parent re-renders
+  const [position, setPosition] = useState<{ x: number; y: number }>(() => {
+    const defaultX = Math.max(20, Math.min(window.innerWidth - 450, 90 + (initialOffset || 0)));
+    const defaultY = Math.max(20, Math.min(window.innerHeight - 350, 70 + (initialOffset || 0)));
+    return { x: defaultX, y: defaultY };
+  });
+
+  useEffect(() => {
+    if (forcedPosition) {
+      setPosition(forcedPosition);
+    }
+  }, [forcedPosition]);
 
   const modalRef = useRef<HTMLDivElement>(null);
   const summaryRef = useRef<HTMLTextAreaElement>(null);
   const [showSidebar, setShowSidebar] = useState(false);
-  const dragInfo = useRef({ pos1: 0, pos2: 0, pos3: 0, pos4: 0 });
 
-  useEffect(() => {
-      if (modalRef.current) {
-          const startTop = 80 + (initialOffset || 0);
-          const startLeft = 100 + (initialOffset || 0);
-          modalRef.current.style.top = `${startTop}px`;
-          modalRef.current.style.left = `${startLeft}px`;
-      }
+  // High-performance pointer capture drag state (zero layout thrashing, 240fps smooth)
+  const dragRef = useRef<{
+    isDragging: boolean;
+    startX: number;
+    startY: number;
+    initialLeft: number;
+    initialTop: number;
+    currentDx: number;
+    currentDy: number;
+    rafId: number | null;
+  }>({
+    isDragging: false,
+    startX: 0,
+    startY: 0,
+    initialLeft: 0,
+    initialTop: 0,
+    currentDx: 0,
+    currentDy: 0,
+    rafId: null
+  });
+
+  const updateTransform = useCallback(() => {
+    if (!modalRef.current || !dragRef.current.isDragging) return;
+
+    const modalWidth = modalRef.current.offsetWidth || 720;
+    const minLeft = 10;
+    const maxLeft = Math.max(10, window.innerWidth - 100);
+    const minTop = 10;
+    const maxTop = Math.max(10, window.innerHeight - 50);
+
+    const targetLeft = Math.max(minLeft, Math.min(maxLeft, dragRef.current.initialLeft + dragRef.current.currentDx));
+    const targetTop = Math.max(minTop, Math.min(maxTop, dragRef.current.initialTop + dragRef.current.currentDy));
+
+    const clampedDx = targetLeft - dragRef.current.initialLeft;
+    const clampedDy = targetTop - dragRef.current.initialTop;
+
+    modalRef.current.style.transform = `translate3d(${clampedDx}px, ${clampedDy}px, 0)`;
+    dragRef.current.rafId = null;
   }, []);
 
   useEffect(() => {
@@ -208,40 +278,71 @@ const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScri
       }
   }, [localSummary, showSidebar]);
 
-  const elementDrag = useCallback((e: MouseEvent) => {
-    e.preventDefault();
-    dragInfo.current.pos1 = dragInfo.current.pos3 - e.clientX;
-    dragInfo.current.pos2 = dragInfo.current.pos4 - e.clientY;
-    dragInfo.current.pos3 = e.clientX;
-    dragInfo.current.pos4 = e.clientY;
-    
-    if (modalRef.current) {
-        // Direct style manipulation for performance
-        modalRef.current.style.top = (modalRef.current.offsetTop - dragInfo.current.pos2) + "px";
-        modalRef.current.style.left = (modalRef.current.offsetLeft - dragInfo.current.pos1) + "px";
+  const handlePointerDownHeader = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+
+    // Ignore clicks on buttons, inputs, selects, or icons with custom actions
+    const target = e.target as HTMLElement;
+    if (target.closest('button, input, textarea, select, [role="button"], a')) {
+      return;
     }
-  }, []);
 
-  const closeDragElement = useCallback(() => {
-    setIsDraggingWindow(false);
-    window.removeEventListener('mousemove', elementDrag);
-    window.removeEventListener('mouseup', closeDragElement);
-    document.body.classList.remove('select-none');
-  }, [elementDrag]);
+    if (onFocus) onFocus();
+    if (!modalRef.current || isMaximized) return;
 
-  const dragMouseDown = (e: React.MouseEvent) => {
-      if (e.target instanceof HTMLButtonElement || e.target instanceof HTMLInputElement || (e.target as HTMLElement).closest('button') || (e.target as HTMLElement).closest('input')) return;
-      
-      setIsDraggingWindow(true);
-      if (onFocus) onFocus();
-      modalRef.current?.focus();
-      
-      dragInfo.current.pos3 = e.clientX;
-      dragInfo.current.pos4 = e.clientY;
-      
-      window.addEventListener('mousemove', elementDrag);
-      window.addEventListener('mouseup', closeDragElement);
-      document.body.classList.add('select-none');
+    dragRef.current.isDragging = true;
+    dragRef.current.startX = e.clientX;
+    dragRef.current.startY = e.clientY;
+    dragRef.current.initialLeft = position.x;
+    dragRef.current.initialTop = position.y;
+    dragRef.current.currentDx = 0;
+    dragRef.current.currentDy = 0;
+
+    setIsDraggingWindow(true);
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch (err) {}
+    e.preventDefault();
+  };
+
+  const handlePointerMoveHeader = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!dragRef.current.isDragging || !modalRef.current) return;
+
+    dragRef.current.currentDx = e.clientX - dragRef.current.startX;
+    dragRef.current.currentDy = e.clientY - dragRef.current.startY;
+
+    if (!dragRef.current.rafId) {
+      dragRef.current.rafId = requestAnimationFrame(updateTransform);
+    }
+  };
+
+  const handlePointerUpHeader = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (dragRef.current.isDragging) {
+      if (dragRef.current.rafId) {
+        cancelAnimationFrame(dragRef.current.rafId);
+        dragRef.current.rafId = null;
+      }
+
+      const minLeft = 10;
+      const maxLeft = Math.max(10, window.innerWidth - 100);
+      const minTop = 10;
+      const maxTop = Math.max(10, window.innerHeight - 50);
+
+      const finalLeft = Math.max(minLeft, Math.min(maxLeft, dragRef.current.initialLeft + dragRef.current.currentDx));
+      const finalTop = Math.max(minTop, Math.min(maxTop, dragRef.current.initialTop + dragRef.current.currentDy));
+
+      if (modalRef.current) {
+        modalRef.current.style.transform = 'none';
+      }
+
+      // Commit coordinates to React state so subsequent re-renders maintain exact user position
+      setPosition({ x: finalLeft, y: finalTop });
+      dragRef.current.isDragging = false;
+      setIsDraggingWindow(false);
+      try {
+        e.currentTarget.releasePointerCapture(e.pointerId);
+      } catch (err) {}
+    }
   };
 
   const prefixId = `modal-prefix-${beatId}`;
@@ -372,9 +473,9 @@ const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScri
   useEffect(() => {
       if (!beat || isReadOnly) return;
       const div = document.createElement('div');
-      div.innerHTML = beat.content;
+      div.innerHTML = beat.content || '';
       const text = div.textContent?.trim() || '';
-      if (text.length === 0 && (!beat.slug.location && !beat.slug.prefix)) {
+      if (text.length === 0 && (!beat.slug?.location && !beat.slug?.prefix)) {
           setTimeout(() => {
               const el = document.getElementById(prefixId);
               if (el) (el as HTMLElement).focus();
@@ -386,7 +487,7 @@ const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScri
     const locs = new Set<string>();
     ['HOUSE', 'KITCHEN', 'BEDROOM', 'OFFICE', 'PARK', 'STREET', 'CAR', 'APARTMENT', 'SCHOOL', 'HOSPITAL'].forEach(l => locs.add(l));
     beats.forEach(b => {
-      if (b.slug.location && b.slug.location.trim()) {
+      if (b.slug?.location && b.slug.location.trim()) {
         locs.add(b.slug.location.trim());
       }
     });
@@ -434,7 +535,7 @@ const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScri
   const handleSlugChange = (field: string, val: string) => {
     if (!beat || isReadOnly) return;
     updateBeat(beat.id, { 
-       slug: { ...beat.slug, [field]: val } 
+       slug: { ...(beat.slug || { prefix: '', location: '', time: '' }), [field]: val } 
     });
   };
 
@@ -527,20 +628,42 @@ const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScri
 
   if (!beat) return null;
 
+  if (isMinimized) return null;
+
   return (
     <div 
         ref={modalRef}
         tabIndex={-1}
-        className={`fixed bg-[#1e1e1e] rounded-lg shadow-[0_30px_60px_rgba(0,0,0,0.9)] flex flex-col overflow-hidden ring-1 ring-white/10 outline-none ease-in-out ${isDraggingWindow ? 'z-[6000] opacity-90' : ''}`}
+        className={`fixed pointer-events-auto rounded-2xl flex flex-col overflow-hidden outline-none transition-all duration-150 ${
+          isActive
+            ? isLight
+              ? 'bg-[#ffffff] text-slate-900 ring-2 ring-amber-500 shadow-[0_25px_60px_rgba(245,166,35,0.18),0_15px_30px_rgba(0,0,0,0.15)]'
+              : 'bg-[#181a20] text-slate-100 ring-2 ring-amber-500/80 shadow-[0_30px_80px_rgba(0,0,0,0.95),0_0_35px_rgba(245,166,35,0.18)]'
+            : isLight
+              ? 'bg-[#fafafa] text-slate-700 ring-1 ring-slate-300 shadow-[0_12px_30px_rgba(0,0,0,0.08)] opacity-95 hover:opacity-100'
+              : 'bg-[#15171e] text-slate-300 ring-1 ring-white/10 shadow-[0_20px_50px_rgba(0,0,0,0.7)] opacity-90 hover:opacity-100'
+        } ${isDraggingWindow ? 'is-dragging-window shadow-[0_35px_80px_rgba(0,0,0,0.4)]' : ''}`}
         style={{ 
-            width: isDualView ? 1350 : (showSidebar ? 1000 : 720),
-            height: isDualView ? 700 : 550,
+            left: isMaximized ? '16px' : `${position.x}px`,
+            top: isMaximized ? '16px' : `${position.y}px`,
+            zIndex: isDraggingWindow ? 6000 : (isActive ? (zIndex || 1000) + 10 : (zIndex || 1000)),
+            width: isMaximized ? 'calc(100vw - 32px)' : (isDualView ? 1350 : (showSidebar ? 1000 : 720)),
+            height: isMaximized ? 'calc(100vh - 32px)' : (isDualView ? 700 : 560),
+            willChange: isDraggingWindow ? 'transform' : 'auto',
+            touchAction: 'none'
+        }}
+        onPointerDownCapture={() => {
+            if (onFocus) onFocus();
         }}
         onMouseDown={(e) => { 
-            if(onFocus) onFocus();
+            e.stopPropagation();
+            if (onFocus) onFocus();
             if (e.target !== document.activeElement && (e.target as HTMLElement).tagName !== 'INPUT' && (e.target as HTMLElement).tagName !== 'TEXTAREA') {
                 modalRef.current?.focus();
             }
+        }}
+        onClick={(e) => {
+            e.stopPropagation();
         }}
         onKeyDown={handleKeyDown}
     >
@@ -549,38 +672,61 @@ const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScri
             color: #000000 !important; 
         }
         #${legacyScopeId} {
-            opacity: 0.6;
+            opacity: 0.65;
             filter: grayscale(0.2);
             pointer-events: none;
         }
+        .window-drag-handle { touch-action: none; }
         .window-drag-handle:active { cursor: grabbing !important; }
-        .is-dragging-window { pointer-events: none !important; user-select: none !important; }
+        .is-dragging-window { 
+            user-select: none !important; 
+        }
+        .is-dragging-window .editor-modal-content-area { 
+            pointer-events: none !important; 
+        }
       `}</style>
 
-      {/* WINDOW HEADER (DRAGGABLE) */}
+      {/* WINDOW HEADER (POINTER CAPTURED DRAGGABLE) */}
       <div 
         id={beatId + "header"}
-        className="window-drag-handle h-10 bg-[#111] border-b border-[#333] flex items-center justify-between px-3 cursor-move select-none shrink-0 relative"
-        onMouseDown={dragMouseDown}
+        className={`window-drag-handle h-10 border-b flex items-center justify-between px-3 cursor-grab active:cursor-grabbing select-none shrink-0 relative transition-colors ${
+          isActive
+            ? isLight
+              ? 'bg-[#f1f5f9] border-slate-200 text-slate-800'
+              : 'bg-[#151720] border-[#2c303e] text-slate-200'
+            : isLight
+              ? 'bg-[#f8fafc] border-slate-200/70 text-slate-500'
+              : 'bg-[#111317] border-[#20222a] text-slate-400'
+        }`}
+        onPointerDown={handlePointerDownHeader}
+        onPointerMove={handlePointerMoveHeader}
+        onPointerUp={handlePointerUpHeader}
+        onPointerCancel={handlePointerUpHeader}
       >
-          <div className="flex items-center gap-3 text-xs font-bold text-gray-400 pointer-events-none">
-              <GripHorizontal size={14} className="text-[#444]" />
+          <div className="flex items-center gap-2.5 text-xs font-bold pointer-events-none">
+              <GripHorizontal size={14} className={isActive ? 'text-amber-500' : isLight ? 'text-slate-400' : 'text-[#555]'} />
               <div className="flex items-center gap-2 pointer-events-auto">
                   <button 
                     onClick={() => setShowSidebar(!showSidebar)}
-                    className={`p-1 rounded hover:bg-[#333] transition-colors ${showSidebar ? 'text-[#f5a623]' : 'text-gray-600'}`}
+                    className={`p-1 rounded transition-colors ${
+                      showSidebar 
+                        ? 'text-amber-500 bg-amber-500/10' 
+                        : isLight ? 'text-slate-500 hover:bg-slate-200' : 'text-gray-400 hover:bg-[#252834]'
+                    }`}
                     title="Toggle Sidebar"
                   >
                       <PanelLeft size={14} />
                   </button>
-                  <span className={`w-2 h-2 rounded-full ${isReady ? 'bg-green-500' : 'bg-[#f5a623]'}`}></span>
+                  <span className={`w-2 h-2 rounded-full ${isReady ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]' : 'bg-amber-500 shadow-[0_0_8px_rgba(245,166,35,0.5)]'}`}></span>
                   
                   {hierarchy.length > 0 && (
-                      <div className="flex items-center bg-[#1a1a1a] border border-[#2a2a2a] rounded px-2 py-0.5 ml-1 max-w-[200px] overflow-hidden whitespace-nowrap">
+                      <div className={`flex items-center border rounded px-2 py-0.5 ml-1 max-w-[200px] overflow-hidden whitespace-nowrap ${
+                        isLight ? 'bg-white border-slate-200' : 'bg-[#1a1d26] border-[#2a2e3d]'
+                      }`}>
                           {hierarchy.map((g, i) => (
                               <React.Fragment key={g.id}>
-                                  {i > 0 && <span className="text-[#444] mx-1 text-[8px]">›</span>}
-                                  <span className="text-[9px] font-bold text-[#f5a623] uppercase truncate" title={g.title}>
+                                  {i > 0 && <span className="text-slate-400 mx-1 text-[8px]">›</span>}
+                                  <span className="text-[9px] font-bold text-amber-500 uppercase truncate" title={g.title}>
                                       {g.title}
                                   </span>
                               </React.Fragment>
@@ -588,47 +734,91 @@ const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScri
                       </div>
                   )}
 
-                  <div className="flex items-center gap-2 ml-1 bg-[#1a1a1a] rounded px-1.5 py-0.5 border border-[#333]">
-                      <span className="text-[9px] font-bold text-[#666] uppercase">SCENE</span>
+                  <div className={`flex items-center gap-2 ml-1 rounded px-1.5 py-0.5 border ${
+                    isLight ? 'bg-white border-slate-300' : 'bg-[#1a1d26] border-[#2c303e]'
+                  }`}>
+                      <span className={`text-[9px] font-bold uppercase ${isLight ? 'text-slate-400' : 'text-slate-500'}`}>SCENE</span>
                       <input 
-                          className="bg-transparent text-white font-bold w-12 text-center focus:text-[#f5a623] outline-none text-[10px]"
+                          className={`bg-transparent font-bold w-12 text-center outline-none text-[10px] ${
+                            isLight ? 'text-slate-900 focus:text-amber-600' : 'text-white focus:text-amber-400'
+                          }`}
                           value={tempSceneNum}
                           onChange={(e) => setTempSceneNum(e.target.value)}
                           onBlur={handleManualSceneNumber}
                           onKeyDown={(e) => e.key === 'Enter' && handleManualSceneNumber()}
                           title="Override scene number"
                       />
-                      <div className="w-px h-3 bg-[#444]"></div>
-                      <span className="text-[9px] font-bold text-[#666] uppercase">PAGE</span>
-                      <span className="text-[10px] font-bold text-[#f5a623]">{(beat.boardId || 0) + 1}</span>
-                      <div className="w-px h-3 bg-[#444]"></div>
-                      <span className="text-[10px] font-bold text-white uppercase truncate max-w-[150px]" title={localTitle}>
-                          {localTitle || <span className="text-[#555] italic">UNTITLED</span>}
+                      <div className={`w-px h-3 ${isLight ? 'bg-slate-200' : 'bg-[#333]'}`}></div>
+                      <span className={`text-[9px] font-bold uppercase ${isLight ? 'text-slate-400' : 'text-slate-500'}`}>PAGE</span>
+                      <span className="text-[10px] font-bold text-amber-500">{(beat.boardId || 0) + 1}</span>
+                      <div className={`w-px h-3 ${isLight ? 'bg-slate-200' : 'bg-[#333]'}`}></div>
+                      <span className={`text-[10px] font-bold uppercase truncate max-w-[150px] ${isLight ? 'text-slate-800' : 'text-slate-200'}`} title={localTitle}>
+                          {localTitle || <span className="opacity-50 italic">UNTITLED</span>}
                       </span>
                   </div>
 
                   {isReadOnly && (
-                      <span className="flex items-center gap-1 text-[9px] bg-[#222] px-1.5 py-0.5 rounded text-gray-500 border border-[#333]">
+                      <span className={`flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded border ${
+                        isLight ? 'bg-slate-200/80 text-slate-600 border-slate-300' : 'bg-[#222] text-gray-400 border-[#333]'
+                      }`}>
                           <Lock size={10} /> LOCKED
                       </span>
                   )}
               </div>
           </div>
 
-          <div className="absolute left-1/2 -translate-x-1/2 flex items-center justify-center opacity-20 pointer-events-none">
+          <div className="absolute left-1/2 -translate-x-1/2 flex items-center justify-center opacity-30 pointer-events-none">
               <GripHorizontal size={18} />
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
+              {/* DUAL VIEW BUTTON */}
               <button 
                 onClick={toggleDualView}
-                className={`p-1 rounded hover:bg-[#333] transition-all pointer-events-auto ${isDualView ? 'bg-[#f5a623] text-black shadow-[0_0_10px_#f5a623]' : 'text-gray-500 hover:text-white'}`}
+                className={`p-1 rounded transition-all pointer-events-auto ${
+                  isDualView 
+                    ? 'bg-amber-500 text-black shadow-[0_0_10px_rgba(245,166,35,0.6)] font-bold' 
+                    : isLight 
+                      ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-200' 
+                      : 'text-gray-400 hover:text-white hover:bg-white/10'
+                }`}
                 title="Dual Edition View"
               >
-                  <Columns2 size={16} />
+                  <Columns2 size={14} />
               </button>
-              <div className="w-px h-4 bg-[#333] mx-1"></div>
-              <div className="text-[10px] text-gray-600 font-mono hidden sm:block pointer-events-none uppercase">ID: {beatId}</div>
+
+              {/* MINIMIZE BUTTON */}
+              <button 
+                onClick={() => {
+                  if (onMinimize) onMinimize();
+                }}
+                className={`w-6 h-6 flex items-center justify-center rounded transition-colors pointer-events-auto ${
+                  isLight ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-200' : 'text-gray-400 hover:text-white hover:bg-white/10'
+                }`}
+                title="Minimize Window"
+                onMouseDown={(e) => e.stopPropagation()} 
+              >
+                  <Minus size={13} />
+              </button>
+
+              {/* MAXIMIZE / RESTORE BUTTON */}
+              <button 
+                onClick={() => setIsMaximized(!isMaximized)}
+                className={`w-6 h-6 flex items-center justify-center rounded transition-colors pointer-events-auto ${
+                  isMaximized
+                    ? 'text-amber-500 bg-amber-500/10'
+                    : isLight ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-200' : 'text-gray-400 hover:text-white hover:bg-white/10'
+                }`}
+                title={isMaximized ? "Restore Window Size" : "Maximize Window"}
+                onMouseDown={(e) => e.stopPropagation()} 
+              >
+                  {isMaximized ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+              </button>
+
+              <div className={`w-px h-4 mx-0.5 ${isLight ? 'bg-slate-200' : 'bg-[#333]'}`}></div>
+              <div className={`text-[10px] font-mono hidden sm:block pointer-events-none uppercase ${isLight ? 'text-slate-400' : 'text-gray-500'}`}>ID: {beatId}</div>
+              
+              {/* CLOSE BUTTON */}
               <button 
                 onClick={onClose} 
                 className="w-6 h-6 flex items-center justify-center rounded hover:bg-red-500/20 hover:text-red-500 text-gray-500 transition-colors cursor-pointer pointer-events-auto"
@@ -640,20 +830,24 @@ const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScri
           </div>
       </div>
       
-      <div className={`flex-1 flex overflow-hidden relative ${isDraggingWindow ? 'is-dragging-window pointer-events-none' : ''}`}>
+      <div className="flex-1 flex overflow-hidden relative editor-modal-content-area">
         
         {showSidebar && (
-            <div className="w-72 bg-[#111] border-r border-[#333] p-4 flex flex-col shrink-0 relative overflow-y-auto custom-scrollbar animate-in slide-in-from-left-4 duration-200">
+            <div className={`w-72 border-r p-4 flex flex-col shrink-0 relative overflow-y-auto custom-scrollbar animate-in slide-in-from-left-4 duration-200 ${
+              isLight ? 'bg-[#f8fafc] border-slate-200 text-slate-800' : 'bg-[#13151b] border-[#262832] text-slate-200'
+            }`}>
              <div className="flex flex-col gap-2 mb-4">
                 {hierarchy.length > 0 && (
                     <div className="flex items-center flex-wrap gap-1">
                         <Layers size={10} className="text-gray-500 mr-1" />
                         {hierarchy.map((g, i) => (
                             <React.Fragment key={g.id}>
-                                <span className="text-[9px] font-bold text-gray-300 uppercase tracking-wide bg-[#222] border border-[#333] px-1.5 py-0.5 rounded truncate max-w-[80px]" title={g.title}>
+                                <span className={`text-[9px] font-bold uppercase tracking-wide border px-1.5 py-0.5 rounded truncate max-w-[80px] ${
+                                  isLight ? 'bg-white border-slate-200 text-slate-700' : 'bg-[#1e212b] border-[#2e3344] text-gray-300'
+                                }`} title={g.title}>
                                     {g.title}
                                 </span>
-                                {i < hierarchy.length - 1 && <ChevronRight size={10} className="text-gray-600" />}
+                                {i < hierarchy.length - 1 && <ChevronRight size={10} className="text-gray-400" />}
                             </React.Fragment>
                         ))}
                     </div>
@@ -661,25 +855,29 @@ const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScri
              </div>
 
              <div className="space-y-1 mb-4">
-                <label className="text-[9px] font-bold text-gray-500 uppercase tracking-widest flex items-center gap-1.5"><Type size={10} /> Beat Title</label>
+                <label className={`text-[9px] font-bold uppercase tracking-widest flex items-center gap-1.5 ${isLight ? 'text-slate-500' : 'text-gray-400'}`}><Type size={10} /> Beat Title</label>
                 <input 
                    value={localTitle}
                    onChange={(e) => setLocalTitle(e.target.value)}
                    onKeyDown={handleTitleKeyDown}
                    onBlur={commitTitle}
-                   className="w-full bg-transparent border-b border-[#333] py-1 text-sm font-bold text-gray-200 outline-none transition-colors placeholder-gray-600 focus:border-[#f5a623]"
+                   className={`w-full bg-transparent border-b py-1 text-sm font-bold outline-none transition-colors ${
+                     isLight 
+                       ? 'border-slate-300 text-slate-900 placeholder-slate-400 focus:border-amber-500' 
+                       : 'border-[#333] text-gray-200 placeholder-gray-600 focus:border-[#f5a623]'
+                   }`}
                    placeholder="Untitled Beat"
                 />
              </div>
 
              <div className="mb-4 relative">
-                 <label className="text-[9px] font-bold text-gray-500 uppercase tracking-widest flex items-center gap-1.5 mb-2"><CheckCircle2 size={10} /> Status</label>
+                 <label className={`text-[9px] font-bold uppercase tracking-widest flex items-center gap-1.5 mb-2 ${isLight ? 'text-slate-500' : 'text-gray-400'}`}><CheckCircle2 size={10} /> Status</label>
                  <button 
                     onClick={() => setShowStatusMenu(!showStatusMenu)}
-                    className={`w-full flex items-center justify-between px-2 py-1.5 rounded border text-[10px] font-bold uppercase tracking-wide transition-all ${
+                    className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded border text-[10px] font-bold uppercase tracking-wide transition-all ${
                         isReady 
-                        ? 'bg-green-900/20 border-green-800 text-green-400 hover:bg-green-900/30' 
-                        : 'bg-orange-900/10 border-orange-900/30 text-orange-400 hover:bg-orange-900/20'
+                        ? (isLight ? 'bg-emerald-50 border-emerald-300 text-emerald-700 hover:bg-emerald-100' : 'bg-green-900/20 border-green-800 text-green-400 hover:bg-green-900/30') 
+                        : (isLight ? 'bg-amber-50 border-amber-300 text-amber-800 hover:bg-amber-100' : 'bg-orange-900/10 border-orange-900/30 text-orange-400 hover:bg-orange-900/20')
                     }`}
                  >
                     <span className="flex items-center gap-2">
@@ -690,32 +888,42 @@ const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScri
                  </button>
                  
                  {showStatusMenu && (
-                     <div className="absolute top-full left-0 w-full mt-1 bg-[#222] border border-[#333] rounded shadow-xl z-20 overflow-hidden">
-                         <button onClick={() => { updateBeat(beat.id, { status: 'not-ready' }); setShowStatusMenu(false); }} className="w-full text-left px-3 py-2 text-[10px] text-orange-400 hover:bg-[#333] flex items-center gap-2 font-bold"><CircleDashed size={12}/> In Progress</button>
-                         <button onClick={() => { updateBeat(beat.id, { status: 'ready' }); setShowStatusMenu(false); }} className="w-full text-left px-3 py-2 text-[10px] text-green-400 hover:bg-[#333] flex items-center gap-2 font-bold"><CheckCircle2 size={12}/> Completed</button>
+                     <div className={`absolute top-full left-0 w-full mt-1 border rounded shadow-xl z-20 overflow-hidden ${
+                       isLight ? 'bg-white border-slate-200' : 'bg-[#222] border-[#333]'
+                     }`}>
+                         <button onClick={() => { updateBeat(beat.id, { status: 'not-ready' }); setShowStatusMenu(false); }} className={`w-full text-left px-3 py-2 text-[10px] text-orange-500 flex items-center gap-2 font-bold ${isLight ? 'hover:bg-slate-100' : 'hover:bg-[#333]'}`}><CircleDashed size={12}/> In Progress</button>
+                         <button onClick={() => { updateBeat(beat.id, { status: 'ready' }); setShowStatusMenu(false); }} className={`w-full text-left px-3 py-2 text-[10px] text-green-500 flex items-center gap-2 font-bold ${isLight ? 'hover:bg-slate-100' : 'hover:bg-[#333]'}`}><CheckCircle2 size={12}/> Completed</button>
                      </div>
                  )}
              </div>
 
              <div className="space-y-2 mb-4">
-                <label className="text-[9px] font-bold text-gray-500 uppercase tracking-widest">Synopsis</label>
+                <label className={`text-[9px] font-bold uppercase tracking-widest ${isLight ? 'text-slate-500' : 'text-gray-400'}`}>Synopsis</label>
                 <textarea 
                    ref={summaryRef}
                    value={localSummary}
                    onChange={(e) => setLocalSummary(e.target.value)}
                    onBlur={commitSummary}
-                   className="w-full min-h-[5rem] bg-[#1a1a1a] border border-[#333] rounded p-2 text-xs text-gray-300 leading-relaxed outline-none resize-none transition-all custom-scrollbar placeholder-gray-600 overflow-hidden focus:border-[#f5a623] focus:ring-1 focus:ring-[#f5a623]/20"
+                   className={`w-full min-h-[5rem] border rounded p-2 text-xs leading-relaxed outline-none resize-none transition-all custom-scrollbar overflow-hidden ${
+                     isLight 
+                       ? 'bg-white border-slate-300 text-slate-800 placeholder-slate-400 focus:border-amber-500 focus:ring-1 focus:ring-amber-500/20' 
+                       : 'bg-[#1a1a1a] border-[#333] text-gray-300 placeholder-gray-600 focus:border-[#f5a623] focus:ring-1 focus:ring-[#f5a623]/20'
+                   }`}
                    placeholder="What happens?"
                 />
              </div>
 
              <div className="mb-4 space-y-2">
-                 <label className="text-[9px] font-bold text-gray-500 uppercase tracking-widest flex items-center gap-1.5"><History size={10} /> Versions</label>
+                 <label className={`text-[9px] font-bold uppercase tracking-widest flex items-center gap-1.5 ${isLight ? 'text-slate-500' : 'text-gray-400'}`}><History size={10} /> Versions</label>
                  
                  <div className="flex flex-col gap-2">
                     <button 
                         onClick={handleManualBackup}
-                        className="w-full bg-[#1a1a1a] hover:bg-[#252525] border border-[#333] text-gray-300 hover:text-white py-1.5 rounded text-[9px] font-bold uppercase tracking-wide transition-all flex items-center justify-center gap-2"
+                        className={`w-full border py-1.5 rounded text-[9px] font-bold uppercase tracking-wide transition-all flex items-center justify-center gap-2 ${
+                          isLight 
+                            ? 'bg-white hover:bg-slate-100 border-slate-300 text-slate-700' 
+                            : 'bg-[#1a1a1a] hover:bg-[#252525] border-[#333] text-gray-300 hover:text-white'
+                        }`}
                         title="Save Snapshot"
                     >
                         <Save size={12} /> Save Snapshot
@@ -724,44 +932,54 @@ const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScri
                     <div className="relative">
                         <button 
                             onClick={() => setShowVersionMenu(!showVersionMenu)}
-                            className="w-full flex items-center justify-between px-2 py-1.5 rounded border border-[#333] bg-[#1a1a1a] text-gray-400 hover:text-white hover:border-[#555] text-[9px] font-bold uppercase tracking-wide transition-all"
+                            className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded border text-[9px] font-bold uppercase tracking-wide transition-all ${
+                              isLight 
+                                ? 'border-slate-300 bg-white text-slate-700 hover:border-slate-400' 
+                                : 'border-[#333] bg-[#1a1a1a] text-gray-400 hover:text-white hover:border-[#555]'
+                            }`}
                         >
-                            <span className="flex items-center gap-1">
-                                <ArchiveRestore size={10} />
+                            <span className="flex items-center gap-1.5">
+                                <ArchiveRestore size={11} />
                                 View History ({beat.versions?.length || 0})
                             </span>
                             <ChevronDown size={10} />
                         </button>
 
                         {showVersionMenu && (
-                            <div className="absolute top-full left-0 w-48 mt-1 bg-[#151515] border border-[#333] rounded shadow-2xl z-30 flex flex-col max-h-64 overflow-y-auto custom-scrollbar">
-                                <div className="px-3 py-2 bg-[#1a1a1a] border-b border-[#333] text-[9px] font-bold text-gray-500 uppercase tracking-widest sticky top-0">Snapshots</div>
+                            <div className={`absolute top-full left-0 w-48 mt-1 border rounded shadow-2xl z-30 flex flex-col max-h-64 overflow-y-auto custom-scrollbar ${
+                              isLight ? 'bg-white border-slate-200' : 'bg-[#151515] border-[#333]'
+                            }`}>
+                                <div className={`px-3 py-2 border-b text-[9px] font-bold uppercase tracking-widest sticky top-0 ${
+                                  isLight ? 'bg-slate-100 border-slate-200 text-slate-600' : 'bg-[#1a1a1a] border-[#333] text-gray-500'
+                                }`}>Snapshots</div>
                                 {beat.versions && beat.versions.length > 0 ? (
                                     [...beat.versions].reverse().map((v, i) => (
                                         <div
                                             key={v.id}
-                                            className="w-full text-left px-3 py-2 border-b border-[#222] hover:bg-[#222] group last:border-0"
+                                            className={`w-full text-left px-3 py-2 border-b group last:border-0 ${
+                                              isLight ? 'border-slate-100 hover:bg-slate-50' : 'border-[#222] hover:bg-[#222]'
+                                            }`}
                                         >
-                                            <div className="flex items-center justify-between text-[10px] text-gray-300 font-bold mb-1">
-                                                <span className="flex items-center gap-1">
-                                                    <div className="w-1.5 h-1.5 rounded-full bg-[#f5a623]"></div>
+                                            <div className={`flex items-center justify-between text-[10px] font-bold mb-1 ${isLight ? 'text-slate-800' : 'text-gray-300'}`}>
+                                                <span className="flex items-center gap-1.5">
+                                                    <div className="w-1.5 h-1.5 rounded-full bg-amber-500"></div>
                                                     v{beat.versions!.length - i}
                                                 </span>
                                                 <button 
                                                     onClick={() => handleRestoreClick(v)}
-                                                    className="text-[9px] text-blue-400 hover:text-white hover:underline opacity-0 group-hover:opacity-100 transition-opacity"
+                                                    className="text-[9px] text-blue-500 hover:underline opacity-0 group-hover:opacity-100 transition-opacity"
                                                 >
                                                     Restore
                                                 </button>
                                             </div>
-                                            <div className="text-[9px] text-gray-500 flex justify-between font-mono">
+                                            <div className="text-[9px] text-gray-400 flex justify-between font-mono">
                                                 <span>{new Date(v.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
                                                 <span>{new Date(v.timestamp).toLocaleDateString([], {month: 'short', day: 'numeric'})}</span>
                                             </div>
                                         </div>
                                     ))
                                 ) : (
-                                    <div className="px-3 py-6 text-[9px] text-gray-600 italic text-center flex flex-col items-center gap-2">
+                                    <div className="px-3 py-6 text-[9px] text-gray-400 italic text-center flex flex-col items-center gap-2">
                                         <History size={16} />
                                         <span>No backups available</span>
                                     </div>
@@ -772,17 +990,21 @@ const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScri
                  </div>
              </div>
 
-             <div className="mb-4 space-y-2 border-t border-[#333] pt-4">
-                <label className="text-[9px] font-bold text-gray-500 uppercase tracking-widest flex items-center gap-1.5">
+             <div className={`mb-4 space-y-2 border-t pt-4 ${isLight ? 'border-slate-200' : 'border-[#333]'}`}>
+                <label className={`text-[9px] font-bold uppercase tracking-widest flex items-center gap-1.5 ${isLight ? 'text-slate-500' : 'text-gray-400'}`}>
                     <StickyNote size={10} /> Scene Notes
                 </label>
                 <div className="flex flex-col gap-2">
-                    {(beat.notes || []).map((note, index) => {
+                    {(beat.notes || []).map((note) => {
                         const isConfirming = confirmDeleteNoteId === note.id;
                         return (
                         <div key={note.id} className="relative group">
-                            <div className="bg-[#1a1a1a] border border-white/5 rounded-md overflow-hidden">
-                                 <div className="flex justify-between items-center px-2 py-1 bg-black/20 border-b border-white/5">
+                            <div className={`border rounded-md overflow-hidden ${
+                              isLight ? 'bg-white border-slate-200 shadow-xs' : 'bg-[#1a1a1a] border-white/5'
+                            }`}>
+                                 <div className={`flex justify-between items-center px-2 py-1 border-b ${
+                                   isLight ? 'bg-slate-50 border-slate-200' : 'bg-black/20 border-white/5'
+                                 }`}>
                                     <div className="flex gap-1">
                                         <div className="w-1.5 h-1.5 rounded-full" style={{backgroundColor: note.color || '#d97706'}}></div>
                                     </div>
@@ -796,7 +1018,7 @@ const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScri
                                                 setTimeout(() => setConfirmDeleteNoteId(null), 3000);
                                             }
                                         }} 
-                                        className={`transition-all ${isConfirming ? 'text-red-500 opacity-100 bg-red-900/20 px-1.5 rounded animate-pulse' : 'text-gray-600 hover:text-red-500 opacity-0 group-hover:opacity-100'}`}
+                                        className={`transition-all ${isConfirming ? 'text-red-500 opacity-100 bg-red-500/10 px-1.5 rounded animate-pulse' : 'text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100'}`}
                                         title={isConfirming ? "Click again" : "Delete Note"}
                                     >
                                         <Trash2 size={8} />
@@ -814,7 +1036,11 @@ const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScri
                             </div>
                         </div>
                     )})}
-                    <button onClick={addNote} className="w-full py-2 border border-dashed border-[#333] hover:border-[#f5a623] hover:text-[#f5a623] text-gray-600 text-[9px] font-bold uppercase rounded transition-all flex items-center justify-center gap-1">
+                    <button onClick={addNote} className={`w-full py-2 border border-dashed text-[9px] font-bold uppercase rounded transition-all flex items-center justify-center gap-1 ${
+                      isLight 
+                        ? 'border-slate-300 hover:border-amber-500 hover:text-amber-600 text-slate-500' 
+                        : 'border-[#333] hover:border-[#f5a623] hover:text-[#f5a623] text-gray-500'
+                    }`}>
                         <Plus size={10} /> Add Note
                     </button>
                 </div>
@@ -822,23 +1048,27 @@ const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScri
 
              <div className="space-y-2 mt-auto">
                 <div className="grid grid-cols-2 gap-2">
-                    <div className="bg-[#1a1a1a] p-2 rounded border border-[#333] flex flex-col justify-center h-10">
-                        <div className="text-[8px] text-gray-500 font-bold uppercase flex items-center gap-1"><Clock size={8} /> Time</div>
-                        <div className="text-xs font-black text-gray-300 tracking-tight">~{stats.duration}m</div>
+                    <div className={`p-2 rounded border flex flex-col justify-center h-10 ${
+                      isLight ? 'bg-white border-slate-200' : 'bg-[#1a1a1a] border-[#333]'
+                    }`}>
+                        <div className={`text-[8px] font-bold uppercase flex items-center gap-1 ${isLight ? 'text-slate-400' : 'text-gray-500'}`}><Clock size={8} /> Time</div>
+                        <div className={`text-xs font-black tracking-tight ${isLight ? 'text-slate-800' : 'text-gray-300'}`}>~{stats.duration}m</div>
                     </div>
-                    <div className="bg-[#1a1a1a] p-2 rounded border border-[#333] flex flex-col justify-center h-10">
-                        <div className="text-[8px] text-gray-500 font-bold uppercase flex items-center gap-1"><AlignLeft size={8} /> Words</div>
-                        <div className="text-xs font-black text-gray-300 tracking-tight">{stats.words}</div>
+                    <div className={`p-2 rounded border flex flex-col justify-center h-10 ${
+                      isLight ? 'bg-white border-slate-200' : 'bg-[#1a1a1a] border-[#333]'
+                    }`}>
+                        <div className={`text-[8px] font-bold uppercase flex items-center gap-1 ${isLight ? 'text-slate-400' : 'text-gray-500'}`}><AlignLeft size={8} /> Words</div>
+                        <div className={`text-xs font-black tracking-tight ${isLight ? 'text-slate-800' : 'text-gray-300'}`}>{stats.words}</div>
                     </div>
                 </div>
              </div>
 
-             <div className="flex items-center justify-between pt-3 border-t border-[#333] mt-4">
-                <div className="text-[9px] font-bold text-gray-500 uppercase flex items-center gap-1">
+             <div className={`flex items-center justify-between pt-3 border-t mt-4 ${isLight ? 'border-slate-200' : 'border-[#333]'}`}>
+                <div className={`text-[9px] font-bold uppercase flex items-center gap-1 ${isLight ? 'text-slate-500' : 'text-gray-400'}`}>
                    {saveStatus === 'saving' ? (
-                     <>Saving <Cloud size={10} className="animate-pulse text-[#f5a623]" /></>
+                     <>Saving <Cloud size={10} className="animate-pulse text-amber-500" /></>
                    ) : (
-                     <>Synced <CheckCircle2 size={10} className="text-green-500" /></>
+                     <>Synced <CheckCircle2 size={10} className="text-emerald-500" /></>
                    )}
                 </div>
              </div>
@@ -846,54 +1076,74 @@ const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScri
             </div>
         )}
 
-        <div className="flex-1 flex flex-col bg-[#1e1e1e] relative min-w-0">
+        <div className={`flex-1 flex flex-col relative min-w-0 ${isLight ? 'bg-[#f8fafc]' : 'bg-[#181a20]'}`}>
             
-            <div className={`px-4 py-2 border-b border-[#333] flex items-center gap-2 z-30 shrink-0 shadow-lg transition-colors ${isReadOnly ? 'bg-[#151515] opacity-80' : 'bg-[#1e1e1e]'}`}>
+            {/* SLUGLINE BAR */}
+            <div className={`px-4 py-2 border-b flex items-center gap-2 z-30 shrink-0 shadow-xs transition-colors ${
+              isLight 
+                ? (isReadOnly ? 'bg-slate-100 opacity-80 border-slate-200' : 'bg-white border-slate-200')
+                : (isReadOnly ? 'bg-[#151515] opacity-80 border-[#2a2d36]' : 'bg-[#181a20] border-[#2a2d36]')
+            }`}>
                 <div className="w-full flex gap-2 items-center font-screenplay">
-                    <span className="text-gray-500 font-bold select-none text-xs">{tempSceneNum}.</span>
+                    <span className={`font-bold select-none text-xs ${isLight ? 'text-slate-400' : 'text-gray-500'}`}>{tempSceneNum}.</span>
                     <SlugInput
                         id={prefixId}
-                        value={beat.slug.prefix}
+                        value={beat.slug?.prefix || ''}
                         onChange={(val) => handleSlugChange('prefix', val)}
                         suggestions={['INT.', 'EXT.', 'I/E.', 'EXT./INT.']}
                         onNext={() => document.getElementById(locationId)?.focus()}
                         placeholder="INT."
                         readOnly={isReadOnly}
-                        className="w-20 shrink-0 font-bold uppercase text-sm border-b border-transparent focus:border-[#f5a623] transition-colors text-gray-200 placeholder-gray-600"
+                        className={`w-20 shrink-0 font-bold uppercase text-sm border-b border-transparent focus:border-amber-500 transition-colors ${
+                          isLight ? 'text-slate-900 placeholder-slate-400' : 'text-gray-200 placeholder-gray-600'
+                        }`}
                     />
                     <SlugInput 
                         id={locationId}
-                        value={beat.slug.location}
+                        value={beat.slug?.location || ''}
                         onChange={(val) => handleSlugChange('location', val)}
                         suggestions={uniqueLocations} 
                         onNext={() => document.getElementById(timeId)?.focus()}
                         placeholder="LOCATION"
                         readOnly={isReadOnly}
-                        className="flex-1 font-bold uppercase text-sm border-b border-transparent focus:border-[#f5a623] transition-colors text-gray-200 placeholder-gray-600"
+                        className={`flex-1 font-bold uppercase text-sm border-b border-transparent focus:border-amber-500 transition-colors ${
+                          isLight ? 'text-slate-900 placeholder-slate-400' : 'text-gray-200 placeholder-gray-600'
+                        }`}
                     />
-                    <span className="text-gray-600 font-bold text-sm">-</span>
+                    <span className={`font-bold text-sm ${isLight ? 'text-slate-300' : 'text-gray-600'}`}>-</span>
                     <SlugInput
                         id={timeId}
-                        value={beat.slug.time}
+                        value={beat.slug?.time || ''}
                         onChange={(val) => handleSlugChange('time', val)}
                         suggestions={['DAY', 'NIGHT', 'CONTINUOUS', 'MOMENTS LATER', 'MORNING', 'EVENING']}
                         onNext={() => document.getElementById(editorId)?.focus()}
                         placeholder="DAY"
                         readOnly={isReadOnly}
-                        className="w-32 shrink-0 font-bold uppercase text-sm border-b border-transparent focus:border-[#f5a623] transition-colors text-gray-200 placeholder-gray-600"
+                        className={`w-32 shrink-0 font-bold uppercase text-sm border-b border-transparent focus:border-amber-500 transition-colors ${
+                          isLight ? 'text-slate-900 placeholder-slate-400' : 'text-gray-200 placeholder-gray-600'
+                        }`}
                         align="right"
                     />
                 </div>
             </div>
 
-            <div className={`px-4 py-1.5 border-b border-[#333] flex items-center justify-between shrink-0 z-20 transition-colors ${isReadOnly ? 'bg-[#111] pointer-events-none opacity-50' : 'bg-[#111]'}`}>
+            {/* FORMAT TOOLBAR */}
+            <div className={`px-4 py-1.5 border-b flex items-center justify-between shrink-0 z-20 transition-colors ${
+              isLight 
+                ? (isReadOnly ? 'bg-slate-100 pointer-events-none opacity-50 border-slate-200' : 'bg-[#f8fafc] border-slate-200')
+                : (isReadOnly ? 'bg-[#111318] pointer-events-none opacity-50 border-[#2a2d36]' : 'bg-[#111318] border-[#2a2d36]')
+            }`}>
                 <div className="flex items-center gap-1">
                     {['action', 'character', 'dialogue', 'parenthetical', 'transition'].map(t => (
                         <button
                             key={t}
                             onMouseDown={(e) => { e.preventDefault(); executeFormat(t); }}
                             className={`px-2 py-1 text-[9px] font-bold uppercase transition-all rounded ${
-                                activeFormat === t ? 'bg-[#f5a623] text-black shadow-sm' : 'text-gray-500 hover:text-white hover:bg-white/10'
+                                activeFormat === t 
+                                  ? 'bg-amber-400 text-black shadow-xs font-black' 
+                                  : isLight 
+                                    ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/70' 
+                                    : 'text-gray-400 hover:text-white hover:bg-white/10'
                             }`}
                         >
                             {t.substring(0, 4)}
@@ -902,40 +1152,44 @@ const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScri
                 </div>
 
                 <div className="flex items-center gap-2">
-                   <div className="flex items-center bg-[#222] rounded p-0.5 border border-[#333]">
-                       <button onMouseDown={(e) => { e.preventDefault(); toggleInline('bold'); }} className={`p-1 rounded ${activeStyles.includes('bold') ? 'bg-[#f5a623] text-black shadow-sm' : 'text-gray-500 hover:text-white'}`}><Bold size={12} /></button>
-                       <button onMouseDown={(e) => { e.preventDefault(); toggleInline('italic'); }} className={`p-1 rounded ${activeStyles.includes('italic') ? 'bg-[#f5a623] text-black shadow-sm' : 'text-gray-500 hover:text-white'}`}><Italic size={12} /></button>
-                       <button onMouseDown={(e) => { e.preventDefault(); toggleInline('underline'); }} className={`p-1 rounded ${activeStyles.includes('underline') ? 'bg-[#f5a623] text-black shadow-sm' : 'text-gray-500 hover:text-white'}`}><Underline size={12} /></button>
+                   <div className={`flex items-center rounded p-0.5 border ${
+                     isLight ? 'bg-white border-slate-200' : 'bg-[#1e2028] border-[#2e3344]'
+                   }`}>
+                       <button onMouseDown={(e) => { e.preventDefault(); toggleInline('bold'); }} className={`p-1 rounded ${activeStyles.includes('bold') ? 'bg-amber-400 text-black font-bold' : isLight ? 'text-slate-600 hover:text-slate-900' : 'text-gray-400 hover:text-white'}`}><Bold size={12} /></button>
+                       <button onMouseDown={(e) => { e.preventDefault(); toggleInline('italic'); }} className={`p-1 rounded ${activeStyles.includes('italic') ? 'bg-amber-400 text-black font-bold' : isLight ? 'text-slate-600 hover:text-slate-900' : 'text-gray-400 hover:text-white'}`}><Italic size={12} /></button>
+                       <button onMouseDown={(e) => { e.preventDefault(); toggleInline('underline'); }} className={`p-1 rounded ${activeStyles.includes('underline') ? 'bg-amber-400 text-black font-bold' : isLight ? 'text-slate-600 hover:text-slate-900' : 'text-gray-400 hover:text-white'}`}><Underline size={12} /></button>
                    </div>
-                   <div className="w-[1px] h-4 bg-[#333]"></div>
-                   <ColorDropdown icon={Palette} title="Text Color" type="foreColor" options={TEXT_COLORS} onSelect={(val: string) => applyColor('foreColor', val)} />
-                   <ColorDropdown icon={Highlighter} title="Highlight Color" type="hiliteColor" options={HILITE_COLORS} onSelect={(val: string) => applyColor('hiliteColor', val)} />
+                   <div className={`w-[1px] h-4 ${isLight ? 'bg-slate-200' : 'bg-[#333]'}`}></div>
+                   <ColorDropdown icon={Palette} title="Text Color" type="foreColor" options={TEXT_COLORS} onSelect={(val: string) => applyColor('foreColor', val)} isLight={isLight} />
+                   <ColorDropdown icon={Highlighter} title="Highlight Color" type="hiliteColor" options={HILITE_COLORS} onSelect={(val: string) => applyColor('hiliteColor', val)} isLight={isLight} />
                 </div>
             </div>
 
-            <div className="flex-1 overflow-hidden bg-[#0c0c0c] flex">
+            {/* SCREENPLAY WRITING CANVAS */}
+            <div className={`flex-1 overflow-hidden flex ${isLight ? 'bg-[#e9edf5]' : 'bg-[#0c0d12]'}`}>
                 {isDualView && (
-                    <div className="flex-1 border-r border-[#333] overflow-y-auto custom-scrollbar animate-in slide-in-from-left-2 duration-300 relative group/pane">
+                    <div className={`flex-1 border-r overflow-y-auto custom-scrollbar animate-in slide-in-from-left-2 duration-300 relative group/pane ${
+                      isLight ? 'bg-[#f1f5f9] border-slate-300' : 'bg-[#111318] border-[#2a2d36]'
+                    }`}>
                         <div 
-                            className="absolute right-0 top-0 bottom-0 w-2 cursor-move hover:bg-[#f5a623]/20 z-50 transition-colors flex items-center justify-center group-hover/pane:opacity-100 opacity-0"
-                            onMouseDown={dragMouseDown}
+                            className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize hover:bg-amber-400/30 z-50 transition-colors flex items-center justify-center group-hover/pane:opacity-100 opacity-0"
                         >
-                            <GripVertical size={12} className="text-[#f5a623]" />
+                            <GripVertical size={12} className="text-amber-500" />
                         </div>
                         
                         <div className="w-full py-6 flex flex-col items-center">
-                            <div className="w-full max-w-[650px] px-8 mb-4 flex items-center justify-between text-blue-400 font-mono text-[10px] font-black uppercase tracking-widest opacity-60">
+                            <div className="w-full max-w-[650px] px-8 mb-4 flex items-center justify-between text-blue-500 font-mono text-[10px] font-black uppercase tracking-widest opacity-75">
                                 <div className="flex items-center gap-2"><History size={12}/> Reference Edition</div>
                                 <div>{lastVersion ? new Date(lastVersion.timestamp).toLocaleDateString() : 'N/A'}</div>
                             </div>
                             <div 
                                 id={legacyScopeId}
-                                className={`bg-[#fdfcf9] shadow-inner py-10 pl-12 pr-16 text-black relative`}
+                                className="bg-[#fdfcf9] shadow-md py-10 pl-12 pr-16 text-black relative rounded-sm border border-slate-200/80"
                                 style={{
                                     width: '600px', 
                                     minHeight: '800px',
                                     maxWidth: '95%',
-                                    boxShadow: 'inset 0 0 40px rgba(0,0,0,0.05)'
+                                    boxShadow: 'inset 0 0 40px rgba(0,0,0,0.03)'
                                 }}
                             >
                                 <div className="absolute inset-0 pointer-events-none border-4 border-blue-500/5 select-none flex items-center justify-center overflow-hidden">
@@ -960,14 +1214,14 @@ const EditorModal: React.FC<EditorModalProps> = ({ beatId, onClose, onViewInScri
                 >
                     <div className="w-full min-h-full py-6 flex flex-col items-center pb-20">
                         {isDualView && (
-                             <div className="w-full max-w-[650px] px-8 mb-4 flex items-center justify-between text-[#f5a623] font-mono text-[10px] font-black uppercase tracking-widest animate-in fade-in duration-500">
+                             <div className="w-full max-w-[650px] px-8 mb-4 flex items-center justify-between text-amber-500 font-mono text-[10px] font-black uppercase tracking-widest animate-in fade-in duration-300">
                                 <div className="flex items-center gap-2"><PenTool size={12}/> Current Draft</div>
                                 <div>Active Editing</div>
                             </div>
                         )}
                         <div 
                             id={scopeId}
-                            className={`bg-white shadow-xl py-10 pl-12 pr-16 text-black transition-opacity ${isReadOnly ? 'opacity-80' : ''}`}
+                            className={`bg-white shadow-2xl py-10 pl-12 pr-16 text-black transition-opacity rounded-sm border border-slate-200/60 ${isReadOnly ? 'opacity-80' : ''}`}
                             style={{
                                 width: isDualView ? '600px' : '650px', 
                                 minHeight: '800px',

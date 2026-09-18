@@ -157,6 +157,18 @@ export const InboxModal: React.FC<InboxModalProps> = ({
     setNewCommentText(prev => ({ ...prev, [task.id]: '' }));
   };
 
+  React.useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
+
   const handleMarkAllRead = () => {
     tasks.forEach(t => {
       if (!t.isRead) {
@@ -166,10 +178,16 @@ export const InboxModal: React.FC<InboxModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 sm:p-6 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
+    <div 
+      onClick={onClose}
+      className="fixed inset-0 z-[1000] flex items-center justify-center p-4 sm:p-6 bg-black/80 backdrop-blur-md animate-in fade-in duration-200"
+    >
       
       {/* Container Drawer / Modal Card */}
-      <div className="w-full max-w-5xl h-[90vh] bg-[#121215] border border-[#2c2c32] rounded-2xl shadow-2xl flex flex-col overflow-hidden">
+      <div 
+        onClick={(e) => e.stopPropagation()}
+        className="w-full max-w-5xl h-[90vh] bg-[#121215] border border-[#2c2c32] rounded-2xl shadow-2xl flex flex-col overflow-hidden"
+      >
         
         {/* HEADER BAR */}
         <div className="p-4 sm:p-5 border-b border-[#26262c] bg-[#16161a] flex flex-col sm:flex-row sm:items-center justify-between gap-4">

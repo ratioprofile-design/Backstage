@@ -32,6 +32,7 @@ import InboxView from './components/views/InboxView';
 import { AIAssistantModal } from './components/AIAssistantModal';
 import RoleSelectorModal from './components/RoleSelectorModal';
 import { CausalityImportModal } from './components/CausalityImportModal';
+import { FloatingWindowManager } from './components/FloatingWindowManager';
 import { ViewMode, ScriptConfig, AppTask, ProjectState } from './types';
 import { INITIAL_STATE } from './constants';
 import { Loader2, Film, Cloud } from 'lucide-react';
@@ -210,9 +211,11 @@ const StyleInjector: React.FC = () => {
 
 const AppContent: React.FC = () => {
   console.log('[probe] AppContent mounted, supabase user =', useProject ? 'n/a' : 'n/a');
-  const { currentUser, currentProjectId, undo, redo, isInitialLoading, saveProject, saveProjectAs, loadProject, closeProject, setAppTheme, filePath, setFilePath, supabaseUser, isCloudMode, logout, selectProject, deleteProject, projectList, userRole, updateUserRole, navLayout = 'horizontal' } = useProject();
+  const { currentUser, currentProjectId, undo, redo, isInitialLoading, saveProject, saveProjectAs, loadProject, closeProject, setAppTheme, filePath, setFilePath, supabaseUser, isCloudMode, logout, selectProject, deleteProject, projectList, userRole, updateUserRole, navLayout = 'horizontal', beats, appTheme } = useProject();
   const [currentView, setCurrentView] = useState<ViewMode>('board');
   const [openBeatIds, setOpenBeatIds] = useState<number[]>([]);
+  const [minimizedBeatIds, setMinimizedBeatIds] = useState<number[]>([]);
+  const [forcedPositions, setForcedPositions] = useState<Record<number, { x: number; y: number }>>({});
   const [showPrintPreview, setShowPrintPreview] = useState(false);
   const [showAssistant, setShowAssistant] = useState(false);
   const [showNewProject, setShowNewProject] = useState(false);
@@ -540,6 +543,16 @@ const AppContent: React.FC = () => {
   // Global Keyboard Shortcuts for Undo/Redo
   useEffect(() => {
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
+        const target = e.target as HTMLElement;
+        if (
+            ['INPUT', 'TEXTAREA', 'SELECT'].includes(target?.tagName) ||
+            target?.isContentEditable ||
+            target?.closest?.('[contenteditable="true"]') ||
+            target?.closest?.('.script-body')
+        ) {
+            return;
+        }
+
         const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
         const cmd = isMac ? e.metaKey : e.ctrlKey;
 
@@ -560,22 +573,117 @@ const AppContent: React.FC = () => {
   const handleRefresh = () => setRefreshKey(prev => prev + 1);
 
   const handleEditBeat = (id: number) => {
-      setOpenBeatIds(prev => {
-          if (prev.includes(id)) return [...prev.filter(i => i !== id), id];
-          return [...prev, id];
-      });
+    setOpenBeatIds(prev => {
+      if (prev.includes(id)) return [...prev.filter(i => i !== id), id];
+      return [...prev, id];
+    });
+    setMinimizedBeatIds(prev => prev.filter(i => i !== id));
   };
 
   const handleCloseBeat = (id: number) => {
-      setOpenBeatIds(prev => prev.filter(i => i !== id));
+    setOpenBeatIds(prev => prev.filter(i => i !== id));
+    setMinimizedBeatIds(prev => prev.filter(i => i !== id));
+    setForcedPositions(prev => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
   };
 
   const handleFocusBeat = (id: number) => {
-      setOpenBeatIds(prev => {
-          if (prev.length === 0 || prev[prev.length - 1] === id) return prev;
-          return [...prev.filter(i => i !== id), id];
-      });
+    setOpenBeatIds(prev => {
+      if (prev.length === 0 || prev[prev.length - 1] === id) return prev;
+      return [...prev.filter(i => i !== id), id];
+    });
+    setMinimizedBeatIds(prev => prev.filter(i => i !== id));
   };
+
+  const handleToggleMinimizeBeat = (id: number) => {
+    setMinimizedBeatIds(prev => 
+      prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
+    );
+  };
+
+  const handleCloseAllBeats = () => {
+    setOpenBeatIds([]);
+    setMinimizedBeatIds([]);
+    setForcedPositions({});
+  };
+
+  const handleCascadeWindows = () => {
+    setMinimizedBeatIds([]);
+    const newPositions: Record<number, { x: number; y: number }> = {};
+    const startX = 60;
+    const startY = 60;
+    const offset = 38;
+    const maxW = Math.max(100, window.innerWidth - 750);
+    const maxH = Math.max(100, window.innerHeight - 600);
+
+    openBeatIds.forEach((id, index) => {
+      const x = Math.min(maxW, startX + (index * offset));
+      const y = Math.min(maxH, startY + (index * offset));
+      newPositions[id] = { x, y };
+    });
+    setForcedPositions(newPositions);
+  };
+
+  const handleTileWindows = () => {
+    setMinimizedBeatIds([]);
+    const count = openBeatIds.length;
+    if (count === 0) return;
+
+    const newPositions: Record<number, { x: number; y: number }> = {};
+    const padding = 20;
+    const availW = window.innerWidth - (padding * 2);
+    const availH = window.innerHeight - 80;
+
+    if (count === 1) {
+      newPositions[openBeatIds[0]] = { x: Math.max(20, (window.innerWidth - 720) / 2), y: 60 };
+    } else if (count === 2) {
+      newPositions[openBeatIds[0]] = { x: padding, y: 60 };
+      newPositions[openBeatIds[1]] = { x: Math.max(padding + 20, Math.floor(window.innerWidth / 2) + 10), y: 60 };
+    } else {
+      const cols = Math.ceil(Math.sqrt(count));
+      const rows = Math.ceil(count / cols);
+      const colWidth = Math.floor(availW / cols);
+
+      openBeatIds.forEach((id, index) => {
+        const col = index % cols;
+        const row = Math.floor(index / cols);
+        newPositions[id] = {
+          x: Math.round(padding + col * (colWidth + 10)),
+          y: Math.round(50 + row * 40),
+        };
+      });
+    }
+    setForcedPositions(newPositions);
+  };
+
+  // Global Escape Key Listener for topmost active window and open dialogs
+  useEffect(() => {
+    const handleGlobalEscape = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+
+      if (showAuthModal) { setShowAuthModal(false); return; }
+      if (showPrintPreview) { setShowPrintPreview(false); return; }
+      if (showNewProject) { setShowNewProject(false); return; }
+      if (showAssistant) { setShowAssistant(false); return; }
+      if (isSettingsOpen) { setIsSettingsOpen(false); return; }
+      if (isImportModalOpen) { setIsImportModalOpen(false); return; }
+      if (isInboxOpen) { setIsInboxOpen(false); return; }
+
+      if (openBeatIds.length > 0) {
+        const topBeatId = openBeatIds[openBeatIds.length - 1];
+        handleCloseBeat(topBeatId);
+      }
+    };
+
+    window.addEventListener('keydown', handleGlobalEscape);
+    return () => window.removeEventListener('keydown', handleGlobalEscape);
+  }, [
+    showAuthModal, showPrintPreview, showNewProject, showAssistant, 
+    isSettingsOpen, isImportModalOpen, isInboxOpen, openBeatIds
+  ]);
 
   if (isInitialLoading && !loadingTimedOut) {
       return (
@@ -726,22 +834,42 @@ const AppContent: React.FC = () => {
       </div>
 
       {(currentView === 'board' || currentView === 'excalidraw') && (
-        <div className="fixed inset-0 pointer-events-none z-[1000] overflow-hidden">
-            {openBeatIds.map((id, index) => (
-              <div key={id} className="pointer-events-auto absolute" style={{ zIndex: 1000 + index }}>
-                  <EditorModal 
-                    beatId={id} 
-                    onClose={() => handleCloseBeat(id)} 
-                    onFocus={() => handleFocusBeat(id)}
-                    initialOffset={index * 30}
-                    onViewInScript={() => {
-                      handleCloseBeat(id);
-                      setCurrentView('script');
-                    }}
-                  />
-              </div>
-            ))}
-        </div>
+        <>
+          <div className="fixed inset-0 pointer-events-none z-[1000] overflow-hidden">
+              {openBeatIds.map((id, index) => (
+                <EditorModal 
+                  key={id}
+                  beatId={id} 
+                  zIndex={1000 + index * 5}
+                  isActive={openBeatIds[openBeatIds.length - 1] === id}
+                  isMinimized={minimizedBeatIds.includes(id)}
+                  onMinimize={() => handleToggleMinimizeBeat(id)}
+                  forcedPosition={forcedPositions[id] || null}
+                  onClose={() => handleCloseBeat(id)} 
+                  onFocus={() => handleFocusBeat(id)}
+                  initialOffset={index * 35}
+                  onViewInScript={() => {
+                    handleCloseBeat(id);
+                    setCurrentView('script');
+                  }}
+                />
+              ))}
+          </div>
+
+          <FloatingWindowManager 
+            openBeatIds={openBeatIds}
+            minimizedBeatIds={minimizedBeatIds}
+            activeBeatId={openBeatIds.length > 0 ? openBeatIds[openBeatIds.length - 1] : null}
+            beats={beats}
+            onFocusBeat={handleFocusBeat}
+            onToggleMinimizeBeat={handleToggleMinimizeBeat}
+            onCloseBeat={handleCloseBeat}
+            onCloseAll={handleCloseAllBeats}
+            onCascade={handleCascadeWindows}
+            onTile={handleTileWindows}
+            isLight={appTheme === 'light' || (appTheme === 'system' && typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: light)').matches)}
+          />
+        </>
       )}
 
       {showPrintPreview && (
