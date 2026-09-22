@@ -836,6 +836,7 @@ export interface Note {
 export interface TimelineTrack {
   id: string;
   label: string;
+  name?: string;
   type: 'main' | 'subplot' | 'parallel' | 'broll' | 'audio' | 'theme' | string;
   color: string;
   isLocked?: boolean;

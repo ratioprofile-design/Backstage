@@ -78,8 +78,17 @@ export const TAMIL_UI_DICTIONARY: Record<string, string> = {
   'Sign Out': 'வெளியேறுக',
 
   // --- SETTINGS CATEGORIES (BackstageView) ---
+  'Project Settings': 'திட்ட அமைப்புகள்',
   'Project & Files': 'திட்டம் & கோப்புகள்',
   'Save, Load & Export': 'சேமி, ஏற்று & ஏற்றுமதி',
+  'Collaborate, Save & Export': 'கூட்டுப்பணி, சேமி & ஏற்றுமதி',
+  'Invite Collaborators': 'கூட்டாளர்களை அழைக்கவும்',
+  'Invite people to collaborate': 'கூட்டுப்பணியாற்ற ஆட்களை அழைக்கவும்',
+  'Share Project': 'திட்டத்தைப் பகிரவும்',
+  'Copy Invite Link': 'அழைப்பு இணைப்பை நகலெடு',
+  'Link Copied!': 'இணைப்பு நகலெடுக்கப்பட்டது!',
+  'Can Edit': 'தொகுக்கலாம்',
+  'View Only': 'பார்க்க மட்டும்',
   'Appearance & Themes': 'தோற்றம் & தீம்கள்',
   'Dark/Light Mode & Colors': 'இருண்ட/ஒளி பயன்முறை & வண்ணங்கள்',
   'Script Typography': 'திரைக்கதை எழுத்துரு',

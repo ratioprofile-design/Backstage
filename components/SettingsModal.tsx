@@ -8,11 +8,13 @@ interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
   onNavigateToBackstage?: () => void;
+  initialCategory?: 'project' | 'appearance' | 'formatting' | 'scratchpad' | 'board' | 'ai' | 'features';
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
   isOpen,
-  onClose
+  onClose,
+  initialCategory = 'project'
 }) => {
   const { appTheme = 'dark', appAccentColor = '#f5a623', appLanguage = 'english' } = useProject();
   const isLight = appTheme === 'light';
@@ -100,7 +102,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
         {/* Modal Body: Full Backstage Settings View */}
         <div className="flex-1 min-h-0 overflow-hidden relative">
-          <BackstageView onNavigateToBoard={onClose} onClose={onClose} />
+          <BackstageView onNavigateToBoard={onClose} onClose={onClose} initialCategory={initialCategory} />
         </div>
       </div>
     </div>

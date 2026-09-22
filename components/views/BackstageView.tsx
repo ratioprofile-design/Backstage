@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useProject } from '../../context/ProjectContext';
 import { isTauri, getTauriFs, getTauriDialog } from '../../utils/desktop';
 import { addRecentFile } from '../../utils/recentFiles';
@@ -15,7 +15,8 @@ import {
   BoxSelect, Scan, Grid, Zap, Cloud, AlertTriangle, RefreshCw, Wand2,
   Moon, Sun, Coffee, Download, XCircle, Sparkles, Wifi, ShieldCheck, ShieldAlert,
   Key, Cpu, ListChecks, StickyNote, List, Hash, RotateCw, CheckSquare, Quote, WifiOff,
-  Palette, Languages, CheckCircle2, ChevronRight, Folder, Pipette, Layout, X
+  Palette, Languages, CheckCircle2, ChevronRight, Folder, Pipette, Layout, X,
+  Users, UserPlus, Mail, Trash2, CheckCheck, Link2
 } from 'lucide-react';
 import PrintPreviewModal from '../PrintPreviewModal';
 import { 
@@ -24,7 +25,7 @@ import {
     ACCENT_COLORS, APP_LANGUAGES, BREAKDOWN_LANGUAGES
 } from '../../constants';
 import { BlockEditor } from '../BlockEditor';
-import { isSupabaseConfigured } from '../../services/supabase';
+import { isSupabaseConfigured, supabase, inviteUserToProject } from '../../services/supabase';
 import { testApiKey, testGrokKey } from '../../services/gemini';
 import { useAiKeyStatus } from '../../context/AiKeyStatusContext';
 import { ThemeAnimationSelector } from '../ThemeAnimationSelector';
@@ -228,9 +229,10 @@ const ColorPicker = ({ value, onChange }: { value: string; onChange: (v: string)
 interface BackstageViewProps {
   onNavigateToBoard?: () => void;
   onClose?: () => void;
+  initialCategory?: 'project' | 'appearance' | 'formatting' | 'scratchpad' | 'board' | 'ai' | 'features';
 }
 
-const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard, onClose }) => {
+const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard, onClose, initialCategory = 'project' }) => {
   const { 
     scriptConfig, setScriptConfig, scriptViewMode, setScriptViewMode,
     isTamilMode, setTamilMode, 
@@ -241,6 +243,7 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard, onClos
     boardLayerOrder = ['annotations', 'text', 'connections', 'groups', 'beats'], setBoardLayerOrder,
     loadProject, closeProject, downloadProject, saveProjectAs, fileHandle, filePath, setFilePath,
     beats, currentUser, isCloudMode, projectList, selectProject, currentProjectId,
+    collaborators = [], setCollaborators,
     openrouterKey, setOpenrouterKey,
     grokKey, setGrokKey,
     generalAiModel, setGeneralAiModel,
@@ -257,7 +260,14 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard, onClos
 
   const isLight = appTheme === 'light' || (appTheme === 'system' && typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: light)').matches);
 
-  const [activeCategory, setActiveCategory] = useState<'project' | 'appearance' | 'formatting' | 'scratchpad' | 'board' | 'ai' | 'features'>('project');
+  const [activeCategory, setActiveCategory] = useState<'project' | 'appearance' | 'formatting' | 'scratchpad' | 'board' | 'ai' | 'features'>(initialCategory);
+
+  useEffect(() => {
+    if (initialCategory) {
+      setActiveCategory(initialCategory);
+    }
+  }, [initialCategory]);
+
   const [selectedFormatElement, setSelectedFormatElement] = useState<keyof ScriptConfig | 'visualization'>('action');
   
   // Preview States
@@ -313,6 +323,168 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard, onClos
   useEffect(() => {
       setTempGrokKey(grokKey || '');
   }, [grokKey]);
+
+  // --- COLLABORATION & TEAM SETTINGS ---
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteRole, setInviteRole] = useState('Writer');
+  const [inviteAccess, setInviteAccess] = useState<'edit' | 'view'>('edit');
+  const [isInviting, setIsInviting] = useState(false);
+  const [inviteFeedback, setInviteFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [copiedLink, setCopiedLink] = useState(false);
+  const [pendingEmails, setPendingEmails] = useState<string[]>([]);
+
+  // Load pending invites from Supabase or simulated invites
+  useEffect(() => {
+    if (!currentProjectId) return;
+    if (isSupabaseConfigured) {
+      supabase
+        .from('project_invites')
+        .select('invitee_email')
+        .eq('project_id', currentProjectId)
+        .then(({ data, error }) => {
+          if (data && !error) {
+            setPendingEmails(data.map((inv: any) => (inv.invitee_email || '').toLowerCase().trim()));
+          }
+        });
+    } else {
+      try {
+        const invites = JSON.parse(localStorage.getItem('simulated_invites') || '[]');
+        const filtered = invites
+          .filter((inv: any) => inv.project_id === currentProjectId)
+          .map((inv: any) => (inv.invitee_email || '').toLowerCase().trim());
+        setPendingEmails(filtered);
+      } catch {
+        setPendingEmails([]);
+      }
+    }
+  }, [currentProjectId]);
+
+  const activeProject = projectList?.find(p => p.id === currentProjectId);
+  const activeProjectName = activeProject?.name || 'Backstage Screenplay';
+
+  const handleCopyInviteLink = () => {
+    const url = `${window.location.origin}${window.location.pathname}?project=${currentProjectId || 'default'}`;
+    navigator.clipboard.writeText(url);
+    setCopiedLink(true);
+    setTimeout(() => setCopiedLink(false), 2500);
+  };
+
+  const handleSendInvite = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const cleanEmail = inviteEmail.trim().toLowerCase();
+    if (!cleanEmail) return;
+
+    if (collaborators.some((c: any) => (c.email || '').toLowerCase() === cleanEmail)) {
+      setInviteFeedback({ type: 'error', message: 'This person is already a collaborator on this project.' });
+      setTimeout(() => setInviteFeedback(null), 4000);
+      return;
+    }
+
+    if (pendingEmails.includes(cleanEmail)) {
+      setInviteFeedback({ type: 'error', message: 'An invitation is already pending for this email.' });
+      setTimeout(() => setInviteFeedback(null), 4000);
+      return;
+    }
+
+    setIsInviting(true);
+    try {
+      const name = cleanEmail.includes('@') ? cleanEmail.split('@')[0] : cleanEmail;
+      const newCollab = {
+        email: cleanEmail,
+        name: name.charAt(0).toUpperCase() + name.slice(1),
+        role: inviteRole,
+        editAccess: inviteAccess,
+        allowedPages: ['board', 'script', 'casting', 'storyboard', 'shotlist', 'production']
+      };
+
+      const updated = [...collaborators, newCollab];
+      setCollaborators(updated);
+
+      await inviteUserToProject(
+        currentProjectId || 'default',
+        activeProjectName,
+        cleanEmail,
+        currentUser || 'Project Owner'
+      );
+
+      setPendingEmails(prev => [...prev, cleanEmail]);
+      setInviteEmail('');
+      setInviteFeedback({ type: 'success', message: `Invitation sent to ${cleanEmail}!` });
+      setTimeout(() => setInviteFeedback(null), 4000);
+    } catch (err: any) {
+      setInviteFeedback({ type: 'error', message: err?.message || 'Failed to send invitation.' });
+      setTimeout(() => setInviteFeedback(null), 4000);
+    } finally {
+      setIsInviting(false);
+    }
+  };
+
+  const handleRemoveCollaborator = async (email: string, isPending?: boolean) => {
+    const cleanEmail = email.toLowerCase().trim();
+    if (isPending) {
+      if (isSupabaseConfigured && currentProjectId) {
+        await supabase
+          .from('project_invites')
+          .delete()
+          .eq('project_id', currentProjectId)
+          .eq('invitee_email', cleanEmail);
+      }
+      try {
+        const invites = JSON.parse(localStorage.getItem('simulated_invites') || '[]');
+        const remaining = invites.filter((inv: any) => !(inv.project_id === currentProjectId && inv.invitee_email === cleanEmail));
+        localStorage.setItem('simulated_invites', JSON.stringify(remaining));
+      } catch {}
+      setPendingEmails(prev => prev.filter(e => e !== cleanEmail));
+    } else {
+      const updated = collaborators.filter((c: any) => (c.email || '').toLowerCase() !== cleanEmail);
+      setCollaborators(updated);
+    }
+  };
+
+  const handleEditAccessChange = (email: string, access: 'edit' | 'view') => {
+    const updated = collaborators.map((c: any) => {
+      if ((c.email || '').toLowerCase() === email.toLowerCase()) {
+        return { ...c, editAccess: access };
+      }
+      return c;
+    });
+    setCollaborators(updated);
+  };
+
+  // Build unified collaborators list (active collaborators + pending invites)
+  const combinedCollaborators = useMemo(() => {
+    const list: any[] = [];
+    const seenEmails = new Set<string>();
+
+    collaborators.forEach((c: any) => {
+      const email = (c.email || '').toLowerCase().trim();
+      if (email && !seenEmails.has(email)) {
+        seenEmails.add(email);
+        list.push({
+          ...c,
+          isPending: false,
+          isCurrentUser: currentUser && email === currentUser.toLowerCase().trim()
+        });
+      }
+    });
+
+    pendingEmails.forEach(email => {
+      const clean = email.toLowerCase().trim();
+      if (clean && !seenEmails.has(clean)) {
+        seenEmails.add(clean);
+        list.push({
+          email: clean,
+          name: clean.split('@')[0],
+          role: 'Collaborator',
+          editAccess: 'edit',
+          isPending: true,
+          isCurrentUser: false
+        });
+      }
+    });
+
+    return list;
+  }, [collaborators, pendingEmails, currentUser]);
 
   const blockBounds = scriptConfig.blockBounds;
   const updateBlockBounds = (updates: any) => setScriptConfig({ 
@@ -509,9 +681,9 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard, onClos
               <SidebarItem 
                   active={activeCategory === 'project'} 
                   onClick={() => setActiveCategory('project')} 
-                  icon={Save} 
-                  label={translateUi('Project & Files', appLanguage)} 
-                  desc={translateUi('Save, Load & Export', appLanguage)}
+                  icon={Folder} 
+                  label={translateUi('Project Settings', appLanguage)} 
+                  desc={translateUi('Collaborate, Save & Export', appLanguage)}
                   accentColor={appAccentColor}
               />
               <SidebarItem 
@@ -971,8 +1143,268 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard, onClos
 
             {/* TAB 2: PROJECT & FILES */}
             {activeCategory === 'project' && (
-                <ViewContainer title="Project Management" subtitle="Manage local data, cloud synchronization, and PDF exports.">
+                <ViewContainer title="Project Settings" subtitle="Invite collaborators, manage local data, cloud synchronization, and backups.">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-4xl">
+                        {/* 1. INVITE PEOPLE TO COLLABORATE (SIMPLE & MODERN) */}
+                        <div className={`md:col-span-2 p-6 rounded-xl border transition-all ${
+                          isLight
+                            ? 'bg-white border-slate-200 shadow-sm text-slate-800'
+                            : 'bg-[#111114] border-[#222228] shadow-lg text-white'
+                        }`}>
+                          {/* Section Header */}
+                          <div className={`flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b ${
+                            isLight ? 'border-slate-100' : 'border-[#222228]'
+                          }`}>
+                            <div className="flex items-center gap-3">
+                              <div 
+                                className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0 border shadow-xs"
+                                style={{
+                                  backgroundColor: `${appAccentColor}18`,
+                                  borderColor: `${appAccentColor}40`,
+                                  color: appAccentColor
+                                }}
+                              >
+                                <Users size={18} />
+                              </div>
+                              <div>
+                                <h4 className="text-sm font-black uppercase tracking-wider">
+                                  {translateUi('Invite Collaborators', appLanguage)}
+                                </h4>
+                                <p className="text-[11px] text-gray-400 font-mono mt-0.5">
+                                  {translateUi('Work with co-writers, directors, and crew members on this screenplay in real time.', appLanguage)}
+                                </p>
+                              </div>
+                            </div>
+
+                            {/* Quick Copy Link Button */}
+                            <button
+                              type="button"
+                              onClick={handleCopyInviteLink}
+                              className={`px-3 py-1.5 rounded-lg border text-xs font-semibold flex items-center gap-2 transition-all cursor-pointer select-none self-start sm:self-auto ${
+                                copiedLink
+                                  ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-400 font-bold'
+                                  : isLight
+                                    ? 'bg-slate-100 hover:bg-slate-200 border-slate-200 text-slate-700'
+                                    : 'bg-[#18181c] hover:bg-[#222228] border-[#2c2c34] text-gray-300'
+                              }`}
+                              title="Copy invitation link to clipboard"
+                            >
+                              {copiedLink ? <CheckCheck size={14} className="text-emerald-400" /> : <Link2 size={14} />}
+                              <span>{copiedLink ? translateUi('Link Copied!', appLanguage) : translateUi('Copy Invite Link', appLanguage)}</span>
+                            </button>
+                          </div>
+
+                          {/* Simple Inline Invite Form */}
+                          <form onSubmit={handleSendInvite} className="pt-4 pb-2">
+                            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                              {/* Email Input */}
+                              <div className="relative flex-1 min-w-0">
+                                <Mail size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                                <input
+                                  type="text"
+                                  required
+                                  value={inviteEmail}
+                                  onChange={(e) => setInviteEmail(e.target.value)}
+                                  placeholder="Colleague email (e.g. nolan@cinema.com)..."
+                                  className={`w-full text-xs pl-9 pr-3 py-2.5 rounded-lg border outline-none transition-colors ${
+                                    isLight
+                                      ? 'bg-slate-50 border-slate-200 text-slate-900 focus:border-amber-500 focus:bg-white'
+                                      : 'bg-[#0a0a0c] border-[#2a2a30] text-white focus:border-amber-500 focus:bg-black'
+                                  }`}
+                                />
+                              </div>
+
+                              {/* Role Selector */}
+                              <div className="w-full sm:w-44 shrink-0">
+                                <select
+                                  value={inviteRole}
+                                  onChange={(e) => setInviteRole(e.target.value)}
+                                  className={`w-full text-xs px-3 py-2.5 rounded-lg border outline-none transition-colors cursor-pointer ${
+                                    isLight
+                                      ? 'bg-slate-50 border-slate-200 text-slate-900 focus:border-amber-500'
+                                      : 'bg-[#0a0a0c] border-[#2a2a30] text-white focus:border-amber-500'
+                                  }`}
+                                >
+                                  <option value="Writer">Writer</option>
+                                  <option value="Director">Director</option>
+                                  <option value="Producer">Producer</option>
+                                  <option value="Assistant Director">Assistant Director</option>
+                                  <option value="Cinematographer">Cinematographer</option>
+                                  <option value="Editor">Editor</option>
+                                  <option value="Crew">Crew / Production</option>
+                                </select>
+                              </div>
+
+                              {/* Access Permission Toggle */}
+                              <div className={`flex rounded-lg border p-0.5 shrink-0 ${
+                                isLight ? 'border-slate-200 bg-slate-100' : 'border-[#2a2a30] bg-black/40'
+                              }`}>
+                                <button
+                                  type="button"
+                                  onClick={() => setInviteAccess('edit')}
+                                  className={`px-3 py-1.5 text-[11px] font-bold uppercase rounded-md transition-all cursor-pointer ${
+                                    inviteAccess === 'edit'
+                                      ? 'bg-amber-500 text-black shadow-xs font-black'
+                                      : isLight ? 'text-slate-600 hover:text-slate-900' : 'text-gray-400 hover:text-white'
+                                  }`}
+                                >
+                                  {translateUi('Can Edit', appLanguage)}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setInviteAccess('view')}
+                                  className={`px-3 py-1.5 text-[11px] font-bold uppercase rounded-md transition-all cursor-pointer ${
+                                    inviteAccess === 'view'
+                                      ? 'bg-amber-500 text-black shadow-xs font-black'
+                                      : isLight ? 'text-slate-600 hover:text-slate-900' : 'text-gray-400 hover:text-white'
+                                  }`}
+                                >
+                                  {translateUi('View Only', appLanguage)}
+                                </button>
+                              </div>
+
+                              {/* Submit Button */}
+                              <button
+                                type="submit"
+                                disabled={isInviting || !inviteEmail.trim()}
+                                className="px-4 py-2.5 rounded-lg font-bold text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-2 cursor-pointer shadow-xs hover:brightness-110 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
+                                style={{
+                                  backgroundColor: appAccentColor,
+                                  color: '#000'
+                                }}
+                              >
+                                <UserPlus size={14} />
+                                <span>{isInviting ? 'Inviting...' : 'Invite'}</span>
+                              </button>
+                            </div>
+
+                            {/* Inline Feedback Banner */}
+                            {inviteFeedback && (
+                              <div className={`mt-3 px-3.5 py-2 rounded-lg text-xs font-medium flex items-center gap-2 transition-all ${
+                                inviteFeedback.type === 'success'
+                                  ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-400'
+                                  : 'bg-rose-500/10 border border-rose-500/30 text-rose-400'
+                              }`}>
+                                <span className="w-1.5 h-1.5 rounded-full bg-current"></span>
+                                <span>{inviteFeedback.message}</span>
+                              </div>
+                            )}
+                          </form>
+
+                          {/* Collaborators List */}
+                          <div className={`mt-4 pt-4 border-t ${isLight ? 'border-slate-100' : 'border-[#222228]'}`}>
+                            <div className="flex items-center justify-between mb-3">
+                              <span className="text-[10px] font-black uppercase tracking-wider text-gray-400">
+                                Team Members ({combinedCollaborators.length})
+                              </span>
+                              {currentUser && (
+                                <span className="text-[10px] text-gray-500 font-mono">
+                                  Current Account: <strong className={isLight ? 'text-slate-800' : 'text-gray-300'}>{currentUser}</strong>
+                                </span>
+                              )}
+                            </div>
+
+                            {combinedCollaborators.length === 0 ? (
+                              <div className={`p-6 rounded-lg border border-dashed text-center ${
+                                isLight ? 'border-slate-200 text-slate-400 bg-slate-50/50' : 'border-[#222228] text-gray-500 bg-[#0a0a0c]/50'
+                              }`}>
+                                <Users size={22} className="mx-auto mb-1.5 opacity-40" />
+                                <p className="text-xs font-semibold">No external collaborators invited yet.</p>
+                                <p className="text-[10px] text-gray-500 mt-0.5">Enter an email address above to invite team members to this screenplay.</p>
+                              </div>
+                            ) : (
+                              <div className="space-y-2">
+                                {combinedCollaborators.map((collab) => {
+                                  const isOwner = collab.isCurrentUser;
+                                  return (
+                                    <div 
+                                      key={collab.email}
+                                      className={`p-3 rounded-lg border flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-colors ${
+                                        collab.isPending 
+                                          ? (isLight ? 'bg-amber-50/30 border-amber-200/50' : 'bg-amber-500/[0.02] border-amber-500/15')
+                                          : (isLight ? 'bg-slate-50/80 border-slate-200 hover:bg-slate-50' : 'bg-[#0e0e11] border-[#222228] hover:bg-[#131317]')
+                                      }`}
+                                    >
+                                      {/* Left Info */}
+                                      <div className="flex items-center gap-3 min-w-0">
+                                        <div 
+                                          className="w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs uppercase shrink-0 border"
+                                          style={{
+                                            backgroundColor: `${appAccentColor}20`,
+                                            borderColor: `${appAccentColor}40`,
+                                            color: appAccentColor
+                                          }}
+                                        >
+                                          {(collab.name || collab.email).charAt(0)}
+                                        </div>
+                                        <div className="min-w-0">
+                                          <div className="flex items-center gap-2 flex-wrap">
+                                            <span className={`text-xs font-bold truncate ${isLight ? 'text-slate-900' : 'text-white'}`}>
+                                              {collab.name || collab.email}
+                                            </span>
+                                            {isOwner && (
+                                              <span className="px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider bg-amber-500/15 text-amber-400 border border-amber-500/30">
+                                                Owner (You)
+                                              </span>
+                                            )}
+                                            <span className={`px-1.5 py-0.5 rounded text-[9px] font-semibold border ${
+                                              isLight ? 'bg-slate-200/70 text-slate-700 border-slate-300' : 'bg-white/5 text-gray-400 border-white/10'
+                                            }`}>
+                                              {collab.role}
+                                            </span>
+                                            {collab.isPending ? (
+                                              <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/20 flex items-center gap-1">
+                                                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                                                Pending Invite
+                                              </span>
+                                            ) : (
+                                              <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center gap-1">
+                                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                                                Active
+                                              </span>
+                                            )}
+                                          </div>
+                                          <div className="text-[10px] text-gray-500 truncate mt-0.5">{collab.email}</div>
+                                        </div>
+                                      </div>
+
+                                      {/* Right Controls */}
+                                      <div className="flex items-center gap-2 self-end sm:self-auto shrink-0">
+                                        {!isOwner && (
+                                          <>
+                                            <select
+                                              value={collab.editAccess || 'edit'}
+                                              onChange={(e) => handleEditAccessChange(collab.email, e.target.value as 'edit' | 'view')}
+                                              className={`text-[10px] font-bold px-2 py-1 rounded border outline-none cursor-pointer transition-colors ${
+                                                isLight ? 'bg-white border-slate-200 text-slate-700' : 'bg-[#18181c] border-[#2c2c34] text-gray-300'
+                                              }`}
+                                            >
+                                              <option value="edit">Can Edit</option>
+                                              <option value="view">View Only</option>
+                                            </select>
+                                            <button
+                                              type="button"
+                                              onClick={() => handleRemoveCollaborator(collab.email, collab.isPending)}
+                                              className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                                                isLight 
+                                                  ? 'text-slate-400 hover:text-red-600 hover:bg-red-50' 
+                                                  : 'text-gray-500 hover:text-red-400 hover:bg-red-500/10'
+                                              }`}
+                                              title={collab.isPending ? "Cancel invitation" : "Remove collaborator"}
+                                            >
+                                              <Trash2 size={13} />
+                                            </button>
+                                          </>
+                                        )}
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
                         {/* CLOUD STATUS CARD */}
                         <div className="md:col-span-2 bg-[#111] p-6 rounded-sm border border-[#222]">
                             <div className="flex items-center justify-between">

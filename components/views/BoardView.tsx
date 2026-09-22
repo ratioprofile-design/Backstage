@@ -2875,7 +2875,7 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
               <div 
                 className="w-1.5 shrink-0 h-full"
                 style={{ backgroundColor: track.color }}
-                title={`Track: ${track.name || 'Lane ' + (beat.timelineTrackIdx + 1)}`}
+                title={`Track: ${track.label || track.name || 'Lane ' + (beat.timelineTrackIdx + 1)}`}
               />
 
               {/* Left Metadata Column */}
@@ -2947,7 +2947,7 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
                   }}
                 >
                   <span>p.{beat.startPage.toFixed(1)}–{(beat.startPage + beat.durationPages).toFixed(1)}</span>
-                  <span className="truncate opacity-75">{track.name || `LANE ${beat.timelineTrackIdx + 1}`}</span>
+                  <span className="truncate opacity-75">{track.label || track.name || `LANE ${beat.timelineTrackIdx + 1}`}</span>
                 </div>
               </div>
             </div>
@@ -3000,7 +3000,7 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
               <div 
                 className="w-1.5 shrink-0 h-full"
                 style={{ backgroundColor: track.color }}
-                title={`Track: ${track.name || 'Lane ' + (beat.timelineTrackIdx + 1)}`}
+                title={`Track: ${track.label || track.name || 'Lane ' + (beat.timelineTrackIdx + 1)}`}
               />
 
               {/* Left Metadata Column (Pantone Swatch Spec Column) */}
@@ -3128,7 +3128,7 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
                     <span><strong className="font-semibold opacity-90">SPAN:</strong> {beat.durationPages.toFixed(1)}p</span>
                     <span><strong className="font-semibold opacity-90">RANGE:</strong> p.{beat.startPage.toFixed(1)}–{(beat.startPage + beat.durationPages).toFixed(1)}</span>
                   </div>
-                  <span className="truncate opacity-75 font-medium">{track.name || `LANE ${beat.timelineTrackIdx + 1}`}</span>
+                  <span className="truncate opacity-75 font-medium">{track.label || track.name || `LANE ${beat.timelineTrackIdx + 1}`}</span>
                 </div>
               </div>
             </div>

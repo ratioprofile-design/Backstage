@@ -86,9 +86,9 @@ export const FloatingWindowManager: React.FC<FloatingWindowManagerProps> = ({
                 {/* Status Dot */}
                 <span 
                   className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-                    beat?.status === 'ready' 
+                    beat?.status === 'locked' || (beat?.status as string) === 'ready' 
                       ? 'bg-emerald-400' 
-                      : beat?.status === 'in_progress'
+                      : beat?.status === 'draft' || (beat?.status as string) === 'in_progress'
                       ? 'bg-blue-400'
                       : 'bg-amber-400'
                   } ${isActive && !isMinimized ? 'animate-pulse' : ''}`}

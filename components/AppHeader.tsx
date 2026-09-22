@@ -386,7 +386,7 @@ const AppHeader: React.FC<AppHeaderProps> = ({
                         </div>
                       </div>
                       <button
-                        onClick={() => { setShowUserMenu(false); setIsInviteModalOpen(true); }}
+                        onClick={() => { setShowUserMenu(false); onOpenSettings ? onOpenSettings() : setIsInviteModalOpen(true); }}
                         className="w-full flex items-center gap-2.5 px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-amber-500 hover:bg-amber-500/10 border-b border-[#2a2a2a] transition-colors"
                       >
                         <UsersIcon size={13} /> Project Collaboration
@@ -417,7 +417,7 @@ const AppHeader: React.FC<AppHeaderProps> = ({
                         </div>
                       </div>
                       <button
-                        onClick={() => { setShowUserMenu(false); setIsInviteModalOpen(true); }}
+                        onClick={() => { setShowUserMenu(false); onOpenSettings ? onOpenSettings() : setIsInviteModalOpen(true); }}
                         className="w-full flex items-center gap-2.5 px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-amber-500 hover:bg-amber-500/10 border-b border-[#2a2a2a] transition-colors"
                       >
                         <UsersIcon size={13} /> Project Collaboration
