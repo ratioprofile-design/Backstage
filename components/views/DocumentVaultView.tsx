@@ -7,7 +7,9 @@ import {
   AnnotationType, 
   CommentReply, 
   DocumentFormat,
-  DocumentCategory
+  DocumentCategory,
+  CATEGORY_REGISTRY,
+  BreakdownCategory
 } from '../../types';
 import { 
   getProductionDocuments, 
@@ -17,8 +19,12 @@ import {
   unarchiveProductionDocument,
   saveVoiceNoteToVault,
   saveNoteToVault,
-  harvestProjectArtifacts
+  harvestProjectArtifacts,
+  updateDocumentTags,
+  generateBreakdownHtmlTable,
+  SCENE_4_BREAKDOWN_SHEET_DATA
 } from '../../services/documentsStorage';
+import * as XLSX from 'xlsx';
 import { parseUniversalFile } from '../../services/documentParser';
 import { generateText } from '../../services/gemini';
 import { isLegacyBamini, transcodeBaminiToUnicode, transcodeHtmlBaminiToUnicode } from '../../services/tamilTranscoder';
@@ -99,7 +105,9 @@ import {
   FileAudio,
   Radio,
   RefreshCw,
-  Info
+  Info,
+  Trash2,
+  Filter
 } from 'lucide-react';
 
 const HIGHLIGHT_COLORS = [
@@ -130,6 +138,39 @@ const CATEGORY_STYLES: Record<string, { label: string; icon: any; badgeBg: strin
   OTHER: { label: 'Other Docs', icon: Folder, badgeBg: 'bg-zinc-500/15', badgeText: 'text-zinc-300', border: 'border-zinc-500/30' },
 };
 
+const BREAKDOWN_CATEGORY_STYLES: Record<string, { bg: string; text: string; border: string }> = {
+  CAST: { bg: 'bg-red-500/15', text: 'text-red-400', border: 'border-red-500/30' },
+  EXTRAS: { bg: 'bg-yellow-500/15', text: 'text-yellow-400', border: 'border-yellow-500/30' },
+  STUNTS: { bg: 'bg-orange-500/15', text: 'text-orange-400', border: 'border-orange-500/30' },
+  VEHICLES: { bg: 'bg-pink-500/15', text: 'text-pink-400', border: 'border-pink-500/30' },
+  PROPS: { bg: 'bg-purple-500/15', text: 'text-purple-400', border: 'border-purple-500/30' },
+  SFX: { bg: 'bg-sky-500/15', text: 'text-sky-400', border: 'border-sky-500/30' },
+  VFX: { bg: 'bg-violet-500/15', text: 'text-violet-400', border: 'border-violet-500/30' },
+  WARDROBE: { bg: 'bg-fuchsia-500/15', text: 'text-fuchsia-400', border: 'border-fuchsia-500/30' },
+  MAKEUP: { bg: 'bg-rose-500/15', text: 'text-rose-400', border: 'border-rose-500/30' },
+  ANIMALS: { bg: 'bg-emerald-500/15', text: 'text-emerald-400', border: 'border-emerald-500/30' },
+  SOUND: { bg: 'bg-blue-500/15', text: 'text-blue-400', border: 'border-blue-500/30' },
+  SET_DRESSING: { bg: 'bg-amber-500/15', text: 'text-amber-400', border: 'border-amber-500/30' },
+  GREENERY: { bg: 'bg-green-500/15', text: 'text-green-400', border: 'border-green-500/30' },
+  SPECIAL_EQUIPMENT: { bg: 'bg-indigo-500/15', text: 'text-indigo-400', border: 'border-indigo-500/30' },
+  LIGHTING_GRIP: { bg: 'bg-amber-500/15', text: 'text-amber-400', border: 'border-amber-500/30' },
+  SAFETY: { bg: 'bg-red-500/15', text: 'text-red-400', border: 'border-red-500/30' },
+};
+
+const getStatusBadgeStyle = (status: string) => {
+  const s = String(status || '').toLowerCase();
+  if (s.includes('confirm') || s.includes('ready') || s.includes('approved')) {
+    return 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30';
+  }
+  if (s.includes('rigged') || s.includes('rehearsed')) {
+    return 'bg-sky-500/15 text-sky-400 border-sky-500/30';
+  }
+  if (s.includes('sched')) {
+    return 'bg-amber-500/15 text-amber-400 border-amber-500/30';
+  }
+  return 'bg-zinc-500/15 text-zinc-300 border-zinc-500/30';
+};
+
 export const DocumentVaultView: React.FC = () => {
   const projectContext = useProject();
   const { appTheme, appAccentColor = '#f5a623', generalAiModel, openrouterKey } = projectContext;
@@ -144,8 +185,22 @@ export const DocumentVaultView: React.FC = () => {
   const [inStudioMode, setInStudioMode] = useState<boolean>(false);
   const [galleryViewMode, setGalleryViewMode] = useState<'gallery' | 'table' | 'kanban' | 'timeline'>('gallery');
   const [selectedCategory, setSelectedCategory] = useState<string>('ALL');
+  const [selectedTag, setSelectedTag] = useState<string | null>(null);
+  const [newTagInput, setNewTagInput] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'title' | 'size' | 'comments'>('newest');
+
+  // Breakdown Studio Table Mode & Filter State
+  const [studioViewMode, setStudioViewMode] = useState<'table' | 'page'>('page');
+  const [breakdownCategoryFilter, setBreakdownCategoryFilter] = useState<string>('ALL');
+  const [breakdownSearchQuery, setBreakdownSearchQuery] = useState<string>('');
+  const [breakdownStatusFilter, setBreakdownStatusFilter] = useState<string>('ALL');
+  const [isAddElementOpen, setIsAddElementOpen] = useState<boolean>(false);
+  const [newElemCategory, setNewElemCategory] = useState<string>('PROPS');
+  const [newElemName, setNewElemName] = useState<string>('');
+  const [newElemDept, setNewElemDept] = useState<string>('');
+  const [newElemNotes, setNewElemNotes] = useState<string>('');
+  const [newElemStatus, setNewElemStatus] = useState<string>('Confirmed');
 
   // Reader / Studio Pagination & Zoom
   const [currentPage, setCurrentPage] = useState<number>(1);
@@ -165,6 +220,7 @@ export const DocumentVaultView: React.FC = () => {
   const [isFormattingDrawerOpen, setIsFormattingDrawerOpen] = useState<boolean>(false);
   const [editedHtmlContent, setEditedHtmlContent] = useState<string>('');
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState<boolean>(false);
+  const editableDocRef = useRef<HTMLDivElement>(null);
 
   // Annotations & Markup
   const [activeTool, setActiveTool] = useState<AnnotationType | 'hand'>('hand');
@@ -173,7 +229,7 @@ export const DocumentVaultView: React.FC = () => {
 
   // Comments Side-Panel
   const [showCommentsPanel, setShowCommentsPanel] = useState<boolean>(true);
-  const [activeSideTab, setActiveSideTab] = useState<'comments' | 'ai'>('comments');
+  const [activeSideTab, setActiveSideTab] = useState<'comments' | 'tags' | 'info'>('comments');
   const [selectedCommentId, setSelectedCommentId] = useState<string | null>(null);
   const [replyInput, setReplyInput] = useState<{ [commentId: string]: string }>({});
   const [newCommentText, setNewCommentText] = useState<string>('');
@@ -332,9 +388,15 @@ export const DocumentVaultView: React.FC = () => {
     }
   };
 
-  // Shortcut listener for Cmd+K
+  // Shortcut listener for Cmd+K (AI) and Cmd+S (Save Document)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
+        if (inStudioMode) {
+          e.preventDefault();
+          handleSaveDocumentContent();
+        }
+      }
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         setIsAiCommandOpen((prev) => !prev);
@@ -346,7 +408,7 @@ export const DocumentVaultView: React.FC = () => {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
+  }, [inStudioMode, editedHtmlContent, selectedDocId]);
 
   // Dismiss selection toolbar on click outside
   useEffect(() => {
@@ -364,6 +426,175 @@ export const DocumentVaultView: React.FC = () => {
   const annotations = selectedDoc?.annotations || [];
   const pageAnnotations = annotations.filter((a) => a.pageNumber === currentPage);
 
+  // Breakdown Sheet Data & Table Structure
+  const isBreakdownDoc = selectedDoc?.category === 'BREAKDOWN' || selectedDoc?.builtInType === 'breakdown' || !!selectedDoc?.sheetData;
+
+  const rawTableRows = useMemo(() => {
+    if (!selectedDoc) return [];
+    if (selectedDoc.sheetData && selectedDoc.sheetData.length > 1) {
+      return selectedDoc.sheetData.slice(1);
+    }
+    if (selectedDoc.id === 'doc-bd-1' || selectedDoc.category === 'BREAKDOWN') {
+      return SCENE_4_BREAKDOWN_SHEET_DATA.slice(1);
+    }
+    return [];
+  }, [selectedDoc]);
+
+  const availableCategories = useMemo(() => {
+    const set = new Set<string>();
+    rawTableRows.forEach((r) => {
+      if (r[1]) set.add(String(r[1]).toUpperCase());
+    });
+    return Array.from(set);
+  }, [rawTableRows]);
+
+  const uniqueDepartmentsCount = useMemo(() => {
+    const set = new Set<string>();
+    rawTableRows.forEach((r) => {
+      if (r[3]) set.add(String(r[3]).trim().toLowerCase());
+    });
+    return Math.max(1, set.size);
+  }, [rawTableRows]);
+
+  const filteredTableRows = useMemo(() => {
+    return rawTableRows.filter((r) => {
+      const cat = String(r[1] || '').toUpperCase();
+      const name = String(r[2] || '').toLowerCase();
+      const dept = String(r[3] || '').toLowerCase();
+      const notes = String(r[4] || '').toLowerCase();
+      const status = String(r[5] || '').toLowerCase();
+
+      // Category filter
+      if (breakdownCategoryFilter !== 'ALL' && cat !== breakdownCategoryFilter) {
+        return false;
+      }
+
+      // Status filter
+      if (breakdownStatusFilter !== 'ALL' && !status.includes(breakdownStatusFilter.toLowerCase())) {
+        return false;
+      }
+
+      // Search query
+      if (breakdownSearchQuery.trim()) {
+        const q = breakdownSearchQuery.trim().toLowerCase();
+        const matches = name.includes(q) || dept.includes(q) || notes.includes(q) || cat.toLowerCase().includes(q) || status.includes(q);
+        if (!matches) return false;
+      }
+
+      return true;
+    });
+  }, [rawTableRows, breakdownCategoryFilter, breakdownStatusFilter, breakdownSearchQuery]);
+
+  // Table action handlers
+  const handleExportTableExcel = () => {
+    if (!selectedDoc) return;
+    try {
+      const rows = selectedDoc.sheetData && selectedDoc.sheetData.length > 0
+        ? selectedDoc.sheetData
+        : SCENE_4_BREAKDOWN_SHEET_DATA;
+
+      if (!rows || rows.length <= 1) {
+        showToast('No table rows to export.');
+        return;
+      }
+      const worksheet = XLSX.utils.aoa_to_sheet(rows);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Breakdown Sheet');
+      const filename = `${selectedDoc.fileName ? selectedDoc.fileName.replace(/\.[^/.]+$/, '') : 'Breakdown_Sheet'}.xlsx`;
+      XLSX.writeFile(workbook, filename);
+      showToast(`✓ Exported ${rows.length - 1} elements to ${filename}!`);
+    } catch (err) {
+      console.error(err);
+      showToast('Export failed.');
+    }
+  };
+
+  const handleCopyTableToClipboard = () => {
+    const rows = selectedDoc?.sheetData && selectedDoc.sheetData.length > 0
+      ? selectedDoc.sheetData
+      : SCENE_4_BREAKDOWN_SHEET_DATA;
+
+    if (!rows || rows.length === 0) return;
+    try {
+      const tsv = rows.map((r: any[]) => r.join('\t')).join('\n');
+      navigator.clipboard.writeText(tsv);
+      showToast('✓ Table copied to clipboard (Spreadsheet TSV format)!');
+    } catch {
+      showToast('Failed to copy table.');
+    }
+  };
+
+  const handleAddTableElement = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newElemName.trim() || !selectedDoc) return;
+
+    const currentRows = selectedDoc.sheetData && selectedDoc.sheetData.length > 0
+      ? [...selectedDoc.sheetData]
+      : [...SCENE_4_BREAKDOWN_SHEET_DATA];
+
+    const nextIndex = currentRows.length;
+    const newRow = [
+      String(nextIndex),
+      newElemCategory.toUpperCase(),
+      newElemName.trim(),
+      newElemDept.trim() || newElemCategory,
+      newElemNotes.trim(),
+      newElemStatus
+    ];
+
+    const updatedRows = [...currentRows, newRow];
+    const updatedHtml = generateBreakdownHtmlTable(
+      selectedDoc.title.replace(/[^0-9]/g, '') || '4',
+      selectedDoc.title,
+      updatedRows
+    );
+
+    const updatedDoc: ProductionDocument = {
+      ...selectedDoc,
+      sheetData: updatedRows,
+      htmlContent: updatedHtml,
+    };
+
+    const updatedList = documents.map((d) => (d.id === selectedDoc.id ? updatedDoc : d));
+    setDocuments(updatedList);
+    saveProductionDocuments(updatedList);
+
+    setNewElemName('');
+    setNewElemDept('');
+    setNewElemNotes('');
+    setIsAddElementOpen(false);
+    showToast(`✓ Added "${newElemName.trim()}" to breakdown table!`);
+  };
+
+  const handleDeleteTableRow = (rowIdx: number) => {
+    if (!selectedDoc) return;
+    const currentRows = selectedDoc.sheetData && selectedDoc.sheetData.length > 0
+      ? selectedDoc.sheetData
+      : SCENE_4_BREAKDOWN_SHEET_DATA;
+
+    const header = currentRows[0];
+    const dataRows = currentRows.slice(1).filter((_, idx) => idx !== rowIdx);
+    const renumbered = dataRows.map((r, i) => [String(i + 1), r[1], r[2], r[3], r[4], r[5]]);
+    const updatedRows = [header, ...renumbered];
+
+    const updatedHtml = generateBreakdownHtmlTable(
+      selectedDoc.title.replace(/[^0-9]/g, '') || '4',
+      selectedDoc.title,
+      updatedRows
+    );
+
+    const updatedDoc: ProductionDocument = {
+      ...selectedDoc,
+      sheetData: updatedRows,
+      htmlContent: updatedHtml,
+    };
+
+    const updatedList = documents.map((d) => (d.id === selectedDoc.id ? updatedDoc : d));
+    setDocuments(updatedList);
+    saveProductionDocuments(updatedList);
+    showToast('Removed element from breakdown table.');
+  };
+
   // Archival Counts & Filtering
   const counts = useMemo(() => {
     const active = documents.filter((d) => !d.isArchived);
@@ -374,6 +605,24 @@ export const DocumentVaultView: React.FC = () => {
       byCat[d.category] = (byCat[d.category] || 0) + 1;
     });
     return byCat;
+  }, [documents]);
+
+  // Extract all unique tags and their active document counts
+  const allTagsWithCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    documents.forEach((doc) => {
+      if (!doc.isArchived && doc.tags) {
+        doc.tags.forEach((tag) => {
+          const trimmed = tag.trim();
+          if (trimmed) {
+            counts[trimmed] = (counts[trimmed] || 0) + 1;
+          }
+        });
+      }
+    });
+    return Object.entries(counts)
+      .map(([tag, count]) => ({ tag, count }))
+      .sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag));
   }, [documents]);
 
   // Filter & Search Engine
@@ -389,33 +638,58 @@ export const DocumentVaultView: React.FC = () => {
         }
       }
 
+      // Tag Filter
+      if (selectedTag) {
+        const hasSelectedTag = doc.tags?.some(
+          (t) => t.toLowerCase().trim() === selectedTag.toLowerCase().trim()
+        );
+        if (!hasSelectedTag) return false;
+      }
+
       // Search Query
       if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase().trim();
-        const matchTitle = doc.title.toLowerCase().includes(q);
-        const matchTitleTa = doc.titleTa?.toLowerCase().includes(q);
-        const matchFileName = doc.fileName.toLowerCase().includes(q);
-        const matchAuthor = doc.author?.toLowerCase().includes(q);
-        const matchCategory = doc.category.toLowerCase().includes(q);
-        const matchTags = doc.tags?.some((t) => t.toLowerCase().includes(q));
-        const matchText = doc.textContent?.toLowerCase().includes(q);
-        const matchHtml = doc.htmlContent?.toLowerCase().includes(q);
+        const rawQ = searchQuery.toLowerCase().trim();
+        const isHashQuery = rawQ.startsWith('#');
+        const tagToken = isHashQuery ? rawQ.replace(/^#+/, '').trim() : '';
+        const cleanQ = isHashQuery ? tagToken : rawQ;
+
+        const matchTitle = doc.title.toLowerCase().includes(rawQ);
+        const matchTitleTa = doc.titleTa?.toLowerCase().includes(rawQ);
+        const matchFileName = doc.fileName.toLowerCase().includes(rawQ);
+        const matchAuthor = doc.author?.toLowerCase().includes(rawQ);
+        const matchCategory = doc.category.toLowerCase().includes(rawQ);
+
+        const matchTags = doc.tags?.some((t) => {
+          const lowerT = t.toLowerCase();
+          return (
+            lowerT.includes(rawQ) ||
+            (tagToken && lowerT.includes(tagToken)) ||
+            lowerT.replace(/\s+/g, '').includes(cleanQ.replace(/\s+/g, ''))
+          );
+        });
+
+        const matchText = doc.textContent?.toLowerCase().includes(rawQ);
+        const matchHtml = doc.htmlContent?.toLowerCase().includes(rawQ);
         const matchAnnos = doc.annotations?.some(
-          (a) => a.text?.toLowerCase().includes(q) || a.selectedText?.toLowerCase().includes(q)
+          (a) => a.text?.toLowerCase().includes(rawQ) || a.selectedText?.toLowerCase().includes(rawQ)
         );
 
-        if (
-          !matchTitle &&
-          !matchTitleTa &&
-          !matchFileName &&
-          !matchAuthor &&
-          !matchCategory &&
-          !matchTags &&
-          !matchText &&
-          !matchHtml &&
-          !matchAnnos
-        ) {
-          return false;
+        if (isHashQuery) {
+          if (!matchTags && !matchTitle) return false;
+        } else {
+          if (
+            !matchTitle &&
+            !matchTitleTa &&
+            !matchFileName &&
+            !matchAuthor &&
+            !matchCategory &&
+            !matchTags &&
+            !matchText &&
+            !matchHtml &&
+            !matchAnnos
+          ) {
+            return false;
+          }
         }
       }
 
@@ -427,7 +701,7 @@ export const DocumentVaultView: React.FC = () => {
       if (sortBy === 'comments') return (b.annotations?.length || 0) - (a.annotations?.length || 0);
       return 0;
     });
-  }, [documents, selectedCategory, searchQuery, sortBy]);
+  }, [documents, selectedCategory, searchQuery, sortBy, selectedTag]);
 
   // Precision Document Pagination Engine
   const paginatedDoc = useMemo(() => {
@@ -435,7 +709,7 @@ export const DocumentVaultView: React.FC = () => {
     const content = editedHtmlContent || selectedDoc.htmlContent;
     const targetHeightPx = showHeader && showFooter ? 860 : showHeader || showFooter ? 910 : 960;
 
-    if (content && !selectedDoc.sheetData) {
+    if (content) {
       return paginateDocumentHtml(content, {
         fontSize: docFontSize,
         fontFamily: docFontFamily,
@@ -505,12 +779,18 @@ export const DocumentVaultView: React.FC = () => {
   };
 
   const handleOpenDocInStudio = (docId: string) => {
+    const doc = documents.find((d) => d.id === docId);
     setSelectedDocId(docId);
     setCurrentPage(1);
     setSelectionRange(null);
     setSelectedCommentId(null);
-    setEditedHtmlContent('');
+    const initialContent = doc?.htmlContent || (doc?.textContent ? `<p>${doc.textContent.replace(/\n/g, '<br/>')}</p>` : '');
+    setEditedHtmlContent(initialContent);
     setHasUnsavedChanges(false);
+    setStudioViewMode('page');
+    setIsEditMode(true);
+    setBreakdownCategoryFilter('ALL');
+    setBreakdownSearchQuery('');
     setInStudioMode(true);
   };
 
@@ -538,10 +818,22 @@ export const DocumentVaultView: React.FC = () => {
     showToast(`✓ Restored document back to active Vault!`);
   };
 
+  // Toggle Edit Mode with Auto-Population
+  const toggleEditMode = () => {
+    if (!isEditMode) {
+      if (!editedHtmlContent && selectedDoc) {
+        setEditedHtmlContent(selectedDoc.htmlContent || (selectedDoc.textContent ? `<p>${selectedDoc.textContent.replace(/\n/g, '<br/>')}</p>` : ''));
+      }
+      setIsEditMode(true);
+    } else {
+      setIsEditMode(false);
+    }
+  };
+
   // Save in-place edited document content to Vault
   const handleSaveDocumentContent = () => {
     if (!selectedDoc) return;
-    const contentToSave = editedHtmlContent || selectedDoc.htmlContent || '';
+    const contentToSave = editableDocRef.current?.innerHTML || editedHtmlContent || selectedDoc.htmlContent || '';
     const plainText = contentToSave.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
 
     const updatedDocs = documents.map((d) => {
@@ -556,9 +848,155 @@ export const DocumentVaultView: React.FC = () => {
     });
 
     updateDocuments(updatedDocs);
+    setEditedHtmlContent(contentToSave);
     setHasUnsavedChanges(false);
     confetti({ particleCount: 25, spread: 50, origin: { y: 0.6 } });
-    showToast('✓ Saved changes to Production Vault!');
+    showToast('✓ Saved document changes to Production Vault!');
+  };
+
+  // Table & Document In-Place Editing Quick Handlers
+  const handleAddTableRow = () => {
+    if (!selectedDoc) return;
+    if (!isEditMode) {
+      if (!editedHtmlContent) {
+        setEditedHtmlContent(selectedDoc.htmlContent || (selectedDoc.textContent ? `<p>${selectedDoc.textContent.replace(/\n/g, '<br/>')}</p>` : ''));
+      }
+      setIsEditMode(true);
+    }
+
+    const activeEl = editableDocRef.current;
+    let currentHtml = activeEl?.innerHTML || editedHtmlContent || selectedDoc.htmlContent || '';
+
+    // If no table exists, insert a new table
+    if (!currentHtml.includes('<table')) {
+      handleInsertTable();
+      return;
+    }
+
+    const rowCountMatch = currentHtml.match(/<tr/gi);
+    const nextNum = rowCountMatch ? rowCountMatch.length : 1;
+
+    const newRowHtml = `
+      <tr style="border-bottom: 1px solid rgba(148, 163, 184, 0.25);" class="doc-table-row">
+        <td style="padding: 10px 12px; text-align: center; font-weight: 700; opacity: 0.7; font-family: ui-monospace, monospace; border: 1px solid rgba(148, 163, 184, 0.25);">${nextNum}</td>
+        <td style="padding: 10px 12px; border: 1px solid rgba(148, 163, 184, 0.25);"><span style="display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 10px; font-weight: 800; background: #f3e8ff; color: #6b21a8; border: 1px solid #d8b4fe;">PROPS</span></td>
+        <td style="padding: 10px 12px; font-weight: 700; border: 1px solid rgba(148, 163, 184, 0.25);">New Production Element</td>
+        <td style="padding: 10px 12px; border: 1px solid rgba(148, 163, 184, 0.25);"><span style="background: rgba(148, 163, 184, 0.2); padding: 2px 7px; border-radius: 4px; font-size: 11px; font-weight: 600;">Props Dept</span></td>
+        <td style="padding: 10px 12px; border: 1px solid rgba(148, 163, 184, 0.25);">Click to add notes or specifications...</td>
+        <td style="padding: 10px 12px; text-align: center; border: 1px solid rgba(148, 163, 184, 0.25);"><span style="display: inline-block; padding: 3px 9px; border-radius: 9999px; font-size: 10px; font-weight: 700; background: #dcfce7; color: #166534; border: 1px solid #86efac;">Confirmed</span></td>
+        <td style="padding: 8px 6px; text-align: center; width: 42px; border: 1px solid rgba(148, 163, 184, 0.25);" class="doc-action-cell">
+          <button type="button" class="doc-delete-row-btn" data-delete-row="true" style="background: rgba(239,68,68,0.12); color: #dc2626; border: 1px solid rgba(239,68,68,0.35); border-radius: 5px; width: 24px; height: 24px; line-height: 22px; font-size: 11px; cursor: pointer; font-weight: bold; display: inline-flex; align-items: center; justify-content: center;" title="Edit out (delete) this item">✕</button>
+        </td>
+      </tr>
+    `;
+
+    let updatedHtml = '';
+    if (currentHtml.includes('</tbody>')) {
+      updatedHtml = currentHtml.replace('</tbody>', `${newRowHtml}\n</tbody>`);
+    } else if (currentHtml.includes('</table>')) {
+      updatedHtml = currentHtml.replace('</table>', `${newRowHtml}\n</table>`);
+    } else {
+      updatedHtml = currentHtml + newRowHtml;
+    }
+
+    if (activeEl) {
+      activeEl.innerHTML = updatedHtml;
+    }
+    setEditedHtmlContent(updatedHtml);
+    setHasUnsavedChanges(true);
+    showToast('✓ Added new row to table! Click any cell to edit.');
+  };
+
+  const handleAddTextBelow = () => {
+    if (!selectedDoc) return;
+    if (!isEditMode) {
+      if (!editedHtmlContent) {
+        setEditedHtmlContent(selectedDoc.htmlContent || (selectedDoc.textContent ? `<p>${selectedDoc.textContent.replace(/\n/g, '<br/>')}</p>` : ''));
+      }
+      setIsEditMode(true);
+    }
+
+    const activeEl = editableDocRef.current;
+    let currentHtml = activeEl?.innerHTML || editedHtmlContent || selectedDoc.htmlContent || (selectedDoc.textContent ? `<p>${selectedDoc.textContent.replace(/\n/g, '<br/>')}</p>` : '');
+
+    const newNoteHtml = `
+      <p style="font-size: 13px; line-height: 1.6; margin: 10px 0;">
+        • <strong>Note:</strong> Type additional instructions, scene directions, or notes here...
+      </p>
+    `;
+
+    let updatedHtml = '';
+    if (currentHtml.includes('</div>') && currentHtml.lastIndexOf('</div>') > currentHtml.lastIndexOf('<table')) {
+      const lastDivIdx = currentHtml.lastIndexOf('</div>');
+      updatedHtml = currentHtml.slice(0, lastDivIdx) + newNoteHtml + currentHtml.slice(lastDivIdx);
+    } else {
+      updatedHtml = currentHtml + '\n' + newNoteHtml;
+    }
+
+    if (activeEl) {
+      activeEl.innerHTML = updatedHtml;
+    }
+    setEditedHtmlContent(updatedHtml);
+    setHasUnsavedChanges(true);
+    showToast('✓ Added new text section below table! Click to type.');
+  };
+
+  const handleInsertTable = () => {
+    if (!selectedDoc) return;
+    if (!isEditMode) {
+      if (!editedHtmlContent) {
+        setEditedHtmlContent(selectedDoc.htmlContent || (selectedDoc.textContent ? `<p>${selectedDoc.textContent.replace(/\n/g, '<br/>')}</p>` : ''));
+      }
+      setIsEditMode(true);
+    }
+
+    const activeEl = editableDocRef.current;
+    let currentHtml = activeEl?.innerHTML || editedHtmlContent || selectedDoc.htmlContent || (selectedDoc.textContent ? `<p>${selectedDoc.textContent.replace(/\n/g, '<br/>')}</p>` : '');
+
+    const newTableSnippet = `
+      <div style="margin: 20px 0;">
+        <table class="doc-vault-table" style="width: 100%; border-collapse: collapse; margin-bottom: 16px; font-size: 12px; text-align: left; border: 1px solid #cbd5e1;">
+          <thead>
+            <tr style="background: rgba(148, 163, 184, 0.15); border-bottom: 2px solid #cbd5e1; font-size: 11px; font-weight: 800; text-transform: uppercase;">
+              <th style="padding: 10px 12px; width: 44px; text-align: center; border: 1px solid rgba(148, 163, 184, 0.25);">#</th>
+              <th style="padding: 10px 12px; width: 150px; border: 1px solid rgba(148, 163, 184, 0.25);">Item / Description</th>
+              <th style="padding: 10px 12px; width: 140px; border: 1px solid rgba(148, 163, 184, 0.25);">Department / Unit</th>
+              <th style="padding: 10px 12px; border: 1px solid rgba(148, 163, 184, 0.25);">Specifications & Notes</th>
+              <th style="padding: 10px 12px; width: 110px; text-align: center; border: 1px solid rgba(148, 163, 184, 0.25);">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr style="border-bottom: 1px solid rgba(148, 163, 184, 0.25);">
+              <td style="padding: 10px 12px; text-align: center; font-weight: 700; opacity: 0.7; border: 1px solid rgba(148, 163, 184, 0.25);">1</td>
+              <td style="padding: 10px 12px; font-weight: 700; border: 1px solid rgba(148, 163, 184, 0.25);">Sample Item</td>
+              <td style="padding: 10px 12px; border: 1px solid rgba(148, 163, 184, 0.25);">Production</td>
+              <td style="padding: 10px 12px; border: 1px solid rgba(148, 163, 184, 0.25);">Click to edit item specifications...</td>
+              <td style="padding: 10px 12px; text-align: center; border: 1px solid rgba(148, 163, 184, 0.25);"><span style="display: inline-block; padding: 3px 9px; border-radius: 9999px; font-size: 10px; font-weight: 700; background: #dcfce7; color: #166534; border: 1px solid #86efac;">Confirmed</span></td>
+            </tr>
+            <tr style="border-bottom: 1px solid rgba(148, 163, 184, 0.25); background: rgba(148, 163, 184, 0.05);">
+              <td style="padding: 10px 12px; text-align: center; font-weight: 700; opacity: 0.7; border: 1px solid rgba(148, 163, 184, 0.25);">2</td>
+              <td style="padding: 10px 12px; font-weight: 700; border: 1px solid rgba(148, 163, 184, 0.25);">Secondary Element</td>
+              <td style="padding: 10px 12px; border: 1px solid rgba(148, 163, 184, 0.25);">Art Dept</td>
+              <td style="padding: 10px 12px; border: 1px solid rgba(148, 163, 184, 0.25);">Setup details and stage positioning</td>
+              <td style="padding: 10px 12px; text-align: center; border: 1px solid rgba(148, 163, 184, 0.25);"><span style="display: inline-block; padding: 3px 9px; border-radius: 9999px; font-size: 10px; font-weight: 700; background: #e0f2fe; color: #0369a1; border: 1px solid #7dd3fc;">Ready</span></td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="doc-notes-below-table" style="margin-top: 16px; padding-top: 12px; border-top: 2px solid rgba(148, 163, 184, 0.25);">
+          <h4 style="font-size: 13px; font-weight: 700; margin: 0 0 6px 0; color: inherit;">Notes & Instructions Below Table</h4>
+          <p style="font-size: 13px; line-height: 1.6; margin: 0 0 6px 0;">• Click any table cell to edit item names, departments, and notes.</p>
+          <p class="doc-notes-placeholder" style="font-size: 13px; line-height: 1.6; opacity: 0.6; font-style: italic;">(Type additional notes or directives here...)</p>
+        </div>
+      </div>
+    `;
+
+    const updatedHtml = currentHtml ? currentHtml + '\n' + newTableSnippet : newTableSnippet;
+    if (activeEl) {
+      activeEl.innerHTML = updatedHtml;
+    }
+    setEditedHtmlContent(updatedHtml);
+    setHasUnsavedChanges(true);
+    showToast('✓ Inserted editable table with notes below it!');
   };
 
   // Smooth Page Navigation Handler
@@ -663,12 +1101,14 @@ export const DocumentVaultView: React.FC = () => {
   const handleSaveVoiceNote = () => {
     if (!recordedAudioDataUrl) return;
     const title = voiceNoteTitle.trim() || `Voice Note (${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})`;
+    const tags = voiceNoteTags.split(',').map((t) => t.replace(/^#/, '').trim()).filter(Boolean);
     const doc = saveVoiceNoteToVault(
       title,
       recordedAudioDataUrl,
       recordingSeconds,
       `Recorded in Document Vault on ${new Date().toLocaleDateString()}`,
-      'Director / Sound Team'
+      'Director / Sound Team',
+      tags
     );
 
     const updated = getProductionDocuments();
@@ -678,6 +1118,7 @@ export const DocumentVaultView: React.FC = () => {
     setRecordedAudioDataUrl(null);
     setRecordingSeconds(0);
     setVoiceNoteTitle('');
+    setVoiceNoteTags('Voice Note, On-Set');
     confetti({ particleCount: 30, spread: 45, origin: { y: 0.6 } });
     showToast(`✓ Saved Voice Note "${title}" to Vault!`);
   };
@@ -686,7 +1127,7 @@ export const DocumentVaultView: React.FC = () => {
   const handleSaveQuickNote = () => {
     if (!quickNoteTitle.trim() && !quickNoteContent.trim()) return;
     const title = quickNoteTitle.trim() || `Production Note (${new Date().toLocaleDateString()})`;
-    const tags = quickNoteTags.split(',').map((t) => t.trim()).filter(Boolean);
+    const tags = quickNoteTags.split(',').map((t) => t.replace(/^#/, '').trim()).filter(Boolean);
     const doc = saveNoteToVault(title, quickNoteContent, tags, 'Production Office');
 
     const updated = getProductionDocuments();
@@ -695,8 +1136,40 @@ export const DocumentVaultView: React.FC = () => {
     setIsNoteModalOpen(false);
     setQuickNoteTitle('');
     setQuickNoteContent('');
+    setQuickNoteTags('Production Note, Memo');
     confetti({ particleCount: 25, spread: 40, origin: { y: 0.6 } });
     showToast(`✓ Saved Note "${title}" to Vault!`);
+  };
+
+  // Tag Management Functions for Document Studio/Inspector
+  const handleAddTagToDoc = (docId: string, tagToAdd: string) => {
+    const clean = tagToAdd.replace(/^#/, '').trim();
+    if (!clean) return;
+    const targetDoc = documents.find((d) => d.id === docId);
+    if (!targetDoc) return;
+    const current = targetDoc.tags || [];
+    if (current.some((t) => t.toLowerCase() === clean.toLowerCase())) {
+      showToast(`Tag "#${clean}" is already on this document.`);
+      return;
+    }
+    const updatedTags = [...current, clean];
+    updateDocumentTags(docId, updatedTags);
+    const updatedDocs = getProductionDocuments();
+    setDocuments(updatedDocs);
+    setNewTagInput('');
+    showToast(`✓ Added tag #${clean}`);
+  };
+
+  const handleRemoveTagFromDoc = (docId: string, tagToRemove: string) => {
+    const targetDoc = documents.find((d) => d.id === docId);
+    if (!targetDoc) return;
+    const updatedTags = (targetDoc.tags || []).filter(
+      (t) => t.toLowerCase() !== tagToRemove.toLowerCase()
+    );
+    updateDocumentTags(docId, updatedTags);
+    const updatedDocs = getProductionDocuments();
+    setDocuments(updatedDocs);
+    showToast(`✓ Removed tag #${tagToRemove}`);
   };
 
   // Save Annotation
@@ -963,12 +1436,25 @@ export const DocumentVaultView: React.FC = () => {
               isLight ? 'bg-slate-100 border-slate-300 focus-within:border-[#f5a623] focus-within:bg-white' : 'bg-[#18181c] border-[#2c2c32] focus-within:border-[#f5a623] focus-within:bg-[#1e1e24]'
             }`}>
               <Search size={16} className="absolute left-3.5 text-zinc-400 pointer-events-none" />
+              {selectedTag && (
+                <div className="ml-9 mr-1 my-1 px-2 py-0.5 rounded-lg bg-[#f5a623] text-black text-[11px] font-bold flex items-center gap-1 shrink-0 shadow-sm animate-in fade-in zoom-in-95">
+                  <span>#{selectedTag}</span>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedTag(null)}
+                    className="hover:bg-black/20 p-0.5 rounded-full"
+                    title="Remove tag filter"
+                  >
+                    <X size={11} />
+                  </button>
+                </div>
+              )}
               <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search documents, pictures, snapshots, voice notes, memos, tags, content..."
-                className="w-full py-2 pl-10 pr-10 text-xs bg-transparent outline-none font-medium placeholder:text-zinc-500"
+                placeholder={selectedTag ? "Filter within this tag or type #other..." : "Search documents, #tags (e.g. #Madurai), voice notes..."}
+                className={`w-full py-2 ${selectedTag ? 'pl-2' : 'pl-10'} pr-10 text-xs bg-transparent outline-none font-medium placeholder:text-zinc-500`}
               />
               {searchQuery && (
                 <button
@@ -1118,11 +1604,39 @@ export const DocumentVaultView: React.FC = () => {
                 </button>
               </div>
 
+              {/* Table & Document Editing Quick Helpers */}
+              <button
+                onClick={handleAddTableRow}
+                className="px-2.5 py-1.5 text-xs font-bold rounded-lg bg-zinc-800/80 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 flex items-center gap-1.5 transition-all shadow-sm"
+                title="Add a new row to the table in this document"
+              >
+                <Plus size={13} className="text-[#f5a623]" />
+                <span className="hidden sm:inline">Add Row</span>
+              </button>
+
+              <button
+                onClick={handleAddTextBelow}
+                className="px-2.5 py-1.5 text-xs font-bold rounded-lg bg-zinc-800/80 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 flex items-center gap-1.5 transition-all shadow-sm"
+                title="Add note paragraph or text below the table"
+              >
+                <Plus size={13} className="text-lime-400" />
+                <span className="hidden md:inline">Add Text Below</span>
+              </button>
+
+              <button
+                onClick={handleInsertTable}
+                className="px-2.5 py-1.5 text-xs font-bold rounded-lg bg-zinc-800/80 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 flex items-center gap-1.5 transition-all shadow-sm"
+                title="Insert an editable table into this document"
+              >
+                <TableIcon size={13} className="text-cyan-400" />
+                <span className="hidden lg:inline">Insert Table</span>
+              </button>
+
               {/* In-Place Edit Mode Toggle */}
               <button
-                onClick={() => setIsEditMode(!isEditMode)}
+                onClick={toggleEditMode}
                 className={`px-3 py-1.5 text-xs font-bold rounded-lg border flex items-center gap-1.5 transition-all ${
-                  isEditMode ? 'bg-[#f5a623] text-black border-[#f5a623]' : 'bg-zinc-800/80 border-zinc-700 text-zinc-200 hover:bg-zinc-700'
+                  isEditMode ? 'bg-[#f5a623] text-black border-[#f5a623] shadow-md' : 'bg-zinc-800/80 border-zinc-700 text-zinc-200 hover:bg-zinc-700'
                 }`}
               >
                 <Edit3 size={14} />
@@ -1257,6 +1771,72 @@ export const DocumentVaultView: React.FC = () => {
             </div>
           </div>
 
+          {/* Interactive Tag Filter Strip */}
+          {allTagsWithCounts.length > 0 && (
+            <div className={`px-6 py-2 border-b flex items-center gap-2 overflow-x-auto scrollbar-none text-xs shrink-0 ${
+              isLight ? 'bg-slate-50 border-slate-200' : 'bg-[#101013] border-[#1d1d22]'
+            }`}>
+              <div className="flex items-center gap-1.5 text-zinc-400 font-bold shrink-0 mr-1">
+                <Tag size={12} className="text-[#f5a623]" />
+                <span className="text-[10px] uppercase tracking-wider font-mono">Tags:</span>
+              </div>
+
+              {/* All Tags Button */}
+              <button
+                type="button"
+                onClick={() => setSelectedTag(null)}
+                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all shrink-0 border ${
+                  selectedTag === null
+                    ? 'bg-zinc-800 text-white border-zinc-600 shadow-sm'
+                    : isLight
+                    ? 'bg-white text-slate-600 border-slate-200 hover:text-black'
+                    : 'bg-transparent text-zinc-400 border-zinc-800/80 hover:text-white hover:border-zinc-700'
+                }`}
+              >
+                All Tags
+              </button>
+
+              {/* Dynamic Tag Chips */}
+              {allTagsWithCounts.map(({ tag, count }) => {
+                const isSelected = selectedTag?.toLowerCase() === tag.toLowerCase();
+                return (
+                  <button
+                    key={tag}
+                    type="button"
+                    onClick={() => setSelectedTag(isSelected ? null : tag)}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all shrink-0 flex items-center gap-1.5 border ${
+                      isSelected
+                        ? 'bg-[#f5a623] text-black border-[#f5a623] font-bold shadow-md'
+                        : isLight
+                        ? 'bg-white border-slate-200 text-slate-700 hover:border-amber-400 hover:text-amber-600'
+                        : 'bg-zinc-900/80 border-zinc-800 text-zinc-300 hover:border-zinc-700 hover:text-white'
+                    }`}
+                  >
+                    <span>#{tag}</span>
+                    <span className={`text-[10px] font-mono px-1 rounded-full ${
+                      isSelected ? 'bg-black/20 text-black' : 'bg-zinc-800 text-zinc-400'
+                    }`}>
+                      {count}
+                    </span>
+                  </button>
+                );
+              })}
+
+              {/* Clear active tag button if filtered */}
+              {selectedTag && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedTag(null)}
+                  className="px-2.5 py-1 rounded-lg text-[11px] font-bold text-amber-400 hover:bg-amber-400/10 flex items-center gap-1 shrink-0 ml-auto border border-amber-500/30"
+                  title="Reset tag filter"
+                >
+                  <X size={12} />
+                  <span>Clear Tag</span>
+                </button>
+              )}
+            </div>
+          )}
+
           {/* Archived Notice Banner when viewing the Archive */}
           {selectedCategory === 'ARCHIVED' && (
             <div className="px-6 py-2.5 bg-amber-500/10 border-b border-amber-500/20 flex items-center justify-between text-xs text-amber-400">
@@ -1281,7 +1861,11 @@ export const DocumentVaultView: React.FC = () => {
                 </div>
                 <h3 className="text-base font-bold mb-1">No matching assets found</h3>
                 <p className="text-xs text-zinc-400 max-w-sm mb-4">
-                  {searchQuery
+                  {selectedTag && searchQuery
+                    ? `No documents matching "${searchQuery}" with tag #${selectedTag}.`
+                    : selectedTag
+                    ? `No documents found with tag #${selectedTag}.`
+                    : searchQuery
                     ? `No documents matching "${searchQuery}" in this category.`
                     : 'No documents in this category yet. Record a voice memo, write a note, or click Sync Artifacts.'}
                 </p>
@@ -1290,10 +1874,11 @@ export const DocumentVaultView: React.FC = () => {
                     onClick={() => {
                       setSearchQuery('');
                       setSelectedCategory('ALL');
+                      setSelectedTag(null);
                     }}
                     className="px-3 py-1.5 text-xs font-bold rounded-xl border border-zinc-700 bg-zinc-800 hover:bg-zinc-700 text-zinc-200"
                   >
-                    Clear Filters
+                    Clear All Filters
                   </button>
                   <button
                     onClick={handleSyncArtifacts}
@@ -1391,8 +1976,53 @@ export const DocumentVaultView: React.FC = () => {
                                   </span>
                                 </div>
                               </div>
+                            ) : doc.category === 'BREAKDOWN' || doc.builtInType === 'breakdown' || !!doc.sheetData ? (
+                              /* CASE 3A: Production Breakdown Table Card Preview */
+                              <div className="w-full h-full p-3.5 flex flex-col justify-between relative overflow-hidden bg-gradient-to-br from-amber-950/20 via-zinc-900/70 to-zinc-950/90">
+                                <div className="flex items-center justify-between">
+                                  <span className="text-[10px] font-mono font-bold text-amber-400 uppercase tracking-wider flex items-center gap-1">
+                                    <TableIcon size={12} className="text-amber-400" />
+                                    Breakdown Sheet
+                                  </span>
+                                  <span className="text-[10px] font-mono text-amber-300 px-2 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/30 font-bold">
+                                    {doc.sheetData && doc.sheetData.length > 1 ? `${doc.sheetData.length - 1} Elements` : '16 Elements'}
+                                  </span>
+                                </div>
+
+                                {/* Mini Structured Table Simulation */}
+                                <div className="w-full my-1 rounded border border-zinc-700/60 bg-black/40 overflow-hidden text-[9px] font-mono">
+                                  <div className="flex items-center bg-zinc-800/80 px-2 py-1 text-zinc-400 border-b border-zinc-700/60 font-bold">
+                                    <span className="w-5">#</span>
+                                    <span className="w-14">CAT</span>
+                                    <span className="flex-1">ELEMENT</span>
+                                    <span className="w-14 text-right">STATUS</span>
+                                  </div>
+                                  {(doc.sheetData && doc.sheetData.length > 1
+                                    ? doc.sheetData.slice(1, 4)
+                                    : [
+                                        ['1', 'CAST', 'Maya', 'Cast', '', 'Confirmed'],
+                                        ['2', 'CAST', 'Sterling', 'Cast', '', 'Confirmed'],
+                                        ['3', 'EXTRAS', 'Vault Tactical Officers', 'Extras', '', 'Scheduled'],
+                                      ]
+                                  ).map((row, rIdx) => (
+                                    <div key={rIdx} className="flex items-center px-2 py-0.5 border-b border-zinc-800/40 text-zinc-300">
+                                      <span className="w-5 text-zinc-500">{row[0]}</span>
+                                      <span className="w-14 text-amber-400/90 font-bold truncate">{row[1]}</span>
+                                      <span className="flex-1 truncate text-zinc-200">{row[2]}</span>
+                                      <span className="w-14 text-right text-[8px] text-emerald-400 font-bold">{row[5] || 'Ready'}</span>
+                                    </div>
+                                  ))}
+                                </div>
+
+                                <div className="flex items-center justify-between text-[10px] text-zinc-400 font-mono">
+                                  <span className="flex items-center gap-1 text-[#f5a623]">
+                                    <FileSpreadsheet size={11} /> Stripboard Table
+                                  </span>
+                                  <span>Unit 1</span>
+                                </div>
+                              </div>
                             ) : (
-                              /* CASE 3: Document Paper Simulation */
+                              /* CASE 3B: Standard Document Paper Simulation */
                               <div className="w-full h-full p-4 flex flex-col justify-start relative overflow-hidden">
                                 <div className="w-3/4 h-2.5 rounded bg-zinc-700/60 mb-2"></div>
                                 <div className="w-full h-1.5 rounded bg-zinc-700/40 mb-1.5"></div>
@@ -1455,16 +2085,29 @@ export const DocumentVaultView: React.FC = () => {
                               {/* Tags */}
                               {doc.tags && doc.tags.length > 0 && (
                                 <div className="flex flex-wrap gap-1 mb-3">
-                                  {doc.tags.slice(0, 3).map((tag, tIdx) => (
-                                    <span
-                                      key={tIdx}
-                                      className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
-                                        isLight ? 'bg-slate-100 text-slate-600' : 'bg-zinc-800/80 text-zinc-400'
-                                      }`}
-                                    >
-                                      #{tag}
-                                    </span>
-                                  ))}
+                                  {doc.tags.slice(0, 3).map((tag, tIdx) => {
+                                    const isTagActive = selectedTag?.toLowerCase() === tag.toLowerCase();
+                                    return (
+                                      <button
+                                        key={tIdx}
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setSelectedTag(isTagActive ? null : tag);
+                                        }}
+                                        className={`text-[10px] px-1.5 py-0.5 rounded font-medium transition-all border ${
+                                          isTagActive
+                                            ? 'bg-[#f5a623] text-black border-[#f5a623] font-bold shadow-sm'
+                                            : isLight
+                                            ? 'bg-slate-100 text-slate-600 border-slate-200 hover:border-amber-400 hover:text-amber-600'
+                                            : 'bg-zinc-800/80 text-zinc-400 border-zinc-700/40 hover:border-amber-500/50 hover:text-amber-400'
+                                        }`}
+                                        title={`Filter by #${tag}`}
+                                      >
+                                        #{tag}
+                                      </button>
+                                    );
+                                  })}
                                   {doc.tags.length > 3 && (
                                     <span className="text-[10px] text-zinc-500 self-center">
                                       +{doc.tags.length - 3}
@@ -1552,6 +2195,31 @@ export const DocumentVaultView: React.FC = () => {
                                     <div className="font-mono text-[11px] text-zinc-500">
                                       {doc.fileName}
                                     </div>
+                                    {doc.tags && doc.tags.length > 0 && (
+                                      <div className="flex flex-wrap gap-1 mt-1">
+                                        {doc.tags.map((tag, tIdx) => {
+                                          const isTagActive = selectedTag?.toLowerCase() === tag.toLowerCase();
+                                          return (
+                                            <button
+                                              key={tIdx}
+                                              type="button"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                setSelectedTag(isTagActive ? null : tag);
+                                              }}
+                                              className={`text-[9px] px-1.5 py-0.5 rounded font-medium transition-all ${
+                                                isTagActive
+                                                  ? 'bg-[#f5a623] text-black font-bold'
+                                                  : 'bg-zinc-800/80 text-zinc-400 hover:text-amber-400'
+                                              }`}
+                                              title={`Filter by #${tag}`}
+                                            >
+                                              #{tag}
+                                            </button>
+                                          );
+                                        })}
+                                      </div>
+                                    )}
                                   </div>
                                 </div>
                               </td>
@@ -1694,6 +2362,31 @@ export const DocumentVaultView: React.FC = () => {
                                 <div className="text-[11px] text-zinc-500 line-clamp-2 mb-2 font-mono">
                                   {doc.textContent || doc.fileName}
                                 </div>
+                                {doc.tags && doc.tags.length > 0 && (
+                                  <div className="flex flex-wrap gap-1 mb-2">
+                                    {doc.tags.slice(0, 3).map((tag, tIdx) => {
+                                      const isTagActive = selectedTag?.toLowerCase() === tag.toLowerCase();
+                                      return (
+                                        <button
+                                          key={tIdx}
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            setSelectedTag(isTagActive ? null : tag);
+                                          }}
+                                          className={`text-[9px] px-1.5 py-0.5 rounded font-medium transition-all ${
+                                            isTagActive
+                                              ? 'bg-[#f5a623] text-black font-bold'
+                                              : 'bg-zinc-800/80 text-zinc-400 hover:text-amber-400'
+                                          }`}
+                                          title={`Filter by #${tag}`}
+                                        >
+                                          #{tag}
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                )}
                                 <div className="flex items-center justify-between text-[10px] text-zinc-400 pt-2 border-t border-zinc-800/60 font-mono">
                                   <span>{doc.author || 'Production'}</span>
                                   <span>{doc.fileSize || '1.1 MB'}</span>
@@ -1751,6 +2444,31 @@ export const DocumentVaultView: React.FC = () => {
                               <p className="text-xs text-zinc-400 line-clamp-2 mb-2 font-mono">
                                 {doc.textContent || doc.fileName}
                               </p>
+                              {doc.tags && doc.tags.length > 0 && (
+                                <div className="flex flex-wrap gap-1 mb-2">
+                                  {doc.tags.map((tag, tIdx) => {
+                                    const isTagActive = selectedTag?.toLowerCase() === tag.toLowerCase();
+                                    return (
+                                      <button
+                                        key={tIdx}
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setSelectedTag(isTagActive ? null : tag);
+                                        }}
+                                        className={`text-[9px] px-1.5 py-0.5 rounded font-medium transition-all ${
+                                          isTagActive
+                                            ? 'bg-[#f5a623] text-black font-bold'
+                                            : 'bg-zinc-800/80 text-zinc-400 hover:text-amber-400'
+                                        }`}
+                                        title={`Filter by #${tag}`}
+                                      >
+                                        #{tag}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              )}
 
                               <div className="flex items-center justify-between text-xs text-zinc-500 font-mono pt-2 border-t border-zinc-800/40">
                                 <span>Author: {doc.author || 'Production Member'}</span>
@@ -1939,6 +2657,36 @@ export const DocumentVaultView: React.FC = () => {
                   </button>
                 </div>
 
+                {/* Breakdown View Mode Switcher: Document Page vs Table Studio */}
+                {isBreakdownDoc && (
+                  <div className="flex items-center rounded-xl bg-zinc-900 border border-zinc-700/80 p-0.5 shadow-inner">
+                    <button
+                      onClick={() => setStudioViewMode('page')}
+                      className={`px-3 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all ${
+                        studioViewMode === 'page'
+                          ? 'bg-[#f5a623] text-black shadow-md'
+                          : 'text-zinc-400 hover:text-white'
+                      }`}
+                      title="Document Page with Embedded Table & Notes"
+                    >
+                      <BookOpen size={13} />
+                      <span>Document with Table</span>
+                    </button>
+                    <button
+                      onClick={() => setStudioViewMode('table')}
+                      className={`px-3 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all ${
+                        studioViewMode === 'table'
+                          ? 'bg-[#f5a623] text-black shadow-md'
+                          : 'text-zinc-400 hover:text-white'
+                      }`}
+                      title="Interactive Breakdown Table Studio"
+                    >
+                      <TableIcon size={13} />
+                      <span>Table Studio</span>
+                    </button>
+                  </div>
+                )}
+
                 {/* Reader Layout Mode */}
                 <div className="flex items-center rounded-lg bg-zinc-800/80 border border-zinc-700/60 p-0.5">
                   <button
@@ -2013,63 +2761,500 @@ export const DocumentVaultView: React.FC = () => {
                     })}
                   </svg>
                 </div>
+              ) : isBreakdownDoc && studioViewMode === 'table' ? (
+                /* =========================================================================
+                    DEDICATED FILM BREAKDOWN TABLE STUDIO
+                   ========================================================================= */
+                <div className="w-full max-w-6xl flex flex-col gap-5 pb-16 font-sans">
+                  
+                  {/* 1. Film Stripboard Scene Banner */}
+                  <div className={`rounded-2xl border p-6 shadow-xl relative overflow-hidden transition-all ${
+                    isLight ? 'bg-white border-slate-200' : 'bg-[#15151a] border-[#25252e]'
+                  }`}>
+                    <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-[#f5a623] via-amber-400 to-yellow-500" />
+                    
+                    <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
+                      <div>
+                        <div className="flex items-center gap-2 mb-2 flex-wrap">
+                          <span className="px-2.5 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider bg-[#f5a623] text-black shadow-xs">
+                            1ST AD PRODUCTION BREAKDOWN
+                          </span>
+                          <span className="px-2.5 py-0.5 rounded-md text-[10px] font-mono font-bold uppercase tracking-wider bg-zinc-800 text-zinc-300 border border-zinc-700">
+                            {selectedDoc.fileName}
+                          </span>
+                          <span className="px-2 py-0.5 rounded-md text-[10px] font-bold uppercase bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                            {selectedDoc.status || 'Approved'}
+                          </span>
+                        </div>
+                        <h1 className="text-2xl font-black tracking-tight text-inherit mb-1">
+                          {selectedDoc.title}
+                        </h1>
+                        <p className="text-xs font-mono text-zinc-400">
+                          STRIPBOARD SCENE SHEET • 1ST AD UNIT BREAKDOWN
+                        </p>
+                      </div>
+
+                      {/* Metric Badges */}
+                      <div className="flex items-center gap-2.5 flex-wrap shrink-0">
+                        <div className={`p-3 rounded-xl border flex flex-col items-center justify-center min-w-[90px] ${
+                          isLight ? 'bg-slate-50 border-slate-200' : 'bg-zinc-900/80 border-zinc-800'
+                        }`}>
+                          <span className="text-[10px] font-mono text-zinc-400 uppercase">Elements</span>
+                          <span className="text-lg font-black text-[#f5a623] font-mono">
+                            {rawTableRows.length}
+                          </span>
+                        </div>
+                        <div className={`p-3 rounded-xl border flex flex-col items-center justify-center min-w-[90px] ${
+                          isLight ? 'bg-slate-50 border-slate-200' : 'bg-zinc-900/80 border-zinc-800'
+                        }`}>
+                          <span className="text-[10px] font-mono text-zinc-400 uppercase">Depts</span>
+                          <span className="text-lg font-black text-sky-400 font-mono">
+                            {uniqueDepartmentsCount}
+                          </span>
+                        </div>
+                        <div className={`p-3 rounded-xl border flex flex-col items-center justify-center min-w-[90px] ${
+                          isLight ? 'bg-slate-50 border-slate-200' : 'bg-zinc-900/80 border-zinc-800'
+                        }`}>
+                          <span className="text-[10px] font-mono text-zinc-400 uppercase">Shoot Day</span>
+                          <span className="text-lg font-black text-emerald-400 font-mono">
+                            DAY 1
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Scene Breakdown Summary Details */}
+                    {selectedDoc.textContent && (
+                      <div className={`mt-4 p-3.5 rounded-xl border text-xs leading-relaxed ${
+                        isLight ? 'bg-slate-50/80 border-slate-200 text-slate-700' : 'bg-zinc-900/40 border-zinc-800/80 text-zinc-300'
+                      }`}>
+                        <strong className="text-[#f5a623] font-mono uppercase text-[10px] block mb-1">
+                          Scene Synopsis & Dramatic Scope
+                        </strong>
+                        <div className="whitespace-pre-line font-sans">
+                          {selectedDoc.textContent}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* 2. Interactive Table Control Bar */}
+                  <div className={`p-4 rounded-2xl border flex flex-col gap-3 shadow-md ${
+                    isLight ? 'bg-white border-slate-200' : 'bg-[#15151a] border-[#25252e]'
+                  }`}>
+                    {/* Category Filter Pills with Item Count Badges */}
+                    <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+                      <button
+                        onClick={() => setBreakdownCategoryFilter('ALL')}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border whitespace-nowrap ${
+                          breakdownCategoryFilter === 'ALL'
+                            ? 'bg-[#f5a623] text-black border-[#f5a623] shadow-sm'
+                            : isLight ? 'bg-slate-100 border-slate-200 text-slate-700 hover:bg-slate-200' : 'bg-zinc-900 border-zinc-800 text-zinc-300 hover:bg-zinc-800'
+                        }`}
+                      >
+                        <span>All Categories</span>
+                        <span className="text-[10px] px-1.5 py-0.2 rounded-full font-mono bg-black/10">
+                          {rawTableRows.length}
+                        </span>
+                      </button>
+                      {availableCategories.map((cat) => {
+                        const isSel = breakdownCategoryFilter === cat;
+                        const count = rawTableRows.filter((r) => String(r[1]).toUpperCase() === cat).length;
+                        const meta = CATEGORY_REGISTRY[cat as BreakdownCategory];
+
+                        return (
+                          <button
+                            key={cat}
+                            onClick={() => setBreakdownCategoryFilter(cat)}
+                            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border whitespace-nowrap ${
+                              isSel
+                                ? 'bg-[#f5a623] text-black border-[#f5a623] shadow-sm'
+                                : isLight ? 'bg-slate-100 border-slate-200 text-slate-700 hover:bg-slate-200' : 'bg-zinc-900 border-zinc-800 text-zinc-300 hover:bg-zinc-800'
+                            }`}
+                          >
+                            <span>{meta?.nameEn ? meta.nameEn.split('/')[0].trim() : cat}</span>
+                            <span className="text-[10px] px-1.5 py-0.2 rounded-full font-mono bg-black/10">
+                              {count}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {/* Search & Actions Bar */}
+                    <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-1 border-t border-zinc-200/50 dark:border-zinc-800/60">
+                      <div className="flex items-center gap-2.5 w-full sm:w-auto">
+                        {/* Instant Table Search Input */}
+                        <div className="relative flex-1 sm:w-72">
+                          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
+                          <input
+                            type="text"
+                            placeholder="Search element, department, notes..."
+                            value={breakdownSearchQuery}
+                            onChange={(e) => setBreakdownSearchQuery(e.target.value)}
+                            className={`w-full pl-9 pr-8 py-1.5 text-xs rounded-xl border outline-none font-medium transition-all ${
+                              isLight ? 'bg-slate-50 border-slate-200 focus:border-[#f5a623]' : 'bg-zinc-900/90 border-zinc-800 focus:border-[#f5a623]'
+                            }`}
+                          />
+                          {breakdownSearchQuery && (
+                            <button
+                              onClick={() => setBreakdownSearchQuery('')}
+                              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-white"
+                            >
+                              <X size={12} />
+                            </button>
+                          )}
+                        </div>
+
+                        {/* Status Filter */}
+                        <select
+                          value={breakdownStatusFilter}
+                          onChange={(e) => setBreakdownStatusFilter(e.target.value)}
+                          className={`text-xs font-bold rounded-xl border px-3 py-1.5 outline-none ${
+                            isLight ? 'bg-slate-50 border-slate-200 text-slate-800' : 'bg-zinc-900 border-zinc-800 text-zinc-200'
+                          }`}
+                        >
+                          <option value="ALL">All Statuses</option>
+                          <option value="Confirmed">Confirmed</option>
+                          <option value="Scheduled">Scheduled</option>
+                          <option value="Rigged">Rigged / Rehearsed</option>
+                          <option value="Ready">Ready</option>
+                          <option value="Standby">Standby</option>
+                        </select>
+                      </div>
+
+                      {/* Export & Add Buttons */}
+                      <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+                        <button
+                          onClick={handleExportTableExcel}
+                          className="px-3 py-1.5 rounded-xl text-xs font-bold border border-emerald-500/30 bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25 flex items-center gap-1.5 transition-all shadow-xs"
+                          title="Export to Excel Spreadsheet (.xlsx)"
+                        >
+                          <FileSpreadsheet size={13} />
+                          <span>Export Excel</span>
+                        </button>
+
+                        <button
+                          onClick={handleCopyTableToClipboard}
+                          className={`px-3 py-1.5 rounded-xl text-xs font-bold border flex items-center gap-1.5 transition-all ${
+                            isLight ? 'bg-slate-100 hover:bg-slate-200 border-slate-200 text-slate-700' : 'bg-zinc-800 hover:bg-zinc-700 border-zinc-700 text-zinc-300'
+                          }`}
+                          title="Copy table data as TSV"
+                        >
+                          <Copy size={13} />
+                          <span>Copy</span>
+                        </button>
+
+                        <button
+                          onClick={() => setIsAddElementOpen(true)}
+                          className="px-3 py-1.5 rounded-xl text-xs font-bold bg-[#f5a623] hover:bg-amber-400 text-black flex items-center gap-1.5 transition-all shadow-sm"
+                        >
+                          <Plus size={13} />
+                          <span>Add Element</span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 3. The Production Breakdown Table */}
+                  <div className={`rounded-2xl border overflow-hidden shadow-2xl ${
+                    isLight ? 'bg-white border-slate-200' : 'bg-[#15151a] border-[#25252e]'
+                  }`}>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-xs border-collapse">
+                        <thead>
+                          <tr className={`border-b font-mono text-[11px] uppercase tracking-wider font-extrabold ${
+                            isLight ? 'bg-slate-100/90 text-slate-600 border-slate-200' : 'bg-[#1a1a22] text-zinc-400 border-[#2a2a35]'
+                          }`}>
+                            <th className="py-3.5 px-4 w-12 text-center">#</th>
+                            <th className="py-3.5 px-4 w-36">Category</th>
+                            <th className="py-3.5 px-4 w-56">Element / Item Name</th>
+                            <th className="py-3.5 px-4 w-36">Department</th>
+                            <th className="py-3.5 px-4 min-w-[280px]">Notes & Specifications</th>
+                            <th className="py-3.5 px-4 w-32 text-center">Status</th>
+                            <th className="py-3.5 px-4 w-16 text-center">Action</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800/60 font-sans">
+                          {filteredTableRows.length > 0 ? (
+                            filteredTableRows.map((row, idx) => {
+                              const num = row[0] || idx + 1;
+                              const cat = String(row[1] || 'PROPS').toUpperCase();
+                              const name = row[2] || '';
+                              const dept = row[3] || cat;
+                              const notes = row[4] || '';
+                              const status = row[5] || 'Confirmed';
+                              const catStyle = BREAKDOWN_CATEGORY_STYLES[cat] || { bg: 'bg-zinc-500/15', text: 'text-zinc-300', border: 'border-zinc-500/30' };
+                              const statusBadge = getStatusBadgeStyle(status);
+
+                              return (
+                                <tr
+                                  key={idx}
+                                  className={`transition-colors group ${
+                                    isLight ? 'hover:bg-slate-50/90' : 'hover:bg-[#1a1a22]/70'
+                                  }`}
+                                >
+                                  <td className="py-3 px-4 text-center font-mono text-zinc-500 font-bold">
+                                    {num}
+                                  </td>
+                                  <td className="py-3 px-4">
+                                    <span className={`inline-block px-2.5 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider border ${catStyle.bg} ${catStyle.text} ${catStyle.border}`}>
+                                      {cat}
+                                    </span>
+                                  </td>
+                                  <td className="py-3 px-4">
+                                    <div className="font-bold text-sm tracking-tight text-inherit">
+                                      {name}
+                                    </div>
+                                  </td>
+                                  <td className="py-3 px-4">
+                                    <span className={`px-2 py-0.5 rounded-md text-[11px] font-semibold border ${
+                                      isLight ? 'bg-slate-100 text-slate-700 border-slate-200' : 'bg-zinc-800 text-zinc-300 border-zinc-700'
+                                    }`}>
+                                      {dept}
+                                    </span>
+                                  </td>
+                                  <td className="py-3 px-4 text-zinc-600 dark:text-zinc-300 text-xs leading-relaxed">
+                                    {notes || '—'}
+                                  </td>
+                                  <td className="py-3 px-4 text-center">
+                                    <span className={`inline-block px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border ${statusBadge}`}>
+                                      {status}
+                                    </span>
+                                  </td>
+                                  <td className="py-3 px-4 text-center">
+                                    <button
+                                      onClick={() => handleDeleteTableRow(idx)}
+                                      className="p-1 rounded text-zinc-400 hover:text-red-400 hover:bg-red-500/10 transition-colors opacity-0 group-hover:opacity-100"
+                                      title="Remove element from breakdown"
+                                    >
+                                      <Trash2 size={13} />
+                                    </button>
+                                  </td>
+                                </tr>
+                              );
+                            })
+                          ) : (
+                            <tr>
+                              <td colSpan={7} className="py-12 text-center text-zinc-400">
+                                <div className="flex flex-col items-center justify-center gap-2">
+                                  <Filter size={20} className="text-zinc-500" />
+                                  <span className="font-bold text-sm">No breakdown elements found matching current filters</span>
+                                  <button
+                                    onClick={() => {
+                                      setBreakdownCategoryFilter('ALL');
+                                      setBreakdownSearchQuery('');
+                                      setBreakdownStatusFilter('ALL');
+                                    }}
+                                    className="text-xs text-[#f5a623] hover:underline mt-1 font-semibold"
+                                  >
+                                    Clear all filters
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* Table Summary Footer */}
+                    <div className={`p-3.5 px-5 border-t flex flex-col sm:flex-row items-center justify-between gap-2 text-xs font-mono text-zinc-400 ${
+                      isLight ? 'bg-slate-50 border-slate-200' : 'bg-[#121216] border-[#22222a]'
+                    }`}>
+                      <div>
+                        Showing <strong>{filteredTableRows.length}</strong> of <strong>{rawTableRows.length}</strong> elements
+                      </div>
+                      <div className="flex items-center gap-4 text-[11px]">
+                        <span>CONFIDENTIAL • 1ST AD BREAKDOWN</span>
+                        <span>BACKSTAGE PRODUCTION CORE</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               ) : (
                 /* UNIVERSAL PAGINATED DOCUMENT READER */
                 <div
                   className="flex flex-col gap-8 items-center pb-24"
                   style={{ transform: `scale(${zoomLevel / 100})`, transformOrigin: 'top center' }}
                 >
-                  {(paginatedDoc.pages.length > 0
-                    ? readerViewMode === 'single'
-                      ? [paginatedDoc.pages[currentPage - 1] || paginatedDoc.pages[0]]
-                      : paginatedDoc.pages
-                    : [{ pageNumber: 1, html: selectedDoc?.htmlContent || selectedDoc?.textContent || '' }]
-                  ).map((pg, idx) => {
-                    const pageNum = pg.pageNumber || idx + 1;
-                    const thisPageAnnotations = annotations.filter((a) => a.pageNumber === pageNum);
+                  {isEditMode ? (
+                    /* Continuous Editable Document Sheet */
+                    <div
+                      id="doc-page-edit-canvas"
+                      className={`w-[780px] min-h-[1060px] p-16 relative shadow-2xl rounded-sm transition-all ${
+                        isLight ? 'bg-white text-black' : 'bg-[#18181b] text-gray-100'
+                      } ${docFontFamily === 'serif' ? 'font-serif' : docFontFamily === 'mono' ? 'font-mono' : 'font-sans'}`}
+                    >
+                      {/* Edit Mode Helper Top Ribbon */}
+                      <div className="flex flex-wrap items-center justify-between gap-3 mb-6 pb-3 border-b border-amber-500/30 bg-amber-500/10 -mx-10 px-10 py-2.5 rounded-t text-xs font-mono text-amber-400">
+                        <div className="flex items-center gap-2">
+                          <Edit3 size={14} className="text-[#f5a623]" />
+                          <span className="font-bold">DOCUMENT & TABLE EDITOR</span>
+                          <span className="text-zinc-400 hidden sm:inline">— Ready to edit. Click any cell to type, or click ✕ to edit out rows.</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={handleAddTableRow}
+                            className="px-2.5 py-1 rounded bg-[#f5a623] hover:bg-amber-400 text-black font-bold text-xs flex items-center gap-1 shadow-sm transition-all cursor-pointer"
+                            title="Add a new row to the table in this document"
+                          >
+                            <Plus size={12} />
+                            Add Row
+                          </button>
+                          <button
+                            onClick={handleAddTextBelow}
+                            className="px-2.5 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-white font-bold text-xs flex items-center gap-1 border border-zinc-600 transition-all cursor-pointer"
+                            title="Add note paragraph or text below the table"
+                          >
+                            <Plus size={12} />
+                            Add Text Below
+                          </button>
+                          <button
+                            onClick={handleSaveDocumentContent}
+                            className={`px-3 py-1 rounded font-bold text-xs flex items-center gap-1 transition-all shadow-sm cursor-pointer ${
+                              hasUnsavedChanges
+                                ? 'bg-emerald-500 hover:bg-emerald-400 text-black animate-pulse'
+                                : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-600'
+                            }`}
+                            title="Save document changes"
+                          >
+                            <Save size={12} />
+                            Save Changes
+                          </button>
+                        </div>
+                      </div>
 
-                    return (
+                      {/* Page Header */}
+                      {showHeader && (
+                        <div className="flex justify-between items-center text-[10px] text-zinc-400 pb-4 mb-6 border-b border-zinc-200 dark:border-zinc-800 uppercase tracking-widest font-mono">
+                          <span>{customHeaderTitle || selectedDoc?.title}</span>
+                          <span>{selectedDoc?.category}</span>
+                        </div>
+                      )}
+
+                      {/* Editable Content Canvas with Row Deletion & In-Place Editing */}
                       <div
-                        id={`doc-page-${pageNum}`}
-                        key={pageNum}
-                        className={`w-[780px] min-h-[1060px] p-16 relative shadow-2xl rounded-sm transition-all ${
-                          isLight ? 'bg-white text-black' : 'bg-[#18181b] text-gray-100'
-                        } ${docFontFamily === 'serif' ? 'font-serif' : docFontFamily === 'mono' ? 'font-mono' : 'font-sans'}`}
-                      >
-                        {/* Page Header */}
-                        {showHeader && (
-                          <div className="flex justify-between items-center text-[10px] text-zinc-400 pb-4 mb-6 border-b border-zinc-200 dark:border-zinc-800 uppercase tracking-widest font-mono">
-                            <span>{customHeaderTitle || selectedDoc?.title}</span>
-                            <span>{selectedDoc?.category}</span>
-                          </div>
-                        )}
+                        ref={editableDocRef}
+                        contentEditable
+                        suppressContentEditableWarning
+                        onInput={(e) => {
+                          setEditedHtmlContent(e.currentTarget.innerHTML);
+                          setHasUnsavedChanges(true);
+                        }}
+                        onClick={(e) => {
+                          const target = e.target as HTMLElement;
+                          const deleteBtn = target.closest('[data-delete-row="true"]') || target.closest('.doc-delete-row-btn');
+                          if (deleteBtn) {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            const tr = deleteBtn.closest('tr');
+                            if (tr) {
+                              const tbody = tr.parentElement;
+                              tr.remove();
+                              if (tbody) {
+                                const rows = tbody.querySelectorAll('tr');
+                                rows.forEach((row, i) => {
+                                  const firstTd = row.querySelector('td');
+                                  if (firstTd) {
+                                    firstTd.textContent = String(i + 1);
+                                  }
+                                });
+                              }
+                              if (editableDocRef.current) {
+                                setEditedHtmlContent(editableDocRef.current.innerHTML);
+                                setHasUnsavedChanges(true);
+                              }
+                              showToast('✓ Element edited out (removed) from breakdown table');
+                            }
+                          }
+                        }}
+                        dangerouslySetInnerHTML={{
+                          __html:
+                            editedHtmlContent ||
+                            selectedDoc?.htmlContent ||
+                            (selectedDoc?.textContent ? `<p>${selectedDoc.textContent.replace(/\n/g, '<br/>')}</p>` : '')
+                        }}
+                        className="outline-none min-h-[850px] leading-relaxed text-sm focus:ring-1 focus:ring-[#f5a623]/40 rounded p-2"
+                      />
 
-                        {/* Editable or Static Page Content */}
-                        {isEditMode ? (
-                          <div
-                            contentEditable
-                            suppressContentEditableWarning
-                            onInput={(e) => {
-                              setEditedHtmlContent(e.currentTarget.innerHTML);
-                              setHasUnsavedChanges(true);
-                            }}
-                            dangerouslySetInnerHTML={{ __html: pg.html }}
-                            className="outline-none min-h-[850px] leading-relaxed text-sm focus:ring-1 focus:ring-[#f5a623]/40 rounded p-2"
-                          />
-                        ) : (
+                      {/* In-Document Bottom Actions Bar */}
+                      <div className="mt-6 pt-3 border-t border-dashed border-zinc-300 dark:border-zinc-800 flex items-center justify-between text-xs font-mono text-zinc-400">
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={handleAddTableRow}
+                            className="px-2.5 py-1 rounded bg-amber-500/15 hover:bg-amber-500/25 text-amber-500 border border-amber-500/30 font-bold flex items-center gap-1 cursor-pointer transition-all"
+                          >
+                            <Plus size={11} /> Add Row
+                          </button>
+                          <button
+                            onClick={handleAddTextBelow}
+                            className="px-2.5 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700 font-bold flex items-center gap-1 cursor-pointer transition-all"
+                          >
+                            <Plus size={11} /> Add Text Below
+                          </button>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {hasUnsavedChanges && (
+                            <button
+                              onClick={handleSaveDocumentContent}
+                              className="px-3 py-1 rounded bg-emerald-500 hover:bg-emerald-400 text-black font-bold flex items-center gap-1 shadow-sm cursor-pointer transition-all animate-pulse"
+                            >
+                              <Save size={11} /> Save Changes
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Page Footer */}
+                      {showFooter && (
+                        <div className="mt-6 flex justify-between items-center text-[10px] text-zinc-400 pt-4 border-t border-zinc-200 dark:border-zinc-800 font-mono">
+                          <span>{customFooterText || 'Backstage Production Sequencer'}</span>
+                          <span>Document Canvas &bull; Edit Mode</span>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    (paginatedDoc.pages.length > 0
+                      ? readerViewMode === 'single'
+                        ? [paginatedDoc.pages[currentPage - 1] || paginatedDoc.pages[0]]
+                        : paginatedDoc.pages
+                      : [{ pageNumber: 1, html: selectedDoc?.htmlContent || selectedDoc?.textContent || '' }]
+                    ).map((pg, idx) => {
+                      const pageNum = pg.pageNumber || idx + 1;
+                      const thisPageAnnotations = annotations.filter((a) => a.pageNumber === pageNum);
+
+                      return (
+                        <div
+                          id={`doc-page-${pageNum}`}
+                          key={pageNum}
+                          className={`w-[780px] min-h-[1060px] p-16 relative shadow-2xl rounded-sm transition-all cursor-text ${
+                            isLight ? 'bg-white text-black' : 'bg-[#18181b] text-gray-100'
+                          } ${docFontFamily === 'serif' ? 'font-serif' : docFontFamily === 'mono' ? 'font-mono' : 'font-sans'}`}
+                          onClick={toggleEditMode}
+                          onDoubleClick={toggleEditMode}
+                        >
+                          {/* Page Header */}
+                          {showHeader && (
+                            <div className="flex justify-between items-center text-[10px] text-zinc-400 pb-4 mb-6 border-b border-zinc-200 dark:border-zinc-800 uppercase tracking-widest font-mono">
+                              <span>{customHeaderTitle || selectedDoc?.title}</span>
+                              <span>{selectedDoc?.category}</span>
+                            </div>
+                          )}
+
+                          {/* Static Page Content */}
                           <div
                             dangerouslySetInnerHTML={{ __html: pg.html }}
                             className="leading-relaxed text-sm min-h-[850px]"
                           />
-                        )}
 
-                        {/* Page Footer */}
-                        {showFooter && (
-                          <div className="absolute bottom-8 left-16 right-16 flex justify-between items-center text-[10px] text-zinc-400 pt-4 border-t border-zinc-200 dark:border-zinc-800 font-mono">
-                            <span>{customFooterText || 'Backstage Production Sequencer'}</span>
-                            <span>Page {pageNum} of {totalPages}</span>
-                          </div>
-                        )}
+                          {/* Page Footer */}
+                          {showFooter && (
+                            <div className="absolute bottom-8 left-16 right-16 flex justify-between items-center text-[10px] text-zinc-400 pt-4 border-t border-zinc-200 dark:border-zinc-800 font-mono">
+                              <span>{customFooterText || 'Backstage Production Sequencer'}</span>
+                              <span>Page {pageNum} of {totalPages}</span>
+                            </div>
+                          )}
 
                         {/* Drawing & Sticky Note Annotation Layer */}
                         <svg
@@ -2111,124 +3296,323 @@ export const DocumentVaultView: React.FC = () => {
                           ))}
                       </div>
                     );
-                  })}
-                </div>
-              )}
+                  })
+                )}
+              </div>
+            )}
             </div>
           </div>
 
-          {/* Side-by-Side Comments & AI Assistant Panel */}
+          {/* Side-by-Side Comments, Tags & Inspector Panel */}
           {showCommentsPanel && (
             <aside className={`w-80 border-l flex flex-col shrink-0 transition-all ${
               isLight ? 'bg-white border-slate-200' : 'bg-[#121215] border-[#222226]'
             }`}>
               {/* Panel Header */}
-              <div className="p-4 border-b flex items-center justify-between">
+              <div className="p-3.5 border-b flex items-center justify-between shrink-0">
                 <div className="flex items-center gap-2">
-                  <MessageSquare size={16} className="text-[#f5a623]" />
-                  <span className="font-black text-xs uppercase tracking-wider">Comments & Notes</span>
-                  <span className="px-1.5 py-0.2 rounded-full text-[10px] font-mono bg-zinc-800 text-zinc-300">
-                    {annotations.length}
-                  </span>
+                  <span className="font-black text-xs uppercase tracking-wider text-zinc-300">Inspector</span>
                 </div>
                 <button
                   onClick={() => setShowCommentsPanel(false)}
                   className="p-1 rounded hover:bg-zinc-800 text-zinc-400 hover:text-white"
+                  title="Close Inspector"
                 >
                   <X size={14} />
                 </button>
               </div>
 
-              {/* Comments List */}
-              <div className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-thin">
-                {annotations.filter((a) => a.type === 'comment' || a.type === 'note').length === 0 ? (
-                  <div className="py-12 text-center text-xs text-zinc-500">
-                    <MessageSquare size={24} className="mx-auto mb-2 opacity-40" />
-                    <p>No comments on this document yet.</p>
-                    <p className="text-[11px] text-zinc-600 mt-1">Add a note or comment below to collaborate.</p>
-                  </div>
-                ) : (
-                  annotations
-                    .filter((a) => a.type === 'comment' || a.type === 'note')
-                    .map((anno) => (
-                      <div
-                        key={anno.id}
-                        className={`p-3.5 rounded-xl border transition-all ${
-                          anno.status === 'resolved'
-                            ? 'opacity-60 bg-zinc-900/30 border-zinc-800'
-                            : isLight
-                            ? 'bg-slate-50 border-slate-200'
-                            : 'bg-[#18181e] border-[#2a2a32]'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between mb-1">
-                          <span className="font-bold text-xs text-zinc-200">
-                            {anno.author || 'Production Member'}
-                          </span>
-                          <span className="text-[10px] font-mono text-zinc-500">
-                            p. {anno.pageNumber}
-                          </span>
-                        </div>
+              {/* Panel Tab Switcher: Comments vs Tags vs Details */}
+              <div className="flex border-b border-zinc-800/80 bg-zinc-950/40 shrink-0 text-xs font-bold">
+                <button
+                  onClick={() => setActiveSideTab('comments')}
+                  className={`flex-1 py-2.5 flex items-center justify-center gap-1.5 border-b-2 transition-all ${
+                    activeSideTab === 'comments'
+                      ? 'border-[#f5a623] text-[#f5a623] bg-zinc-900/50'
+                      : 'border-transparent text-zinc-400 hover:text-zinc-200'
+                  }`}
+                >
+                  <MessageSquare size={13} />
+                  <span>Comments</span>
+                  <span className="text-[10px] font-mono px-1 py-0.2 rounded-full bg-zinc-800 text-zinc-300">
+                    {annotations.length}
+                  </span>
+                </button>
 
-                        <p className="text-xs text-zinc-300 leading-relaxed mb-2.5">
-                          {anno.text}
-                        </p>
+                <button
+                  onClick={() => setActiveSideTab('tags')}
+                  className={`flex-1 py-2.5 flex items-center justify-center gap-1.5 border-b-2 transition-all ${
+                    activeSideTab === 'tags'
+                      ? 'border-[#f5a623] text-[#f5a623] bg-zinc-900/50'
+                      : 'border-transparent text-zinc-400 hover:text-zinc-200'
+                  }`}
+                >
+                  <Tag size={13} />
+                  <span>Tags</span>
+                  <span className="text-[10px] font-mono px-1 py-0.2 rounded-full bg-zinc-800 text-zinc-300">
+                    {selectedDoc?.tags?.length || 0}
+                  </span>
+                </button>
 
-                        {/* Threaded Replies */}
-                        {anno.replies && anno.replies.length > 0 && (
-                          <div className="pl-3 border-l-2 border-zinc-700 space-y-2 mb-2 pt-1">
-                            {anno.replies.map((reply) => (
-                              <div key={reply.id} className="text-xs">
-                                <span className="font-bold text-[#f5a623] mr-1 text-[11px]">
-                                  {reply.author}:
-                                </span>
-                                <span className="text-zinc-300">{reply.text}</span>
-                              </div>
-                            ))}
-                          </div>
+                <button
+                  onClick={() => setActiveSideTab('info')}
+                  className={`py-2.5 px-3 flex items-center justify-center gap-1 border-b-2 transition-all ${
+                    activeSideTab === 'info'
+                      ? 'border-[#f5a623] text-[#f5a623] bg-zinc-900/50'
+                      : 'border-transparent text-zinc-400 hover:text-zinc-200'
+                  }`}
+                  title="Document Info"
+                >
+                  <Info size={13} />
+                </button>
+              </div>
+
+              {/* TAB 1: COMMENTS */}
+              {activeSideTab === 'comments' && (
+                <>
+                  {/* Quick Tags summary bar */}
+                  <div className="px-3.5 py-2 bg-zinc-900/40 border-b border-zinc-800/60 flex items-center justify-between text-xs shrink-0">
+                    <div className="flex items-center gap-1.5 overflow-hidden">
+                      <Tag size={11} className="text-[#f5a623] shrink-0" />
+                      <div className="flex items-center gap-1 overflow-x-auto scrollbar-none py-0.5">
+                        {selectedDoc?.tags && selectedDoc.tags.length > 0 ? (
+                          selectedDoc.tags.map((t, i) => (
+                            <span key={i} className="text-[10px] px-1.5 py-0.2 rounded bg-zinc-800 text-zinc-300 shrink-0 font-medium">
+                              #{t}
+                            </span>
+                          ))
+                        ) : (
+                          <span className="text-[11px] text-zinc-500 italic">No tags</span>
                         )}
-
-                        {/* Reply Input */}
-                        <div className="flex items-center gap-1.5 mt-2">
-                          <input
-                            type="text"
-                            value={replyInput[anno.id] || ''}
-                            onChange={(e) => setReplyInput({ ...replyInput, [anno.id]: e.target.value })}
-                            onKeyDown={(e) => e.key === 'Enter' && handleAddReply(anno.id)}
-                            placeholder="Reply..."
-                            className="flex-1 py-1 px-2 text-xs rounded bg-zinc-900 border border-zinc-700 outline-none"
-                          />
-                          <button
-                            onClick={() => handleAddReply(anno.id)}
-                            className="p-1 rounded bg-[#f5a623] text-black font-bold"
-                          >
-                            <Send size={12} />
-                          </button>
-                        </div>
                       </div>
-                    ))
-                )}
-              </div>
+                    </div>
+                    <button
+                      onClick={() => setActiveSideTab('tags')}
+                      className="text-[10px] text-amber-400 hover:underline font-bold shrink-0 ml-2"
+                    >
+                      Edit Tags
+                    </button>
+                  </div>
 
-              {/* Add New Comment Box */}
-              <div className="p-3 border-t bg-zinc-950/60">
-                <div className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    value={newCommentText}
-                    onChange={(e) => setNewCommentText(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && handleAddGeneralComment()}
-                    placeholder="Add comment on this document..."
-                    className="flex-1 py-1.5 px-3 text-xs rounded-xl bg-zinc-900 border border-zinc-700 outline-none text-zinc-200 placeholder:text-zinc-500"
-                  />
-                  <button
-                    onClick={handleAddGeneralComment}
-                    className="p-2 rounded-xl bg-[#f5a623] text-black font-bold hover:bg-[#e09612]"
-                  >
-                    <Send size={14} />
-                  </button>
+                  {/* Comments List */}
+                  <div className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-thin">
+                    {annotations.filter((a) => a.type === 'comment' || a.type === 'note').length === 0 ? (
+                      <div className="py-12 text-center text-xs text-zinc-500">
+                        <MessageSquare size={24} className="mx-auto mb-2 opacity-40" />
+                        <p>No comments on this document yet.</p>
+                        <p className="text-[11px] text-zinc-600 mt-1">Add a note or comment below to collaborate.</p>
+                      </div>
+                    ) : (
+                      annotations
+                        .filter((a) => a.type === 'comment' || a.type === 'note')
+                        .map((anno) => (
+                          <div
+                            key={anno.id}
+                            className={`p-3.5 rounded-xl border transition-all ${
+                              anno.status === 'resolved'
+                                ? 'opacity-60 bg-zinc-900/30 border-zinc-800'
+                                : isLight
+                                ? 'bg-slate-50 border-slate-200'
+                                : 'bg-[#18181e] border-[#2a2a32]'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="font-bold text-xs text-zinc-200">
+                                {anno.author || 'Production Member'}
+                              </span>
+                              <span className="text-[10px] font-mono text-zinc-500">
+                                p. {anno.pageNumber}
+                              </span>
+                            </div>
+
+                            <p className="text-xs text-zinc-300 leading-relaxed mb-2.5">
+                              {anno.text}
+                            </p>
+
+                            {/* Threaded Replies */}
+                            {anno.replies && anno.replies.length > 0 && (
+                              <div className="pl-3 border-l-2 border-zinc-700 space-y-2 mb-2 pt-1">
+                                {anno.replies.map((reply) => (
+                                  <div key={reply.id} className="text-xs">
+                                    <span className="font-bold text-[#f5a623] mr-1 text-[11px]">
+                                      {reply.author}:
+                                    </span>
+                                    <span className="text-zinc-300">{reply.text}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+
+                            {/* Reply Input */}
+                            <div className="flex items-center gap-1.5 mt-2">
+                              <input
+                                type="text"
+                                value={replyInput[anno.id] || ''}
+                                onChange={(e) => setReplyInput({ ...replyInput, [anno.id]: e.target.value })}
+                                onKeyDown={(e) => e.key === 'Enter' && handleAddReply(anno.id)}
+                                placeholder="Reply..."
+                                className="flex-1 py-1 px-2 text-xs rounded bg-zinc-900 border border-zinc-700 outline-none"
+                              />
+                              <button
+                                onClick={() => handleAddReply(anno.id)}
+                                className="p-1 rounded bg-[#f5a623] text-black font-bold"
+                              >
+                                <Send size={12} />
+                              </button>
+                            </div>
+                          </div>
+                        ))
+                    )}
+                  </div>
+
+                  {/* Add New Comment Box */}
+                  <div className="p-3 border-t bg-zinc-950/60">
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={newCommentText}
+                        onChange={(e) => setNewCommentText(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && handleAddGeneralComment()}
+                        placeholder="Add comment on this document..."
+                        className="flex-1 py-1.5 px-3 text-xs rounded-xl bg-zinc-900 border border-zinc-700 outline-none text-zinc-200 placeholder:text-zinc-500"
+                      />
+                      <button
+                        onClick={handleAddGeneralComment}
+                        className="p-2 rounded-xl bg-[#f5a623] text-black font-bold hover:bg-[#e09612]"
+                      >
+                        <Send size={14} />
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {/* TAB 2: TAGS MANAGER */}
+              {activeSideTab === 'tags' && (
+                <div className="flex-1 overflow-y-auto p-4 space-y-5 scrollbar-thin">
+                  <div>
+                    <h4 className="text-xs font-black uppercase tracking-wider text-zinc-400 mb-1 flex items-center gap-1.5">
+                      <Tag size={13} className="text-[#f5a623]" />
+                      Document Tags
+                    </h4>
+                    <p className="text-[11px] text-zinc-500 mb-3">
+                      Tags categorize assets and power instantaneous Vault filtering.
+                    </p>
+
+                    {/* Active Tags on this Document */}
+                    {selectedDoc?.tags && selectedDoc.tags.length > 0 ? (
+                      <div className="flex flex-wrap gap-1.5 mb-4">
+                        {selectedDoc.tags.map((tag, tIdx) => (
+                          <span
+                            key={tIdx}
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold bg-[#f5a623]/15 text-[#f5a623] border border-[#f5a623]/30 shadow-sm"
+                          >
+                            <span>#{tag}</span>
+                            <button
+                              type="button"
+                              onClick={() => selectedDoc && handleRemoveTagFromDoc(selectedDoc.id, tag)}
+                              className="hover:bg-[#f5a623]/30 p-0.5 rounded-full text-zinc-400 hover:text-white transition-colors"
+                              title={`Remove #${tag}`}
+                            >
+                              <X size={11} />
+                            </button>
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="p-3 rounded-xl bg-zinc-900/50 border border-zinc-800 text-xs text-zinc-500 italic mb-4">
+                        No tags assigned to this document yet. Add tags below.
+                      </div>
+                    )}
+
+                    {/* Add Tag Form */}
+                    <form
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        if (selectedDoc) handleAddTagToDoc(selectedDoc.id, newTagInput);
+                      }}
+                      className="flex items-center gap-1.5"
+                    >
+                      <input
+                        type="text"
+                        value={newTagInput}
+                        onChange={(e) => setNewTagInput(e.target.value)}
+                        placeholder="Add tag (e.g. Madurai, Lookbook)..."
+                        className="flex-1 py-1.5 px-3 text-xs rounded-xl bg-zinc-900 border border-zinc-700 outline-none text-zinc-200 placeholder:text-zinc-500 focus:border-[#f5a623]"
+                      />
+                      <button
+                        type="submit"
+                        disabled={!newTagInput.trim()}
+                        className="px-3 py-1.5 rounded-xl bg-[#f5a623] hover:bg-[#e09612] text-black font-bold text-xs disabled:opacity-40 flex items-center gap-1 shadow-sm shrink-0"
+                      >
+                        <Plus size={13} />
+                        <span>Add</span>
+                      </button>
+                    </form>
+                  </div>
+
+                  {/* Suggested Project Tags */}
+                  {selectedDoc && (
+                    <div className="pt-4 border-t border-zinc-800/80">
+                      <span className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider block mb-2">
+                        Suggested Vault Tags
+                      </span>
+                      <div className="flex flex-wrap gap-1.5">
+                        {allTagsWithCounts
+                          .filter(({ tag }) => !selectedDoc.tags?.some((t) => t.toLowerCase() === tag.toLowerCase()))
+                          .slice(0, 10)
+                          .map(({ tag }) => (
+                            <button
+                              key={tag}
+                              type="button"
+                              onClick={() => handleAddTagToDoc(selectedDoc.id, tag)}
+                              className="text-[11px] px-2 py-1 rounded-lg bg-zinc-900 border border-zinc-700/70 text-zinc-300 hover:bg-[#f5a623]/20 hover:text-[#f5a623] hover:border-[#f5a623]/40 transition-all flex items-center gap-1 font-medium"
+                              title={`Add #${tag} to document`}
+                            >
+                              <Plus size={10} />
+                              <span>#{tag}</span>
+                            </button>
+                          ))}
+                        {allTagsWithCounts.filter(({ tag }) => !selectedDoc.tags?.some((t) => t.toLowerCase() === tag.toLowerCase())).length === 0 && (
+                          <span className="text-xs text-zinc-500 italic">All current vault tags are already added.</span>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
-              </div>
+              )}
+
+              {/* TAB 3: DOCUMENT INFO */}
+              {activeSideTab === 'info' && selectedDoc && (
+                <div className="flex-1 overflow-y-auto p-4 space-y-4 text-xs font-mono scrollbar-thin">
+                  <div className="p-3 rounded-xl bg-zinc-900/60 border border-zinc-800 space-y-2">
+                    <div className="flex justify-between py-1 border-b border-zinc-800/60">
+                      <span className="text-zinc-500">Category</span>
+                      <span className="text-zinc-200 font-bold">{selectedDoc.category}</span>
+                    </div>
+                    <div className="flex justify-between py-1 border-b border-zinc-800/60">
+                      <span className="text-zinc-500">File Name</span>
+                      <span className="text-zinc-200 truncate max-w-[150px]" title={selectedDoc.fileName}>{selectedDoc.fileName}</span>
+                    </div>
+                    <div className="flex justify-between py-1 border-b border-zinc-800/60">
+                      <span className="text-zinc-500">Author</span>
+                      <span className="text-zinc-200">{selectedDoc.author || 'Production Member'}</span>
+                    </div>
+                    <div className="flex justify-between py-1 border-b border-zinc-800/60">
+                      <span className="text-zinc-500">Uploaded</span>
+                      <span className="text-zinc-200">{new Date(selectedDoc.uploadedAt).toLocaleDateString()}</span>
+                    </div>
+                    <div className="flex justify-between py-1 border-b border-zinc-800/60">
+                      <span className="text-zinc-500">Size / Length</span>
+                      <span className="text-zinc-200">{selectedDoc.durationSeconds ? `${selectedDoc.durationSeconds}s` : selectedDoc.fileSize || '1.1 MB'}</span>
+                    </div>
+                    <div className="flex justify-between py-1">
+                      <span className="text-zinc-500">Status</span>
+                      <span className="text-emerald-400 uppercase font-bold">{selectedDoc.status || 'Active'}</span>
+                    </div>
+                  </div>
+                </div>
+              )}
             </aside>
           )}
         </div>
@@ -2303,6 +3687,17 @@ export const DocumentVaultView: React.FC = () => {
                   value={voiceNoteTitle}
                   onChange={(e) => setVoiceNoteTitle(e.target.value)}
                   placeholder="e.g., Director On-Set Lens Blocking Note"
+                  className="w-full px-3 py-2 text-xs rounded-xl bg-zinc-900 border border-zinc-700 outline-none text-zinc-200"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-zinc-400 mb-1">Tags (comma separated or #tag)</label>
+                <input
+                  type="text"
+                  value={voiceNoteTags}
+                  onChange={(e) => setVoiceNoteTags(e.target.value)}
+                  placeholder="Voice Note, On-Set, Audio Memo, Lenses"
                   className="w-full px-3 py-2 text-xs rounded-xl bg-zinc-900 border border-zinc-700 outline-none text-zinc-200"
                 />
               </div>
@@ -2406,6 +3801,144 @@ export const DocumentVaultView: React.FC = () => {
                 Save to Vault
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* =========================================================================
+          MODAL 3: ADD BREAKDOWN ELEMENT MODAL
+         ========================================================================= */}
+      {isAddElementOpen && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 font-sans">
+          <div className={`w-full max-w-lg rounded-2xl border p-6 shadow-2xl ${
+            isLight ? 'bg-white border-slate-200 text-slate-900' : 'bg-[#141418] border-amber-500/30 text-gray-100'
+          }`}>
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-[#f5a623]/20 text-[#f5a623] flex items-center justify-center font-bold">
+                  <Plus size={18} />
+                </div>
+                <h3 className="text-base font-bold">Add Breakdown Element</h3>
+              </div>
+              <button
+                onClick={() => setIsAddElementOpen(false)}
+                className="p-1 rounded hover:bg-zinc-800 text-zinc-400 hover:text-white"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <form onSubmit={handleAddTableElement} className="space-y-3.5">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-zinc-400 mb-1">Category *</label>
+                  <select
+                    value={newElemCategory}
+                    onChange={(e) => {
+                      setNewElemCategory(e.target.value);
+                      if (!newElemDept) {
+                        setNewElemDept(e.target.value.charAt(0) + e.target.value.slice(1).toLowerCase());
+                      }
+                    }}
+                    className={`w-full px-3 py-2 text-xs rounded-xl border outline-none font-medium ${
+                      isLight ? 'bg-slate-50 border-slate-200 text-slate-800' : 'bg-zinc-900 border-zinc-700 text-zinc-200'
+                    }`}
+                  >
+                    <option value="CAST">Cast / Speaking</option>
+                    <option value="EXTRAS">Extras / Atmosphere</option>
+                    <option value="STUNTS">Stunts & Action</option>
+                    <option value="VEHICLES">Vehicles / Cars</option>
+                    <option value="PROPS">Props / Hand Props</option>
+                    <option value="SFX">SFX / Practical</option>
+                    <option value="VFX">VFX / Digital</option>
+                    <option value="WARDROBE">Wardrobe / Costume</option>
+                    <option value="MAKEUP">Makeup / Hair</option>
+                    <option value="ANIMALS">Animals / Handlers</option>
+                    <option value="SOUND">Sound Design / Stems</option>
+                    <option value="SET_DRESSING">Set Dressing</option>
+                    <option value="GREENERY">Greenery / Plants</option>
+                    <option value="SPECIAL_EQUIPMENT">Special Equipment</option>
+                    <option value="LIGHTING_GRIP">Lighting / Grip</option>
+                    <option value="SAFETY">Safety & Protocol</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-zinc-400 mb-1">Status</label>
+                  <select
+                    value={newElemStatus}
+                    onChange={(e) => setNewElemStatus(e.target.value)}
+                    className={`w-full px-3 py-2 text-xs rounded-xl border outline-none font-medium ${
+                      isLight ? 'bg-slate-50 border-slate-200 text-slate-800' : 'bg-zinc-900 border-zinc-700 text-zinc-200'
+                    }`}
+                  >
+                    <option value="Confirmed">Confirmed</option>
+                    <option value="Scheduled">Scheduled</option>
+                    <option value="Rigged & Tested">Rigged & Tested</option>
+                    <option value="Rehearsed">Rehearsed</option>
+                    <option value="Ready">Ready</option>
+                    <option value="Standby">Standby</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-zinc-400 mb-1">Element Name *</label>
+                <input
+                  type="text"
+                  required
+                  value={newElemName}
+                  onChange={(e) => setNewElemName(e.target.value)}
+                  placeholder="e.g., Optical Data Core Key / Smoke FX Canister"
+                  className={`w-full px-3 py-2 text-xs rounded-xl border outline-none font-medium ${
+                    isLight ? 'bg-slate-50 border-slate-200 text-slate-800' : 'bg-zinc-900 border-zinc-700 text-zinc-200'
+                  }`}
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-zinc-400 mb-1">Department</label>
+                <input
+                  type="text"
+                  value={newElemDept}
+                  onChange={(e) => setNewElemDept(e.target.value)}
+                  placeholder="e.g., Props, SFX, Camera, Stunts"
+                  className={`w-full px-3 py-2 text-xs rounded-xl border outline-none font-medium ${
+                    isLight ? 'bg-slate-50 border-slate-200 text-slate-800' : 'bg-zinc-900 border-zinc-700 text-zinc-200'
+                  }`}
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-zinc-400 mb-1">Notes & Specifications</label>
+                <textarea
+                  rows={3}
+                  value={newElemNotes}
+                  onChange={(e) => setNewElemNotes(e.target.value)}
+                  placeholder="e.g., Amber glow LED cryo-cylinder; 3 backup duplicates needed on set..."
+                  className={`w-full px-3 py-2 text-xs rounded-xl border outline-none resize-none font-medium ${
+                    isLight ? 'bg-slate-50 border-slate-200 text-slate-800' : 'bg-zinc-900 border-zinc-700 text-zinc-200'
+                  }`}
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsAddElementOpen(false)}
+                  className="px-3.5 py-1.5 text-xs font-bold rounded-xl border border-zinc-700 hover:bg-zinc-800 text-zinc-300"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={!newElemName.trim()}
+                  className="px-4 py-1.5 text-xs font-bold rounded-xl bg-[#f5a623] hover:bg-[#e09612] text-black disabled:opacity-40"
+                >
+                  Add to Breakdown Table
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

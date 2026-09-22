@@ -302,6 +302,18 @@ export function paginateDocumentHtml(
     }
 
     // Case D: Multi-sentence paragraph that can be split across the page boundary to fill the page snuggly
+    // Structured elements like tables, lists, pre, or blockquotes must never be shredded into <p> sentences
+    const isSplittableText = !/<(?:table|tbody|thead|tr|td|th|ul|ol|li|div|blockquote|pre)/i.test(block.html);
+    if (!isSplittableText) {
+      if (currentPageBlocks.length > 0) {
+        pushCurrentPage();
+      }
+      currentPageBlocks.push(block.html);
+      currentWords = block.wordCount;
+      currentChars = block.vChars;
+      continue;
+    }
+
     const sentences = block.text.match(/[^.!?\n;:,]+[.!?\n;:,]+(\s+|$)|[^.!?\n;:,]+$/g) || [block.text];
     let part1Sentences: string[] = [];
     let part2Sentences: string[] = [];

@@ -1274,3 +1274,70 @@ html.theme-transitioning *::after {
   transition-delay: 0s !important;
 }
 
+/* ==========================================
+   10. DOCUMENT VAULT IN-PAGE EDITABLE TABLES & NOTES
+   ========================================== */
+.doc-vault-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.doc-vault-table th,
+.doc-vault-table td {
+  padding: 8px 12px;
+  vertical-align: top;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+}
+
+.doc-vault-table th {
+  background-color: rgba(148, 163, 184, 0.12);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 11px;
+}
+
+.doc-vault-table tr:hover td {
+  background-color: rgba(245, 166, 35, 0.04);
+}
+
+[contenteditable="true"] .doc-vault-table td:focus {
+  outline: 2px solid #f5a623 !important;
+  outline-offset: -1px;
+  background-color: rgba(245, 166, 35, 0.08) !important;
+}
+
+.doc-notes-below-table {
+  transition: all 0.2s ease;
+}
+
+[contenteditable="true"] .doc-notes-below-table:hover,
+[contenteditable="true"] .doc-notes-below-table:focus-within {
+  border-color: rgba(245, 166, 35, 0.6) !important;
+}
+
+.doc-delete-row-btn {
+  opacity: 0.75;
+  transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.doc-table-row:hover .doc-delete-row-btn,
+.doc-delete-row-btn:hover {
+  opacity: 1;
+  transform: scale(1.08);
+}
+
+.doc-delete-row-btn:hover {
+  background-color: #ef4444 !important;
+  color: #ffffff !important;
+  border-color: #dc2626 !important;
+  box-shadow: 0 2px 8px rgba(239, 68, 68, 0.35);
+}
+
+.doc-delete-row-btn:active {
+  transform: scale(0.95);
+}
+
+

@@ -95,7 +95,7 @@ export const AVAILABLE_IMAGE_MODELS = [
 ];
 
 export const AVAILABLE_TEXT_MODELS = [
-    { label: 'Gemini 2.5 Flash (Fast)', value: 'gemini-2.5-flash' },
+    { label: 'Gemini 3.6 Flash (Fast & Recommended)', value: 'gemini-3.6-flash' },
     { label: 'Gemini 2.5 Pro (Smart)', value: 'gemini-2.5-pro' },
     { label: 'Grok 2 (Smart & Creative)', value: 'grok-2-1212' },
     { label: 'Grok Beta (Fast)', value: 'grok-beta' },
@@ -277,7 +277,7 @@ export const INITIAL_STATE: ProjectState = {
     style: 'Charcoal Sketch',
     aspectRatio: '16:9',
     imageModel: 'gemini-2.5-flash-image', 
-    textModel: 'gemini-2.5-flash'
+    textModel: 'gemini-3.6-flash'
   },
   isStoryboardFeatureEnabled: true,
   breakdownLanguage: 'english',

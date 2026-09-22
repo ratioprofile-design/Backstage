@@ -38,7 +38,7 @@ class BatchBreakdownManager {
   private queue: Beat[] = [];
   private onBeatCompletedCb: BeatCompletedCallback | null = null;
   private activeLanguage: 'english' | 'tamil' = 'english';
-  private activeModel: string = 'gemini-2.5-flash';
+  private activeModel: string = 'gemini-3.6-flash';
   private openRouterApiKey?: string;
 
   public getState(): BatchProgressState {
@@ -61,7 +61,7 @@ class BatchBreakdownManager {
   public async startBatch(
     beatsToProcess: Beat[],
     language: 'english' | 'tamil' = 'english',
-    model: string = 'gemini-2.5-flash',
+    model: string = 'gemini-3.6-flash',
     openRouterApiKey: string | undefined,
     onBeatCompleted: BeatCompletedCallback
   ) {

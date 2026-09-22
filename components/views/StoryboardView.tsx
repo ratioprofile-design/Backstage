@@ -936,7 +936,7 @@ const StoryboardView: React.FC = () => {
       const text = getScriptSegment();
       if (!text.trim()) { alert("No scenes found in that range."); return; }
       
-      const rawShots = await generateShotList(text, storyboardConfig.textModel || 'gemini-2.5-flash');
+      const rawShots = await generateShotList(text, storyboardConfig.textModel || 'gemini-3.6-flash');
       const shotsArray = Array.isArray(rawShots) 
         ? rawShots 
         : (rawShots && typeof rawShots === 'object' 

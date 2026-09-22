@@ -429,7 +429,7 @@ export const ShotListView: React.FC<ShotListViewProps> = ({ onNavigateToStoryboa
         sceneToAnalyze.heading,
         sceneToAnalyze.rawText,
         previewStyle,
-        storyboardConfig.textModel || 'gemini-2.5-flash'
+        storyboardConfig.textModel || 'gemini-3.6-flash'
       );
 
       const formatted = rawShots.map((s, idx) => ({

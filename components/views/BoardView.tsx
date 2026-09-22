@@ -226,6 +226,51 @@ export const getBeatTitleWidth = (title?: string): number => {
   return Math.max(90, Math.round(clean.length * 7.8 + 80));
 };
 
+// Pantone-inspired card palette generator — creates rich saturated card backgrounds from any track hex color
+// Dark mode: Deep saturated swatches like Total Eclipse (#0A1422) or Ultramarine Green (#0F3D34)
+// Light mode: Sophisticated soft tints with subtle color identity
+const getPantoneCardStyle = (trackHex: string, isDark: boolean) => {
+  const r = parseInt(trackHex.slice(1, 3), 16) || 0;
+  const g = parseInt(trackHex.slice(3, 5), 16) || 0;
+  const b = parseInt(trackHex.slice(5, 7), 16) || 0;
+
+  if (isDark) {
+    // Rich saturated Pantone swatches (Total Eclipse, Ultramarine Green, Vampire Red)
+    const mix = 0.28;
+    const base = { r: 10, g: 12, b: 18 };
+    const bgR = Math.round(r * mix + base.r * (1 - mix));
+    const bgG = Math.round(g * mix + base.g * (1 - mix));
+    const bgB = Math.round(b * mix + base.b * (1 - mix));
+
+    return {
+      bg: `rgb(${bgR}, ${bgG}, ${bgB})`,
+      bgSelected: `rgb(${Math.min(255, bgR + 18)}, ${Math.min(255, bgG + 18)}, ${Math.min(255, bgB + 22)})`,
+      border: `rgba(${r},${g},${b},0.32)`,
+      metaColBg: 'rgba(0, 0, 0, 0.25)',
+      divider: 'rgba(255, 255, 255, 0.12)',
+      textPrimary: '#F8FAFC',
+      textSecondary: 'rgba(241, 245, 249, 0.78)',
+      textMuted: 'rgba(148, 163, 184, 0.65)',
+    };
+  } else {
+    // Crisp editorial tints
+    const bgR = Math.round(255 - (255 - r) * 0.14);
+    const bgG = Math.round(255 - (255 - g) * 0.14);
+    const bgB = Math.round(255 - (255 - b) * 0.14);
+
+    return {
+      bg: `rgb(${bgR}, ${bgG}, ${bgB})`,
+      bgSelected: `rgb(${Math.round(255 - (255 - r) * 0.24)}, ${Math.round(255 - (255 - g) * 0.24)}, ${Math.round(255 - (255 - b) * 0.24)})`,
+      border: `rgba(${r},${g},${b},0.28)`,
+      metaColBg: 'rgba(0, 0, 0, 0.035)',
+      divider: 'rgba(0, 0, 0, 0.08)',
+      textPrimary: '#0F172A',
+      textSecondary: 'rgba(30, 41, 59, 0.82)',
+      textMuted: 'rgba(71, 85, 105, 0.65)',
+    };
+  }
+};
+
 export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
   const { 
     beats, setBeats, updateBeat, captureSnapshot,
@@ -2600,6 +2645,9 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
       );
     }
 
+    // Pantone-inspired card colors computed from track color
+    const cardColors = getPantoneCardStyle(track.color, currentTheme.isDark);
+
     // High performance GPU translation during live dragging (no React re-renders)
     const liveDx = isBeingDragged && liveDragOffset && liveDragOffset.beatId === beat.id ? liveDragOffset.deltaPx : 0;
     const liveDy = isBeingDragged && liveDragOffset && liveDragOffset.beatId === beat.id ? liveDragOffset.deltaYPx : 0;
@@ -2617,12 +2665,12 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
           width: `${clipWidth}px`,
           height: `${clipHeight}px`,
           top: `${clipTop}px`,
-          borderColor: isMarqueeSelected ? '#06b6d4' : isSelected ? '#f59e0b' : isBeingDragged ? `${track.color}90` : `${track.color}${currentTheme.isDark ? '50' : '75'}`,
-          backgroundColor: isBeingDragged ? (currentTheme.isDark ? '#1a1d2e' : '#f1f5f9') : isMarqueeSelected ? (currentTheme.isDark ? '#0e2433' : '#e0f2fe') : isSelected ? (currentTheme.isDark ? '#151826' : '#ffffff') : currentTheme.bgCard,
+          borderColor: isMarqueeSelected ? '#06b6d4' : isSelected ? '#B8860B' : isBeingDragged ? `${track.color}90` : cardColors.border,
+          backgroundColor: isBeingDragged ? (currentTheme.isDark ? '#1a1d2e' : '#f1f5f9') : isMarqueeSelected ? (currentTheme.isDark ? '#0e2433' : '#e0f2fe') : isSelected ? cardColors.bgSelected : cardColors.bg,
           zIndex: isInlineEditing ? 40 : isBeingDragged ? 35 : isMarqueeSelected ? 25 : isSelected ? 20 : 2,
           transform: liveTransform,
           willChange: isBeingDragged ? 'transform' : 'auto',
-          transition: isBeingDragged ? 'none' : 'border-color 0.15s, box-shadow 0.15s',
+          transition: isBeingDragged ? 'none' : 'border-color 0.2s, box-shadow 0.2s, background-color 0.2s',
         }}
         onMouseDown={(e) => {
           if (isInlineEditing) {
@@ -2650,16 +2698,16 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
           const y = Math.min(window.innerHeight - menuH - 16, Math.max(16, e.clientY));
           setBeatContextMenu({ beatId: beat.id, x, y });
         }}
-        className={`absolute rounded-lg border select-none overflow-hidden flex flex-col justify-between ${
+        className={`absolute rounded-lg border select-none overflow-hidden flex flex-col justify-between group/clip ${
           isBeingDragged 
             ? 'shadow-[0_24px_50px_rgba(0,0,0,0.85)] cursor-grabbing' 
             : isMarqueeSelected
-              ? 'shadow-[0_0_20px_rgba(6,182,212,0.5)] ring-2 ring-cyan-400 cursor-pointer'
+              ? 'shadow-[0_0_24px_rgba(6,182,212,0.5)] ring-2 ring-cyan-400 cursor-pointer'
               : isSelected 
-                ? 'shadow-[0_4px_16px_rgba(245,158,11,0.25)] ring-1 ring-amber-400 cursor-grab' 
+                ? 'shadow-[0_4px_24px_rgba(184,134,11,0.3)] ring-1 ring-[#B8860B] cursor-grab' 
                 : currentTheme.isDark
-                  ? 'hover:border-white/40 hover:shadow-md cursor-grab shadow-sm'
-                  : 'hover:border-slate-400 hover:shadow-md cursor-grab border-slate-300/80 shadow-xs'
+                  ? 'hover:shadow-[0_8px_24px_rgba(0,0,0,0.6)] cursor-grab shadow-md'
+                  : 'hover:shadow-lg cursor-grab shadow-sm'
         }`}
       >
         {/* Left Trim Handle */}
@@ -2752,28 +2800,50 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
             />
           </div>
         ) : viewMode === 'compact' ? (
-          /* COMPACT VIEW: Scene No & Beat Name only */
-          <div className="h-full px-2.5 py-1 flex flex-col justify-center min-w-0 select-none overflow-hidden">
-            <div className="flex items-center justify-between gap-1.5 min-w-0">
-              <div className="flex items-center gap-1.5 min-w-0 overflow-hidden">
-                <span 
-                  className="text-[9px] font-mono font-black px-1.5 py-0.5 rounded text-black shrink-0 tracking-tight"
-                  style={{ backgroundColor: track.color }}
-                >
-                  SC.{sceneNo}
+          /* COMPACT VIEW: Pantone-style streamlined swatch */
+          <div className="h-full flex items-center min-w-0 select-none overflow-hidden relative">
+            {/* Left Solid Accent Bar */}
+            <div 
+              className="w-1.5 shrink-0 h-full"
+              style={{ backgroundColor: track.color }}
+            />
+
+            {/* Left Scene Badge Block */}
+            <div 
+              className="px-2 h-full flex flex-col justify-center items-center border-r shrink-0"
+              style={{ 
+                backgroundColor: cardColors.metaColBg,
+                borderColor: cardColors.divider 
+              }}
+            >
+              <span className="text-[10px] font-mono font-black tracking-tight" style={{ color: cardColors.textPrimary }}>
+                SC.{sceneNo}
+              </span>
+              {subIdx > 0 && (
+                <span className="text-[7.5px] font-mono font-bold" style={{ color: track.color }}>
+                  {subBadgeLabel}
                 </span>
-                {subIdx > 0 && (
+              )}
+            </div>
+
+            {/* Main Title and Duration */}
+            <div className="flex-1 px-2.5 flex items-center justify-between gap-2 min-w-0 overflow-hidden">
+              <div className="flex items-baseline gap-1.5 min-w-0 overflow-hidden">
+                <h3 
+                  className="font-['Playfair_Display',Georgia,serif] text-xs font-bold truncate group-hover:text-[#B8860B] transition-colors"
+                  style={{ color: cardColors.textPrimary }}
+                  title={beatName}
+                >
+                  {beatName}
+                </h3>
+                {slugLoc && clipWidth >= 220 && (
                   <span 
-                    className="text-[8px] font-mono font-bold px-1 py-0.2 rounded shrink-0 border"
-                    style={{ borderColor: `${track.color}40`, color: track.color, backgroundColor: `${track.color}15` }}
-                    title={`Subtrack ${subIdx}`}
+                    className="text-[8px] font-mono uppercase tracking-wider opacity-60 truncate hidden sm:inline"
+                    style={{ color: cardColors.textSecondary }}
                   >
-                    {subBadgeLabel}
+                    • {slugLoc}
                   </span>
                 )}
-                <span className={`text-xs font-bold ${currentTheme.isDark ? 'text-slate-100 group-hover:text-amber-400' : 'text-slate-900 group-hover:text-amber-600'} truncate transition-colors`}>
-                  {beatName}
-                </span>
               </div>
 
               <div className="flex items-center gap-1.5 shrink-0">
@@ -2782,137 +2852,337 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
                     e.stopPropagation();
                     onEditBeat(beat.id);
                   }}
-                  className={`opacity-0 group-hover:opacity-100 ${currentTheme.isDark ? 'hover:text-amber-400 text-slate-400' : 'hover:text-amber-600 text-slate-500'} transition-opacity p-0.5 cursor-pointer pointer-events-auto`}
+                  className="opacity-0 group-hover:opacity-100 hover:scale-110 transition-all p-0.5 cursor-pointer pointer-events-auto"
+                  style={{ color: cardColors.textSecondary }}
                   title="Open in Script Editor"
                 >
                   <FileText size={10} />
                 </button>
-                <span className={`text-[9px] font-mono ${currentTheme.isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                <span 
+                  className="text-[9px] font-mono font-bold opacity-80"
+                  style={{ color: cardColors.textMuted }}
+                >
                   {beat.durationPages.toFixed(1)}p
                 </span>
               </div>
             </div>
           </div>
         ) : viewMode === 'standard' ? (
-          /* STANDARD VIEW: Scene No, Location & Setting, Beat Name (No Summary, No Loading Bar) */
-          <div className="h-full flex flex-col justify-between min-w-0 select-none overflow-hidden">
-            {/* Header: Scene No + Subtrack + Location & Setting + Duration */}
-            <div 
-              className={`h-6 px-2.5 flex items-center justify-between border-b ${currentTheme.isDark ? 'border-white/5' : 'border-slate-200/80'} shrink-0`}
-              style={{ backgroundColor: `${track.color}${currentTheme.isDark ? '18' : '22'}` }}
-            >
-              <div className="flex items-center gap-1.5 min-w-0">
-                <span 
-                  className="text-[9px] font-mono font-black px-1.5 py-0.5 rounded text-black shrink-0 tracking-tight"
-                  style={{ backgroundColor: track.color }}
-                >
-                  SC.{sceneNo}
-                </span>
-                {subIdx > 0 && (
-                  <span 
-                    className="text-[9px] font-mono font-bold px-1 py-0.2 rounded shrink-0 border"
-                    style={{ borderColor: `${track.color}40`, color: track.color, backgroundColor: `${track.color}15` }}
-                    title={subIdx === 0 ? 'Main Track' : `Subtrack ${subIdx}`}
-                  >
-                    {subBadgeLabel}
-                  </span>
-                )}
-                <span 
-                  className={`text-[10px] font-mono font-bold ${currentTheme.isDark ? 'text-slate-300' : 'text-slate-600'} uppercase truncate`}
-                  title={locationAndSetting}
-                >
-                  {locationAndSetting}
-                </span>
-              </div>
-
-              <div className="flex items-center gap-1.5 shrink-0">
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onEditBeat(beat.id);
-                  }}
-                  className={`opacity-0 group-hover:opacity-100 ${currentTheme.isDark ? 'hover:text-amber-400 text-slate-400' : 'hover:text-amber-600 text-slate-500'} transition-opacity p-0.5 cursor-pointer pointer-events-auto`}
-                  title="Open in Script Editor"
-                >
-                  <FileText size={10} />
-                </button>
-                <span className={`text-[9px] font-mono ${currentTheme.isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-                  {beat.durationPages.toFixed(1)}p
-                </span>
-              </div>
-            </div>
-
-            {/* Body: Beat Name (Full vertical room, clean and bold) */}
-            <div className="px-2.5 py-1.5 flex-1 flex items-center min-w-0 overflow-hidden">
-              <div className={`text-xs font-bold ${currentTheme.isDark ? 'text-slate-100 group-hover:text-amber-400' : 'text-slate-900 group-hover:text-amber-600'} truncate transition-colors`}>
-                {beatName}
-              </div>
-            </div>
-          </div>
-        ) : (
-          /* DETAIL VIEW: Scene No, Location & Setting, Beat Name, Summary (Full room for complete summary) */
-          <div className="h-full flex flex-col justify-between min-w-0 select-none overflow-hidden">
-            {/* Header: Scene No + Subtrack + Location & Setting + Script button + Duration */}
-            <div 
-              className={`h-6 px-2.5 flex items-center justify-between border-b ${currentTheme.isDark ? 'border-white/5' : 'border-slate-200/80'} shrink-0`}
-              style={{ backgroundColor: `${track.color}${currentTheme.isDark ? '18' : '22'}` }}
-            >
-              <div className="flex items-center gap-1.5 min-w-0">
-                <span 
-                  className="text-[9px] font-mono font-black px-1.5 py-0.5 rounded text-black shrink-0 tracking-tight"
-                  style={{ backgroundColor: track.color }}
-                >
-                  SC.{sceneNo}
-                </span>
-                {subIdx > 0 && (
-                  <span 
-                    className="text-[9px] font-mono font-bold px-1 py-0.2 rounded shrink-0 border"
-                    style={{ borderColor: `${track.color}40`, color: track.color, backgroundColor: `${track.color}15` }}
-                    title={subIdx === 0 ? 'Main Track' : `Subtrack ${subIdx}`}
-                  >
-                    {subBadgeLabel}
-                  </span>
-                )}
-                <span 
-                  className={`text-[10px] font-mono font-bold ${currentTheme.isDark ? 'text-slate-300' : 'text-slate-600'} uppercase truncate`}
-                  title={locationAndSetting}
-                >
-                  {locationAndSetting}
-                </span>
-              </div>
-
-              <div className="flex items-center gap-1.5 shrink-0">
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onEditBeat(beat.id);
-                  }}
-                  className={`opacity-0 group-hover:opacity-100 ${currentTheme.isDark ? 'hover:text-amber-400 text-slate-400' : 'hover:text-amber-600 text-slate-500'} transition-opacity p-0.5 cursor-pointer pointer-events-auto`}
-                  title="Open in Script Editor"
-                >
-                  <FileText size={10} />
-                </button>
-                <span className={`text-[9px] font-mono ${currentTheme.isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-                  {beat.durationPages.toFixed(1)}p
-                </span>
-              </div>
-            </div>
-
-            {/* Body: Beat Name & Full Visible Summary */}
-            <div className="px-2.5 py-1.5 flex-1 flex flex-col justify-start min-w-0 overflow-hidden">
-              <div className={`text-xs font-bold ${currentTheme.isDark ? 'text-slate-100 group-hover:text-amber-400' : 'text-slate-900 group-hover:text-amber-600'} truncate transition-colors shrink-0`}>
-                {beatName}
-              </div>
+          /* STANDARD VIEW: Pantone-style medium swatch */
+          clipWidth >= 170 ? (
+            <div className="h-full flex min-w-0 select-none overflow-hidden relative">
+              {/* Left Accent Stripe */}
               <div 
-                className={`text-[11px] ${currentTheme.isDark ? 'text-slate-300' : 'text-slate-700'} leading-snug mt-1 ${
-                  clipHeight >= 80 ? 'line-clamp-4' : 'line-clamp-3'
-                } select-text`}
-                title={cleanSummary || 'No summary'}
+                className="w-1.5 shrink-0 h-full"
+                style={{ backgroundColor: track.color }}
+                title={`Track: ${track.name || 'Lane ' + (beat.timelineTrackIdx + 1)}`}
+              />
+
+              {/* Left Metadata Column */}
+              <div 
+                className="w-[74px] shrink-0 p-2 flex flex-col justify-between border-r overflow-hidden"
+                style={{ 
+                  backgroundColor: cardColors.metaColBg,
+                  borderColor: cardColors.divider 
+                }}
               >
-                {cleanSummary || <span className="italic opacity-50 text-slate-500">No summary available.</span>}
+                <div className="flex flex-col min-w-0">
+                  <span className="text-[7.5px] font-mono font-bold tracking-widest uppercase opacity-60 truncate" style={{ color: cardColors.textMuted }}>
+                    SCENE
+                  </span>
+                  <span className="text-xs font-mono font-black tracking-tight" style={{ color: cardColors.textPrimary }}>
+                    SC.{sceneNo}
+                  </span>
+                  {subIdx > 0 && (
+                    <span className="text-[8px] font-mono font-bold" style={{ color: track.color }}>
+                      {subBadgeLabel}
+                    </span>
+                  )}
+                </div>
+                <div className="flex flex-col min-w-0">
+                  <span className="text-[8.5px] font-mono font-bold" style={{ color: cardColors.textPrimary }}>
+                    {beat.durationPages.toFixed(1)}p
+                  </span>
+                </div>
+              </div>
+
+              {/* Right Content Area */}
+              <div className="flex-1 p-2 flex flex-col justify-between min-w-0 overflow-hidden">
+                <div className="flex flex-col min-w-0">
+                  <div className="flex items-center justify-between gap-1.5 min-w-0 shrink-0">
+                    <span 
+                      className="text-[9px] font-mono uppercase tracking-wide truncate opacity-75"
+                      style={{ color: cardColors.textSecondary }}
+                      title={locationAndSetting}
+                    >
+                      {locationAndSetting}
+                    </span>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onEditBeat(beat.id);
+                      }}
+                      className="opacity-0 group-hover:opacity-100 hover:scale-110 transition-all p-0.5 cursor-pointer pointer-events-auto shrink-0"
+                      style={{ color: cardColors.textSecondary }}
+                      title="Open in Script Editor"
+                    >
+                      <FileText size={11} />
+                    </button>
+                  </div>
+
+                  <h3 
+                    className="font-['Playfair_Display',Georgia,serif] text-[13px] font-bold leading-snug tracking-tight truncate mt-1 group-hover:text-[#B8860B] transition-colors"
+                    style={{ color: cardColors.textPrimary }}
+                    title={beatName}
+                  >
+                    {beatName}
+                  </h3>
+                </div>
+
+                <div 
+                  className="flex items-center justify-between gap-2 pt-1 border-t text-[8px] font-mono uppercase tracking-wider shrink-0"
+                  style={{ 
+                    borderColor: cardColors.divider,
+                    color: cardColors.textMuted
+                  }}
+                >
+                  <span>p.{beat.startPage.toFixed(1)}–{(beat.startPage + beat.durationPages).toFixed(1)}</span>
+                  <span className="truncate opacity-75">{track.name || `LANE ${beat.timelineTrackIdx + 1}`}</span>
+                </div>
               </div>
             </div>
-          </div>
+          ) : (
+            /* Narrow Standard Card fallback */
+            <div className="h-full flex min-w-0 select-none overflow-hidden relative">
+              <div 
+                className="w-1.5 shrink-0 h-full"
+                style={{ backgroundColor: track.color }}
+              />
+              <div className="flex-1 p-2 flex flex-col justify-between min-w-0 overflow-hidden">
+                <div className="flex items-center justify-between gap-1">
+                  <span className="text-[10px] font-mono font-black" style={{ color: cardColors.textPrimary }}>
+                    SC.{sceneNo}
+                  </span>
+                  <span className="text-[8.5px] font-mono font-bold" style={{ color: cardColors.textMuted }}>
+                    {beat.durationPages.toFixed(1)}p
+                  </span>
+                </div>
+                <h3 
+                  className="font-['Playfair_Display',Georgia,serif] text-xs font-bold leading-tight truncate group-hover:text-[#B8860B] transition-colors"
+                  style={{ color: cardColors.textPrimary }}
+                >
+                  {beatName}
+                </h3>
+                <div 
+                  className="text-[7.5px] font-mono pt-0.5 border-t flex justify-between"
+                  style={{ borderColor: cardColors.divider, color: cardColors.textMuted }}
+                >
+                  <span>p.{beat.startPage.toFixed(1)}</span>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onEditBeat(beat.id);
+                    }}
+                    className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 cursor-pointer pointer-events-auto"
+                    title="Open in Script Editor"
+                  >
+                    <FileText size={10} />
+                  </button>
+                </div>
+              </div>
+            </div>
+          )
+        ) : (
+          /* DETAIL VIEW: Full Pantone luxury swatch card */
+          clipWidth >= 170 ? (
+            <div className="h-full flex min-w-0 select-none overflow-hidden relative">
+              {/* Left Solid Accent Stripe in track color */}
+              <div 
+                className="w-1.5 shrink-0 h-full"
+                style={{ backgroundColor: track.color }}
+                title={`Track: ${track.name || 'Lane ' + (beat.timelineTrackIdx + 1)}`}
+              />
+
+              {/* Left Metadata Column (Pantone Swatch Spec Column) */}
+              <div 
+                className="w-[84px] shrink-0 p-2 flex flex-col justify-between border-r overflow-hidden"
+                style={{ 
+                  backgroundColor: cardColors.metaColBg,
+                  borderColor: cardColors.divider 
+                }}
+              >
+                <div className="flex flex-col min-w-0">
+                  <span 
+                    className="text-[7.5px] font-mono font-bold tracking-widest uppercase opacity-60 truncate"
+                    style={{ color: cardColors.textMuted }}
+                  >
+                    BACKSTAGE
+                  </span>
+                  <div className="flex items-baseline gap-1 mt-0.5">
+                    <span 
+                      className="text-xs font-mono font-black tracking-tight"
+                      style={{ color: cardColors.textPrimary }}
+                    >
+                      SC.{sceneNo}
+                    </span>
+                    {subIdx > 0 && (
+                      <span 
+                        className="text-[8px] font-mono font-bold px-1 rounded border shrink-0"
+                        style={{ borderColor: `${track.color}40`, color: track.color }}
+                      >
+                        {subBadgeLabel}
+                      </span>
+                    )}
+                  </div>
+                  <span 
+                    className="text-[8px] font-mono tracking-wider uppercase opacity-70 truncate mt-0.5"
+                    style={{ color: cardColors.textSecondary }}
+                  >
+                    {slugPrefix || 'SCENE'}
+                  </span>
+                </div>
+
+                <div className="flex flex-col min-w-0 pt-1 border-t" style={{ borderColor: cardColors.divider }}>
+                  <span 
+                    className="text-[8px] font-mono font-bold tracking-tight truncate"
+                    style={{ color: cardColors.textPrimary }}
+                  >
+                    {beat.durationPages.toFixed(1)} PAGES
+                  </span>
+                  <span 
+                    className="text-[7.5px] font-mono opacity-65 truncate"
+                    style={{ color: cardColors.textMuted }}
+                  >
+                    p.{beat.startPage.toFixed(1)}–{(beat.startPage + beat.durationPages).toFixed(1)}
+                  </span>
+                </div>
+              </div>
+
+              {/* Right Dominant Area (Pantone Name, Summary & Technical Specs) */}
+              <div className="flex-1 p-2.5 flex flex-col justify-between min-w-0 overflow-hidden">
+                <div className="flex flex-col min-w-0">
+                  {/* Top micro row: Location + Actions */}
+                  <div className="flex items-center justify-between gap-1.5 min-w-0 shrink-0">
+                    <span 
+                      className="text-[9px] font-mono font-semibold uppercase tracking-wider truncate opacity-75"
+                      style={{ color: cardColors.textSecondary }}
+                      title={locationAndSetting}
+                    >
+                      {locationAndSetting}
+                    </span>
+
+                    <div className="flex items-center gap-1 shrink-0">
+                      {beatLinksCount > 0 && (
+                        <span 
+                          className="text-[8px] font-mono px-1 py-0.2 rounded border"
+                          style={{ borderColor: `${track.color}40`, color: cardColors.textMuted }}
+                          title={`${beatLinksCount} link(s)`}
+                        >
+                          ⚡{beatLinksCount}
+                        </span>
+                      )}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onEditBeat(beat.id);
+                        }}
+                        className="opacity-0 group-hover:opacity-100 hover:scale-110 transition-all p-0.5 cursor-pointer pointer-events-auto"
+                        style={{ color: cardColors.textSecondary }}
+                        title="Open in Script Editor"
+                      >
+                        <FileText size={11} />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Hero Beat Title (Pantone Editorial Display Style) */}
+                  <h3 
+                    className="font-['Playfair_Display',Georgia,serif] text-[13.5px] font-bold leading-snug tracking-tight truncate mt-1 group-hover:text-[#B8860B] transition-colors"
+                    style={{ color: cardColors.textPrimary }}
+                    title={beatName}
+                  >
+                    {beatName}
+                  </h3>
+
+                  {/* Summary with high legibility */}
+                  <p 
+                    className={`text-[10.5px] leading-relaxed mt-1 ${
+                      clipHeight >= 88 ? 'line-clamp-2' : 'line-clamp-1'
+                    } select-text`}
+                    style={{ color: cardColors.textSecondary }}
+                    title={cleanSummary || 'No summary'}
+                  >
+                    {cleanSummary || <span className="italic opacity-40">No summary available.</span>}
+                  </p>
+                </div>
+
+                {/* Technical Specs Footer (HEX / RGB / CMYK style from Pantone reference) */}
+                <div 
+                  className="flex items-center justify-between gap-2 pt-1 border-t text-[8px] font-mono uppercase tracking-wider shrink-0 mt-1"
+                  style={{ 
+                    borderColor: cardColors.divider,
+                    color: cardColors.textMuted
+                  }}
+                >
+                  <div className="flex items-center gap-3 truncate">
+                    <span><strong className="font-semibold opacity-90">SPAN:</strong> {beat.durationPages.toFixed(1)}p</span>
+                    <span><strong className="font-semibold opacity-90">RANGE:</strong> p.{beat.startPage.toFixed(1)}–{(beat.startPage + beat.durationPages).toFixed(1)}</span>
+                  </div>
+                  <span className="truncate opacity-75 font-medium">{track.name || `LANE ${beat.timelineTrackIdx + 1}`}</span>
+                </div>
+              </div>
+            </div>
+          ) : (
+            /* Narrow Detail Card fallback */
+            <div className="h-full flex min-w-0 select-none overflow-hidden relative">
+              <div 
+                className="w-1.5 shrink-0 h-full"
+                style={{ backgroundColor: track.color }}
+              />
+              <div className="flex-1 p-2 flex flex-col justify-between min-w-0 overflow-hidden">
+                <div className="flex flex-col min-w-0">
+                  <div className="flex items-center justify-between gap-1">
+                    <span className="text-[10px] font-mono font-black" style={{ color: cardColors.textPrimary }}>
+                      SC.{sceneNo}
+                    </span>
+                    <span className="text-[8.5px] font-mono font-bold" style={{ color: cardColors.textMuted }}>
+                      {beat.durationPages.toFixed(1)}p
+                    </span>
+                  </div>
+                  <h3 
+                    className="font-['Playfair_Display',Georgia,serif] text-xs font-bold leading-tight truncate mt-1 group-hover:text-[#B8860B] transition-colors"
+                    style={{ color: cardColors.textPrimary }}
+                  >
+                    {beatName}
+                  </h3>
+                  {cleanSummary && (
+                    <p 
+                      className="text-[9.5px] leading-tight line-clamp-2 mt-1 select-text"
+                      style={{ color: cardColors.textSecondary }}
+                    >
+                      {cleanSummary}
+                    </p>
+                  )}
+                </div>
+                <div 
+                  className="text-[7.5px] font-mono pt-1 border-t flex justify-between"
+                  style={{ borderColor: cardColors.divider, color: cardColors.textMuted }}
+                >
+                  <span>p.{beat.startPage.toFixed(1)}–{(beat.startPage + beat.durationPages).toFixed(1)}</span>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onEditBeat(beat.id);
+                    }}
+                    className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 cursor-pointer pointer-events-auto"
+                    title="Open in Script Editor"
+                  >
+                    <FileText size={10} />
+                  </button>
+                </div>
+              </div>
+            </div>
+          )
         )}
 
         {/* Right Trim Handle */}

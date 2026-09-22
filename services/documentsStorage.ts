@@ -54,6 +54,193 @@ export function createSyntheticAudioDataUrl(frequency = 440, durationSec = 2): s
 const SAMPLE_AUDIO_1 = createSyntheticAudioDataUrl(380, 3);
 const SAMPLE_AUDIO_2 = createSyntheticAudioDataUrl(440, 4);
 
+export const SCENE_4_BREAKDOWN_SHEET_DATA: any[][] = [
+  ['#', 'Category', 'Element / Item Name', 'Department', 'Notes / Specifications', 'Status'],
+  ['1', 'CAST', 'Maya', 'Cast', 'Lead (Heroine) — Tactical stealth jumpsuit, wired earpiece', 'Confirmed'],
+  ['2', 'CAST', 'Sterling', 'Cast', 'Vault Security Director — Bespoke charcoal 3-piece suit', 'Confirmed'],
+  ['3', 'EXTRAS', 'Vault Security Tactical Officers (x4)', 'Extras / Atmosphere', 'Armed security detail in tactical gear, Kevlar vests & visors', 'Scheduled'],
+  ['4', 'STUNTS', 'Catwalk Drop & Decelerator Rig', 'Stunts & Action', 'Maya drops 15ft from ventilation duct to steel catwalk; decelerator rig', 'Rigged & Tested'],
+  ['5', 'STUNTS', 'Incinerator Edge Combat & Glass Break', 'Stunts & Action', 'Hand-to-hand combat sequence at incinerator lip; breakaway glass panels', 'Rehearsed'],
+  ['6', 'PROPS', 'Optical Core Access Key', 'Props', 'Hero Prop: Cylindrical amber cryo-key with illuminated laser etching', 'Hero Prop Ready'],
+  ['7', 'PROPS', 'Classified Land Deeds Dossier', 'Props', 'Vintage Tamil Nadu land revenue records, charred edges (3 duplicates)', '3 Sets Ready'],
+  ['8', 'PROPS', 'Industrial Incinerator Release Wheel', 'Props / Art', 'Heavy cast-brass wheel with safety pin and pressure gauge', 'Checked'],
+  ['9', 'SFX', 'Severed Conduit Spark Discharge', 'SFX / Practical', 'Controlled pyrotechnic electrical arc box from severed server trunk', 'Rigged by SFX'],
+  ['10', 'SFX', 'Incinerator Heat Glow & Embers', 'SFX / Practical', 'Amber heating glow coils with micro paper ash updraft', 'SFX Ready'],
+  ['11', 'VFX', 'Golden Holographic Data Stream', 'VFX / Post', 'Volumetric holographic stream rising from core pedestal; tracking dots', 'Post Plate'],
+  ['12', 'SOUND', 'Subterranean Turbine Drone (40Hz)', 'Sound Design', 'Heavy mechanical hum, pneumatic vents, distant cooling fans', 'Pre-recorded'],
+  ['13', 'SOUND', 'Pneumatic Vault Door Hydraulic Slam', 'Sound FX', 'Multi-point magnetic locking sound with deep metallic resonance', 'Mastered'],
+  ['14', 'SET_DRESSING', 'Subterranean Core Server Racks', 'Set Dressing', '8 double-height server cabinets with sequential amber/blue fiber LEDs', 'Dressed & Checked'],
+  ['15', 'LIGHTING_GRIP', 'Anamorphic Flare & Laser Boundary Grid', 'Camera / Grip', '50mm Kowa anamorphic; red perimeter laser lines + amber rim bounce', 'DOP Approved'],
+  ['16', 'SAFETY', 'Fire Safety Officer & CO2 Extinguishers', 'Safety & Medic', '2 dedicated safety marshals on standby with Class C fire suppression', 'Standby Confirmed'],
+];
+
+export function generateBreakdownHtmlTable(
+  sceneNumber: string | number,
+  sceneHeading: string,
+  rows: any[][],
+  synopsis = '',
+  shootDay = 'DAY 1',
+  pages = '2 3/8 PGS'
+): string {
+  const dataRows = (rows && rows.length > 1) ? rows.slice(1) : [];
+  const totalCount = dataRows.length;
+
+  const categoryColorMap: Record<string, { bg: string; text: string; border: string }> = {
+    CAST: { bg: '#fee2e2', text: '#991b1b', border: '#fca5a5' },
+    EXTRAS: { bg: '#fef9c3', text: '#854d0e', border: '#fde047' },
+    STUNTS: { bg: '#ffedd5', text: '#9a3412', border: '#fdba74' },
+    VEHICLES: { bg: '#fce7f3', text: '#9d174d', border: '#f472b6' },
+    PROPS: { bg: '#f3e8ff', text: '#6b21a8', border: '#d8b4fe' },
+    SFX: { bg: '#e0f2fe', text: '#075985', border: '#7dd3fc' },
+    VFX: { bg: '#ede9fe', text: '#5b21b6', border: '#c4b5fd' },
+    WARDROBE: { bg: '#fce7f3', text: '#831843', border: '#f472b6' },
+    MAKEUP: { bg: '#ffe4e6', text: '#9f1239', border: '#fda4af' },
+    ANIMALS: { bg: '#d1fae5', text: '#065f46', border: '#6ee7b7' },
+    SOUND: { bg: '#dbeafe', text: '#1e40af', border: '#93c5fd' },
+    SET_DRESSING: { bg: '#fef3c7', text: '#92400e', border: '#fcd34d' },
+    GREENERY: { bg: '#dcfce7', text: '#166534', border: '#86efac' },
+    SPECIAL_EQUIPMENT: { bg: '#e0e7ff', text: '#3730a3', border: '#a5b4fc' },
+    LIGHTING_GRIP: { bg: '#fef3c7', text: '#78350f', border: '#fcd34d' },
+    SAFETY: { bg: '#fee2e2', text: '#b91c1c', border: '#f87171' },
+  };
+
+  const rowsHtml = dataRows
+    .map((r, i) => {
+      const num = r[0] || i + 1;
+      const cat = String(r[1] || 'PROPS').toUpperCase();
+      const name = r[2] || '';
+      const dept = r[3] || cat;
+      const notes = r[4] || '';
+      const status = r[5] || 'Confirmed';
+
+      const style = categoryColorMap[cat] || { bg: '#f1f5f9', text: '#334155', border: '#cbd5e1' };
+      const zebraBg = i % 2 === 0 ? '#ffffff' : '#f8fafc';
+
+      const statusLower = String(status).toLowerCase();
+      const statusColor = statusLower.includes('confirm') || statusLower.includes('ready') || statusLower.includes('approved')
+        ? 'background: #dcfce7; color: #166534; border: 1px solid #86efac;'
+        : statusLower.includes('rigged') || statusLower.includes('rehearsed')
+        ? 'background: #e0f2fe; color: #0369a1; border: 1px solid #7dd3fc;'
+        : statusLower.includes('sched')
+        ? 'background: #fef3c7; color: #92400e; border: 1px solid #fcd34d;'
+        : 'background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1;';
+
+      return `
+        <tr style="background: ${zebraBg}; border-bottom: 1px solid #e2e8f0;" class="doc-table-row">
+          <td style="padding: 10px 12px; font-weight: 700; color: #64748b; font-family: ui-monospace, monospace; text-align: center;">${num}</td>
+          <td style="padding: 10px 12px;">
+            <span style="display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; background: ${style.bg}; color: ${style.text}; border: 1px solid ${style.border};">
+              ${cat}
+            </span>
+          </td>
+          <td style="padding: 10px 12px; font-weight: 700; color: #0f172a; font-size: 13px;">${name}</td>
+          <td style="padding: 10px 12px; color: #475569; font-size: 12px; font-weight: 500;">
+            <span style="background: #e2e8f0; color: #334155; padding: 2px 7px; border-radius: 4px; font-size: 11px; font-weight: 600;">
+              ${dept}
+            </span>
+          </td>
+          <td style="padding: 10px 12px; color: #334155; font-size: 12px; line-height: 1.4;">${notes}</td>
+          <td style="padding: 10px 12px; text-align: center;">
+            <span style="display: inline-block; padding: 3px 9px; border-radius: 9999px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; ${statusColor}">
+              ${status}
+            </span>
+          </td>
+          <td style="padding: 8px 6px; text-align: center; width: 42px;" class="doc-action-cell">
+            <button type="button" class="doc-delete-row-btn" data-delete-row="true" style="background: rgba(239,68,68,0.12); color: #dc2626; border: 1px solid rgba(239,68,68,0.35); border-radius: 5px; width: 24px; height: 24px; line-height: 22px; font-size: 11px; cursor: pointer; font-weight: bold; display: inline-flex; align-items: center; justify-content: center; transition: all 0.15s ease;" title="Edit out (delete) this item">✕</button>
+          </td>
+        </tr>
+      `;
+    })
+    .join('');
+
+  return `
+<div class="doc-document-wrapper" style="font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: inherit; width: 100%;">
+  <!-- Document Header -->
+  <div style="margin-bottom: 20px; border-bottom: 2px solid rgba(148, 163, 184, 0.3); padding-bottom: 14px;">
+    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+      <span style="background: #f5a623; color: #000000; font-weight: 900; font-size: 10px; padding: 2px 8px; border-radius: 4px; letter-spacing: 0.06em; text-transform: uppercase;">1ST AD BREAKDOWN</span>
+      <span style="font-size: 11px; font-family: ui-monospace, monospace; opacity: 0.7; text-transform: uppercase;">SHOOT DAY: ${shootDay} &bull; ${pages} &bull; ${totalCount} ITEMS</span>
+    </div>
+    <h1 style="margin: 0 0 6px 0; font-size: 22px; font-weight: 900; letter-spacing: -0.02em; color: inherit;">Scene ${sceneNumber}: ${sceneHeading}</h1>
+  </div>
+
+  ${
+    synopsis
+      ? `<div style="background: rgba(245, 166, 35, 0.08); border-left: 4px solid #f5a623; padding: 12px 16px; border-radius: 4px; font-size: 13px; line-height: 1.5; margin-bottom: 20px;">
+          <strong style="color: #f5a623; display: block; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px;">Scene Synopsis & Scope</strong>
+          ${synopsis}
+        </div>`
+      : ''
+  }
+
+  <!-- The Document Table -->
+  <div style="overflow-x: auto; margin-bottom: 24px;">
+    <table class="doc-vault-table" style="width: 100%; border-collapse: collapse; font-size: 12px; text-align: left; border: 1px solid #cbd5e1;">
+      <thead>
+        <tr style="background: rgba(148, 163, 184, 0.15); border-bottom: 2px solid #cbd5e1; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em;">
+          <th style="padding: 10px 12px; width: 44px; text-align: center; border: 1px solid rgba(148, 163, 184, 0.25);">#</th>
+          <th style="padding: 10px 12px; width: 110px; border: 1px solid rgba(148, 163, 184, 0.25);">Category</th>
+          <th style="padding: 10px 12px; width: 210px; border: 1px solid rgba(148, 163, 184, 0.25);">Element / Item Name</th>
+          <th style="padding: 10px 12px; width: 130px; border: 1px solid rgba(148, 163, 184, 0.25);">Department</th>
+          <th style="padding: 10px 12px; border: 1px solid rgba(148, 163, 184, 0.25);">Notes & Specifications</th>
+          <th style="padding: 10px 12px; width: 100px; text-align: center; border: 1px solid rgba(148, 163, 184, 0.25);">Status</th>
+          <th style="padding: 10px 6px; width: 42px; text-align: center; border: 1px solid rgba(148, 163, 184, 0.25);">Edit</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rowsHtml}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Editable Notes & Directives Section Directly Below Table -->
+  <div class="doc-notes-below-table" style="margin-top: 24px; padding-top: 18px; border-top: 2px solid rgba(148, 163, 184, 0.25);">
+    <h3 style="font-size: 15px; font-weight: 800; margin: 0 0 10px 0; color: inherit; letter-spacing: -0.01em;">Additional Production Notes & Directives</h3>
+    <p style="font-size: 13px; line-height: 1.6; margin: 0 0 8px 0;">1. <strong>Safety Officer Standby:</strong> Two dedicated fire safety marshals with Class C extinguishers must remain adjacent to Camera B during pyrotechnic conduit sparks.</p>
+    <p style="font-size: 13px; line-height: 1.6; margin: 0 0 8px 0;">2. <strong>Props Handling:</strong> 3 identical brass optical core keys provided; stunt duplicate with rubberized safety tip for combat sequence.</p>
+    <p style="font-size: 13px; line-height: 1.6; margin: 0 0 8px 0;">3. <strong>Sound & Atmospheric Haze:</strong> Atmospheric haze density to remain constant at level 2; turbine drone pre-recording will play through cast earpieces.</p>
+    <p style="font-size: 13px; line-height: 1.6; margin: 0 0 8px 0;">4. <strong>Camera Rigging:</strong> 50mm Kowa anamorphic rigged on 12-foot dolly track along south wall for Maya's tactical entrance.</p>
+    <p class="doc-notes-placeholder" style="font-size: 13px; line-height: 1.6; opacity: 0.6; font-style: italic; margin-top: 14px; padding: 10px 14px; border: 1px dashed rgba(148, 163, 184, 0.4); border-radius: 6px;">(Click here or toggle Edit above to write additional notes, instructions, or text below this table...)</p>
+  </div>
+</div>
+  `.trim();
+}
+
+export const SCENE_4_BREAKDOWN_HTML = generateBreakdownHtmlTable(
+  '4',
+  'STEEL DATA VAULT CORE (INT. NIGHT)',
+  SCENE_4_BREAKDOWN_SHEET_DATA,
+  'Maya executes tactical drop from ventilation shaft into subterranean core. Confronted by Sterling at the industrial incinerator pit while extracting optical core keys. Combat sequence ensues with pyrotechnic conduit breach.',
+  'DAY 1',
+  '2 3/8 PGS'
+);
+
+export function buildBreakdownSheetDataFromBeat(b: any): any[][] {
+  const rows: any[][] = [
+    ['#', 'Category', 'Element / Item Name', 'Department', 'Notes / Specifications', 'Status']
+  ];
+  if (!b) return rows;
+
+  let counter = 1;
+  const breakdown = b.breakdown || {};
+
+  Object.entries(breakdown).forEach(([catKey, val]: [string, any]) => {
+    if (!val) return;
+    const catUpper = catKey.toUpperCase();
+    const items = Array.isArray(val) ? val : [val];
+    items.forEach((item: any) => {
+      const name = typeof item === 'string' ? item : item.name || '';
+      if (!name) return;
+      const dept = typeof item === 'object' && item.departmentId ? item.departmentId : catUpper;
+      const notes = typeof item === 'object' ? (item.description || item.source || '') : '';
+      const status = 'Confirmed';
+      rows.push([String(counter++), catUpper, name, dept, notes, status]);
+    });
+  });
+
+  return rows;
+}
+
 export const INITIAL_DOCUMENTS: ProductionDocument[] = [
   {
     id: 'doc-1',
@@ -208,6 +395,8 @@ export const INITIAL_DOCUMENTS: ProductionDocument[] = [
     author: '1st AD Breakdown Supervisor',
     status: 'approved',
     tags: ['Breakdown', 'Scene 4', 'VFX', 'Props', 'Stunts'],
+    sheetData: SCENE_4_BREAKDOWN_SHEET_DATA,
+    htmlContent: SCENE_4_BREAKDOWN_HTML,
     textContent: 'Scene 4 Breakdown Summary:\nCast: Maya, Sterling\nProps: Optical Core Console, Land Deeds, Brass Incinerator\nVFX: Golden Holographic Stream, Floating Paper Ashes\nSound: Energy Surge, Spark Crackle, Steel Door Slam\nPractical: Pyrotechnic Sparks Table Box',
     annotations: []
   },
@@ -338,6 +527,29 @@ export function getProductionDocuments(): ProductionDocument[] {
       saveProductionDocuments(INITIAL_DOCUMENTS);
       return INITIAL_DOCUMENTS;
     }
+
+    // Auto-migration: ensure doc-bd-1 and any BREAKDOWN document has sheetData & htmlContent table
+    let hasMigrated = false;
+    const migrated = parsed.map((doc: ProductionDocument) => {
+      if (doc.id === 'doc-bd-1') {
+        if (!doc.sheetData || doc.sheetData.length <= 1 || !doc.htmlContent || !doc.htmlContent.includes('doc-delete-row-btn')) {
+          hasMigrated = true;
+          return {
+            ...doc,
+            sheetData: SCENE_4_BREAKDOWN_SHEET_DATA,
+            htmlContent: SCENE_4_BREAKDOWN_HTML,
+            textContent: `Scene 4 Breakdown Sheet: 16 Production Elements across 10 Departments.\nCast: Maya, Sterling\nExtras: Vault Security Tactical Officers\nStunts: Catwalk Drop & Decelerator Rig, Incinerator Combat\nProps: Optical Core Access Key, Land Deeds Dossier, Brass Release Wheel\nSFX & VFX: Conduit Spark Discharge, Incinerator Heat Glow, Golden Holographic Stream\nSound: Subterranean Turbine Drone, Pneumatic Door Slam\nSet Dressing: Core Server Racks\nLighting: Anamorphic Flare & Laser Grid\nSafety: Fire Safety Standby`,
+          };
+        }
+      }
+      return doc;
+    });
+
+    if (hasMigrated) {
+      saveProductionDocuments(migrated);
+      return migrated;
+    }
+
     return parsed;
   } catch (e) {
     console.error('Failed to load production documents:', e);
@@ -457,8 +669,13 @@ export function saveVoiceNoteToVault(
   audioDataUrl: string,
   durationSeconds = 0,
   notes?: string,
-  author = 'Director / Writer'
+  author = 'Director / Writer',
+  tags?: string[]
 ): ProductionDocument {
+  const finalTags = tags && tags.length > 0
+    ? tags.map((t) => t.replace(/^#/, '').trim()).filter(Boolean)
+    : ['Voice Note', 'Audio Memo', 'Production Audio'];
+
   return addProductionDocument({
     title,
     titleTa: 'குரல் குறிப்பு',
@@ -473,8 +690,30 @@ export function saveVoiceNoteToVault(
     author,
     textContent: notes || 'Voice idea recording captured from production studio.',
     status: 'approved',
-    tags: ['Voice Note', 'Audio Memo', 'Production Audio'],
+    tags: finalTags,
   });
+}
+
+/**
+ * Add or update tags for a specific document
+ */
+export function updateDocumentTags(id: string, tags: string[]): ProductionDocument | null {
+  const docs = getProductionDocuments();
+  let updatedDoc: ProductionDocument | null = null;
+  const cleaned = Array.from(new Set(tags.map((t) => t.replace(/^#/, '').trim()).filter(Boolean)));
+
+  const updatedDocs = docs.map((d) => {
+    if (d.id === id) {
+      updatedDoc = { ...d, tags: cleaned };
+      return updatedDoc;
+    }
+    return d;
+  });
+
+  if (updatedDoc) {
+    saveProductionDocuments(updatedDocs);
+  }
+  return updatedDoc;
 }
 
 /**
@@ -534,8 +773,23 @@ export function saveBreakdownToVault(
   sceneTitle: string,
   sceneNumber: string,
   itemsCount: number,
-  htmlPreview?: string
+  htmlPreview?: string,
+  sheetData?: any[][]
 ): ProductionDocument {
+  const finalSheetData = sheetData || [
+    ['#', 'Category', 'Element / Item Name', 'Department', 'Notes / Specifications', 'Status'],
+    ['1', 'CAST', `${sceneTitle} Cast`, 'Cast', 'Key Scene Cast', 'Confirmed']
+  ];
+
+  const finalHtml = htmlPreview || generateBreakdownHtmlTable(
+    sceneNumber,
+    sceneTitle,
+    finalSheetData,
+    `Production Breakdown for Scene ${sceneNumber}: ${sceneTitle}`,
+    'DAY 1',
+    '1 PG'
+  );
+
   return addProductionDocument({
     title: `Scene ${sceneNumber} Breakdown Sheet (${sceneTitle})`,
     titleTa: `காட்சி ${sceneNumber} குறிப்பு தாள்`,
@@ -545,8 +799,9 @@ export function saveBreakdownToVault(
     fileSize: `${Math.max(250, itemsCount * 45)} KB`,
     pageCount: 1,
     builtInType: 'breakdown',
-    htmlContent: htmlPreview,
-    textContent: `Breakdown Sheet for Scene ${sceneNumber}: ${sceneTitle}. Total Elements: ${itemsCount}`,
+    sheetData: finalSheetData,
+    htmlContent: finalHtml,
+    textContent: `Breakdown Sheet for Scene ${sceneNumber}: ${sceneTitle}. Total Elements: ${itemsCount || (finalSheetData.length - 1)}`,
     author: '1st AD Breakdown Supervisor',
     status: 'approved',
     tags: ['Breakdown', `Scene ${sceneNumber}`, '1st AD'],
@@ -732,6 +987,15 @@ export function harvestProjectArtifacts(project: any): { addedCount: number; doc
       if (b.breakdown && Object.keys(b.breakdown).length > 0) {
         const breakdownDocId = `harvest-breakdown-${b.id}`;
         if (!existingIds.has(breakdownDocId)) {
+          const sheetData = buildBreakdownSheetDataFromBeat(b);
+          const breakdownHtml = generateBreakdownHtmlTable(
+            b.sceneNumber || b.id,
+            b.title || `${b.slug?.prefix || 'INT.'} ${b.slug?.location || 'LOCATION'} - ${b.slug?.time || 'DAY'}`,
+            sheetData,
+            b.content ? b.content.replace(/<[^>]*>/g, ' ').slice(0, 160) : undefined,
+            'DAY 1',
+            b.pages || '1 PG'
+          );
           const breakdownSummary = Object.entries(b.breakdown)
             .map(([cat, items]: [string, any]) => `${cat.toUpperCase()}: ${Array.isArray(items) ? items.join(', ') : items}`)
             .join('\n');
@@ -748,6 +1012,8 @@ export function harvestProjectArtifacts(project: any): { addedCount: number; doc
             uploadedAt: new Date().toISOString(),
             builtInType: 'breakdown',
             author: '1st AD Breakdown Supervisor',
+            sheetData,
+            htmlContent: breakdownHtml,
             textContent: `SCENE ${b.sceneNumber || b.id} BREAKDOWN:\n${breakdownSummary}`,
             status: 'approved',
             tags: [`Scene ${b.sceneNumber}`, 'Breakdown', '1st AD'],

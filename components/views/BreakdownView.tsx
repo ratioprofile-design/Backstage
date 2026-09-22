@@ -292,7 +292,7 @@ export const BreakdownView: React.FC<BreakdownViewProps> = ({
 
       const res = await generateBreakdown(
         scriptText,
-        generalAiModel || 'gemini-2.5-flash',
+        generalAiModel || 'gemini-3.6-flash',
         isTamil ? 'tamil' : 'english',
         openrouterKey
       );
@@ -320,7 +320,7 @@ export const BreakdownView: React.FC<BreakdownViewProps> = ({
     batchBreakdownManager.startBatch(
       beats,
       isTamil ? 'tamil' : 'english',
-      generalAiModel || 'gemini-2.5-flash',
+      generalAiModel || 'gemini-3.6-flash',
       openrouterKey,
       (updatedBeat) => {
         updateBeat(updatedBeat.id, { breakdownData: updatedBeat.breakdownData });
@@ -335,7 +335,7 @@ export const BreakdownView: React.FC<BreakdownViewProps> = ({
     batchBreakdownManager.startBatch(
       targetBeats,
       isTamil ? 'tamil' : 'english',
-      generalAiModel || 'gemini-2.5-flash',
+      generalAiModel || 'gemini-3.6-flash',
       openrouterKey,
       (updatedBeat) => {
         updateBeat(updatedBeat.id, { breakdownData: updatedBeat.breakdownData });
@@ -353,7 +353,7 @@ export const BreakdownView: React.FC<BreakdownViewProps> = ({
     batchBreakdownManager.startBatch(
       unbroken,
       isTamil ? 'tamil' : 'english',
-      generalAiModel || 'gemini-2.5-flash',
+      generalAiModel || 'gemini-3.6-flash',
       openrouterKey,
       (updatedBeat) => {
         updateBeat(updatedBeat.id, { breakdownData: updatedBeat.breakdownData });
@@ -429,7 +429,25 @@ export const BreakdownView: React.FC<BreakdownViewProps> = ({
     const sceneNum = currentBeat.sceneNumber || `#${currentBeat.id}`;
     const sceneTitle = currentBeat.title || `${currentBeat.slug?.prefix || 'INT.'} ${currentBeat.slug?.location || 'LOCATION'}`;
 
-    saveBreakdownToVault(sceneTitle, sceneNum, currentSceneTotalItems);
+    const sheetRows: any[][] = [
+      ['#', 'Category', 'Element / Item Name', 'Department', 'Notes / Specifications', 'Status']
+    ];
+    let count = 1;
+    ALL_15_CATEGORIES.forEach((cat) => {
+      const items = getBeatCategoryItems(currentBeat, cat);
+      items.forEach((item) => {
+        sheetRows.push([
+          String(count++),
+          cat,
+          item.name,
+          item.departmentId || CATEGORY_REGISTRY[cat]?.nameEn || cat,
+          item.description || (item.count ? `Qty: ${item.count}` : '') || '',
+          'Confirmed'
+        ]);
+      });
+    });
+
+    saveBreakdownToVault(sceneTitle, sceneNum, currentSceneTotalItems, undefined, sheetRows);
     confetti({ particleCount: 30, spread: 45, origin: { y: 0.6 } });
     showToast(`✓ Saved Scene ${sceneNum} Breakdown Sheet directly to Document Vault!`);
   };
