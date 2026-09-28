@@ -1,13 +1,36 @@
-
 import { createClient } from '@supabase/supabase-js';
 
-// Safe access to environment variables
-const getEnv = (key: string) => {
-    try {
-        return (window as any).process?.env?.[key] || '';
-    } catch (e) {
-        return '';
+// Safe access to environment variables across Vite, Vercel, Node, and browser runtimes
+const getEnv = (key: string): string => {
+  try {
+    // 1. Vite client-side environment variables (e.g. VITE_SUPABASE_URL)
+    if (typeof import.meta !== 'undefined' && (import.meta as any)?.env) {
+      const metaEnv = (import.meta as any).env;
+      if (metaEnv[`VITE_${key}`]) return String(metaEnv[`VITE_${key}`]);
+      if (metaEnv[key]) return String(metaEnv[key]);
     }
+  } catch {}
+
+  try {
+    // 2. Build-time defined environment variables injected via vite define
+    if (typeof process !== 'undefined' && process.env) {
+      if (process.env[`VITE_${key}`]) return String(process.env[`VITE_${key}`]);
+      if (process.env[key]) return String(process.env[key]);
+    }
+  } catch {}
+
+  try {
+    // 3. Browser window globals if injected
+    if (typeof window !== 'undefined') {
+      const w = window as any;
+      if (w.__ENV__?.[`VITE_${key}`]) return String(w.__ENV__[`VITE_${key}`]);
+      if (w.__ENV__?.[key]) return String(w.__ENV__[key]);
+      if (w.process?.env?.[`VITE_${key}`]) return String(w.process.env[`VITE_${key}`]);
+      if (w.process?.env?.[key]) return String(w.process.env[key]);
+    }
+  } catch {}
+
+  return '';
 };
 
 const supabaseUrl = getEnv('SUPABASE_URL') || 'https://scvdsajwsuzstagjjltg.supabase.co';
@@ -21,7 +44,10 @@ const mockSupabase = {
     onAuthStateChange: () => ({ data: { subscription: { unsubscribe: () => {} } } }),
     signInWithPassword: async () => ({ data: { user: null, session: null }, error: { message: 'Supabase not configured' } }),
     signUp: async () => ({ data: { user: null, session: null }, error: { message: 'Supabase not configured' } }),
+    signInWithOAuth: async () => ({ data: { provider: 'google', url: null }, error: { message: 'Supabase not configured' } }),
+    exchangeCodeForSession: async () => ({ data: { user: null, session: null }, error: { message: 'Supabase not configured' } }),
     signOut: async () => ({ error: null }),
+    updateUser: async () => ({ data: { user: null }, error: null }),
   },
   from: () => {
     const chain = {
@@ -30,7 +56,10 @@ const mockSupabase = {
       eq: () => chain,
       order: () => chain,
       single: async () => ({ data: null, error: { message: 'Supabase not configured' } }),
+      maybeSingle: async () => ({ data: null, error: { message: 'Supabase not configured' } }),
       delete: () => chain,
+      update: () => chain,
+      insert: () => chain,
       then: (onfulfilled: any) => Promise.resolve({ data: [], error: null }).then(onfulfilled),
     };
     return chain;
@@ -44,7 +73,15 @@ const mockSupabase = {
 };
 
 export const supabase = isSupabaseConfigured
-  ? createClient(supabaseUrl, supabaseAnonKey)
+  ? createClient(supabaseUrl, supabaseAnonKey, {
+      auth: {
+        autoRefreshToken: true,
+        persistSession: true,
+        detectSessionInUrl: true,
+        flowType: 'pkce',
+        storage: typeof window !== 'undefined' ? window.localStorage : undefined,
+      }
+    })
   : mockSupabase as any;
 
 export const upsertProject = async (id: string, userId: string, name: string, data: any) => {

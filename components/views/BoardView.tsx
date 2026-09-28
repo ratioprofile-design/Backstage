@@ -171,6 +171,7 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
     currentLaneIdx: number;
     groupDomEl: HTMLElement | null;
     containedBeats: { id: number; initialStart: number; domEl: HTMLElement | null }[];
+    containedGroups?: { id: string; initialStart: number; domEl: HTMLElement | null }[];
   } | null>(null);
 
   const isResizingGroupRef = useRef(false);
@@ -254,24 +255,208 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
     });
   }, [beats, lanes, unusedLaneIndex, effectivePxPerUnit]);
 
-  // Compute lane heights based on max row count
+  const snapToGrid = (unit: number): number => Math.max(0.5, Math.round(unit * 4) / 4);
+
+  // ─── DYNAMIC LANE & GROUP GEOMETRY (AUTO-FIT & PREVENT OVERLAP) ────
+  const layoutByLane = useMemo(() => {
+    return lanes.map((lane, laneIdx) => {
+      if (lane.collapsed) {
+        return {
+          laneHeight: 38,
+          beatTopBase: 32,
+          groupsLayoutMap: new Map<string, {
+            topPx: number;
+            heightPx: number;
+            bottomPx: number;
+            effectiveDurationUnits: number;
+            isNested: boolean;
+            isBlock: boolean;
+            adoptedBeatsCount: number;
+          }>(),
+          beatsInLane: []
+        };
+      }
+
+      const laneBeats = beatsWithLayout.filter(b => b.laneIdx === laneIdx);
+      const laneGroups = groups.filter(g => g.laneId === lane.id);
+      const laneBlocks = laneGroups.filter(g => g.type === 'block');
+      const laneRegularGroups = laneGroups.filter(g => g.type !== 'block');
+      const hasAnyBlocks = laneBlocks.length > 0;
+
+      // 1. Detect nesting: Any group in a lane that has a sequence block is nested inside it
+      const groupNestingMap = new Map<string, { isBlock: boolean; isNested: boolean; parentBlockId: string | null }>();
+      laneGroups.forEach(grp => {
+        if (grp.type === 'block') {
+          groupNestingMap.set(grp.id, { isBlock: true, isNested: false, parentBlockId: null });
+        } else {
+          const parent = laneBlocks.find(blk =>
+            grp.startUnit < (blk.startUnit + blk.durationUnits + 1.5) &&
+            (grp.startUnit + grp.durationUnits) > (blk.startUnit - 1.5)
+          ) || (hasAnyBlocks ? laneBlocks[0] : null);
+
+          groupNestingMap.set(grp.id, {
+            isBlock: false,
+            isNested: Boolean(parent),
+            parentBlockId: parent?.id || null
+          });
+        }
+      });
+
+      const hasAnyGroups = laneGroups.length > 0;
+
+      // 2. Dedicated vertical zones to guarantee ZERO OVERLAP:
+      // - Sequence Block header: top = 6px, height = 26px (Y: 6px -> 32px)
+      // - Group header (when block exists): top = 38px, height = 24px (Y: 38px -> 62px)
+      // - Group header (when standalone): top = 8px, height = 24px (Y: 8px -> 32px)
+      //
+      // Beat Rows MUST start strictly below all active headers:
+      // If lane has sequence blocks: beatTopBase = 72px (Row 0 starts at 72px, completely clear of the 62px group header!)
+      // If lane has standalone groups: beatTopBase = 44px
+      // If lane has only empty canvas: beatTopBase = 32px
+      const beatTopBase = hasAnyBlocks
+        ? 72
+        : (hasAnyGroups ? 44 : 32);
+
+      // 3. Layout each beat in this lane
+      const beatsInLane = laneBeats.map(b => {
+        const isOutlined = b.isOmittedOrDisabled;
+        const cardHeight = isOutlined ? (b.isMultiLine ? CARD_HEIGHT_OUTLINE : 28) : CARD_HEIGHT_SOLID;
+        const rowStep = isOutlined && b.isMultiLine ? 54 : 32;
+        const topPx = beatTopBase + b.row * rowStep;
+        const bottomPx = topPx + cardHeight;
+        return {
+          ...b,
+          cardHeight,
+          topPx,
+          bottomPx
+        };
+      });
+
+      // 4. Calculate layout for groups first (with cluster-chain auto-adoption)
+      const groupsLayoutMap = new Map<string, {
+        topPx: number;
+        heightPx: number;
+        bottomPx: number;
+        effectiveDurationUnits: number;
+        isNested: boolean;
+        isBlock: boolean;
+        adoptedBeatsCount: number;
+      }>();
+
+      const sortedLaneBeats = [...beatsInLane].sort((a, b) => a.startUnit - b.startUnit);
+
+      laneRegularGroups.forEach(grp => {
+        const nesting = groupNestingMap.get(grp.id) || { isBlock: false, isNested: false, parentBlockId: null };
+        const topPx = nesting.isNested ? 38 : 8;
+
+        // Cluster-chain adoption:
+        // Include all beats starting inside or near the group, AND any chained sequential beats extending from it
+        const grpBeats: typeof beatsInLane = [];
+        let clusterEnd = grp.startUnit + grp.durationUnits;
+        let clusterStart = grp.startUnit;
+
+        for (const b of sortedLaneBeats) {
+          if (b.startUnit >= clusterStart - 0.4 && b.startUnit <= clusterEnd + 0.8) {
+            grpBeats.push(b);
+            clusterEnd = Math.max(clusterEnd, b.startUnit + b.durationUnits);
+          }
+        }
+
+        // Auto-adopt width to encompass all beats in the cluster
+        let effectiveDuration = Math.max(grp.durationUnits, (clusterEnd - grp.startUnit) + 0.5);
+
+        // Auto-fit height to adopt beats vertically with generous padding
+        const minHeight = nesting.isNested ? 80 : 88;
+        let heightPx = minHeight;
+        if (grpBeats.length > 0) {
+          const maxBeatBottom = Math.max(...grpBeats.map(b => b.bottomPx));
+          heightPx = Math.max(minHeight, (maxBeatBottom - topPx) + 16);
+        }
+
+        groupsLayoutMap.set(grp.id, {
+          topPx,
+          heightPx,
+          bottomPx: topPx + heightPx,
+          effectiveDurationUnits: effectiveDuration,
+          isNested: nesting.isNested,
+          isBlock: false,
+          adoptedBeatsCount: grpBeats.length
+        });
+      });
+
+      // Process sequence blocks (to encompass nested groups and all beats)
+      laneBlocks.forEach(blk => {
+        const topPx = 6;
+
+        // Find nested groups
+        const nestedGroups = laneRegularGroups.filter(g =>
+          groupNestingMap.get(g.id)?.parentBlockId === blk.id
+        );
+
+        // Beats in or adjacent to this block
+        const blkBeats: typeof beatsInLane = [];
+        let blockClusterEnd = blk.startUnit + blk.durationUnits;
+        for (const b of sortedLaneBeats) {
+          if (b.startUnit >= blk.startUnit - 0.5 && b.startUnit <= blockClusterEnd + 1.0) {
+            blkBeats.push(b);
+            blockClusterEnd = Math.max(blockClusterEnd, b.startUnit + b.durationUnits);
+          }
+        }
+
+        // Auto-adopt width to encompass all nested groups and beats
+        const maxChildEnd = Math.max(
+          blockClusterEnd,
+          ...nestedGroups.map(ng => ng.startUnit + (groupsLayoutMap.get(ng.id)?.effectiveDurationUnits || ng.durationUnits)),
+          blk.startUnit + blk.durationUnits
+        );
+        const effectiveDuration = Math.max(blk.durationUnits, (maxChildEnd - blk.startUnit) + 0.6);
+
+        // Auto-fit height to adopt all nested groups and beats vertically
+        const maxChildBottom = Math.max(
+          ...nestedGroups.map(ng => groupsLayoutMap.get(ng.id)?.bottomPx || 0),
+          ...blkBeats.map(b => b.bottomPx),
+          60
+        );
+        const heightPx = Math.max(90, (maxChildBottom - topPx) + 18);
+
+        groupsLayoutMap.set(blk.id, {
+          topPx,
+          heightPx,
+          bottomPx: topPx + heightPx,
+          effectiveDurationUnits: effectiveDuration,
+          isNested: false,
+          isBlock: true,
+          adoptedBeatsCount: blkBeats.length
+        });
+      });
+
+      // 5. Compute Lane Height: dynamically expands as groups & beats fill up
+      const maxBeatsBottom = beatsInLane.reduce((max, b) => Math.max(max, b.bottomPx), 0);
+      const maxGroupsBottom = Array.from(groupsLayoutMap.values()).reduce((max, g) => Math.max(max, g.bottomPx), 0);
+      const maxContentBottom = Math.max(maxBeatsBottom, maxGroupsBottom);
+      const laneHeight = Math.max(LANE_MIN_HEIGHT, maxContentBottom + 32);
+
+      return {
+        laneHeight,
+        beatTopBase,
+        groupsLayoutMap,
+        beatsInLane
+      };
+    });
+  }, [lanes, beatsWithLayout, groups]);
+
+  // Dynamic lane height accessor
   const getLaneHeight = useCallback((laneIdx: number) => {
-    const lane = lanes[laneIdx];
-    if (lane?.collapsed) return 38;
-    const laneBeats = beatsWithLayout.filter(b => b.laneIdx === laneIdx);
-    const maxRow = laneBeats.reduce((max, b) => Math.max(max, b.row), 0);
-    const hasMultiLine = laneBeats.some(b => b.isMultiLine);
-    const rowStep = hasMultiLine ? 54 : 30;
-    return Math.max(LANE_MIN_HEIGHT, (maxRow + 1) * rowStep + 80);
-  }, [lanes, beatsWithLayout]);
+    return layoutByLane[laneIdx]?.laneHeight || LANE_MIN_HEIGHT;
+  }, [layoutByLane]);
 
   const totalBoardUnits = useMemo(() => {
-    if (beatsWithLayout.length === 0) return 35;
-    return Math.max(35, Math.ceil(Math.max(...beatsWithLayout.map(b => b.startUnit + b.durationUnits)) + 6));
-  }, [beatsWithLayout]);
+    const maxBeat = beatsWithLayout.length === 0 ? 35 : Math.max(...beatsWithLayout.map(b => b.startUnit + b.durationUnits));
+    const maxGroup = groups.length === 0 ? 35 : Math.max(...groups.map(g => g.startUnit + g.durationUnits));
+    return Math.max(35, Math.ceil(Math.max(maxBeat, maxGroup) + 6));
+  }, [beatsWithLayout, groups]);
 
   const totalBoardWidth = Math.max(1600, totalBoardUnits * effectivePxPerUnit);
-  const snapToGrid = (unit: number): number => Math.max(0.5, Math.round(unit * 4) / 4);
 
   // ─── Toggle Beat Enable / Disable ───────────────────────────────────
   const handleToggleBeatDisabled = useCallback((beatId: number) => {
@@ -393,19 +578,68 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
   // ─── Group Management ───────────────────────────────────────────────
   const handleAddGroup = (type: 'group' | 'block' = 'group', customStart?: number, customLaneIdx?: number) => {
     const newId = `grp-${Date.now()}`;
-    const activeLane = lanes[customLaneIdx ?? selectedLaneIdx] || lanes[1];
+    const activeLaneIdx = customLaneIdx ?? selectedLaneIdx;
+    const activeLane = lanes[activeLaneIdx] || lanes[1];
+    const laneBeats = beatsWithLayout.filter(b => b.laneIdx === activeLaneIdx);
+    const selectedBeat = selectedBeatId ? laneBeats.find(b => b.id === selectedBeatId) : null;
+
+    let start = customStart ?? (playheadPos || 4.0);
+    let duration = type === 'block' ? 12.0 : 5.5;
+
+    // Smart auto-adopt: if a beat is selected or playhead is near beats in active lane
+    if (selectedBeat) {
+      const nearby = laneBeats.filter(b =>
+        Math.abs(b.startUnit - selectedBeat.startUnit) <= (type === 'block' ? 12.0 : 5.0)
+      );
+      if (nearby.length > 0) {
+        const minStart = Math.min(...nearby.map(b => b.startUnit));
+        const maxEnd = Math.max(...nearby.map(b => b.startUnit + b.durationUnits));
+        start = Math.max(0.5, minStart - 0.25);
+        duration = Math.max(type === 'block' ? 8.0 : 4.0, (maxEnd - start) + 0.5);
+      }
+    } else if (laneBeats.length > 0) {
+      const targetPos = customStart ?? playheadPos;
+      const nearby = laneBeats.filter(b =>
+        b.startUnit >= targetPos - 0.5 && b.startUnit <= targetPos + (type === 'block' ? 12.0 : 6.0)
+      );
+      if (nearby.length > 0) {
+        const minStart = Math.min(...nearby.map(b => b.startUnit));
+        const maxEnd = Math.max(...nearby.map(b => b.startUnit + b.durationUnits));
+        start = Math.max(0.5, minStart - 0.25);
+        duration = Math.max(type === 'block' ? 8.0 : 4.0, (maxEnd - start) + 0.5);
+      }
+    }
+
     saveGroups([
       ...groups,
       {
         id: newId,
         laneId: activeLane.id,
         title: type === 'block' ? 'Sequence Block' : 'Group',
-        startUnit: snapToGrid(customStart ?? (playheadPos || 4.0)),
-        durationUnits: type === 'block' ? 12.0 : 5.5,
+        startUnit: snapToGrid(start),
+        durationUnits: snapToGrid(duration),
         type
       }
     ]);
   };
+
+  const handleFitGroupToBeats = useCallback((groupId: string) => {
+    const grp = groups.find(g => g.id === groupId);
+    if (!grp) return;
+    const laneIdx = lanes.findIndex(l => l.id === grp.laneId);
+    if (laneIdx < 0) return;
+    const laneBeats = beatsWithLayout.filter(b => b.laneIdx === laneIdx);
+    const grpBeats = laneBeats.filter(b =>
+      b.startUnit < (grp.startUnit + grp.durationUnits + 0.5) &&
+      (b.startUnit + b.durationUnits) > (grp.startUnit - 0.5)
+    );
+    if (grpBeats.length === 0) return;
+    const minStart = Math.min(...grpBeats.map(b => b.startUnit));
+    const maxEnd = Math.max(...grpBeats.map(b => b.startUnit + b.durationUnits));
+    const newStart = Math.max(0.5, snapToGrid(minStart - 0.25));
+    const newDuration = snapToGrid(Math.max(grp.type === 'block' ? 6.0 : 3.0, (maxEnd - newStart) + 0.4));
+    saveGroups(groups.map(g => g.id === groupId ? { ...g, startUnit: newStart, durationUnits: newDuration } : g));
+  }, [groups, lanes, beatsWithLayout, saveGroups, snapToGrid]);
 
   const handleRenameGroup = (groupId: string, title: string) => {
     const t = title.trim();
@@ -473,17 +707,36 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
     const grpLaneIdx = laneIdx >= 0 ? laneIdx : 1;
 
     // Find all beats located inside this group
+    const grpLayout = layoutByLane[grpLaneIdx]?.groupsLayoutMap.get(groupId);
+    const effectiveDuration = grpLayout?.effectiveDurationUnits ?? grp.durationUnits;
+
+    // Find all beats located inside or adopted by this group
     const contained = beatsWithLayout.filter(b =>
       b.laneIdx === grpLaneIdx &&
-      b.startUnit >= grp.startUnit - 0.2 &&
-      b.startUnit <= grp.startUnit + grp.durationUnits + 0.2
+      b.startUnit >= grp.startUnit - 0.4 &&
+      b.startUnit <= grp.startUnit + effectiveDuration + 0.4
     );
+
+    // If it's a block, also find nested groups inside it
+    const nestedGroups = grp.type === 'block'
+      ? groups.filter(g =>
+          g.id !== grp.id &&
+          g.laneId === grp.laneId &&
+          g.startUnit >= grp.startUnit - 0.4 &&
+          (g.startUnit + g.durationUnits) <= (grp.startUnit + effectiveDuration + 0.8)
+        )
+      : [];
 
     const groupDomEl = document.querySelector(`[data-group-id="${groupId}"]`) as HTMLElement | null;
     const containedBeats = contained.map(b => ({
       id: b.id,
       initialStart: b.startUnit,
       domEl: document.querySelector(`[data-beat-id="${b.id}"]`) as HTMLElement | null
+    }));
+    const containedGroups = nestedGroups.map(ng => ({
+      id: ng.id,
+      initialStart: ng.startUnit,
+      domEl: document.querySelector(`[data-group-id="${ng.id}"]`) as HTMLElement | null
     }));
 
     isDraggingGroupRef.current = true;
@@ -496,7 +749,8 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
       currentUnit: grp.startUnit,
       currentLaneIdx: grpLaneIdx,
       groupDomEl,
-      containedBeats
+      containedBeats,
+      containedGroups
     };
 
     if (groupDomEl) {
@@ -590,6 +844,11 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
         if (gd.groupDomEl) {
           gd.groupDomEl.style.transform = `translate3d(${dx}px, ${dy}px, 0)`;
         }
+        gd.containedGroups?.forEach(cg => {
+          if (cg.domEl) {
+            cg.domEl.style.transform = `translate3d(${dx}px, ${dy}px, 0)`;
+          }
+        });
         gd.containedBeats.forEach(cb => {
           if (cb.domEl) {
             cb.domEl.style.transform = `translate3d(${dx}px, ${dy}px, 0)`;
@@ -644,6 +903,9 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
           gd.groupDomEl.style.zIndex = '';
           gd.groupDomEl.style.opacity = '';
         }
+        gd.containedGroups?.forEach(cg => {
+          if (cg.domEl) cg.domEl.style.transform = '';
+        });
         gd.containedBeats.forEach(cb => {
           if (cb.domEl) cb.domEl.style.transform = '';
         });
@@ -651,12 +913,25 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
         const targetLane = lanes[gd.currentLaneIdx] || lanes[1];
         const dOffset = gd.currentUnit - gd.initialStart;
 
-        // Update group
-        saveGroups(groups.map(g => g.id === gd.groupId ? {
-          ...g,
-          startUnit: gd.currentUnit,
-          laneId: targetLane.id
-        } : g));
+        // Update group and any nested groups
+        saveGroups(groups.map(g => {
+          if (g.id === gd.groupId) {
+            return {
+              ...g,
+              startUnit: gd.currentUnit,
+              laneId: targetLane.id
+            };
+          }
+          const cg = gd.containedGroups?.find(item => item.id === g.id);
+          if (cg) {
+            return {
+              ...g,
+              startUnit: snapToGrid(cg.initialStart + dOffset),
+              laneId: targetLane.id
+            };
+          }
+          return g;
+        }));
 
         // Update contained beats
         const isTargetUnused = targetLane.isUnused === true;
@@ -869,8 +1144,8 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
           {/* Lanes Container */}
           <div ref={lanesContainerRef} className="flex-1 flex flex-col relative">
             {lanes.map((lane, laneIdx) => {
-              const laneHeight = getLaneHeight(laneIdx);
-              const laneBeats = beatsWithLayout.filter(b => b.laneIdx === laneIdx);
+              const laneLayout = layoutByLane[laneIdx];
+              const laneHeight = laneLayout?.laneHeight || getLaneHeight(laneIdx);
               const laneGroups = groups.filter(g => g.laneId === lane.id);
 
               return (
@@ -997,9 +1272,14 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
 
                       {/* Groups & Blocks (Pass-through pointer-events so beats receive all clicks) */}
                       {laneGroups.map(grp => {
-                        const grpLeft = grp.startUnit * effectivePxPerUnit;
-                        const grpWidth = grp.durationUnits * effectivePxPerUnit;
+                        const grpLayout = laneLayout?.groupsLayoutMap.get(grp.id);
                         const isBlock = grp.type === 'block';
+                        const isNested = grpLayout?.isNested ?? false;
+                        const grpLeft = grp.startUnit * effectivePxPerUnit;
+                        const grpWidth = (grpLayout?.effectiveDurationUnits ?? grp.durationUnits) * effectivePxPerUnit;
+                        const grpTop = grpLayout?.topPx ?? (isBlock ? 6 : (isNested ? 36 : 8));
+                        const grpHeight = grpLayout?.heightPx ?? 80;
+                        const beatCount = grpLayout?.adoptedBeatsCount ?? 0;
 
                         return (
                           <div
@@ -1008,12 +1288,13 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
                             style={{
                               left: `${grpLeft}px`,
                               width: `${grpWidth}px`,
-                              top: isBlock ? '8px' : '20px',
-                              bottom: isBlock ? '8px' : '16px',
+                              top: `${grpTop}px`,
+                              height: `${grpHeight}px`,
                               backgroundColor: isBlock ? themeStyles.blockBg : themeStyles.groupBg,
-                              borderColor: isBlock ? themeStyles.blockBorder : themeStyles.groupBorder
+                              borderColor: isBlock ? themeStyles.blockBorder : themeStyles.groupBorder,
+                              zIndex: isBlock ? 5 : (isNested ? 8 : 6)
                             }}
-                            className="absolute rounded-[6px] transition-all pointer-events-none flex flex-col overflow-visible border z-5"
+                            className="absolute rounded-[6px] transition-all pointer-events-none flex flex-col overflow-visible border shadow-xs"
                           >
                             {/* Group Header Title (Active pointer-events for dragging & renaming) */}
                             <div
@@ -1033,44 +1314,69 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
                                 backgroundColor: isBlock ? themeStyles.blockHeaderBg : themeStyles.groupHeaderBg,
                                 color: isBlock ? themeStyles.blockHeaderText : themeStyles.groupHeaderText
                               }}
-                              className={`px-2.5 flex items-center select-none pointer-events-auto cursor-grab active:cursor-grabbing ${
+                              className={`px-2.5 flex items-center justify-between select-none pointer-events-auto cursor-grab active:cursor-grabbing border-b border-black/10 dark:border-white/10 ${
                                 isBlock
-                                  ? 'h-6 justify-start font-bold text-[11px] rounded-t-[5px]'
-                                  : 'h-5 justify-center font-semibold text-[9.5px] rounded-t-[5px]'
+                                  ? 'h-[26px] font-bold text-[11px] rounded-t-[5px]'
+                                  : 'h-[22px] font-semibold text-[10px] rounded-t-[5px]'
                               }`}
                             >
-                              {editingGroupId === grp.id ? (
-                                <input
-                                  type="text"
-                                  autoFocus
-                                  value={editingGroupTitle}
-                                  onChange={(e) => setEditingGroupTitle(e.target.value)}
-                                  onKeyDown={(e) => {
-                                    if (e.key === 'Enter') handleRenameGroup(grp.id, editingGroupTitle);
-                                    if (e.key === 'Escape') setEditingGroupId(null);
-                                  }}
-                                  onBlur={() => handleRenameGroup(grp.id, editingGroupTitle)}
-                                  className="bg-black/50 text-white rounded px-1.5 py-0.2 outline-none text-[10px] text-center"
-                                />
-                              ) : (
-                                <span
-                                  onDoubleClick={(e) => {
-                                    e.stopPropagation();
-                                    setEditingGroupId(grp.id);
-                                    setEditingGroupTitle(grp.title);
-                                  }}
-                                  className="truncate cursor-pointer hover:underline"
-                                  title="Drag header to move group with its beats. Double-click to rename."
-                                >
-                                  {grp.title}
+                              <div className="flex items-center gap-1.5 truncate">
+                                {isBlock ? (
+                                  <Layers size={12} className="text-purple-400 shrink-0" />
+                                ) : (
+                                  <FolderPlus size={11} className="text-amber-400 shrink-0" />
+                                )}
+                                {editingGroupId === grp.id ? (
+                                  <input
+                                    type="text"
+                                    autoFocus
+                                    value={editingGroupTitle}
+                                    onChange={(e) => setEditingGroupTitle(e.target.value)}
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter') handleRenameGroup(grp.id, editingGroupTitle);
+                                      if (e.key === 'Escape') setEditingGroupId(null);
+                                    }}
+                                    onBlur={() => handleRenameGroup(grp.id, editingGroupTitle)}
+                                    className="bg-black/50 text-white rounded px-1.5 py-0.5 outline-none text-[10px]"
+                                  />
+                                ) : (
+                                  <span
+                                    onDoubleClick={(e) => {
+                                      e.stopPropagation();
+                                      setEditingGroupId(grp.id);
+                                      setEditingGroupTitle(grp.title);
+                                    }}
+                                    className="truncate cursor-pointer hover:underline"
+                                    title={isBlock ? "Double-click to rename. Drag header to move block with its groups and beats." : "Double-click to rename. Drag header to move group with its beats."}
+                                  >
+                                    {grp.title}
+                                  </span>
+                                )}
+                              </div>
+
+                              <div className="flex items-center gap-1 shrink-0 ml-1.5">
+                                <span className="text-[8.5px] px-1.5 py-0.5 rounded-full bg-black/30 dark:bg-white/10 text-white/70 font-mono font-medium">
+                                  {beatCount} {beatCount === 1 ? 'beat' : 'beats'}
                                 </span>
-                              )}
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleFitGroupToBeats(grp.id);
+                                  }}
+                                  className="p-0.5 rounded hover:bg-white/20 text-white/70 hover:text-white transition-colors cursor-pointer"
+                                  title="Auto-fit boundaries to adopt beats"
+                                >
+                                  <Maximize2 size={isBlock ? 10 : 9.5} />
+                                </button>
+                              </div>
 
                               {/* Right resize handle on group */}
                               <div
                                 onMouseDown={(e) => handleGroupResizeMouseDown(e, grp.id)}
-                                className="absolute right-0 top-0 bottom-0 w-2.5 cursor-ew-resize hover:bg-black/20 dark:hover:bg-white/20 rounded-r-[6px] pointer-events-auto"
-                                title="Drag to resize group width"
+                                className={`absolute right-0 top-0 bottom-0 w-2.5 cursor-ew-resize rounded-r-[6px] pointer-events-auto ${
+                                  isBlock ? 'hover:bg-purple-500/30' : 'hover:bg-amber-500/30'
+                                }`}
+                                title="Drag to resize width"
                               />
                             </div>
                           </div>
@@ -1078,15 +1384,14 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
                       })}
 
                       {/* Beats in this Lane (High z-index and pointer-events-auto for guaranteed right-click & drag) */}
-                      {laneBeats.map(beat => {
+                      {(laneLayout?.beatsInLane || []).map(beat => {
                         const isSelected = selectedBeatId === beat.id;
                         const isEditing = editingBeatId === beat.id;
                         const leftPx = beat.startUnit * effectivePxPerUnit;
                         const widthPx = Math.max(beat.minWidthPx, beat.durationUnits * effectivePxPerUnit);
-
                         const isOutlined = beat.isOmittedOrDisabled;
-                        const cardHeight = isOutlined ? (beat.isMultiLine ? CARD_HEIGHT_OUTLINE : 28) : CARD_HEIGHT_SOLID;
-                        const topPx = 28 + beat.row * (isOutlined && beat.isMultiLine ? 54 : 30);
+                        const topPx = beat.topPx;
+                        const cardHeight = beat.cardHeight;
 
                         return (
                           <div
@@ -1520,9 +1825,27 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
 
               return (
                 <div className="flex flex-col gap-0.5">
-                  <div className="px-2 py-1 font-bold truncate opacity-60 text-[10px]">
-                    {grp.title}
+                  <div className="px-2 py-1 font-bold truncate opacity-60 text-[10px] flex items-center gap-1.5">
+                    {grp.type === 'block' ? (
+                      <Layers size={11} className="text-purple-400" />
+                    ) : (
+                      <FolderPlus size={11} className="text-amber-400" />
+                    )}
+                    <span>{grp.type === 'block' ? 'Sequence Block' : 'Group'}: {grp.title}</span>
                   </div>
+
+                  <button
+                    onClick={() => {
+                      handleFitGroupToBeats(grp.id);
+                      setContextMenu(null);
+                    }}
+                    className={`w-full px-2.5 py-1.5 rounded-lg flex items-center gap-2 cursor-pointer transition-colors ${
+                      isLight ? 'hover:bg-slate-100' : 'hover:bg-white/10'
+                    }`}
+                  >
+                    <Maximize2 size={13} className="text-emerald-400" />
+                    <span>Fit Boundaries to Adopt Beats</span>
+                  </button>
 
                   <button
                     onClick={() => {
@@ -1535,7 +1858,7 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
                     }`}
                   >
                     <Edit3 size={13} className="text-cyan-400" />
-                    <span>Rename Group</span>
+                    <span>Rename {grp.type === 'block' ? 'Block' : 'Group'}</span>
                   </button>
 
                   <button

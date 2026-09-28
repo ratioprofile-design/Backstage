@@ -383,7 +383,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setHasUnsavedChanges(true);
   }, []);
 
-  // Monitor Supabase Auth
+  // Monitor Supabase Auth & OAuth Callbacks
   useEffect(() => {
     console.log('[ctx] auth effect running, isSupabaseConfigured=', isSupabaseConfigured);
     if (!isSupabaseConfigured) {
@@ -393,18 +393,53 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     let isMounted = true;
 
-    // Safety timeout: release splash screen within 1s even if network or auth hangs
+    // Safety timeout: release splash screen within 2.5s even if network or auth hangs
     const safetyTimer = setTimeout(() => {
       if (isMounted) {
-        console.log('[ctx] getSession safety timer fired, releasing initial loading');
+        console.log('[ctx] auth safety timer fired, releasing initial loading');
         setIsInitialLoading(false);
       }
-    }, 1000);
+    }, 2500);
 
-    supabase.auth.getSession()
-      .then(({ data: { session } }) => {
+    const initAuth = async () => {
+      try {
+        // Handle OAuth callback parameters (?code=... or #access_token=...) from Supabase / Google
+        if (typeof window !== 'undefined') {
+          const url = new URL(window.location.href);
+          const code = url.searchParams.get('code');
+          const errorParam = url.searchParams.get('error') || url.searchParams.get('error_description');
+
+          if (errorParam) {
+            console.warn('[ctx] OAuth error in URL:', errorParam);
+            url.searchParams.delete('error');
+            url.searchParams.delete('error_description');
+            url.searchParams.delete('error_code');
+            window.history.replaceState({}, document.title, url.pathname + (url.search ? '?' + url.searchParams.toString() : ''));
+          } else if (code) {
+            console.log('[ctx] Exchanging OAuth code for session...');
+            try {
+              const { data, error } = await supabase.auth.exchangeCodeForSession(code);
+              if (error) {
+                console.warn('[ctx] exchangeCodeForSession failed:', error.message);
+              } else if (data?.session) {
+                console.log('[ctx] OAuth exchange succeeded for:', data.session.user.email);
+              }
+            } catch (exchangeErr) {
+              console.warn('[ctx] OAuth exchange exception:', exchangeErr);
+            } finally {
+              url.searchParams.delete('code');
+              url.searchParams.delete('state');
+              window.history.replaceState({}, document.title, url.pathname + (url.search ? '?' + url.searchParams.toString() : ''));
+            }
+          }
+        }
+
+        const { data: { session }, error } = await supabase.auth.getSession();
+        if (error) throw error;
+        
         clearTimeout(safetyTimer);
         if (!isMounted) return;
+        
         console.log('[ctx] getSession result:', session ? `session for ${session.user.email}` : 'no session');
         if (session) {
           setSupabaseUser(session.user);
@@ -418,9 +453,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
             setCurrentUser(savedUser);
           }
         }
-        setIsInitialLoading(false);
-      })
-      .catch(err => {
+      } catch (err) {
         clearTimeout(safetyTimer);
         if (!isMounted) return;
         console.warn('[ctx] getSession error, falling back to offline mode:', err);
@@ -428,8 +461,14 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
         if (savedUser) {
           setCurrentUser(savedUser);
         }
-        setIsInitialLoading(false);
-      });
+      } finally {
+        if (isMounted) {
+          setIsInitialLoading(false);
+        }
+      }
+    };
+
+    initAuth();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       console.log('[ctx] onAuthStateChange event=', _event, 'session=', session ? `yes ${session.user.email}` : 'no');
