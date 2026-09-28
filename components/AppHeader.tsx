@@ -82,7 +82,7 @@ const AppHeader: React.FC<AppHeaderProps> = ({
 
   const views = useMemo(() => {
     const list = [
-      { id: 'board', label: translateUi('Beats DAW Short', appLanguage) !== 'Beats DAW Short' ? translateUi('Beats DAW Short', appLanguage) : 'Beats DAW' },
+      { id: 'board', label: translateUi('Causality Short', appLanguage) !== 'Causality Short' ? translateUi('Causality Short', appLanguage) : 'Causality' },
       { id: 'excalidraw', label: translateUi('Excalidraw Short', appLanguage) !== 'Excalidraw Short' ? translateUi('Excalidraw Short', appLanguage) : 'Excalidraw' },
       { id: 'script', label: translateUi('Script', appLanguage) },
       { id: 'casting', label: translateUi('Casting', appLanguage) },

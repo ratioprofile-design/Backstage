@@ -22,8 +22,13 @@ export const TAMIL_UI_DICTIONARY: Record<string, string> = {
   'Open Backstage Settings': 'பின்னணி அமைப்புகளைத் திறக்கவும்',
 
   // --- NAVIGATION VIEWS (AppSidebar & AppHeader) ---
-  'Beats DAW': 'பீட்ஸ் DAW (கதைக்களம்)',
-  'Beats DAW Short': 'பீட்ஸ் DAW',
+  'Causality': 'காரண-காரியப் பலகை (Causality)',
+  'Causality Short': 'Causality',
+  'Causality Whiteboard': 'Causality கதைக்களப் பலகை',
+  'Lanes': 'கதைக்களப் பாதைகள் (Lanes)',
+  'Lanes Short': 'பாதைகள்',
+  'Beats DAW': 'காரண-காரியப் பலகை (Causality)',
+  'Beats DAW Short': 'Causality',
   'Excalidraw': 'எக்ஸ்கேலிடிரா வரைபடம்',
   'Excalidraw Short': 'எக்ஸ்கேலிடிரா',
   'Script': 'திரைக்கதை',
