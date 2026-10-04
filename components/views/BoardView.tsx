@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useProject } from '../../context/ProjectContext';
 import { useAiKeyStatus } from '../../context/AiKeyStatusContext';
-import { Beat } from '../../types';
+import { Beat, SectionBreak, CausalityLane, CausalityGroup } from '../../types';
 import {
   ZoomIn, ZoomOut, ChevronLeft, ChevronRight, Plus, Trash2, Copy,
   Edit3, Lightbulb, ScrollText, Sparkles, ArrowLeftRight, Maximize2, Minimize2,
@@ -12,23 +12,6 @@ import { ScriptRollingPreviewModal } from '../ScriptRollingPreviewModal';
 
 interface BoardViewProps {
   onEditBeat: (id: number) => void;
-}
-
-export interface CausalityLane {
-  id: string;
-  label: string;
-  color: string;
-  isUnused?: boolean;
-  collapsed?: boolean;
-}
-
-export interface CausalityGroup {
-  id: string;
-  laneId: string;
-  title: string;
-  startUnit: number;
-  durationUnits: number;
-  type?: 'group' | 'block';
 }
 
 interface ContextMenuState {
@@ -76,7 +59,8 @@ const LANE_MIN_HEIGHT = 175;
 export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
   const {
     beats, setBeats, updateBeat, captureSnapshot,
-    currentProjectId, appTheme, appAccentColor,
+    connections,
+    currentProjectId, projectList, appTheme, appAccentColor,
     autoGenerate5Scenes
   } = useProject();
   const { aiAvailable } = useAiKeyStatus();
@@ -84,6 +68,13 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
 
   const lanesStorageKey = `causality_lanes_${currentProjectId || 'default'}`;
   const groupsStorageKey = `causality_groups_${currentProjectId || 'default'}`;
+  const breaksStorageKey = `causality_breaks_${currentProjectId || 'default'}`;
+
+  // ─── Current Project Name ──────────────────────────────────────────
+  const currentProjectName = useMemo(() => {
+    const found = projectList?.find(p => p.id === currentProjectId);
+    return found?.name || 'Causality Story';
+  }, [projectList, currentProjectId]);
 
   // ─── Lanes ─────────────────────────────────────────────────────────
   const [lanes, setLanes] = useState<CausalityLane[]>(() => {
@@ -119,6 +110,53 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
     try { localStorage.setItem(groupsStorageKey, JSON.stringify(newGroups)); } catch (e) {}
   }, [groupsStorageKey]);
 
+  // ─── Section Breaks (Milestones) ───────────────────────────────────
+  const [sectionBreaks, setSectionBreaks] = useState<SectionBreak[]>(() => {
+    try {
+      const saved = localStorage.getItem(breaksStorageKey);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch (e) {}
+    return [];
+  });
+
+  // ─── Reload when project switches or updates ───────────────────────
+  useEffect(() => {
+    const reloadProjectData = () => {
+      try {
+        const savedLanes = localStorage.getItem(`causality_lanes_${currentProjectId || 'default'}`);
+        if (savedLanes) {
+          const parsed = JSON.parse(savedLanes);
+          if (Array.isArray(parsed) && parsed.length > 0) setLanes(parsed);
+        }
+      } catch (e) {}
+      try {
+        const savedGroups = localStorage.getItem(`causality_groups_${currentProjectId || 'default'}`);
+        if (savedGroups) {
+          const parsed = JSON.parse(savedGroups);
+          if (Array.isArray(parsed)) setGroups(parsed);
+        }
+      } catch (e) {}
+      try {
+        const savedBreaks = localStorage.getItem(`causality_breaks_${currentProjectId || 'default'}`);
+        if (savedBreaks) {
+          const parsed = JSON.parse(savedBreaks);
+          if (Array.isArray(parsed)) setSectionBreaks(parsed);
+        }
+      } catch (e) {}
+    };
+
+    reloadProjectData();
+    window.addEventListener('causality_project_updated', reloadProjectData);
+    window.addEventListener('project_imported', reloadProjectData);
+    return () => {
+      window.removeEventListener('causality_project_updated', reloadProjectData);
+      window.removeEventListener('project_imported', reloadProjectData);
+    };
+  }, [currentProjectId, lanesStorageKey, groupsStorageKey, breaksStorageKey]);
+
   const [zoomLevel, setZoomLevel] = useState(1.0);
   const [playheadPos, setPlayheadPos] = useState(1.5);
   const [selectedBeatId, setSelectedBeatId] = useState<number | null>(null);
@@ -147,6 +185,9 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
   const boardScrollRef = useRef<HTMLDivElement>(null);
   const lanesContainerRef = useRef<HTMLDivElement>(null);
 
+  // Stable memoized map to lock beat rows permanently so dragging one beat NEVER shifts another beat
+  const beatRowCacheRef = useRef<Map<number, number>>(new Map());
+
   // Smooth dragging refs (avoiding React re-renders during mousemove)
   const isDraggingBeatRef = useRef(false);
   const beatDragDataRef = useRef<{
@@ -155,8 +196,10 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
     startY: number;
     initialStart: number;
     initialLaneIdx: number;
+    initialRow: number;
     currentUnit: number;
     currentLaneIdx: number;
+    currentRow: number;
     domEl: HTMLElement | null;
   } | null>(null);
 
@@ -179,6 +222,8 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
     groupId: string;
     startX: number;
     initialDuration: number;
+    currentDuration: number;
+    groupDomEl: HTMLElement | null;
   } | null>(null);
 
   const baseUnitPixels = 100;
@@ -190,17 +235,19 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
     return idx >= 0 ? idx : 1;
   }, [lanes]);
 
-  // ─── Assign Beats to Lanes & Rows ───────────────────────────────────
+  // ─── Assign Beats to Lanes & Rows (Stable & Deterministic) ──────────
   const beatsWithLayout = useMemo(() => {
+    // Sort stably so iteration is predictable
     const sorted = [...beats].sort((a, b) => {
       const aS = typeof a.startTime === 'number' ? a.startTime : a.id;
       const bS = typeof b.startTime === 'number' ? b.startTime : b.id;
       return aS - bS;
     });
 
-    const laneRowMap = new Map<number, { endUnit: number }[]>();
+    // Map of laneIdx -> map of rowIdx -> maxEndUnit
+    const laneRowMap = new Map<number, Map<number, number>>();
 
-    return sorted.map((beat, idx) => {
+    return sorted.map((beat) => {
       let laneIdx = typeof beat.trackIndex === 'number' && beat.trackIndex >= 0 && beat.trackIndex < lanes.length
         ? beat.trackIndex
         : (beat.isDisabled ? unusedLaneIndex : 2);
@@ -212,7 +259,8 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
       const isUnusedLane = lanes[laneIdx]?.isUnused === true;
       const isOmittedOrDisabled = Boolean(beat.isDisabled || isUnusedLane);
 
-      const color = (beat as any).color || CAUSALITY_PALETTE[idx % CAUSALITY_PALETTE.length];
+      // Deterministic, PERMANENT color: NEVER changes when reordered
+      const color = beat.color || CAUSALITY_PALETTE[Math.abs(beat.id) % CAUSALITY_PALETTE.length];
 
       const cleanTitle = (beat.title || 'Untitled Beat').trim();
       const isMultiLine = isOmittedOrDisabled && cleanTitle.length > 25;
@@ -222,24 +270,36 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
         ? Math.max(1.0, beat.durationPages)
         : Math.max(1.0, Math.round((minW / effectivePxPerUnit) * 10) / 10);
 
-      const rows = laneRowMap.get(laneIdx) || [];
-      const rawStart = typeof beat.startTime === 'number' && beat.startTime >= 1
+      // Constant fallback position keyed by project index so other beats NEVER shift when one moves
+      const rawStart = typeof beat.startTime === 'number' && beat.startTime >= 0.5
         ? beat.startTime
-        : (idx === 0 ? 2.5 : 2.5 + idx * 0.7);
+        : (() => {
+            const projectIdx = beats.findIndex(b => b.id === beat.id);
+            return 2.5 + (projectIdx >= 0 ? projectIdx : 0) * 1.5;
+          })();
 
-      let assignedRow = -1;
-      for (let r = 0; r < rows.length; r++) {
-        if (rawStart >= rows[r].endUnit + 0.05) {
-          assignedRow = r;
-          rows[r].endUnit = rawStart + durationUnits;
-          break;
+      // Stable row assignment: If beat already has subtrackIndex or a cached row, KEEP IT!
+      let assignedRow: number;
+      if (typeof beat.subtrackIndex === 'number' && beat.subtrackIndex >= 0) {
+        assignedRow = beat.subtrackIndex;
+        beatRowCacheRef.current.set(beat.id, assignedRow);
+      } else if (beatRowCacheRef.current.has(beat.id)) {
+        assignedRow = beatRowCacheRef.current.get(beat.id)!;
+      } else {
+        // First time seeing this beat: find first available row that doesn't collide
+        const rowEnds = laneRowMap.get(laneIdx) || new Map<number, number>();
+        let r = 0;
+        while ((rowEnds.get(r) || 0) > rawStart - 0.05) {
+          r++;
         }
+        assignedRow = r;
+        beatRowCacheRef.current.set(beat.id, assignedRow);
       }
-      if (assignedRow === -1) {
-        assignedRow = rows.length;
-        rows.push({ endUnit: rawStart + durationUnits });
-      }
-      laneRowMap.set(laneIdx, rows);
+
+      // Record row end
+      const rowEnds = laneRowMap.get(laneIdx) || new Map<number, number>();
+      rowEnds.set(assignedRow, Math.max(rowEnds.get(assignedRow) || 0, rawStart + durationUnits));
+      laneRowMap.set(laneIdx, rowEnds);
 
       return {
         ...beat,
@@ -683,12 +743,15 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
       startY: e.clientY,
       initialStart: b.startUnit,
       initialLaneIdx: b.laneIdx,
+      initialRow: b.row,
       currentUnit: b.startUnit,
       currentLaneIdx: b.laneIdx,
+      currentRow: b.row,
       domEl
     };
 
     if (domEl) {
+      domEl.style.transition = 'none';
       domEl.style.zIndex = '60';
       domEl.style.opacity = '0.9';
       domEl.style.pointerEvents = 'none';
@@ -754,9 +817,16 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
     };
 
     if (groupDomEl) {
+      groupDomEl.style.transition = 'none';
       groupDomEl.style.zIndex = '40';
       groupDomEl.style.opacity = '0.9';
     }
+    containedGroups.forEach(cg => {
+      if (cg.domEl) cg.domEl.style.transition = 'none';
+    });
+    containedBeats.forEach(cb => {
+      if (cb.domEl) cb.domEl.style.transition = 'none';
+    });
   };
 
   // ─── GROUP RESIZE HANDLE ────────────────────────────────────────────
@@ -766,48 +836,66 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
     const grp = groups.find(g => g.id === groupId);
     if (!grp) return;
 
+    const groupDomEl = document.querySelector(`[data-group-id="${groupId}"]`) as HTMLElement | null;
+    if (groupDomEl) {
+      groupDomEl.style.transition = 'none';
+    }
+
     isResizingGroupRef.current = true;
     groupResizeDataRef.current = {
       groupId,
       startX: e.clientX,
-      initialDuration: grp.durationUnits
+      initialDuration: grp.durationUnits,
+      currentDuration: grp.durationUnits,
+      groupDomEl
     };
   };
 
   // Global mousemove & mouseup listeners for hardware-accelerated drag
   useEffect(() => {
     const handleGlobalMouseMove = (e: MouseEvent) => {
-      // 1. Beat Dragging
+      // 1. Beat Dragging (Zero lag, 1:1 hardware tracked with row snapping)
       if (isDraggingBeatRef.current && beatDragDataRef.current) {
         const d = beatDragDataRef.current;
         const dx = e.clientX - d.startX;
+        const dy = e.clientY - d.startY;
         const dp = dx / effectivePxPerUnit;
         const newUnit = snapToGrid(Math.max(0.5, d.initialStart + dp));
 
-        // Determine target lane
+        // Determine target lane and relative Y inside target lane
         let targetLaneIdx = d.initialLaneIdx;
+        let targetLaneRelY = 0;
         if (lanesContainerRef.current) {
           const rect = lanesContainerRef.current.getBoundingClientRect();
           const relY = e.clientY - rect.top;
           let cumulative = 0;
           for (let i = 0; i < lanes.length; i++) {
-            cumulative += getLaneHeight(i);
-            if (relY < cumulative) {
+            const h = getLaneHeight(i);
+            if (relY >= cumulative && relY < cumulative + h) {
               targetLaneIdx = i;
+              targetLaneRelY = relY - cumulative;
               break;
             }
+            cumulative += h;
+          }
+          if (relY >= cumulative) {
+            targetLaneIdx = lanes.length - 1;
+            targetLaneRelY = relY - (cumulative - getLaneHeight(lanes.length - 1));
           }
           targetLaneIdx = Math.max(0, Math.min(lanes.length - 1, targetLaneIdx));
         }
 
+        // Determine target row based on vertical position within target lane
+        const laneLayout = layoutByLane[targetLaneIdx];
+        const beatTopBase = laneLayout?.beatTopBase ?? 44;
+        const targetRow = Math.max(0, Math.floor((targetLaneRelY - beatTopBase + 16) / 32));
+
         d.currentUnit = newUnit;
         d.currentLaneIdx = targetLaneIdx;
+        d.currentRow = targetRow;
 
         // Apply hardware GPU transform
         if (d.domEl) {
-          const origY = (() => { let c = 0; for (let i = 0; i < d.initialLaneIdx; i++) c += getLaneHeight(i); return c; })();
-          const newY = (() => { let c = 0; for (let i = 0; i < targetLaneIdx; i++) c += getLaneHeight(i); return c; })();
-          const dy = newY - origY;
           d.domEl.style.transform = `translate3d(${dx}px, ${dy}px, 0) scale(1.02)`;
         }
       }
@@ -816,6 +904,7 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
       if (isDraggingGroupRef.current && groupDragDataRef.current) {
         const gd = groupDragDataRef.current;
         const dx = e.clientX - gd.startX;
+        const dy = e.clientY - gd.startY;
         const dp = dx / effectivePxPerUnit;
         const newUnit = snapToGrid(Math.max(0.5, gd.initialStart + dp));
 
@@ -825,21 +914,18 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
           const relY = e.clientY - rect.top;
           let cumulative = 0;
           for (let i = 0; i < lanes.length; i++) {
-            cumulative += getLaneHeight(i);
+            const h = getLaneHeight(i);
             if (relY < cumulative) {
               targetLaneIdx = i;
               break;
             }
+            cumulative += h;
           }
           targetLaneIdx = Math.max(0, Math.min(lanes.length - 1, targetLaneIdx));
         }
 
         gd.currentUnit = newUnit;
         gd.currentLaneIdx = targetLaneIdx;
-
-        const origY = (() => { let c = 0; for (let i = 0; i < gd.initialLaneIdx; i++) c += getLaneHeight(i); return c; })();
-        const newY = (() => { let c = 0; for (let i = 0; i < targetLaneIdx; i++) c += getLaneHeight(i); return c; })();
-        const dy = newY - origY;
 
         if (gd.groupDomEl) {
           gd.groupDomEl.style.transform = `translate3d(${dx}px, ${dy}px, 0)`;
@@ -856,13 +942,16 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
         });
       }
 
-      // 3. Group Resizing
+      // 3. Group Resizing (Direct DOM manipulation - zero React lag & 120fps smooth)
       if (isResizingGroupRef.current && groupResizeDataRef.current) {
         const rd = groupResizeDataRef.current;
         const dx = e.clientX - rd.startX;
         const dp = dx / effectivePxPerUnit;
         const newDuration = Math.max(2.0, Math.round((rd.initialDuration + dp) * 2) / 2);
-        saveGroups(groups.map(g => g.id === rd.groupId ? { ...g, durationUnits: newDuration } : g));
+        rd.currentDuration = newDuration;
+        if (rd.groupDomEl) {
+          rd.groupDomEl.style.width = `${newDuration * effectivePxPerUnit}px`;
+        }
       }
     };
 
@@ -875,6 +964,7 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
           d.domEl.style.zIndex = '';
           d.domEl.style.opacity = '';
           d.domEl.style.pointerEvents = '';
+          d.domEl.style.transition = '';
         }
 
         const isTargetUnused = lanes[d.currentLaneIdx]?.isUnused === true;
@@ -882,12 +972,14 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
 
         const updates: Partial<Beat> = {
           startTime: d.currentUnit,
-          trackIndex: d.currentLaneIdx
+          trackIndex: d.currentLaneIdx,
+          subtrackIndex: d.currentRow
         };
 
         if (isTargetUnused && !isInitialUnused) updates.isDisabled = true;
         else if (!isTargetUnused && isInitialUnused) updates.isDisabled = false;
 
+        beatRowCacheRef.current.set(d.beatId, d.currentRow);
         updateBeat(d.beatId, updates);
         captureSnapshot();
 
@@ -902,12 +994,19 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
           gd.groupDomEl.style.transform = '';
           gd.groupDomEl.style.zIndex = '';
           gd.groupDomEl.style.opacity = '';
+          gd.groupDomEl.style.transition = '';
         }
         gd.containedGroups?.forEach(cg => {
-          if (cg.domEl) cg.domEl.style.transform = '';
+          if (cg.domEl) {
+            cg.domEl.style.transform = '';
+            cg.domEl.style.transition = '';
+          }
         });
         gd.containedBeats.forEach(cb => {
-          if (cb.domEl) cb.domEl.style.transform = '';
+          if (cb.domEl) {
+            cb.domEl.style.transform = '';
+            cb.domEl.style.transition = '';
+          }
         });
 
         const targetLane = lanes[gd.currentLaneIdx] || lanes[1];
@@ -949,8 +1048,13 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
         groupDragDataRef.current = null;
       }
 
-      // 3. Commit Group Resize
-      if (isResizingGroupRef.current) {
+      // 3. Commit Group Resize (Single storage save on release)
+      if (isResizingGroupRef.current && groupResizeDataRef.current) {
+        const rd = groupResizeDataRef.current;
+        if (rd.groupDomEl) {
+          rd.groupDomEl.style.transition = '';
+        }
+        saveGroups(groups.map(g => g.id === rd.groupId ? { ...g, durationUnits: rd.currentDuration } : g));
         isResizingGroupRef.current = false;
         groupResizeDataRef.current = null;
         captureSnapshot();
@@ -963,7 +1067,7 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
       window.removeEventListener('mousemove', handleGlobalMouseMove);
       window.removeEventListener('mouseup', handleGlobalMouseUp);
     };
-  }, [effectivePxPerUnit, lanes, groups, updateBeat, captureSnapshot, getLaneHeight, saveGroups]);
+  }, [effectivePxPerUnit, lanes, groups, updateBeat, captureSnapshot, getLaneHeight, saveGroups, layoutByLane]);
 
   // ─── Keyboard Shortcuts ─────────────────────────────────────────────
   useEffect(() => {
@@ -1077,7 +1181,7 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
           <div className="flex items-center gap-1.5 font-bold tracking-wide">
             <span style={{ color: themeStyles.cyanPlayhead }}>Causality</span>
             <span className="opacity-40 font-normal">·</span>
-            <span className="font-normal text-[10px] opacity-80">Remorse 24 Oct.cau</span>
+            <span className="font-normal text-[10px] opacity-80">{currentProjectName}</span>
           </div>
 
           <div className="hidden md:flex items-center gap-3 text-[10px] opacity-75">
@@ -1143,6 +1247,85 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
 
           {/* Lanes Container */}
           <div ref={lanesContainerRef} className="flex-1 flex flex-col relative">
+            {/* ─── CAUSALITY DEPENDENCY CONNECTIONS SVG LAYER ─── */}
+            <svg
+              className="absolute inset-0 pointer-events-none z-15 overflow-visible"
+              style={{
+                width: `${totalBoardWidth + 240}px`,
+                height: `${lanes.reduce((s, _, i) => s + getLaneHeight(i), 0)}px`
+              }}
+            >
+              <defs>
+                <marker
+                  id="causality-arrow"
+                  viewBox="0 0 10 10"
+                  refX="7"
+                  refY="5"
+                  markerWidth="6"
+                  markerHeight="6"
+                  orient="auto-start-reverse"
+                >
+                  <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#f59e0b" />
+                </marker>
+                <marker
+                  id="causality-arrow-highlight"
+                  viewBox="0 0 10 10"
+                  refX="7"
+                  refY="5"
+                  markerWidth="6"
+                  markerHeight="6"
+                  orient="auto-start-reverse"
+                >
+                  <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#00e5ff" />
+                </marker>
+              </defs>
+
+              {connections.map((conn, idx) => {
+                const allBeatsInLanes = layoutByLane.flatMap(l => l.beatsInLane);
+                const fromBeat = allBeatsInLanes.find(b => b.id === conn.from);
+                const toBeat = allBeatsInLanes.find(b => b.id === conn.to);
+                if (!fromBeat || !toBeat) return null;
+
+                const getLaneTop = (lIdx: number) => {
+                  let c = 0;
+                  for (let i = 0; i < lIdx; i++) c += getLaneHeight(i);
+                  return c;
+                };
+
+                const x1 = (fromBeat.startUnit + fromBeat.durationUnits) * effectivePxPerUnit + 176;
+                const y1 = getLaneTop(fromBeat.laneIdx) + (fromBeat.topPx ?? 40) + ((fromBeat.cardHeight ?? 24) / 2);
+
+                const x2 = toBeat.startUnit * effectivePxPerUnit + 176;
+                const y2 = getLaneTop(toBeat.laneIdx) + (toBeat.topPx ?? 40) + ((toBeat.cardHeight ?? 24) / 2);
+
+                const isHighlight = selectedBeatId === conn.from || selectedBeatId === conn.to;
+                const isForward = x2 > x1 + 15;
+
+                let pathD = '';
+                if (isForward) {
+                  const dx = Math.max(30, (x2 - x1) * 0.45);
+                  pathD = `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`;
+                } else {
+                  const dx = 40;
+                  const dy = y2 >= y1 ? 30 : -30;
+                  pathD = `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x1 + dx} ${y1 + dy}, ${(x1 + x2) / 2} ${(y1 + y2) / 2} C ${x2 - dx} ${y2 - dy}, ${x2 - dx} ${y2}, ${x2} ${y2}`;
+                }
+
+                return (
+                  <path
+                    key={`conn-${conn.from}-${conn.to}-${idx}`}
+                    d={pathD}
+                    fill="none"
+                    stroke={isHighlight ? '#00e5ff' : (conn.color || '#f59e0b')}
+                    strokeWidth={isHighlight ? 2.5 : 1.5}
+                    strokeOpacity={isHighlight ? 1 : 0.70}
+                    markerEnd={isHighlight ? 'url(#causality-arrow-highlight)' : 'url(#causality-arrow)'}
+                    className="transition-all"
+                  />
+                );
+              })}
+            </svg>
+
             {lanes.map((lane, laneIdx) => {
               const laneLayout = layoutByLane[laneIdx];
               const laneHeight = laneLayout?.laneHeight || getLaneHeight(laneIdx);
@@ -1170,15 +1353,13 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
                         e.stopPropagation();
                         handleToggleLaneCollapse(lane.id);
                       }}
-                      className={`px-2 py-1 rounded-[4px] text-[11px] font-bold flex items-center gap-1.5 shadow-md transition-all cursor-pointer ${
-                        lane.color === '#eab308'
-                          ? 'bg-[#eab308] text-black hover:bg-[#facc15]'
-                          : lane.color === '#1e295d'
-                            ? 'bg-[#1e295d] text-white hover:bg-[#25327a] border border-blue-400/30'
-                            : isLight
-                              ? 'bg-slate-800 text-white hover:bg-slate-900 border border-slate-700'
-                              : 'bg-[#18191d] text-white hover:bg-[#25272e] border border-white/10'
-                      }`}
+                      style={{
+                        backgroundColor: lane.color && !['#1c1d21', '#18191d', '#1e2025', '#ff060101', '#ff000000', '#060101', '#000000'].includes(lane.color.toLowerCase())
+                          ? lane.color
+                          : (isLight ? '#334155' : '#18191d'),
+                        borderColor: 'rgba(255, 255, 255, 0.15)'
+                      }}
+                      className="px-2 py-1 rounded-[4px] text-[11px] font-bold flex items-center gap-1.5 shadow-md transition-all cursor-pointer text-white border hover:brightness-110"
                       title="Click to collapse / expand lane"
                     >
                       <span className="text-[9px] opacity-75">
@@ -1294,7 +1475,7 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
                               borderColor: isBlock ? themeStyles.blockBorder : themeStyles.groupBorder,
                               zIndex: isBlock ? 5 : (isNested ? 8 : 6)
                             }}
-                            className="absolute rounded-[6px] transition-all pointer-events-none flex flex-col overflow-visible border shadow-xs"
+                            className="absolute rounded-[6px] transition-[background-color,border-color,box-shadow] duration-150 pointer-events-none flex flex-col overflow-visible border shadow-xs"
                           >
                             {/* Group Header Title (Active pointer-events for dragging & renaming) */}
                             <div
@@ -1433,7 +1614,7 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
                                 ? isLight ? '#0f172a' : '#ffffff'
                                 : '#ffffff'
                             }}
-                            className={`absolute rounded-[3px] select-none cursor-grab active:cursor-grabbing flex items-center px-2 z-20 pointer-events-auto transition-all ${
+                            className={`absolute rounded-[3px] select-none cursor-grab active:cursor-grabbing flex items-center px-2 z-20 pointer-events-auto transition-[box-shadow,background-color,border-color,opacity] duration-150 ${
                               isOutlined ? 'shadow-xs' : 'shadow-sm'
                             } ${
                               isSelected ? 'ring-2 ring-white scale-[1.02] shadow-xl z-30' : 'hover:brightness-110'
@@ -1488,6 +1669,40 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
               );
             })}
           </div>
+
+          {/* ─── CAUSALITY SECTION BREAKS / MILESTONES RULER ─── */}
+          {sectionBreaks.length > 0 && (
+            <div
+              className="h-8 border-t relative shrink-0 select-none overflow-visible"
+              style={{
+                borderColor: themeStyles.laneBorder,
+                backgroundColor: isLight ? '#f1f5f9' : '#1c1d22'
+              }}
+            >
+              <div className="w-44 shrink-0 sticky left-0 z-20 px-3 py-1.5 text-[10px] font-bold opacity-60 flex items-center">
+                Milestones
+              </div>
+              {sectionBreaks.map((sb) => {
+                const leftPx = sb.unit * effectivePxPerUnit + 176;
+                return (
+                  <div
+                    key={sb.id}
+                    onClick={() => {
+                      if (boardScrollRef.current) {
+                        boardScrollRef.current.scrollTo({ left: Math.max(0, leftPx - 300), behavior: 'smooth' });
+                      }
+                      setPlayheadPos(sb.unit);
+                    }}
+                    style={{ left: `${leftPx}px` }}
+                    className="absolute top-1.5 px-2.5 py-0.5 rounded-[3px] bg-[#00838f] hover:bg-[#0097a7] border border-[#00bcd4]/50 text-white text-[10px] font-bold shadow-sm cursor-pointer whitespace-nowrap z-20 transition-all hover:scale-105 active:scale-95"
+                    title={`Milestone: ${sb.title} (Click to jump)`}
+                  >
+                    {sb.title}
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>
 

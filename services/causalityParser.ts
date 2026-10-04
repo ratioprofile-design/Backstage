@@ -15,7 +15,7 @@
  * - Automatic Tamil/Indic script language detection
  */
 
-import { Beat, Group, Connection, CharacterData, ProjectState, Slugline, BreakdownData, TimelineTrack } from '../types';
+import { Beat, Group, Connection, CharacterData, ProjectState, Slugline, BreakdownData, TimelineTrack, CausalityLane, CausalityGroup, SectionBreak } from '../types';
 
 export interface CausalityLink {
   id1: string;
@@ -48,6 +48,9 @@ export interface CausalityImportResult {
   error?: string;
   isTamilMode?: boolean;
   tracks?: TimelineTrack[];
+  causalityLanes?: CausalityLane[];
+  causalityGroups?: CausalityGroup[];
+  sectionBreaks?: SectionBreak[];
 }
 
 export type CausalityParseResult = CausalityImportResult;
@@ -72,7 +75,7 @@ const TRACK_PALETTE = [
  * Converts Causality ARGB hex color (#AARRGGBB) to CSS hex color (#RRGGBB).
  * Also safeguards against near-black or unreadable colors on dark backgrounds.
  */
-export function convertCausalityColor(rawColor?: any, fallback: string = '#3b82f6'): string {
+export function convertCausalityColor(rawColor?: any, fallback: string = '#3b82f6', isLane: boolean = false): string {
   if (rawColor === undefined || rawColor === null) return fallback;
   let str = '';
   if (typeof rawColor === 'number') {
@@ -86,16 +89,16 @@ export function convertCausalityColor(rawColor?: any, fallback: string = '#3b82f
   if (str.startsWith('#') && str.length === 9) {
     // Causality stores ARGB #AARRGGBB -> convert to #RRGGBB
     const rgb = str.slice(3).toLowerCase();
-    // Guard against pure or near-black/transparent colors which disappear on dark DAW lanes
+    // For lanes, pure/near-black is an authentic Causality dark swimlane tone
     if (rgb === '000000' || rgb === '060101' || rgb === '0d0d0d' || rgb === '111111') {
-      return fallback;
+      return isLane ? '#1e2025' : fallback;
     }
     return `#${rgb}`;
   }
   
   if (str.startsWith('#') && (str.length === 7 || str.length === 4)) {
     const hex = str.slice(1).toLowerCase();
-    if (hex === '000000' || hex === '000') return fallback;
+    if (hex === '000000' || hex === '000') return isLane ? '#1e2025' : fallback;
     return str;
   }
   
@@ -273,6 +276,7 @@ export function parseCausalityProject(data: CausalityProjectData): CausalityImpo
     const whiteboardBlocks = getObjectMap(['whiteboardBlocks', 'WhiteboardBlock', 'blocks']);
     const whiteboardGroups = getObjectMap(['whiteboardGroups', 'WhiteboardGroup', 'groups']);
     const whiteboardLanes = getObjectMap(['whiteboardLanes', 'WhiteboardLane', 'lanes', 'laneObjects', 'timelineTracks', 'timeTracks', 'tracks', 'Track', 'Lane']);
+    const sectionBreaksObj = getObjectMap(['sectionBreaks', 'SectionBreak', 'sectionBreak', 'chapterBreaks']);
 
     // 1. Build Graph Links Index
     const aliasToBeat = new Map<string, string>();
@@ -288,6 +292,10 @@ export function parseCausalityProject(data: CausalityProjectData): CausalityImpo
     const usageToBeat = new Map<string, string>();
     const usageToChar = new Map<string, string>();
     const beatToCharacters = new Map<string, Set<string>>();
+
+    const blockToTimeslice = new Map<string, string>();
+    const groupToTimeslice = new Map<string, string>();
+    const sectionBreakToTimeslice = new Map<string, string>();
 
     // Causality dependency links
     const connSource = new Map<string, string>();
@@ -332,6 +340,12 @@ export function parseCausalityProject(data: CausalityProjectData): CausalityImpo
         } else if (lower === 'beatobject.timeslice') {
           beatToTimeslice.set(link.id1, link.id2);
           timesliceToBeat.set(link.id2, link.id1);
+        } else if (lower === 'whiteboardblock.timeslice') {
+          blockToTimeslice.set(link.id1, link.id2);
+        } else if (lower === 'whiteboardgroup.timeslice') {
+          groupToTimeslice.set(link.id1, link.id2);
+        } else if (lower === 'sectionbreak.timeslice' || lower.includes('break.timeslice')) {
+          sectionBreakToTimeslice.set(link.id1, link.id2);
         } else if (lower === 'beatcharacterusage.beatobject') {
           usageToBeat.set(link.id1, link.id2);
         } else if (lower === 'beatcharacterusage.character') {
@@ -341,6 +355,10 @@ export function parseCausalityProject(data: CausalityProjectData): CausalityImpo
         } else if (lower === 'dependencyconnection.destinationobject') {
           connDest.set(link.id1, link.id2);
         } else if (lower === 'dependencyobject.sourcebeat') {
+          depObjectToBeat.set(link.id1, link.id2);
+        } else if (lower === 'dependencyobject.sourceblock') {
+          depObjectToBeat.set(link.id1, link.id2);
+        } else if (lower === 'dependencyobject.sourcegroup') {
           depObjectToBeat.set(link.id1, link.id2);
         }
       }
@@ -370,7 +388,7 @@ export function parseCausalityProject(data: CausalityProjectData): CausalityImpo
       }
     }
 
-    // 2. Reconstruct Chronological Timeslice Sequence with Cycle-Safety Guard
+    // 2. Reconstruct Chronological Timeslice Sequence with Cumulative Distance
     const orderList = data.orderLinks?.timeslices || [];
     const nextTimeslice = new Map<string, string>();
     const prevTimeslice = new Map<string, string>();
@@ -390,6 +408,10 @@ export function parseCausalityProject(data: CausalityProjectData): CausalityImpo
       }
     }
 
+    const timeslicesMap = getObjectMap(['timeslices', 'Timeslice', 'timeslice']);
+    const timesliceXMap = new Map<string, number>();
+    let cumulativeDist = 0;
+
     const orderedBeatIds: string[] = [];
     const visitedBeatIds = new Set<string>();
     const visitedTimeslices = new Set<string>();
@@ -398,6 +420,11 @@ export function parseCausalityProject(data: CausalityProjectData): CausalityImpo
       let curr: string | undefined = timesliceHead;
       while (curr && !visitedTimeslices.has(curr)) {
         visitedTimeslices.add(curr);
+        const tsObj = timeslicesMap[curr];
+        const dist = typeof tsObj?.userDistance === 'number' ? tsObj.userDistance : 100;
+        cumulativeDist += dist;
+        timesliceXMap.set(curr, cumulativeDist);
+
         const bId = timesliceToBeat.get(curr);
         if (bId && beatObjects[bId] && !visitedBeatIds.has(bId)) {
           orderedBeatIds.push(bId);
@@ -414,6 +441,25 @@ export function parseCausalityProject(data: CausalityProjectData): CausalityImpo
         visitedBeatIds.add(bId);
       }
     }
+
+    // Proportional conversion from Causality timeslice px distance to Board units (100px = 1.0 unit)
+    const pxToUnit = (px: number) => Math.max(1.0, Math.round(((px / 100.0) + 1.0) * 100) / 100);
+
+    // Section Breaks (Milestones along bottom ruler)
+    const sectionBreaks: SectionBreak[] = [];
+    for (const [sbId, rawSb] of Object.entries(sectionBreaksObj)) {
+      const title = String(rawSb.title || rawSb.name || '').trim();
+      if (!title) continue;
+      const tid = sectionBreakToTimeslice.get(sbId);
+      const px = tid && timesliceXMap.has(tid) ? timesliceXMap.get(tid)! : 0;
+      sectionBreaks.push({
+        id: sbId,
+        title,
+        unit: pxToUnit(px),
+        type: rawSb.type
+      });
+    }
+    sectionBreaks.sort((a, b) => a.unit - b.unit);
 
     // 3. Extract Characters into Backstage CharacterData
     const characterData: Record<string, CharacterData> = {};
@@ -446,7 +492,7 @@ export function parseCausalityProject(data: CausalityProjectData): CausalityImpo
       };
     }
 
-    // 4. Extract Whiteboard Lanes into TimelineTrack[]
+    // 4. Extract Whiteboard Lanes into TimelineTrack[] and CausalityLane[]
     const sortedLaneEntries = Object.entries(whiteboardLanes).sort(([_aId, a], [_bId, b]) => {
       const idxA = typeof a.indexHint === 'number' ? a.indexHint : (typeof a.order === 'number' ? a.order : (typeof a.index === 'number' ? a.index : (typeof a.y === 'number' ? a.y : 999)));
       const idxB = typeof b.indexHint === 'number' ? b.indexHint : (typeof b.order === 'number' ? b.order : (typeof b.index === 'number' ? b.index : (typeof b.y === 'number' ? b.y : 999)));
@@ -454,20 +500,37 @@ export function parseCausalityProject(data: CausalityProjectData): CausalityImpo
     });
 
     const tracks: TimelineTrack[] = [];
+    const causalityLanes: CausalityLane[] = [];
     const laneIdToTrackIndex = new Map<string, number>();
+    let unusedLaneTrackIdx = -1;
 
     sortedLaneEntries.forEach(([laneId, lane], idx) => {
       const trackNum = idx + 1;
-      const trackColor = convertCausalityColor(lane.baseColor || lane.color, TRACK_PALETTE[idx % TRACK_PALETTE.length]);
+      const laneName = (lane.name || lane.title || lane.label || `Track ${trackNum}`).trim();
+      const isUnused = Boolean(lane.freestyle === false || laneName.toLowerCase().includes('unused') || idx === 3);
+      if (isUnused && unusedLaneTrackIdx === -1) {
+        unusedLaneTrackIdx = idx;
+      }
+
+      const trackColor = convertCausalityColor(lane.baseColor || lane.color, TRACK_PALETTE[idx % TRACK_PALETTE.length], true);
       tracks.push({
         id: `v${trackNum}`,
-        label: (lane.name || lane.title || lane.label || `Track ${trackNum}`).trim(),
-        type: idx === 0 ? 'main' : idx === 1 ? 'subplot' : 'parallel',
+        label: laneName,
+        type: idx === 0 ? 'main' : isUnused ? 'unused' : (idx === 1 ? 'subplot' : 'parallel'),
         color: trackColor,
         height: 112,
         volume: 80,
         subtrackCount: 0
       });
+
+      causalityLanes.push({
+        id: lane.id || laneId,
+        label: laneName,
+        color: trackColor,
+        isUnused,
+        collapsed: false
+      });
+
       laneIdToTrackIndex.set(laneId, idx);
       if (lane.id) laneIdToTrackIndex.set(lane.id, idx);
     });
@@ -604,34 +667,79 @@ export function parseCausalityProject(data: CausalityProjectData): CausalityImpo
       }
     }
 
-    // 5. Extract Whiteboard Groups into Backstage Group[]
+    // 5. Extract Whiteboard Blocks & Groups into CausalityGroup[] and Backstage Group[]
+    const causalityGroups: CausalityGroup[] = [];
     const groups: Group[] = [];
     const groupIdToBackstageId = new Map<string, number>();
     let nextNumericId = 1;
 
-    let groupIndex = 0;
-    for (const [rawId, rawGroup] of Object.entries(whiteboardGroups)) {
-      const gId = nextNumericId++;
-      groupIdToBackstageId.set(rawId, gId);
-      if (rawGroup.id) groupIdToBackstageId.set(rawGroup.id, gId);
+    // A. Whiteboard Blocks (Large container sequence blocks)
+    for (const [rawId, rawBlock] of Object.entries(whiteboardBlocks)) {
+      const name = String(rawBlock.name || rawBlock.title || '').trim();
+      if (!name) continue;
+      const bId = rawBlock.id || rawId;
+      const laneId = blockToLane.get(bId) || rawBlock.laneId || (causalityLanes[0]?.id ?? 'main');
+      const tsId = blockToTimeslice.get(bId);
+      const pxX = tsId && timesliceXMap.has(tsId) ? timesliceXMap.get(tsId)! : 0;
+      const startUnit = pxToUnit(pxX);
+      const widthPx = rawBlock.userSize?.width && rawBlock.userSize.width > 0 ? rawBlock.userSize.width : 500;
+      const durationUnits = Math.max(2.0, Math.round((widthPx / 100.0) * 10) / 10);
 
-      const title = rawGroup.name || rawGroup.title || `Act ${groupIndex + 1}`;
-      const x = typeof rawGroup.x === 'number' ? rawGroup.x : groupIndex * 620;
-      const y = typeof rawGroup.y === 'number' ? rawGroup.y : 50;
-      const width = rawGroup.userSize?.width || rawGroup.width || 560;
-      const height = rawGroup.userSize?.height || rawGroup.height || 850;
+      causalityGroups.push({
+        id: bId,
+        laneId,
+        title: name,
+        startUnit,
+        durationUnits,
+        type: 'block'
+      });
 
+      const numId = nextNumericId++;
+      groupIdToBackstageId.set(bId, numId);
       groups.push({
-        id: gId,
-        title,
-        x,
-        y,
-        width,
-        height,
-        color: convertCausalityColor(rawGroup.color, TRACK_PALETTE[groupIndex % TRACK_PALETTE.length]),
+        id: numId,
+        title: name,
+        x: pxX,
+        y: rawBlock.localYHint || 40,
+        width: widthPx,
+        height: rawBlock.userSize?.height || 320,
+        color: convertCausalityColor(rawBlock.baseColor || rawBlock.color, '#64748b'),
         boardId: 0
       });
-      groupIndex++;
+    }
+
+    // B. Whiteboard Groups (Sub-containers or act groupings)
+    for (const [rawId, rawGroup] of Object.entries(whiteboardGroups)) {
+      const name = String(rawGroup.name || rawGroup.title || '').trim();
+      if (!name) continue;
+      const gId = rawGroup.id || rawId;
+      const parentBlockId = groupToBlock.get(gId);
+      const laneId = parentBlockId ? (blockToLane.get(parentBlockId) || causalityLanes[0]?.id) : causalityLanes[0]?.id;
+      const tsId = groupToTimeslice.get(gId);
+      const pxX = tsId && timesliceXMap.has(tsId) ? timesliceXMap.get(tsId)! : 0;
+      const startUnit = pxToUnit(pxX);
+
+      causalityGroups.push({
+        id: gId,
+        laneId: laneId || causalityLanes[0]?.id || 'main',
+        title: name,
+        startUnit,
+        durationUnits: 5.0,
+        type: 'group'
+      });
+
+      const numId = nextNumericId++;
+      groupIdToBackstageId.set(gId, numId);
+      groups.push({
+        id: numId,
+        title: name,
+        x: pxX,
+        y: rawGroup.localYHint || 60,
+        width: 480,
+        height: 240,
+        color: convertCausalityColor(rawGroup.color, '#3b82f6'),
+        boardId: 0
+      });
     }
 
     // 6. Build Backstage Beats with FULL SCREENPLAY and exact Scene Headings
@@ -723,34 +831,8 @@ export function parseCausalityProject(data: CausalityProjectData): CausalityImpo
         content = `<div class="sc-line sc-action"><br></div>`;
       }
 
-      // D. Narrative Track Mapping
-      let assignedTrackIdx = 0;
-      const laneId = beatToLaneId.get(beatId);
-      if (laneId && laneIdToTrackIndex.has(laneId)) {
-        assignedTrackIdx = laneIdToTrackIndex.get(laneId)!;
-      } else if (typeof (b as any).trackIndex === 'number') {
-        assignedTrackIdx = (b as any).trackIndex;
-      }
-      if (assignedTrackIdx < 0 || assignedTrackIdx >= tracks.length) {
-        assignedTrackIdx = 0;
-      }
-      const track = tracks[assignedTrackIdx] || tracks[0];
-
-      // E. Canvas Positioning & Timeline Placement
+      // D. Narrative Track Mapping & Disabled Detection
       const block = beatToBlock.get(beatId);
-      let x = 100 + (i % maxCols) * (cardWidth + colGap);
-      let y = 100 + Math.floor(i / maxCols) * (cardHeight + rowGap);
-      let w = cardWidth;
-      let h = cardHeight;
-
-      if (block) {
-        if (typeof block.x === 'number') x = block.x;
-        if (typeof block.y === 'number') y = block.y;
-        if (block.userSize?.width) w = block.userSize.width;
-        if (block.userSize?.height) h = block.userSize.height;
-      }
-
-      // Check if beat or its block/snippet is disabled in Causality
       const isBlockDisabled = block && (
         block.blockState === 'ObjectState.Disabled' ||
         block.blockState === 'Disabled' ||
@@ -789,22 +871,75 @@ export function parseCausalityProject(data: CausalityProjectData): CausalityImpo
         (b as any).isOmitted === true ||
         (b as any).omitted === true;
 
-      const isUnsequencedInCausality = orderList.length > 0 && !beatToTimeslice.has(beatId) && !b.name?.toLowerCase().includes('scene');
-
-      const isDisabled = Boolean(isBeatDisabled || isBlockDisabled || isSnippetDisabled || isUnsequencedInCausality);
+      const isDisabled = Boolean(isBeatDisabled || isBlockDisabled || isSnippetDisabled);
 
       if (isDisabled) {
         disabledBeatsCount++;
-        // Exclude disabled / omitted Causality beats from the imported screenplay
-        continue;
+      }
+
+      let assignedTrackIdx = 0;
+      const laneId = beatToLaneId.get(beatId);
+      if (laneId && laneIdToTrackIndex.has(laneId)) {
+        assignedTrackIdx = laneIdToTrackIndex.get(laneId)!;
+      } else if (typeof (b as any).trackIndex === 'number') {
+        assignedTrackIdx = (b as any).trackIndex;
+      } else if (isDisabled && unusedLaneTrackIdx >= 0) {
+        assignedTrackIdx = unusedLaneTrackIdx;
+      }
+      if (assignedTrackIdx < 0 || assignedTrackIdx >= tracks.length) {
+        assignedTrackIdx = isDisabled && unusedLaneTrackIdx >= 0 ? unusedLaneTrackIdx : 0;
+      }
+      const track = tracks[assignedTrackIdx] || tracks[0];
+
+      // E. Canvas Positioning & Timeline Placement (Exact timeslice X-coordinates)
+      let x = 100 + (i % maxCols) * (cardWidth + colGap);
+      let y = 100 + Math.floor(i / maxCols) * (cardHeight + rowGap);
+      let w = cardWidth;
+      let h = cardHeight;
+
+      if (block) {
+        if (typeof block.x === 'number') x = block.x;
+        if (typeof block.y === 'number') y = block.y;
+        if (block.userSize?.width) w = block.userSize.width;
+        if (block.userSize?.height) h = block.userSize.height;
       }
 
       // Calculate screenplay page duration from word count
       const wordCount = (content || '').replace(/<[^>]*>/g, ' ').trim().split(/\s+/).filter(Boolean).length;
       const durationPages = Math.max(1.0, Math.min(8.0, Math.round((wordCount / 220) * 2) / 2 || 2.0));
-      const startTime = accumulatedTimelinePage;
-      const durationWidth = Math.round(durationPages * 48); // 48px per page standard scale
-      accumulatedTimelinePage += durationPages;
+      
+      // Calculate timeslice-based startTime
+      let beatStartTime: number;
+      const beatTs = beatToTimeslice.get(beatId);
+      if (beatTs && timesliceXMap.has(beatTs)) {
+        beatStartTime = pxToUnit(timesliceXMap.get(beatTs)!);
+      } else {
+        const blkTs = block?.id ? blockToTimeslice.get(block.id) : null;
+        if (blkTs && timesliceXMap.has(blkTs)) {
+          beatStartTime = pxToUnit(timesliceXMap.get(blkTs)!);
+        } else {
+          beatStartTime = accumulatedTimelinePage;
+          accumulatedTimelinePage += durationPages;
+        }
+      }
+
+      const durationWidth = Math.round(durationPages * 48);
+
+      // Determine subtrack row from Causality alias localYHint
+      const beatAlias = (() => {
+        for (const [aid, bGuid] of aliasToBeat.entries()) {
+          if (bGuid === beatId) {
+            const aliases = getObjectMap(['beatAliases', 'BeatAlias', 'alias']);
+            return aliases[aid];
+          }
+        }
+        return null;
+      })();
+
+      let subtrackRow = 0;
+      if (beatAlias && typeof beatAlias.localYHint === 'number') {
+        subtrackRow = Math.max(0, Math.floor(beatAlias.localYHint / 30));
+      }
 
       // F. Color
       const color = convertCausalityColor(b.color || block?.baseColor || track.color, track.color);
@@ -863,8 +998,8 @@ export function parseCausalityProject(data: CausalityProjectData): CausalityImpo
         versions: [],
         boardId: 0,
         trackIndex: assignedTrackIdx,
-        subtrackIndex: 0,
-        startTime,
+        subtrackIndex: subtrackRow,
+        startTime: beatStartTime,
         durationPages,
         durationWidth,
         breakdown,
@@ -914,6 +1049,9 @@ export function parseCausalityProject(data: CausalityProjectData): CausalityImpo
       connections,
       characterData,
       tracks,
+      causalityLanes,
+      causalityGroups,
+      sectionBreaks,
       nextId: nextNumericId + 20,
       activeBoardId: 0,
       isTamilMode: hasTamilContent
@@ -927,10 +1065,13 @@ export function parseCausalityProject(data: CausalityProjectData): CausalityImpo
       projectName: name,
       isTamilMode: hasTamilContent,
       tracks,
+      causalityLanes,
+      causalityGroups,
+      sectionBreaks,
       stats: {
         beatsCount: beats.length,
         disabledBeatsCount,
-        groupsCount: groups.length,
+        groupsCount: causalityGroups.length,
         charactersCount: Object.keys(characterData).length,
         connectionsCount: connections.length,
         screenplayWordsCount: totalScreenplayWords,

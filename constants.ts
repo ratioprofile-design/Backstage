@@ -174,6 +174,9 @@ export const INITIAL_STATE: ProjectState = {
   annotations: [],
   characterData: {},
   generatedShots: [],
+  causalityLanes: [],
+  causalityGroups: [],
+  sectionBreaks: [],
   
   scratchpad: '', // Legacy string content
   globalNotes: [], // Init global notes

@@ -560,6 +560,24 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
         } catch (e) {}
       }
 
+      if (Array.isArray(cleanData.causalityLanes) && cleanData.causalityLanes.length > 0) {
+        try {
+          localStorage.setItem(`causality_lanes_${newProjId}`, JSON.stringify(cleanData.causalityLanes));
+        } catch (e) {}
+      }
+
+      if (Array.isArray(cleanData.causalityGroups) && cleanData.causalityGroups.length > 0) {
+        try {
+          localStorage.setItem(`causality_groups_${newProjId}`, JSON.stringify(cleanData.causalityGroups));
+        } catch (e) {}
+      }
+
+      if (Array.isArray(cleanData.sectionBreaks) && cleanData.sectionBreaks.length > 0) {
+        try {
+          localStorage.setItem(`causality_breaks_${newProjId}`, JSON.stringify(cleanData.sectionBreaks));
+        } catch (e) {}
+      }
+
       try {
         localStorage.setItem(`project_data_${newProjId}`, JSON.stringify(cleanData));
       } catch (e) {}
@@ -570,22 +588,45 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
         return updated;
       });
 
-      // Notify BoardView and other views of the imported project and tracks
+      // Notify BoardView and other views of the imported project, tracks, and lanes
       window.dispatchEvent(new CustomEvent('project_imported', { 
         detail: { projectId: newProjId, tracks: finalTracks } 
       }));
       window.dispatchEvent(new CustomEvent('daw_tracks_updated', { 
         detail: { projectId: newProjId, tracks: finalTracks } 
       }));
-    } else if (currentProjectId && Array.isArray(finalTracks) && finalTracks.length > 0) {
-      try {
-        localStorage.setItem(`backstage_daw_tracks_${currentProjectId}`, JSON.stringify(finalTracks));
-      } catch (e) {}
+      window.dispatchEvent(new CustomEvent('causality_project_updated', { 
+        detail: { projectId: newProjId } 
+      }));
+    } else if (currentProjectId) {
+      if (Array.isArray(finalTracks) && finalTracks.length > 0) {
+        try {
+          localStorage.setItem(`backstage_daw_tracks_${currentProjectId}`, JSON.stringify(finalTracks));
+        } catch (e) {}
+      }
+      if (Array.isArray(cleanData.causalityLanes) && cleanData.causalityLanes.length > 0) {
+        try {
+          localStorage.setItem(`causality_lanes_${currentProjectId}`, JSON.stringify(cleanData.causalityLanes));
+        } catch (e) {}
+      }
+      if (Array.isArray(cleanData.causalityGroups) && cleanData.causalityGroups.length > 0) {
+        try {
+          localStorage.setItem(`causality_groups_${currentProjectId}`, JSON.stringify(cleanData.causalityGroups));
+        } catch (e) {}
+      }
+      if (Array.isArray(cleanData.sectionBreaks) && cleanData.sectionBreaks.length > 0) {
+        try {
+          localStorage.setItem(`causality_breaks_${currentProjectId}`, JSON.stringify(cleanData.sectionBreaks));
+        } catch (e) {}
+      }
       window.dispatchEvent(new CustomEvent('project_imported', { 
         detail: { projectId: currentProjectId, tracks: finalTracks } 
       }));
       window.dispatchEvent(new CustomEvent('daw_tracks_updated', { 
         detail: { projectId: currentProjectId, tracks: finalTracks } 
+      }));
+      window.dispatchEvent(new CustomEvent('causality_project_updated', { 
+        detail: { projectId: currentProjectId } 
       }));
     }
 

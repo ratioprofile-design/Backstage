@@ -248,6 +248,30 @@ export interface CharacterData {
 
 export type ThemeAnimationStyle = 'circle' | 'wipe-right' | 'wipe-down' | 'diagonal' | 'diamond' | 'dissolve';
 
+export interface CausalityLane {
+  id: string;
+  label: string;
+  color: string;
+  isUnused?: boolean;
+  collapsed?: boolean;
+}
+
+export interface CausalityGroup {
+  id: string;
+  laneId: string;
+  title: string;
+  startUnit: number;
+  durationUnits: number;
+  type?: 'group' | 'block';
+}
+
+export interface SectionBreak {
+  id: string;
+  title: string;
+  unit: number;
+  type?: string;
+}
+
 export interface ProjectState {
   beats: Beat[];
   groups: Group[]; // Visual groupings for beats
@@ -256,6 +280,9 @@ export interface ProjectState {
   characterData: Record<string, CharacterData>;
   generatedShots: Shot[]; // Global shot list (optional/legacy use)
   tracks?: TimelineTrack[]; // Multi-lane DAW timeline tracks
+  causalityLanes?: CausalityLane[];
+  causalityGroups?: CausalityGroup[];
+  sectionBreaks?: SectionBreak[];
   
   scratchpad: string; // Legacy: Global scratchpad content
   globalNotes: Note[]; // New: Global sticky notes
