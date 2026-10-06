@@ -98,7 +98,7 @@ export interface ProjectMetadata {
   invitedBy?: string;
 }
 
-export type ViewMode = 'board' | 'excalidraw' | 'script' | 'characters' | 'casting' | 'characterdesign' | 'breakdown' | 'crew' | 'shotlist' | 'storyboard' | 'schedule' | 'statistics' | 'backstage' | 'goals' | 'inbox' | 'continuity' | 'locations' | 'dood' | 'documents' | 'callsheet';
+export type ViewMode = 'board' | 'excalidraw' | 'script' | 'characters' | 'casting' | 'characterdesign' | 'breakdown' | 'crew' | 'shotlist' | 'storyboard' | 'schedule' | 'statistics' | 'backstage' | 'goals' | 'inbox' | 'continuity' | 'locations' | 'dood' | 'documents' | 'callsheet' | 'two-column-script';
 
 export interface ContinuityItem {
   id: string;
@@ -1173,6 +1173,12 @@ export interface ProductionDocument {
   archivedAt?: string;
   tags?: string[];
   status?: 'draft' | 'review' | 'approved' | 'confidential' | 'archived';
+  // Original file preservation & Tamil Left-Right Screenplay integration
+  originalFileDataUrl?: string; // Byte-exact original file preserved for re-download
+  originalFileName?: string;
+  isLeftRightFormat?: boolean;
+  leftRightDocId?: string;
+  sourceDocId?: string;
 }
 
 export interface CastCallItem {

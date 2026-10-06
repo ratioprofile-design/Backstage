@@ -21,6 +21,7 @@ import ShotListView from './components/views/ShotListView';
 import ContinuityView from './components/views/ContinuityView';
 import DoodMatrixView from './components/views/DoodMatrixView';
 import DocumentVaultView from './components/views/DocumentVaultView';
+import { TwoColumnScriptView } from './components/views/TwoColumnScriptView';
 import CallSheetView from './components/views/CallSheetView';
 import EditorModal from './components/EditorModal';
 import PrintPreviewModal from './components/PrintPreviewModal';
@@ -820,13 +821,14 @@ const AppContent: React.FC = () => {
             {currentView === 'storyboard' && <div className="w-full h-full"><StoryboardView key={`story-${refreshKey}`} /></div>}
             {currentView === 'schedule' && <div className="w-full h-full"><ScheduleView key={`schedule-${refreshKey}`} /></div>}
             {currentView === 'dood' && <div className="w-full h-full"><DoodMatrixView key={`dood-${refreshKey}`} /></div>}
-            {currentView === 'documents' && <div className="w-full h-full"><DocumentVaultView key={`documents-${refreshKey}`} /></div>}
+            {currentView === 'documents' && <div className="w-full h-full"><DocumentVaultView key={`documents-${refreshKey}`} onNavigateToView={setCurrentView} /></div>}
+            {currentView === 'two-column-script' && <div className="w-full h-full"><TwoColumnScriptView key={`two-col-${refreshKey}`} onNavigateToView={setCurrentView} /></div>}
             {currentView === 'callsheet' && <div className="w-full h-full"><CallSheetView key={`callsheet-${refreshKey}`} /></div>}
             {currentView === 'statistics' && <div className="w-full h-full"><StatisticsView key={`stats-${refreshKey}`} /></div>}
             {currentView === 'backstage' && <div className="w-full h-full"><BackstageView key={`backstage-${refreshKey}`} onNavigateToBoard={() => setCurrentView('board')} /></div>}
             {currentView === 'goals' && <div className="w-full h-full"><GoalView key={`goals-${refreshKey}`} /></div>}
             {currentView === 'inbox' && <div className="w-full h-full"><InboxView key={`inbox-${refreshKey}`} tasks={inboxTasks} onNavigateToView={setCurrentView} onUpdateTask={handleUpdateTask} onAddTask={handleAddTask} onDeleteTask={handleDeleteTask} /></div>}
-            {!['board', 'excalidraw', 'script', 'casting', 'characterdesign', 'characters', 'breakdown', 'continuity', 'crew', 'shotlist', 'storyboard', 'schedule', 'statistics', 'backstage', 'inbox', 'goals', 'dood', 'documents', 'callsheet'].includes(currentView) && (
+            {!['board', 'excalidraw', 'script', 'casting', 'characterdesign', 'characters', 'breakdown', 'continuity', 'crew', 'shotlist', 'storyboard', 'schedule', 'statistics', 'backstage', 'inbox', 'goals', 'dood', 'documents', 'callsheet', 'two-column-script'].includes(currentView) && (
               <div className="w-full h-full"><BoardView key={`fallback-${refreshKey}`} onEditBeat={handleEditBeat} /></div>
             )}
           </main>

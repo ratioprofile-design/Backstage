@@ -29,6 +29,16 @@ import { parseUniversalFile } from '../../services/documentParser';
 import { generateText } from '../../services/gemini';
 import { isLegacyBamini, transcodeBaminiToUnicode, transcodeHtmlBaminiToUnicode } from '../../services/tamilTranscoder';
 import { paginateDocumentHtml, paginatePlainText } from '../../services/documentPaginator';
+import {
+  parseScreenplayToTamilLeftRight,
+  generateTamilLeftRightHtml,
+  generateTamilLeftRightDocx,
+  downloadBlobAsFile,
+  downloadOriginalDocumentFile,
+  TamilScreenplayData,
+} from '../../services/tamilLeftRightEngine';
+import { TamilLeftRightStudioView } from './TamilLeftRightStudioView';
+import { DocumentTwoColumnEditor } from './DocumentTwoColumnEditor';
 import confetti from 'canvas-confetti';
 import {
   FileText,
@@ -171,7 +181,11 @@ const getStatusBadgeStyle = (status: string) => {
   return 'bg-zinc-500/15 text-zinc-300 border-zinc-500/30';
 };
 
-export const DocumentVaultView: React.FC = () => {
+export interface DocumentVaultViewProps {
+  onNavigateToView?: (view: any) => void;
+}
+
+export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigateToView }) => {
   const projectContext = useProject();
   const { appTheme, appAccentColor = '#f5a623', generalAiModel, openrouterKey } = projectContext;
   const { aiAvailable } = useAiKeyStatus();
@@ -181,6 +195,14 @@ export const DocumentVaultView: React.FC = () => {
   const [documents, setDocuments] = useState<ProductionDocument[]>(() => getProductionDocuments());
   const [selectedDocId, setSelectedDocId] = useState<string>(() => documents[0]?.id || '');
   
+  // Tamil Left-Right (இருபக்க திரைக்கதை வடிவம்) Modal & Conversion State
+  const [isTamilLeftRightModalOpen, setIsTamilLeftRightModalOpen] = useState<boolean>(false);
+  const [tamilScreenplayData, setTamilScreenplayData] = useState<TamilScreenplayData | null>(null);
+  const [isGeneratingDocx, setIsGeneratingDocx] = useState<boolean>(false);
+  const [tamilViewTab, setTamilViewTab] = useState<'visual' | 'typewriter'>('visual');
+  const [inLeftRightStudio, setInLeftRightStudio] = useState<boolean>(false);
+  const [studioInitialDoc, setStudioInitialDoc] = useState<ProductionDocument | null>(null);
+
   // Gallery Hub vs. Studio Mode
   const [inStudioMode, setInStudioMode] = useState<boolean>(false);
   const [galleryViewMode, setGalleryViewMode] = useState<'gallery' | 'table' | 'kanban' | 'timeline'>('gallery');
@@ -191,7 +213,7 @@ export const DocumentVaultView: React.FC = () => {
   const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'title' | 'size' | 'comments'>('newest');
 
   // Breakdown Studio Table Mode & Filter State
-  const [studioViewMode, setStudioViewMode] = useState<'table' | 'page'>('page');
+  const [studioViewMode, setStudioViewMode] = useState<'table' | 'page' | 'two-column'>('page');
   const [breakdownCategoryFilter, setBreakdownCategoryFilter] = useState<string>('ALL');
   const [breakdownSearchQuery, setBreakdownSearchQuery] = useState<string>('');
   const [breakdownStatusFilter, setBreakdownStatusFilter] = useState<string>('ALL');
@@ -787,7 +809,7 @@ export const DocumentVaultView: React.FC = () => {
     const initialContent = doc?.htmlContent || (doc?.textContent ? `<p>${doc.textContent.replace(/\n/g, '<br/>')}</p>` : '');
     setEditedHtmlContent(initialContent);
     setHasUnsavedChanges(false);
-    setStudioViewMode('page');
+    setStudioViewMode(doc?.isLeftRightFormat ? 'two-column' : 'page');
     setIsEditMode(true);
     setBreakdownCategoryFilter('ALL');
     setBreakdownSearchQuery('');
@@ -1040,6 +1062,8 @@ export const DocumentVaultView: React.FC = () => {
         status: 'review',
         tags: ['Import', parsed.category],
         annotations: [],
+        originalFileDataUrl: parsed.originalFileDataUrl,
+        originalFileName: parsed.fileName,
       };
 
       const updated = [newDoc, ...documents];
@@ -1047,10 +1071,149 @@ export const DocumentVaultView: React.FC = () => {
       setSelectedDocId(newDoc.id);
       setInStudioMode(true);
       confetti({ particleCount: 35, spread: 50, origin: { y: 0.6 } });
-      showToast(`✓ Imported "${parsed.fileName}" into Production Vault!`);
+      showToast(`✓ Imported "${parsed.fileName}" into Vault (Original preserved)!`);
     } catch (err) {
       console.error(err);
       showToast('Failed to parse uploaded document.');
+    }
+  };
+
+  // Download original file (exact byte-level file preservation)
+  const handleDownloadOriginalFile = (docToDownload?: ProductionDocument) => {
+    const doc = docToDownload || selectedDoc;
+    if (!doc) return;
+    const ok = downloadOriginalDocumentFile(doc);
+    if (ok) {
+      showToast(`✓ Downloaded original file "${doc.originalFileName || doc.fileName}"`);
+    } else {
+      // Fallback: If original binary wasn't cached, generate a .docx
+      const rawText = doc.textContent || (doc.htmlContent ? doc.htmlContent.replace(/<[^>]+>/g, '\n') : '');
+      if (rawText) {
+        const parsed = parseScreenplayToTamilLeftRight(rawText, doc.title);
+        generateTamilLeftRightDocx(parsed).then((blob) => {
+          downloadBlobAsFile(blob, doc.fileName.endsWith('.docx') ? doc.fileName : `${doc.title}.docx`);
+          showToast(`✓ Downloaded Word document for "${doc.title}"!`);
+        });
+      } else {
+        showToast(`Original file binary not found in vault.`);
+      }
+    }
+  };
+
+  // Open Tamil Left-Right Screenplay directly in 2-Column mode on the document
+  const handleOpenTamilLeftRightConverter = (docToConvert?: ProductionDocument) => {
+    const doc = docToConvert || selectedDoc;
+    if (!doc) return;
+    setSelectedDocId(doc.id);
+    setStudioViewMode('two-column');
+    setInStudioMode(true);
+    showToast(`✓ Opened "${doc.title}" in 2-Column Left/Right Format`);
+  };
+
+  // Download Tamil Left-Right as Microsoft Word (.docx)
+  const handleDownloadTamilLeftRightWordDocx = async () => {
+    if (!tamilScreenplayData) return;
+    try {
+      setIsGeneratingDocx(true);
+      const blob = await generateTamilLeftRightDocx(tamilScreenplayData);
+      const filename = `${(tamilScreenplayData.title || 'Screenplay').replace(/\s+/g, '_')}_Tamil_Left_Right.docx`;
+      downloadBlobAsFile(blob, filename);
+      confetti({ particleCount: 35, spread: 50, origin: { y: 0.7 } });
+      showToast(`✓ Downloaded "${filename}"!`);
+    } catch (err) {
+      console.error(err);
+      showToast('Failed to generate Word document.');
+    } finally {
+      setIsGeneratingDocx(false);
+    }
+  };
+
+  // Save converted Left-Right screenplay as a new permanent document in the vault
+  const handleSaveTamilLeftRightToVault = () => {
+    if (!tamilScreenplayData) return;
+    try {
+      const html = generateTamilLeftRightHtml(tamilScreenplayData);
+      const newDoc: ProductionDocument = {
+        id: `doc-tamil-lr-${Date.now()}`,
+        title: `${tamilScreenplayData.title} (Tamil Left-Right Format)`,
+        titleTa: `${tamilScreenplayData.title} (தமிழ் இருபக்க வடிவம்)`,
+        category: 'SCRIPT',
+        fileName: `${(tamilScreenplayData.title || 'Screenplay').replace(/\s+/g, '_')}_Left_Right.docx`,
+        fileSize: '1.2 MB',
+        fileType: 'docx',
+        pageCount: Math.max(1, tamilScreenplayData.scenes.length),
+        uploadedAt: new Date().toISOString(),
+        htmlContent: html,
+        textContent: tamilScreenplayData.rawText,
+        author: 'Tamil Left-Right Engine',
+        status: 'review',
+        tags: ['Script', 'Tamil Left-Right', 'Kollywood Format'],
+        annotations: [],
+        isLeftRightFormat: true,
+        sourceDocId: selectedDoc?.id,
+        originalFileDataUrl: selectedDoc?.originalFileDataUrl,
+        originalFileName: selectedDoc?.originalFileName,
+      };
+
+      const updated = [newDoc, ...documents];
+      updateDocuments(updated);
+      setSelectedDocId(newDoc.id);
+      setIsTamilLeftRightModalOpen(false);
+      setInStudioMode(true);
+      confetti({ particleCount: 40, spread: 60, origin: { y: 0.6 } });
+      showToast(`✓ Saved Tamil Left-Right document into Vault!`);
+    } catch (err) {
+      console.error(err);
+      showToast('Failed to save document to vault.');
+    }
+  };
+
+  // Send converted Tamil scenes directly into Script View & Storyboard Beats
+  const handleSendTamilScenesToScriptView = () => {
+    if (!tamilScreenplayData) return;
+    try {
+      tamilScreenplayData.scenes.forEach((sc, idx) => {
+        let actionContent = '';
+        let dialogueContent = '';
+        sc.items.forEach((item) => {
+          if (item.leftAction) {
+            actionContent += `<p class="sc-action">${item.leftAction}</p>`;
+          }
+          if (item.rightCharacter) {
+            dialogueContent += `<p class="sc-character">${item.rightCharacter}</p>`;
+          }
+          if (item.rightDialogue) {
+            dialogueContent += `<p class="sc-dialogue">${item.rightDialogue}</p>`;
+          }
+          if (item.rightAudioSfx) {
+            dialogueContent += `<p class="sc-parenthetical">${item.rightAudioSfx}</p>`;
+          }
+        });
+
+        const beatContent = `${actionContent}${dialogueContent}` || `<p class="sc-action">${sc.sluglineText}</p>`;
+        
+        projectContext.addBeat(
+          100 + idx * 300,
+          150,
+          `காட்சி ${sc.sceneNumber} (${sc.location})`,
+          {
+            prefix: 'EXT.',
+            location: sc.location,
+            time: sc.timeOfDay,
+          },
+          beatContent
+        );
+      });
+
+      setIsTamilLeftRightModalOpen(false);
+      confetti({ particleCount: 50, spread: 70, origin: { y: 0.6 } });
+      showToast(`✓ Created ${tamilScreenplayData.scenes.length} scene beat(s) in Script Editor!`);
+      if (onNavigateToView) {
+        onNavigateToView('script');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Failed to send scenes to script.');
     }
   };
 
@@ -1362,6 +1525,23 @@ export const DocumentVaultView: React.FC = () => {
     setStartPoint(null);
   };
 
+  if (inLeftRightStudio) {
+    return (
+      <TamilLeftRightStudioView
+        initialDocument={studioInitialDoc}
+        onBackToVault={() => setInLeftRightStudio(false)}
+        onSaveToVault={(newDoc) => {
+          const updated = [newDoc, ...documents];
+          updateDocuments(updated);
+          setSelectedDocId(newDoc.id);
+          setInLeftRightStudio(false);
+          setInStudioMode(true);
+        }}
+        onNavigateToView={onNavigateToView}
+      />
+    );
+  }
+
   return (
     <div className={`w-full h-full flex flex-col font-sans select-none overflow-hidden ${isLight ? 'bg-[#f4f5f8] text-slate-900' : 'bg-[#09090b] text-gray-100'}`}>
       
@@ -1565,6 +1745,26 @@ export const DocumentVaultView: React.FC = () => {
               </button>
 
               <button
+                onClick={() => {
+                  if (onNavigateToView) {
+                    onNavigateToView('two-column-script');
+                  } else {
+                    const targetDoc = selectedDoc || documents.find((d) => d.category === 'SCRIPT' || d.isLeftRightFormat || d.id === 'doc-ranga-1') || documents[0];
+                    if (targetDoc) {
+                      setSelectedDocId(targetDoc.id);
+                      setStudioViewMode('two-column');
+                      setInStudioMode(true);
+                    }
+                  }
+                }}
+                className="px-3.5 py-1.5 text-xs font-bold rounded-xl bg-emerald-500/15 border border-emerald-500/35 text-emerald-400 hover:bg-emerald-500/25 flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
+                title="Open Dedicated 2-Column Kollywood Script Studio"
+              >
+                <Columns size={14} className="text-emerald-400" />
+                <span className="hidden md:inline">2-Col Script Studio</span>
+              </button>
+
+              <button
                 onClick={handleSyncArtifacts}
                 className="px-3 py-1.5 text-xs font-bold rounded-xl bg-[#f5a623] hover:bg-[#e09612] text-black flex items-center gap-1.5 transition-all shadow-md font-mono"
                 title="Scan and synchronize all notes, voice memos, storyboard panels, and breakdowns from project"
@@ -1631,6 +1831,34 @@ export const DocumentVaultView: React.FC = () => {
                 <TableIcon size={13} className="text-cyan-400" />
                 <span className="hidden lg:inline">Insert Table</span>
               </button>
+
+              {/* Toggle 2-Column Left/Right Shooting Script Layout on Document */}
+              <button
+                onClick={() => {
+                  setStudioViewMode(studioViewMode === 'two-column' ? 'page' : 'two-column');
+                }}
+                className={`px-3 py-1.5 text-xs font-bold rounded-lg border flex items-center gap-1.5 transition-all shadow-sm cursor-pointer ${
+                  studioViewMode === 'two-column'
+                    ? 'bg-emerald-500 text-black border-emerald-500 shadow-md font-black'
+                    : 'bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 border border-emerald-500/40'
+                }`}
+                title="Toggle Kollywood 2-Column Left-Right (இருபக்க காட்சி-வசனம்) layout on this document"
+              >
+                <Columns size={13} className={studioViewMode === 'two-column' ? 'text-black' : 'text-emerald-400'} />
+                <span>{studioViewMode === 'two-column' ? 'Standard View' : '2-Column Left/Right'}</span>
+              </button>
+
+              {/* Download Original File (.docx) */}
+              {(selectedDoc?.originalFileDataUrl || selectedDoc?.fileType === 'docx' || selectedDoc?.fileName?.endsWith('.docx')) && (
+                <button
+                  onClick={() => handleDownloadOriginalFile()}
+                  className="px-2.5 py-1.5 text-xs font-bold rounded-lg bg-sky-500/15 hover:bg-sky-500/25 text-sky-400 border border-sky-500/40 flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
+                  title="Download the original untouched Word document"
+                >
+                  <Download size={13} />
+                  <span className="hidden sm:inline">Download Original</span>
+                </button>
+              )}
 
               {/* In-Place Edit Mode Toggle */}
               <button
@@ -2045,8 +2273,34 @@ export const DocumentVaultView: React.FC = () => {
                               </span>
                             </div>
 
-                            {/* Top Right: Archive Quick Trigger */}
+                            {/* Top Right: Quick Action Triggers */}
                             <div className="absolute top-2.5 right-2.5 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                              {/* Tamil Left-Right Quick Trigger */}
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleOpenTamilLeftRightConverter(doc);
+                                }}
+                                className="p-1.5 rounded-lg bg-zinc-900/90 text-emerald-400 hover:bg-emerald-500 hover:text-black transition-all shadow-md"
+                                title="Convert to Tamil Left-Right Screenplay"
+                              >
+                                <Columns size={13} />
+                              </button>
+
+                              {/* Download Original File Trigger */}
+                              {(doc.originalFileDataUrl || doc.fileType === 'docx' || doc.fileName?.endsWith('.docx')) && (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleDownloadOriginalFile(doc);
+                                  }}
+                                  className="p-1.5 rounded-lg bg-zinc-900/90 text-sky-400 hover:bg-sky-500 hover:text-black transition-all shadow-md"
+                                  title="Download original Word file"
+                                >
+                                  <Download size={13} />
+                                </button>
+                              )}
+
                               {doc.isArchived ? (
                                 <button
                                   onClick={(e) => handleUnarchiveDocument(e, doc.id)}
@@ -2657,21 +2911,33 @@ export const DocumentVaultView: React.FC = () => {
                   </button>
                 </div>
 
-                {/* Breakdown View Mode Switcher: Document Page vs Table Studio */}
-                {isBreakdownDoc && (
-                  <div className="flex items-center rounded-xl bg-zinc-900 border border-zinc-700/80 p-0.5 shadow-inner">
-                    <button
-                      onClick={() => setStudioViewMode('page')}
-                      className={`px-3 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all ${
-                        studioViewMode === 'page'
-                          ? 'bg-[#f5a623] text-black shadow-md'
-                          : 'text-zinc-400 hover:text-white'
-                      }`}
-                      title="Document Page with Embedded Table & Notes"
-                    >
-                      <BookOpen size={13} />
-                      <span>Document with Table</span>
-                    </button>
+                {/* View Mode Switcher: Document Page vs 2-Column Left/Right vs Breakdown Table */}
+                <div className="flex items-center rounded-xl bg-zinc-900 border border-zinc-700/80 p-0.5 shadow-inner">
+                  <button
+                    onClick={() => setStudioViewMode('page')}
+                    className={`px-3 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all ${
+                      studioViewMode === 'page'
+                        ? 'bg-[#f5a623] text-black shadow-md'
+                        : 'text-zinc-400 hover:text-white'
+                    }`}
+                    title="Standard Document View"
+                  >
+                    <BookOpen size={13} />
+                    <span>Document View</span>
+                  </button>
+                  <button
+                    onClick={() => setStudioViewMode('two-column')}
+                    className={`px-3 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all ${
+                      studioViewMode === 'two-column'
+                        ? 'bg-emerald-500 text-black shadow-md font-black'
+                        : 'text-zinc-400 hover:text-emerald-400'
+                    }`}
+                    title="Kollywood 2-Column Left-Right (இருபக்க காட்சி-வசனம்) layout"
+                  >
+                    <Columns size={13} />
+                    <span>2-Column Left/Right</span>
+                  </button>
+                  {isBreakdownDoc && (
                     <button
                       onClick={() => setStudioViewMode('table')}
                       className={`px-3 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all ${
@@ -2684,8 +2950,8 @@ export const DocumentVaultView: React.FC = () => {
                       <TableIcon size={13} />
                       <span>Table Studio</span>
                     </button>
-                  </div>
-                )}
+                  )}
+                </div>
 
                 {/* Reader Layout Mode */}
                 <div className="flex items-center rounded-lg bg-zinc-800/80 border border-zinc-700/60 p-0.5">
@@ -3071,6 +3337,21 @@ export const DocumentVaultView: React.FC = () => {
                       </div>
                     </div>
                   </div>
+                </div>
+              ) : studioViewMode === 'two-column' && selectedDoc ? (
+                /* TWO-COLUMN KOLLYWOOD SCREENPLAY DOCUMENT CANVAS */
+                <div className="w-full h-full flex-1 min-h-[900px]">
+                  <DocumentTwoColumnEditor
+                    document={selectedDoc}
+                    onSave={(updatedDoc) => {
+                      const updatedList = documents.map((d) => (d.id === updatedDoc.id ? updatedDoc : d));
+                      setDocuments(updatedList);
+                      saveProductionDocuments(updatedList);
+                      showToast('✓ Saved 2-Column Screenplay to Vault!');
+                    }}
+                    onClose={() => setStudioViewMode('page')}
+                    isLight={isLight}
+                  />
                 </div>
               ) : (
                 /* UNIVERSAL PAGINATED DOCUMENT READER */
@@ -3939,6 +4220,244 @@ export const DocumentVaultView: React.FC = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* =========================================================================
+          MODAL 4: TAMIL LEFT-RIGHT SCREENPLAY CONVERTER & WORD EXPORTER MODAL
+         ========================================================================= */}
+      {isTamilLeftRightModalOpen && tamilScreenplayData && (
+        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-3 sm:p-6 overflow-hidden animate-in fade-in duration-200">
+          <div className="w-full max-w-5xl h-[92vh] rounded-2xl bg-[#121216] border border-emerald-500/40 shadow-2xl flex flex-col text-gray-100 overflow-hidden">
+            {/* Modal Top Header */}
+            <div className="p-4 px-6 border-b border-zinc-800 bg-[#16161c] flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold border border-emerald-500/30 shadow-sm">
+                  <Columns size={20} />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-base font-bold text-white tracking-wide">
+                      {tamilScreenplayData.title || 'Screenplay'}
+                    </h2>
+                    <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                      தமிழ் இருபக்க வடிவம்
+                    </span>
+                  </div>
+                  <p className="text-xs text-zinc-400">
+                    {tamilScreenplayData.scenes.length} Scene(s) • Left: காட்சி (Action/Visuals) • Right: வசனம் (Dialogues/SFX)
+                  </p>
+                </div>
+              </div>
+
+              {/* Action Buttons in Header */}
+              <div className="flex items-center gap-2">
+                {/* Download Word (.docx) Button */}
+                <button
+                  onClick={handleDownloadTamilLeftRightWordDocx}
+                  disabled={isGeneratingDocx}
+                  className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-md transition-all cursor-pointer disabled:opacity-50"
+                  title="Generate & download real Microsoft Word (.docx) file with 2 columns"
+                >
+                  <Download size={13} />
+                  <span>{isGeneratingDocx ? 'Generating DOCX...' : 'Download Word (.docx)'}</span>
+                </button>
+
+                {/* Save to Vault Button */}
+                <button
+                  onClick={handleSaveTamilLeftRightToVault}
+                  className="px-3 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 font-bold text-xs flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
+                  title="Save this Left-Right format as a new permanent document in the vault"
+                >
+                  <Save size={13} className="text-amber-400" />
+                  <span className="hidden sm:inline">Save in Vault</span>
+                </button>
+
+                {/* Send to Script Editor Button */}
+                <button
+                  onClick={handleSendTamilScenesToScriptView}
+                  className="px-3 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 font-bold text-xs flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
+                  title="Create scene beats in Script & Storyboard Editor"
+                >
+                  <FileText size={13} className="text-cyan-400" />
+                  <span className="hidden md:inline">Send to Script</span>
+                </button>
+
+                {/* Open in Interactive Paragraph Touch-Up Studio */}
+                <button
+                  onClick={() => {
+                    setIsTamilLeftRightModalOpen(false);
+                    setStudioInitialDoc(selectedDoc);
+                    setInLeftRightStudio(true);
+                  }}
+                  className="px-3.5 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 font-bold text-xs flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
+                  title="Open Interactive Paragraph-by-Paragraph Studio to adjust Left / Right columns"
+                >
+                  <Columns size={13} className="text-amber-400" />
+                  <span>Interactive Studio</span>
+                </button>
+
+                {/* Download Original File */}
+                {(selectedDoc?.originalFileDataUrl || selectedDoc?.fileType === 'docx' || selectedDoc?.fileName?.endsWith('.docx')) && (
+                  <button
+                    onClick={() => handleDownloadOriginalFile()}
+                    className="px-3 py-1.5 rounded-xl bg-zinc-800/80 hover:bg-zinc-700 text-sky-400 border border-zinc-700 font-bold text-xs flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
+                    title="Download the original untouched Word document"
+                  >
+                    <Download size={13} />
+                    <span className="hidden lg:inline">Original File</span>
+                  </button>
+                )}
+
+                {/* Close Button */}
+                <button
+                  onClick={() => setIsTamilLeftRightModalOpen(false)}
+                  className="p-1.5 rounded-lg hover:bg-zinc-800 text-zinc-400 hover:text-white transition-colors ml-1"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+            </div>
+
+            {/* View Switcher Sub-bar */}
+            <div className="px-6 py-2 bg-zinc-950/60 border-b border-zinc-800/80 flex items-center justify-between text-xs font-mono">
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setTamilViewTab('visual')}
+                  className={`px-3 py-1 rounded-lg font-bold transition-all ${
+                    tamilViewTab === 'visual'
+                      ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                      : 'text-zinc-400 hover:text-zinc-200'
+                  }`}
+                >
+                  2-Column Shooting Layout
+                </button>
+                <button
+                  onClick={() => setTamilViewTab('typewriter')}
+                  className={`px-3 py-1 rounded-lg font-bold transition-all ${
+                    tamilViewTab === 'typewriter'
+                      ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                      : 'text-zinc-400 hover:text-zinc-200'
+                  }`}
+                >
+                  Kollywood Typewriter Script
+                </button>
+              </div>
+
+              <div className="flex items-center gap-3 text-zinc-400 text-[11px]">
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(tamilScreenplayData.rawText);
+                    showToast('✓ Copied Tamil screenplay text to clipboard!');
+                  }}
+                  className="flex items-center gap-1 hover:text-white text-zinc-400 cursor-pointer"
+                >
+                  <Copy size={12} /> Copy Text
+                </button>
+                <span className="opacity-40">•</span>
+                <span>Font: Vijaya / Unicode Tamil</span>
+              </div>
+            </div>
+
+            {/* Modal Body / Screenplay Content */}
+            <div className="flex-1 overflow-y-auto p-6 sm:p-10 bg-[#0d0d10] font-tamil-script" style={{ fontFamily: "'Vijaya', 'Latha', 'Nirmala UI', sans-serif" }}>
+              {tamilViewTab === 'visual' ? (
+                /* VISUAL 2-COLUMN TABLE FORMAT */
+                <div className="max-w-4xl mx-auto space-y-10">
+                  <div className="text-center pb-6 border-b border-dashed border-zinc-800">
+                    <h1 className="text-3xl font-extrabold text-emerald-400 mb-1 tracking-wide">
+                      {tamilScreenplayData.title || 'பைலட் ரங்கா'}
+                    </h1>
+                    <p className="text-xs text-zinc-400 font-sans">
+                      தமிழ் இருபக்க திரைக்கதை வடிவம் (Kollywood Left-Right Format)
+                    </p>
+                  </div>
+
+                  {tamilScreenplayData.scenes.map((scene, sIdx) => (
+                    <div key={sIdx} className="rounded-xl border border-zinc-800 bg-[#141418] overflow-hidden shadow-lg">
+                      {/* Slugline Bar */}
+                      <div className="bg-emerald-950/30 border-l-4 border-emerald-500 px-4 py-2.5 flex flex-wrap items-center justify-between text-xs font-bold text-emerald-300">
+                        <span>காட்சி : {scene.sceneNumber}</span>
+                        <span>இடம் : {scene.location}</span>
+                        <span>நேரம் : {scene.timeOfDay}</span>
+                      </div>
+
+                      {/* 2-Column Table */}
+                      <div className="p-4 sm:p-6">
+                        <div className="grid grid-cols-2 gap-6 pb-2 mb-3 border-b border-zinc-800/80 text-[11px] font-bold uppercase tracking-wider text-zinc-400 font-sans">
+                          <div>காட்சி விவரம் (Visual Action)</div>
+                          <div className="pl-4 border-l border-zinc-800">வசனம் & ஒலி (Dialogue & Audio)</div>
+                        </div>
+
+                        <div className="space-y-4 text-sm leading-relaxed text-zinc-200">
+                          {scene.items.map((item, iIdx) => {
+                            if (item.type === 'transition' || item.type === 'title') {
+                              return (
+                                <div key={iIdx} className="text-center py-3 text-emerald-400 font-bold text-base border-y border-dashed border-zinc-800 my-2">
+                                  {item.rawText}
+                                </div>
+                              );
+                            }
+
+                            return (
+                              <div key={iIdx} className="grid grid-cols-2 gap-6 items-start">
+                                {/* Left Action */}
+                                <div className="text-zinc-300 leading-relaxed text-sm pr-2">
+                                  {item.leftAction || ''}
+                                </div>
+
+                                {/* Right Dialogue & SFX */}
+                                <div className="pl-4 border-l border-zinc-800/60 leading-relaxed text-sm">
+                                  {item.rightCharacter && (
+                                    <div className="font-bold text-sky-400 text-[13px] mb-1">
+                                      {item.rightCharacter} :
+                                    </div>
+                                  )}
+                                  {item.rightDialogue && (
+                                    <div className="text-zinc-100 pl-2 mb-1">
+                                      {item.rightDialogue}
+                                    </div>
+                                  )}
+                                  {item.rightAudioSfx && (
+                                    <div className="text-rose-400 italic text-xs mt-1">
+                                      SFX: {item.rightAudioSfx}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                /* TYPEWRITER TABBED FORMAT */
+                <div className="max-w-3xl mx-auto p-8 rounded-xl bg-[#141418] border border-zinc-800 font-mono text-sm leading-loose whitespace-pre-wrap text-zinc-300">
+                  {tamilScreenplayData.rawText}
+                </div>
+              )}
+            </div>
+
+            {/* Modal Bottom Footer */}
+            <div className="p-3 px-6 bg-[#16161c] border-t border-zinc-800 flex items-center justify-between text-xs font-mono text-zinc-400">
+              <div className="flex items-center gap-2">
+                <span className="text-emerald-400 font-bold">✓ Ready for Production:</span>
+                <span>Compatible with MS Word, Final Draft, and Kollywood shoot schedules.</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleDownloadTamilLeftRightWordDocx}
+                  disabled={isGeneratingDocx}
+                  className="px-3 py-1 rounded bg-emerald-500 hover:bg-emerald-400 text-black font-bold flex items-center gap-1 cursor-pointer"
+                >
+                  <Download size={12} />
+                  Download .DOCX
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

@@ -7,7 +7,7 @@ import {
   PanelLeftClose, PanelLeft, Settings, Sun, Moon, Sparkles, Inbox,
   RotateCcw, RotateCw, Target, CheckCircle2, Check, PenTool, SlidersHorizontal,
   User, Cloud, CloudOff, Wifi, WifiOff, LogOut, LogIn, Users as UsersIcon,
-  Workflow
+  Workflow, Columns
 } from 'lucide-react';
 import { useAiKeyStatus } from '../context/AiKeyStatusContext';
 import { InviteManagerModal } from './InviteManagerModal';
@@ -88,6 +88,7 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
       { id: 'board' as ViewMode, label: translateUi('Causality', appLanguage), icon: Workflow },
       { id: 'excalidraw' as ViewMode, label: translateUi('Excalidraw', appLanguage), icon: PenTool },
       { id: 'script' as ViewMode, label: translateUi('Script', appLanguage), icon: FileText },
+      { id: 'two-column-script' as ViewMode, label: '2-Col Script', icon: Columns },
       { id: 'casting' as ViewMode, label: translateUi('Casting & Roster', appLanguage), icon: Users },
       { id: 'breakdown' as ViewMode, label: translateUi('Breakdown', appLanguage), icon: Layers },
       { id: 'continuity' as ViewMode, label: translateUi('Continuity', appLanguage), icon: Clock },

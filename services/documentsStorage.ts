@@ -241,7 +241,110 @@ export function buildBreakdownSheetDataFromBeat(b: any): any[][] {
   return rows;
 }
 
+export const PILOT_RANGA_SCRIPT_DOC: ProductionDocument = {
+  id: 'doc-ranga-1',
+  title: 'பைலட் ரங்கா - அசல் திரைக்கதை (Pilot Ranga Word Script)',
+  titleTa: 'பைலட் ரங்கா - அசல் திரைக்கதை',
+  category: 'SCRIPT',
+  fileName: 'Pilot_Ranga_Screenplay.docx',
+  fileSize: '1.4 MB',
+  fileType: 'docx',
+  pageCount: 3,
+  uploadedAt: new Date().toISOString(),
+  builtInType: 'script',
+  author: 'Screenwriter Ramesh',
+  status: 'draft',
+  tags: ['Script', 'Word File', 'Pilot Ranga', 'Kollywood Format'],
+  annotations: [],
+  textContent: `காட்சி : 1   இடம் : ஆந்திரா காடு   நேரம் : Nig/Ext
+
+வானம் இடி இடிக்க, கனமழை பொழிந்து கொண்டிருக்க, புயல் வீசிக்கொண்டு இருக்க. வெட்டப்பட்ட செம்மரங்களையெல்லாம் ஒரு பெரும் கூட்டம் தூக்கி வந்து கொண்டிருக்கிறது. போலீசை பார்த்தும் கட்டையை போட்டுவிட்டு ஓட போலீஸ் செம்மரத்தை கடத்திய நபர்களை எல்லாம் வலுக்கட்டாயமாக பிடித்துவந்து சட்டையை கழட்டச்சொல்லி அறையாடையில்லாமல் உட்காரவைத்திருப்பது. இன்னும் கட்டையை கடத்திய நபர்கள் எல்லாரையும் போலீஸ் வேறு திசைகளில் இருந்து பிடித்துக்கொண்டு வந்து முட்டி போட வைப்பது. முன்னாதாகவே பிடிபட்ட நபர்கள் எல்லோரும் உயிர்போகும் பீதியில் இருக்கிறார்கள்.. பலர் முகத்திலும் உடலிலும் ரத்தகாயங்கள் காணப்படுவது. கமிஷ்னர் அவர்களை நோக்கி சுடுகிறார். எல்லாரும் அலறும் சத்தம் கேட்கிறது. துப்பாக்கி வெடிக்கும் சத்தம் கேட்கிறது-
+
+Fade out - Fade in
+
+பைலட் ரங்கா
+
+டைட்டல் வருவது.
+
+2011 சேலம் மாவட்டம் வெள்ளிமலை என்று திரையில் பெயர் டைப்பிங்காவது.
+
+காட்சி : 2   இடம் : சேலம் காடு   நேரம் : Day/Ext
+
+வானத்தில் இருந்து கேமரா கீழே இறங்கி காட்டை காட்டப்பட, அடர்த்தியான காடுகளாக காணப்படுகிறது. காட்டுக்குள் புருசம் மரங்களையும், துரிஞ்சை மரங்களையும் ரங்கா வெட்டிக்கொண்டிருப்பது. நல்ல உயரமான மரங்களை வெட்டி சாய்ப்பது. சிலரும் அருகில் மரங்களை வெட்டிக்கொண்டிருக்க, அதனை எல்லாகமையாக்கி தூக்கி கொண்டு ரங்கா நடந்து வர.
+
+காட்சி : 30   இடம் : திருவண்ணாமலை பேருந்து நிலையம்   நேரம் : Nig/Ext
+
+1-மணிக்கு பேருந்து நிலையத்தில் எல்லா ஆட்களும் இறங்குவது.
+
+ஏராளமான பேருந்துகள் நின்றுகொண்டிருப்பது. பயணிகள் எல்லாம் பேருந்தில் ஏறிக்கொண்டிருப்பது.. சிலர் டீ கடைகளில் நின்று டீ குடித்துக்கொண்டு இருக்க,.. தயக்கத்துடன்
+
+சுரேஷ் :
+ஏம்பா எல்லாருக்கும் தெரியும் இருந்தாலும் சொல்றேன் ரெண்டு ரெண்டு பேரா போயி தனி தனியா நில்லுங்க..
+
+கருப்பு சங்கர்:
+ஏய் சுரேஷ் எங்களுக்கு தெரியும்.. நீ ரங்கா கூட போ
+
+ஆட்கள் ஆங்காங்கே தனியாக சென்று கடைகளில் நிற்பது.
+
+ரங்கா சந்துரு டிக்கெட் கவுண்டருக்கு வேகமாக போவது.
+
+கண்டக்டருக்கும் ஓட்டுநருக்கும் கட்டு பணத்தை டேபிளில் வைப்பது.
+
+சந்துரு:
+இந்தாங்கப்பா டிக்கெட்டு காசு இதுல உங்களுக்கு.. வண்டிகளுக்கும்.. எல்லாம் சேர்த்து வெச்சி இருக்கு..
+
+ஏழுமலை:
+சார் நிலவரம் எல்லாம்
+
+சந்துரு:
+ஏழுமலை:
+எந்துதான் சார்..
+
+ஆறுமுகம்:
+கொஞ்சம் பாத்து பண்ணுங்க.. சந்துரு சார்..
+
+காட்சி : 3   இடம் : கிராமத்து பாதை   நேரம் : Day/Ext
+
+செடிகள் அடர்ந்த வண்டிப் பாதையில் சீதா மாட்டைப் பிடித்துக்கொண்டு வர, ஜெயராமன் மண்வெட்டியை தோளில் மாட்டிக்கொண்டு ஒயர்கூடையை கையில் எடுத்துக்கொண்டு தாழ்வான பகுதியில் இருந்து மேடான பகுதியை நோக்கி நடந்து வருவது.
+
+சீதா : த. எப்ப பார்த்தாலும் உன் பங்காளி வீட்டு நிலத்துக்கே கூலிக்கு போற அசிங்கம்மா இல்ல... மனுசனா நீ! ஏன், உங்களுக்கெல்லாம் நெலம்பலமே இல்லையா?
+
+ஜெயராமன் : மனுசந்தான்.. யாரு இல்லன்னா.. எங்கப்பன் தாத்த.. எல்லாத்தையும் அழிச்சிட்டானுங்க. அதுக்கு நான் என்ன பண்றது.. ஒன்னும் இல்லாதவன்னு தெரிஞ்சிதான கல்யாணம் பண்ண. இப்போ வந்து வாயாடுற.. வாய் மூடிகினு வா.
+
+சீதா : இன்னாது வாய மூடினு வரவா.. மூடலனா.. என்ன பண்ணுவ.. என்ன பண்ணுவ.. சண்டைக்கு வறியா.. வா வாவா வா.. சண்ட போடலாம்மா.. வாயா வாயா அவ்வளவுதான் மரியாதை..
+
+மாட்டை மொல குச்சியில் கட்டிவிட்டு அருகில் செல்ல.`,
+  htmlContent: `<div style="font-family: 'Vijaya', 'Latha', sans-serif; font-size: 15px; line-height: 1.8; padding: 10px;">
+<p style="font-weight: bold; border-bottom: 2px solid #16a34a; padding-bottom: 6px; margin-bottom: 14px;">காட்சி : 1 &nbsp;&nbsp;&nbsp;&nbsp; இடம் : ஆந்திரா காடு &nbsp;&nbsp;&nbsp;&nbsp; நேரம் : Nig/Ext</p>
+<p>வானம் இடி இடிக்க, கனமழை பொழிந்து கொண்டிருக்க, புயல் வீசிக்கொண்டு இருக்க. வெட்டப்பட்ட செம்மரங்களையெல்லாம் ஒரு பெரும் கூட்டம் தூக்கி வந்து கொண்டிருக்கிறது. போலீசை பார்த்தும் கட்டையை போட்டுவிட்டு ஓட போலீஸ் செம்மரத்தை கடத்திய நபர்களை எல்லாம் வலுக்கட்டாயமாக பிடித்துவந்து சட்டையை கழட்டச்சொல்லி அறையாடையில்லாமல் உட்காரவைத்திருப்பது. இன்னும் கட்டையை கடத்திய நபர்கள் எல்லாரையும் போலீஸ் வேறு திசைகளில் இருந்து பிடித்துக்கொண்டு வந்து முட்டி போட வைப்பது. முன்னாதாகவே பிடிபட்ட நபர்கள் எல்லோரும் உயிர்போகும் பீதியில் இருக்கிறார்கள்.. பலர் முகத்திலும் உடலிலும் ரத்தகாயங்கள் காணப்படுவது. கமிஷ்னர் அவர்களை நோக்கி சுடுகிறார். எல்லாரும் அலறும் சத்தம் கேட்கிறது. துப்பாக்கி வெடிக்கும் சத்தம் கேட்கிறது-</p>
+<p style="text-align: center; font-style: italic; margin: 20px 0;">Fade out - Fade in</p>
+<p style="text-align: center; font-size: 24px; font-weight: bold; color: #16a34a; margin: 10px 0;">பைலட் ரங்கா</p>
+<p style="text-align: center; font-size: 14px; margin-bottom: 8px;">டைட்டல் வருவது.</p>
+<p style="font-style: italic; text-align: center; margin-bottom: 24px;">2011 சேலம் மாவட்டம் வெள்ளிமலை என்று திரையில் பெயர் டைப்பிங்காவது.</p>
+<p style="font-weight: bold; border-bottom: 2px solid #16a34a; padding-bottom: 6px; margin-bottom: 14px;">காட்சி : 2 &nbsp;&nbsp;&nbsp;&nbsp; இடம் : சேலம் காடு &nbsp;&nbsp;&nbsp;&nbsp; நேரம் : Day/Ext</p>
+<p>வானத்தில் இருந்து கேமரா கீழே இறங்கி காட்டை காட்டப்பட, அடர்த்தியான காடுகளாக காணப்படுகிறது. காட்டுக்குள் புருசம் மரங்களையும், துரிஞ்சை மரங்களையும் ரங்கா வெட்டிக்கொண்டிருப்பது. நல்ல உயரமான மரங்களை வெட்டி சாய்ப்பது. சிலரும் அருகில் மரங்களை வெட்டிக்கொண்டிருக்க, அதனை எல்லாகமையாக்கி தூக்கி கொண்டு ரங்கா நடந்து வர.</p>
+<p style="font-weight: bold; border-bottom: 2px solid #16a34a; padding-bottom: 6px; margin-top: 24px; margin-bottom: 14px;">காட்சி : 30 &nbsp;&nbsp;&nbsp;&nbsp; இடம் : திருவண்ணாமலை பேருந்து நிலையம் &nbsp;&nbsp;&nbsp;&nbsp; நேரம் : Nig/Ext</p>
+<p>1-மணிக்கு பேருந்து நிலையத்தில் எல்லா ஆட்களும் இறங்குவது. ஏராளமான பேருந்துகள் நின்றுகொண்டிருப்பது. பயணிகள் எல்லாம் பேருந்தில் ஏறிக்கொண்டிருப்பது.. சிலர் டீ கடைகளில் நின்று டீ குடித்துக்கொண்டு இருக்க,.. தயக்கத்துடன்</p>
+<p style="margin-left: 45%; margin-bottom: 2px; font-weight: bold; color: #0284c7;">சுரேஷ் :</p>
+<p style="margin-left: 45%; margin-bottom: 12px;">ஏம்பா எல்லாருக்கும் தெரியும் இருந்தாலும் சொல்றேன் ரெண்டு ரெண்டு பேரா போயி தனி தனியா நில்லுங்க..</p>
+<p style="margin-left: 45%; margin-bottom: 2px; font-weight: bold; color: #0284c7;">கருப்பு சங்கர்:</p>
+<p style="margin-left: 45%; margin-bottom: 12px;">ஏய் சுரேஷ் எங்களுக்கு தெரியும்.. நீ ரங்கா கூட போ</p>
+<p>ஆட்கள் ஆங்காங்கே தனியாக சென்று கடைகளில் நிற்பது. ரங்கா சந்துரு டிக்கெட் கவுண்டருக்கு வேகமாக போவது. கண்டக்டருக்கும் ஓட்டுநருக்கும் கட்டு பணத்தை டேபிளில் வைப்பது.</p>
+<p style="margin-left: 45%; margin-bottom: 2px; font-weight: bold; color: #0284c7;">சந்துரு:</p>
+<p style="margin-left: 45%; margin-bottom: 12px;">இந்தாங்கப்பா டிக்கெட்டு காசு இதுல உங்களுக்கு.. வண்டிகளுக்கும்.. எல்லாம் சேர்த்து வெச்சி இருக்கு..</p>
+<p style="margin-left: 45%; margin-bottom: 2px; font-weight: bold; color: #0284c7;">ஏழுமலை:</p>
+<p style="margin-left: 45%; margin-bottom: 12px;">சார் நிலவரம் எல்லாம்</p>
+<p style="margin-left: 45%; margin-bottom: 2px; font-weight: bold; color: #0284c7;">சந்துரு:</p>
+<p style="margin-left: 45%; margin-bottom: 12px;">நான் பாத்துக்குறேன் ஏழுமலை யார் வண்டி முதல்ல கெளம்புது</p>
+<p style="margin-left: 45%; margin-bottom: 2px; font-weight: bold; color: #0284c7;">ஏழுமலை:</p>
+<p style="margin-left: 45%; margin-bottom: 12px;">எந்துதான் சார்..</p>
+<p style="margin-left: 45%; margin-bottom: 2px; font-weight: bold; color: #0284c7;">ஆறுமுகம்:</p>
+<p style="margin-left: 45%; margin-bottom: 12px;">கொஞ்சம் பாத்து பண்ணுங்க.. சந்துரு சார்..</p>
+</div>`,
+};
+
 export const INITIAL_DOCUMENTS: ProductionDocument[] = [
+  PILOT_RANGA_SCRIPT_DOC,
   {
     id: 'doc-1',
     title: "Director's Visual Treatment & Lookbook",
@@ -545,6 +648,12 @@ export function getProductionDocuments(): ProductionDocument[] {
       return doc;
     });
 
+    // Check if doc-ranga-1 is present; if not, prepend it
+    if (!migrated.some((doc: ProductionDocument) => doc.id === 'doc-ranga-1')) {
+      hasMigrated = true;
+      migrated.unshift(PILOT_RANGA_SCRIPT_DOC);
+    }
+
     if (hasMigrated) {
       saveProductionDocuments(migrated);
       return migrated;
@@ -601,6 +710,11 @@ export function addProductionDocument(
     archivedAt: doc.archivedAt,
     tags: doc.tags || [],
     status: doc.status || 'review',
+    originalFileDataUrl: doc.originalFileDataUrl,
+    originalFileName: doc.originalFileName,
+    isLeftRightFormat: doc.isLeftRightFormat,
+    leftRightDocId: doc.leftRightDocId,
+    sourceDocId: doc.sourceDocId,
   };
 
   // Prevent duplicate titles if exact same ID exists

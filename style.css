@@ -996,8 +996,15 @@ input.slug-input:focus,
 /* --- Script Autocomplete & Slug Dropdowns --- */
 .script-dropdown,
 .slug-dropdown {
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.12), 0 0 0 1px rgba(0, 0, 0, 0.05);
+}
+
+.dark .script-dropdown,
+.dark .slug-dropdown,
+[data-theme='dark'] .script-dropdown,
+[data-theme='dark'] .slug-dropdown {
   border-color: color-mix(in srgb, var(--app-accent, #f5a623) 50%, #444) !important;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35), 0 0 0 1px color-mix(in srgb, var(--app-accent, #f5a623) 25%, transparent) !important;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45), 0 0 0 1px color-mix(in srgb, var(--app-accent, #f5a623) 25%, transparent) !important;
 }
 
 .slug-dropdown-item.active,

@@ -18,6 +18,17 @@ export interface ParsedDocumentResult {
   pdfDataUrl?: string;
   imageDataUrl?: string;
   isBaminiConverted?: boolean;
+  originalFileDataUrl?: string;
+  originalFileName?: string;
+}
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve((reader.result as string) || '');
+    reader.onerror = () => resolve('');
+    reader.readAsDataURL(file);
+  });
 }
 
 /**
@@ -31,6 +42,7 @@ export async function parseUniversalFile(file: File, defaultCategory: Production
   const title = fileName.replace(/\.[^/.]+$/, '');
   const sizeMb = (file.size / (1024 * 1024)).toFixed(1);
   const fileSize = file.size < 1024 * 1024 ? `${(file.size / 1024).toFixed(0)} KB` : `${sizeMb} MB`;
+  const originalFileDataUrl = await readFileAsDataUrl(file);
 
   // 1. Word Documents (.docx, .doc)
   if (extension === '.docx' || extension === '.doc') {
@@ -63,6 +75,8 @@ export async function parseUniversalFile(file: File, defaultCategory: Production
         htmlContent: rawHtml,
         textContent: rawText,
         isBaminiConverted: isBamini,
+        originalFileDataUrl,
+        originalFileName: fileName,
       };
     } catch (err) {
       console.error('Word Document parsing failed:', err);
@@ -89,6 +103,8 @@ export async function parseUniversalFile(file: File, defaultCategory: Production
         sheetData,
         htmlContent,
         textContent: `Spreadsheet: ${fileName} (${sheetData.length} rows)`,
+        originalFileDataUrl,
+        originalFileName: fileName,
       };
     } catch (err) {
       console.error('Spreadsheet parsing failed:', err);
@@ -110,6 +126,8 @@ export async function parseUniversalFile(file: File, defaultCategory: Production
           pageCount: 1,
           imageDataUrl: dataUrl,
           textContent: `Visual asset: ${fileName}`,
+          originalFileDataUrl: dataUrl,
+          originalFileName: fileName,
         });
       };
       reader.readAsDataURL(file);
@@ -131,6 +149,8 @@ export async function parseUniversalFile(file: File, defaultCategory: Production
           pageCount: 3, // Initial estimate for multi-page viewer
           pdfDataUrl: dataUrl,
           textContent: `PDF Document: ${fileName}`,
+          originalFileDataUrl: dataUrl,
+          originalFileName: fileName,
         });
       };
       reader.readAsDataURL(file);
@@ -159,6 +179,8 @@ export async function parseUniversalFile(file: File, defaultCategory: Production
       textContent: text,
       htmlContent,
       isBaminiConverted: isBamini,
+      originalFileDataUrl,
+      originalFileName: fileName,
     };
   } catch (err) {
     console.error('File reading failed:', err);
@@ -170,6 +192,8 @@ export async function parseUniversalFile(file: File, defaultCategory: Production
       category: defaultCategory,
       pageCount: 1,
       textContent: `File: ${fileName}`,
+      originalFileDataUrl,
+      originalFileName: fileName,
     };
   }
 }
