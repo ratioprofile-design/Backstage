@@ -23,6 +23,7 @@
     "docx": "^9.8.1",
     "html2canvas": "1.4.1",
     "jspdf": "2.5.1",
+    "jszip": "^3.10.1",
     "lucide-react": "0.460.0",
     "mammoth": "^1.12.3",
     "pdfjs-dist": "3.11.174",

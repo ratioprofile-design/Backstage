@@ -37,6 +37,11 @@ import {
   downloadOriginalDocumentFile,
   TamilScreenplayData,
 } from '../../services/tamilLeftRightEngine';
+import {
+  transcodeDocxBinaryBaminiToUnicode,
+  downloadConvertedDocxFile,
+  downloadDataUrlAsFile,
+} from '../../services/docxBaminiTranscoder';
 import { TamilLeftRightStudioView } from './TamilLeftRightStudioView';
 import { DocumentTwoColumnEditor } from './DocumentTwoColumnEditor';
 import confetti from 'canvas-confetti';
@@ -1064,6 +1069,8 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
         annotations: [],
         originalFileDataUrl: parsed.originalFileDataUrl,
         originalFileName: parsed.fileName,
+        convertedDocxDataUrl: parsed.convertedDocxDataUrl,
+        isBaminiConverted: parsed.isBaminiConverted,
       };
 
       const updated = [newDoc, ...documents];
@@ -1071,11 +1078,45 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
       setSelectedDocId(newDoc.id);
       setInStudioMode(true);
       confetti({ particleCount: 35, spread: 50, origin: { y: 0.6 } });
-      showToast(`✓ Imported "${parsed.fileName}" into Vault (Original preserved)!`);
+      showToast(`✓ Imported "${parsed.fileName}" into Vault (Original formatting & Unicode preserved)!`);
     } catch (err) {
       console.error(err);
       showToast('Failed to parse uploaded document.');
     }
+  };
+
+  // Download Word (.docx) with Bamini converted to Unicode, preserving 100% of the original file format, styling, sizes, colors and tables
+  const handleDownloadConvertedWordDocx = async (docToDownload?: ProductionDocument) => {
+    const doc = docToDownload || selectedDoc;
+    if (!doc) return;
+
+    let dataUrl = doc.convertedDocxDataUrl;
+
+    // If converted file dataUrl isn't cached yet, but we have original docx dataUrl:
+    if (!dataUrl && doc.originalFileDataUrl && (doc.fileName?.endsWith('.docx') || doc.fileType === 'docx')) {
+      showToast('Converting Word document to Unicode (preserving original format, colors & sizes)...');
+      try {
+        const res = await transcodeDocxBinaryBaminiToUnicode(doc.originalFileDataUrl);
+        dataUrl = res.convertedDataUrl;
+        doc.convertedDocxDataUrl = dataUrl;
+        doc.isBaminiConverted = true;
+        const nextList = documents.map((d) => (d.id === doc.id ? { ...d, convertedDocxDataUrl: dataUrl, isBaminiConverted: true } : d));
+        updateDocuments(nextList);
+      } catch (err) {
+        console.error('On-the-fly docx transcoding failed:', err);
+      }
+    }
+
+    if (dataUrl) {
+      const base = (doc.originalFileName || doc.fileName || doc.title).replace(/\.docx$/i, '');
+      const downloadName = `${base}_Unicode.docx`;
+      downloadDataUrlAsFile(dataUrl, downloadName);
+      confetti({ particleCount: 35, spread: 60, origin: { y: 0.7 } });
+      showToast(`✓ Downloaded "${downloadName}" (original formatting, text sizes & colors preserved)!`);
+      return;
+    }
+
+    showToast('Word binary conversion not available for this document.');
   };
 
   // Download original file (exact byte-level file preservation)
@@ -1848,15 +1889,27 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                 <span>{studioViewMode === 'two-column' ? 'Standard View' : '2-Column Left/Right'}</span>
               </button>
 
+              {/* Download Converted Word (.docx) */}
+              {(selectedDoc?.convertedDocxDataUrl || selectedDoc?.isBaminiConverted || isBaminiDetected) && (
+                <button
+                  onClick={() => handleDownloadConvertedWordDocx()}
+                  className="px-2.5 py-1.5 text-xs font-bold rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
+                  title="Download Word (.docx) with Bamini converted to Unicode (preserving 100% of original formatting, font sizes, colors and tables)"
+                >
+                  <Download size={13} className="text-emerald-400" />
+                  <span>Download Converted (.docx)</span>
+                </button>
+              )}
+
               {/* Download Original File (.docx) */}
               {(selectedDoc?.originalFileDataUrl || selectedDoc?.fileType === 'docx' || selectedDoc?.fileName?.endsWith('.docx')) && (
                 <button
-                  onClick={() => handleDownloadOriginalFile()}
-                  className="px-2.5 py-1.5 text-xs font-bold rounded-lg bg-sky-500/15 hover:bg-sky-500/25 text-sky-400 border border-sky-500/40 flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
-                  title="Download the original untouched Word document"
+                  onClick={() => handleDownloadOriginalFile(selectedDoc)}
+                  className="px-2.5 py-1.5 text-xs font-bold rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700 flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
+                  title="Download the raw original Word document"
                 >
                   <Download size={13} />
-                  <span className="hidden sm:inline">Download Original</span>
+                  <span className="hidden sm:inline">Raw Original</span>
                 </button>
               )}
 
@@ -4298,12 +4351,24 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                   <span>Interactive Studio</span>
                 </button>
 
+                {/* Download Converted Word (.docx) (Preserving original formatting, sizes & colors) */}
+                {(selectedDoc?.convertedDocxDataUrl || selectedDoc?.isBaminiConverted || isBaminiDetected) && (
+                  <button
+                    onClick={() => handleDownloadConvertedWordDocx()}
+                    className="px-3 py-1.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 font-bold text-xs flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
+                    title="Download Word (.docx) with Bamini converted to Unicode (preserving 100% of original formatting, font sizes, colors and tables)"
+                  >
+                    <Download size={13} className="text-emerald-400" />
+                    <span>Converted DOCX (Original Style)</span>
+                  </button>
+                )}
+
                 {/* Download Original File */}
                 {(selectedDoc?.originalFileDataUrl || selectedDoc?.fileType === 'docx' || selectedDoc?.fileName?.endsWith('.docx')) && (
                   <button
-                    onClick={() => handleDownloadOriginalFile()}
+                    onClick={() => handleDownloadOriginalFile(selectedDoc)}
                     className="px-3 py-1.5 rounded-xl bg-zinc-800/80 hover:bg-zinc-700 text-sky-400 border border-zinc-700 font-bold text-xs flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
-                    title="Download the original untouched Word document"
+                    title="Download the raw untouched Word document"
                   >
                     <Download size={13} />
                     <span className="hidden lg:inline">Original File</span>

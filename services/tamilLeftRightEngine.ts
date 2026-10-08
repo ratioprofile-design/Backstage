@@ -9,6 +9,7 @@ import {
   AlignmentType,
   BorderStyle,
   Packer,
+  UnderlineType,
 } from 'docx';
 import { ProductionDocument } from '../types';
 
@@ -491,11 +492,185 @@ export function generateTamilLeftRightHtml(data: TamilScreenplayData): string {
   return html;
 }
 
+export interface DocxExportOptions {
+  baseFontFamily?: string;
+  baseFontSizePx?: number;
+  baseLineHeight?: number;
+  characterColor?: string;
+  columnSplitPercent?: number;
+  sceneHeadingStyle?: 'kollywood' | 'card' | 'typewriter' | 'underline' | 'boxed' | 'none';
+  gapSceneHeaderPx?: number;
+  gapParagraphRowPx?: number;
+  sceneHeadingFontFamily?: string;
+  sceneHeadingFontSizePx?: number;
+  marginTopMm?: number;
+  marginBottomMm?: number;
+  marginLeftMm?: number;
+  marginRightMm?: number;
+  paperStandard?: 'A4' | 'US_Letter' | 'Legal';
+  freshPagePerScene?: boolean;
+  showDivider?: boolean;
+  dividerStyle?: 'hairline' | 'dashed' | 'none';
+}
+
 /**
- * Generates an authentic Microsoft Word (.docx) file reflecting the exact user column assignments
+ * Helper to parse text containing formatting (bold, italic, underline, newlines)
+ * and generate accurate docx TextRun elements with preserved styles & complex script support.
  */
-export async function generateTamilLeftRightDocx(data: TamilScreenplayData): Promise<Blob> {
+function parseFormattedRuns(
+  text: string,
+  baseOpts: {
+    font: { ascii: string; hAnsi: string; cs: string; hint?: string };
+    size: number;
+    color?: string;
+    bold?: boolean;
+    italics?: boolean;
+    underline?: boolean;
+  }
+): TextRun[] {
+  if (!text) return [];
+
+  // Normalize newlines
+  const normalized = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  const lines = normalized.split('\n');
+  const runs: TextRun[] = [];
+
+  lines.forEach((line, lineIdx) => {
+    const isFirstLine = lineIdx === 0;
+
+    // Check if line contains markdown or html formatting tags:
+    // e.g. **bold**, *italic*, <b>bold</b>, <strong>bold</strong>, <i>italic</i>, <em>italic</em>, <u>underline</u>
+    const tokenRegex = /(\*\*[^*]+\*\*|\*[^*]+\*|<b>.*?<\/b>|<strong>.*?<\/strong>|<i>.*?<\/i>|<em>.*?<\/em>|<u>.*?<\/u>)/g;
+    const parts = line.split(tokenRegex);
+
+    if (parts.length === 1) {
+      runs.push(
+        new TextRun({
+          text: line,
+          break: isFirstLine ? undefined : 1,
+          font: baseOpts.font,
+          size: baseOpts.size,
+          sizeComplexScript: baseOpts.size,
+          bold: baseOpts.bold,
+          boldComplexScript: baseOpts.bold,
+          italics: baseOpts.italics,
+          italicsComplexScript: baseOpts.italics,
+          underline: baseOpts.underline ? { type: UnderlineType.SINGLE } : undefined,
+          color: baseOpts.color,
+        })
+      );
+    } else {
+      let isFirstPartInLine = true;
+      for (const part of parts) {
+        if (!part) continue;
+        const lineBreak = isFirstPartInLine && !isFirstLine ? 1 : undefined;
+        isFirstPartInLine = false;
+
+        let content = part;
+        let isBold = baseOpts.bold || false;
+        let isItalic = baseOpts.italics || false;
+        let isUnderline = baseOpts.underline || false;
+
+        if (part.startsWith('**') && part.endsWith('**') && part.length >= 4) {
+          isBold = true;
+          content = part.slice(2, -2);
+        } else if (part.startsWith('*') && part.endsWith('*') && part.length >= 2) {
+          isItalic = true;
+          content = part.slice(1, -1);
+        } else if (part.startsWith('<b>') && part.endsWith('</b>')) {
+          isBold = true;
+          content = part.slice(3, -4);
+        } else if (part.startsWith('<strong>') && part.endsWith('</strong>')) {
+          isBold = true;
+          content = part.slice(8, -9);
+        } else if (part.startsWith('<i>') && part.endsWith('</i>')) {
+          isItalic = true;
+          content = part.slice(3, -4);
+        } else if (part.startsWith('<em>') && part.endsWith('</em>')) {
+          isItalic = true;
+          content = part.slice(4, -5);
+        } else if (part.startsWith('<u>') && part.endsWith('</u>')) {
+          isUnderline = true;
+          content = part.slice(3, -4);
+        }
+
+        runs.push(
+          new TextRun({
+            text: content,
+            break: lineBreak,
+            font: baseOpts.font,
+            size: baseOpts.size,
+            sizeComplexScript: baseOpts.size,
+            bold: isBold,
+            boldComplexScript: isBold,
+            italics: isItalic,
+            italicsComplexScript: isItalic,
+            underline: isUnderline ? { type: UnderlineType.SINGLE } : undefined,
+            color: baseOpts.color,
+          })
+        );
+      }
+    }
+  });
+
+  return runs;
+}
+
+/**
+ * Generates an authentic Microsoft Word (.docx) file:
+ * - Completely borderless 2-column rows (zero boxes, zero table gridlines)
+ * - Preserves font styles, font sizes, complex script formatting, and character colors
+ */
+export async function generateTamilLeftRightDocx(
+  data: TamilScreenplayData,
+  options?: Partial<DocxExportOptions>
+): Promise<Blob> {
   const children: (Paragraph | Table)[] = [];
+
+  // Extract clean primary font name
+  const rawFont = options?.baseFontFamily || "'Vijaya', 'Latha', 'Mukta Malar', 'Noto Sans Tamil', system-ui, sans-serif";
+  const fontMatch = rawFont.match(/['"]([^'"]+)['"]/);
+  const primaryFont = fontMatch ? fontMatch[1] : (rawFont.includes('Latha') ? 'Latha' : 'Vijaya');
+
+  // OpenXML Font mapping for both Latin (ascii, hAnsi) and Tamil Complex Script (cs)
+  const fontObj = {
+    name: primaryFont,
+    ascii: primaryFont,
+    hAnsi: primaryFont,
+    cs: primaryFont,
+    hint: 'cs',
+  };
+
+  // Base font size in half-points (22 = 11pt, 24 = 12pt)
+  const basePx = options?.baseFontSizePx || 13.5;
+  const fontSizeHalfPt = Math.round(basePx * 1.63);
+
+  // Character name color in hex
+  let charColor = (options?.characterColor || '#0284c7').replace('#', '').toUpperCase();
+  if (!/^[0-9A-F]{6}$/i.test(charColor)) charColor = '0284C7';
+
+  // Column split widths (total 10000 DXA)
+  const splitPercent = options?.columnSplitPercent ?? 48;
+  const totalWidthDxa = 10000;
+  const leftColWidth = Math.round(totalWidthDxa * (splitPercent / 100));
+  const rightColWidth = totalWidthDxa - leftColWidth;
+
+  // Zero-border definitions to eliminate table boxes in Microsoft Word
+  const NO_BORDER = { style: BorderStyle.NONE, size: 0, color: 'auto' };
+  const NO_CELL_BORDERS = {
+    top: NO_BORDER,
+    bottom: NO_BORDER,
+    left: NO_BORDER,
+    right: NO_BORDER,
+  };
+  const NO_TABLE_BORDERS = {
+    top: NO_BORDER,
+    bottom: NO_BORDER,
+    left: NO_BORDER,
+    right: NO_BORDER,
+    insideHorizontal: NO_BORDER,
+    insideVertical: NO_BORDER,
+  };
 
   // Title Banner
   children.push(
@@ -506,9 +681,11 @@ export async function generateTamilLeftRightDocx(data: TamilScreenplayData): Pro
         new TextRun({
           text: data.title || 'திரைக்கதை',
           bold: true,
-          size: 36, // 18pt
+          boldComplexScript: true,
+          size: fontSizeHalfPt + 14,
+          sizeComplexScript: fontSizeHalfPt + 14,
           color: '16A34A',
-          font: 'Vijaya',
+          font: fontObj,
         }),
       ],
     }),
@@ -519,9 +696,11 @@ export async function generateTamilLeftRightDocx(data: TamilScreenplayData): Pro
         new TextRun({
           text: 'தமிழ் இருபக்க திரைக்கதை வடிவம் (Kollywood Left-Right Screenplay Format)',
           italics: true,
-          size: 20, // 10pt
+          italicsComplexScript: true,
+          size: fontSizeHalfPt - 2,
+          sizeComplexScript: fontSizeHalfPt - 2,
           color: '64748B',
-          font: 'Vijaya',
+          font: fontObj,
         }),
       ],
     })
@@ -532,8 +711,8 @@ export async function generateTamilLeftRightDocx(data: TamilScreenplayData): Pro
     const chars = getSceneCharacters(scene);
     const effects = getSceneEffects(scene);
 
-    // RULE: Every fresh scene must start on a new fresh page
-    if (scIdx > 0) {
+    // Page break between scenes if configured or after scene 1
+    if (scIdx > 0 && options?.freshPagePerScene !== false) {
       children.push(
         new Paragraph({
           pageBreakBefore: true,
@@ -542,24 +721,46 @@ export async function generateTamilLeftRightDocx(data: TamilScreenplayData): Pro
       );
     }
 
-    // 3-Column Scene Heading Box (Exact Wireframe Layout)
+    // Scene Heading style
+    const headingBorders =
+      options?.sceneHeadingStyle === 'underline' || options?.sceneHeadingStyle === 'typewriter'
+        ? {
+            top: NO_BORDER,
+            bottom: { style: BorderStyle.SINGLE, size: 8, color: '000000' },
+            left: NO_BORDER,
+            right: NO_BORDER,
+            insideHorizontal: NO_BORDER,
+            insideVertical: NO_BORDER,
+          }
+        : options?.sceneHeadingStyle === 'none'
+        ? NO_TABLE_BORDERS
+        : {
+            top: { style: BorderStyle.SINGLE, size: 8, color: '000000' },
+            bottom: { style: BorderStyle.SINGLE, size: 8, color: '000000' },
+            left: { style: BorderStyle.SINGLE, size: 8, color: '000000' },
+            right: { style: BorderStyle.SINGLE, size: 8, color: '000000' },
+            insideHorizontal: NO_BORDER,
+            insideVertical: NO_BORDER,
+          };
+
+    const isBoxedHeader =
+      !options?.sceneHeadingStyle ||
+      options?.sceneHeadingStyle === 'kollywood' ||
+      options?.sceneHeadingStyle === 'boxed' ||
+      options?.sceneHeadingStyle === 'card';
+
+    // 3-Column Scene Heading Box
     children.push(
       new Table({
-        width: { size: 10000, type: WidthType.DXA },
-        borders: {
-          top: { style: BorderStyle.SINGLE, size: 8, color: '000000' },
-          bottom: { style: BorderStyle.SINGLE, size: 8, color: '000000' },
-          left: { style: BorderStyle.SINGLE, size: 8, color: '000000' },
-          right: { style: BorderStyle.SINGLE, size: 8, color: '000000' },
-          insideHorizontal: { style: BorderStyle.NONE, size: 0, color: 'auto' },
-          insideVertical: { style: BorderStyle.NONE, size: 0, color: 'auto' },
-        },
+        width: { size: totalWidthDxa, type: WidthType.DXA },
+        borders: headingBorders,
         rows: [
           // Row 1: Sc no: (Left) | empty (Center) | Time: (Right)
           new TableRow({
             children: [
               new TableCell({
                 width: { size: 4200, type: WidthType.DXA },
+                borders: NO_CELL_BORDERS,
                 children: [
                   new Paragraph({
                     spacing: { before: 80, after: 40 },
@@ -567,8 +768,10 @@ export async function generateTamilLeftRightDocx(data: TamilScreenplayData): Pro
                       new TextRun({
                         text: `Sc no: ${scene.sceneNumber}`,
                         bold: true,
-                        size: 22,
-                        font: 'Vijaya',
+                        boldComplexScript: true,
+                        size: fontSizeHalfPt,
+                        sizeComplexScript: fontSizeHalfPt,
+                        font: fontObj,
                       }),
                     ],
                   }),
@@ -576,10 +779,12 @@ export async function generateTamilLeftRightDocx(data: TamilScreenplayData): Pro
               }),
               new TableCell({
                 width: { size: 1600, type: WidthType.DXA },
+                borders: NO_CELL_BORDERS,
                 children: [new Paragraph({ children: [] })],
               }),
               new TableCell({
                 width: { size: 4200, type: WidthType.DXA },
+                borders: NO_CELL_BORDERS,
                 children: [
                   new Paragraph({
                     alignment: AlignmentType.RIGHT,
@@ -588,8 +793,10 @@ export async function generateTamilLeftRightDocx(data: TamilScreenplayData): Pro
                       new TextRun({
                         text: `Time: ${scene.timeOfDay || 'Day / INT'}`,
                         bold: true,
-                        size: 22,
-                        font: 'Vijaya',
+                        boldComplexScript: true,
+                        size: fontSizeHalfPt,
+                        sizeComplexScript: fontSizeHalfPt,
+                        font: fontObj,
                       }),
                     ],
                   }),
@@ -602,6 +809,7 @@ export async function generateTamilLeftRightDocx(data: TamilScreenplayData): Pro
             children: [
               new TableCell({
                 width: { size: 4200, type: WidthType.DXA },
+                borders: NO_CELL_BORDERS,
                 children: [
                   new Paragraph({
                     spacing: { before: 40, after: 40 },
@@ -609,8 +817,10 @@ export async function generateTamilLeftRightDocx(data: TamilScreenplayData): Pro
                       new TextRun({
                         text: `Script Location: ${scene.location}`,
                         bold: true,
-                        size: 22,
-                        font: 'Vijaya',
+                        boldComplexScript: true,
+                        size: fontSizeHalfPt,
+                        sizeComplexScript: fontSizeHalfPt,
+                        font: fontObj,
                       }),
                     ],
                   }),
@@ -618,12 +828,14 @@ export async function generateTamilLeftRightDocx(data: TamilScreenplayData): Pro
               }),
               new TableCell({
                 width: { size: 1600, type: WidthType.DXA },
-                borders: {
-                  top: { style: BorderStyle.SINGLE, size: 6, color: '000000' },
-                  bottom: { style: BorderStyle.SINGLE, size: 6, color: '000000' },
-                  left: { style: BorderStyle.SINGLE, size: 6, color: '000000' },
-                  right: { style: BorderStyle.SINGLE, size: 6, color: '000000' },
-                },
+                borders: isBoxedHeader
+                  ? {
+                      top: { style: BorderStyle.SINGLE, size: 6, color: '000000' },
+                      bottom: { style: BorderStyle.SINGLE, size: 6, color: '000000' },
+                      left: { style: BorderStyle.SINGLE, size: 6, color: '000000' },
+                      right: { style: BorderStyle.SINGLE, size: 6, color: '000000' },
+                    }
+                  : NO_CELL_BORDERS,
                 children: [
                   new Paragraph({
                     alignment: AlignmentType.CENTER,
@@ -632,8 +844,10 @@ export async function generateTamilLeftRightDocx(data: TamilScreenplayData): Pro
                       new TextRun({
                         text: 'Pages: 1/1',
                         bold: true,
-                        size: 20,
-                        font: 'Vijaya',
+                        boldComplexScript: true,
+                        size: fontSizeHalfPt - 2,
+                        sizeComplexScript: fontSizeHalfPt - 2,
+                        font: fontObj,
                       }),
                     ],
                   }),
@@ -641,6 +855,7 @@ export async function generateTamilLeftRightDocx(data: TamilScreenplayData): Pro
               }),
               new TableCell({
                 width: { size: 4200, type: WidthType.DXA },
+                borders: NO_CELL_BORDERS,
                 children: [
                   new Paragraph({
                     alignment: AlignmentType.RIGHT,
@@ -649,8 +864,10 @@ export async function generateTamilLeftRightDocx(data: TamilScreenplayData): Pro
                       new TextRun({
                         text: `Real Location: ${scene.realLocation || scene.location || 'xyz'}`,
                         bold: true,
-                        size: 22,
-                        font: 'Vijaya',
+                        boldComplexScript: true,
+                        size: fontSizeHalfPt,
+                        sizeComplexScript: fontSizeHalfPt,
+                        font: fontObj,
                       }),
                     ],
                   }),
@@ -658,12 +875,13 @@ export async function generateTamilLeftRightDocx(data: TamilScreenplayData): Pro
               }),
             ],
           }),
-          // Row 3: Characters(n): (Left - spans 2 cols for wrapping) | Effect: (Right)
+          // Row 3: Characters(n): (Left) | Effect: (Right)
           new TableRow({
             children: [
               new TableCell({
                 columnSpan: 2,
                 width: { size: 6500, type: WidthType.DXA },
+                borders: NO_CELL_BORDERS,
                 children: [
                   new Paragraph({
                     spacing: { before: 40, after: 80 },
@@ -671,13 +889,16 @@ export async function generateTamilLeftRightDocx(data: TamilScreenplayData): Pro
                       new TextRun({
                         text: `Characters(${chars.length}): `,
                         bold: true,
-                        size: 22,
-                        font: 'Vijaya',
+                        boldComplexScript: true,
+                        size: fontSizeHalfPt,
+                        sizeComplexScript: fontSizeHalfPt,
+                        font: fontObj,
                       }),
                       new TextRun({
                         text: chars.length > 0 ? chars.join(', ') : 'None',
-                        size: 22,
-                        font: 'Vijaya',
+                        size: fontSizeHalfPt,
+                        sizeComplexScript: fontSizeHalfPt,
+                        font: fontObj,
                       }),
                     ],
                   }),
@@ -685,6 +906,7 @@ export async function generateTamilLeftRightDocx(data: TamilScreenplayData): Pro
               }),
               new TableCell({
                 width: { size: 3500, type: WidthType.DXA },
+                borders: NO_CELL_BORDERS,
                 children: [
                   new Paragraph({
                     alignment: AlignmentType.RIGHT,
@@ -693,8 +915,10 @@ export async function generateTamilLeftRightDocx(data: TamilScreenplayData): Pro
                       new TextRun({
                         text: `Effect: ${effects || 'None'}`,
                         bold: true,
-                        size: 22,
-                        font: 'Vijaya',
+                        boldComplexScript: true,
+                        size: fontSizeHalfPt,
+                        sizeComplexScript: fontSizeHalfPt,
+                        font: fontObj,
                       }),
                     ],
                   }),
@@ -706,56 +930,52 @@ export async function generateTamilLeftRightDocx(data: TamilScreenplayData): Pro
       })
     );
 
-    // Table Rows
+    // Two-Column Content Rows (Completely borderless, zero boxes)
     const tableRows: TableRow[] = [];
 
-    // Header row
+    // Subtle Column Header Row (NO cell boxes)
     tableRows.push(
       new TableRow({
         children: [
           new TableCell({
-            width: { size: 4500, type: WidthType.DXA },
+            width: { size: leftColWidth, type: WidthType.DXA },
+            borders: NO_CELL_BORDERS,
             children: [
               new Paragraph({
+                spacing: { before: 100, after: 60 },
                 children: [
                   new TextRun({
                     text: 'காட்சி விவரம் (Visual Action)',
                     bold: true,
-                    size: 18,
-                    color: '475569',
-                    font: 'Vijaya',
+                    boldComplexScript: true,
+                    size: fontSizeHalfPt - 2,
+                    sizeComplexScript: fontSizeHalfPt - 2,
+                    color: '16A34A',
+                    font: fontObj,
                   }),
                 ],
               }),
             ],
-            borders: {
-              top: { style: BorderStyle.NONE, size: 0, color: 'auto' },
-              bottom: { style: BorderStyle.SINGLE, size: 4, color: 'CBD5E1' },
-              left: { style: BorderStyle.NONE, size: 0, color: 'auto' },
-              right: { style: BorderStyle.NONE, size: 0, color: 'auto' },
-            },
           }),
           new TableCell({
-            width: { size: 5500, type: WidthType.DXA },
+            width: { size: rightColWidth, type: WidthType.DXA },
+            borders: NO_CELL_BORDERS,
             children: [
               new Paragraph({
+                spacing: { before: 100, after: 60 },
                 children: [
                   new TextRun({
                     text: 'வசனம் & ஒலி (Dialogue & Audio)',
                     bold: true,
-                    size: 18,
-                    color: '475569',
-                    font: 'Vijaya',
+                    boldComplexScript: true,
+                    size: fontSizeHalfPt - 2,
+                    sizeComplexScript: fontSizeHalfPt - 2,
+                    color: '0284C7',
+                    font: fontObj,
                   }),
                 ],
               }),
             ],
-            borders: {
-              top: { style: BorderStyle.NONE, size: 0, color: 'auto' },
-              bottom: { style: BorderStyle.SINGLE, size: 4, color: 'CBD5E1' },
-              left: { style: BorderStyle.SINGLE, size: 4, color: 'E2E8F0' },
-              right: { style: BorderStyle.NONE, size: 0, color: 'auto' },
-            },
           }),
         ],
       })
@@ -764,33 +984,27 @@ export async function generateTamilLeftRightDocx(data: TamilScreenplayData): Pro
     // Content rows
     scene.items.forEach((item) => {
       if (item.column === 'center' || item.type === 'transition' || item.type === 'title') {
+        const centerText = item.rawText || item.leftAction || item.rightDialogue || '';
         tableRows.push(
           new TableRow({
+            cantSplit: true,
             children: [
               new TableCell({
                 columnSpan: 2,
-                width: { size: 10000, type: WidthType.DXA },
+                width: { size: totalWidthDxa, type: WidthType.DXA },
+                borders: NO_CELL_BORDERS,
                 children: [
                   new Paragraph({
                     alignment: AlignmentType.CENTER,
-                    spacing: { before: 180, after: 180 },
-                    children: [
-                      new TextRun({
-                        text: item.rawText || item.leftAction || item.rightDialogue || '',
-                        bold: true,
-                        size: 24,
-                        color: '16A34A',
-                        font: 'Vijaya',
-                      }),
-                    ],
+                    spacing: { before: 160, after: 160 },
+                    children: parseFormattedRuns(centerText, {
+                      font: fontObj,
+                      size: fontSizeHalfPt + 2,
+                      bold: true,
+                      color: '16A34A',
+                    }),
                   }),
                 ],
-                borders: {
-                  top: { style: BorderStyle.NONE, size: 0, color: 'auto' },
-                  bottom: { style: BorderStyle.NONE, size: 0, color: 'auto' },
-                  left: { style: BorderStyle.NONE, size: 0, color: 'auto' },
-                  right: { style: BorderStyle.NONE, size: 0, color: 'auto' },
-                },
               }),
             ],
           })
@@ -814,14 +1028,16 @@ export async function generateTamilLeftRightDocx(data: TamilScreenplayData): Pro
           leftParas.push(
             new Paragraph({
               alignment: AlignmentType.RIGHT,
-              spacing: { before: 80, after: 80 },
+              spacing: { before: 70, after: 70 },
               children: [
                 new TextRun({
                   text: `${charName || 'கதாபாத்திரம்'} :`,
                   bold: true,
-                  size: 22, // 11pt
-                  color: '0284C7',
-                  font: 'Vijaya',
+                  boldComplexScript: true,
+                  size: fontSizeHalfPt,
+                  sizeComplexScript: fontSizeHalfPt,
+                  color: charColor,
+                  font: fontObj,
                 }),
               ],
             })
@@ -832,14 +1048,11 @@ export async function generateTamilLeftRightDocx(data: TamilScreenplayData): Pro
           if (actionText) {
             leftParas.push(
               new Paragraph({
-                spacing: { before: 80, after: 100 },
-                children: [
-                  new TextRun({
-                    text: actionText,
-                    size: 22, // 11pt
-                    font: 'Vijaya',
-                  }),
-                ],
+                spacing: { before: 70, after: 90 },
+                children: parseFormattedRuns(actionText, {
+                  font: fontObj,
+                  size: fontSizeHalfPt,
+                }),
               })
             );
           } else {
@@ -853,32 +1066,27 @@ export async function generateTamilLeftRightDocx(data: TamilScreenplayData): Pro
           rightParas.push(
             new Paragraph({
               alignment: AlignmentType.LEFT,
-              spacing: { before: 80, after: 80 },
-              children: [
-                new TextRun({
-                  text: diaText,
-                  size: 22,
-                  font: 'Vijaya',
-                }),
-              ],
+              spacing: { before: 70, after: 70 },
+              children: parseFormattedRuns(diaText, {
+                font: fontObj,
+                size: fontSizeHalfPt,
+              }),
             })
           );
         } else {
           rightParas.push(new Paragraph({ children: [] }));
         }
+
         if (item.rightAudioSfx) {
           rightParas.push(
             new Paragraph({
-              spacing: { before: 40, after: 80 },
-              children: [
-                new TextRun({
-                  text: item.rightAudioSfx,
-                  italics: true,
-                  size: 20,
-                  color: 'BE123C',
-                  font: 'Vijaya',
-                }),
-              ],
+              spacing: { before: 30, after: 60 },
+              children: parseFormattedRuns(item.rightAudioSfx, {
+                font: fontObj,
+                size: fontSizeHalfPt - 2,
+                italics: true,
+                color: 'BE123C',
+              }),
             })
           );
         }
@@ -888,26 +1096,17 @@ export async function generateTamilLeftRightDocx(data: TamilScreenplayData): Pro
 
         tableRows.push(
           new TableRow({
+            cantSplit: true,
             children: [
               new TableCell({
-                width: { size: 4500, type: WidthType.DXA },
+                width: { size: leftColWidth, type: WidthType.DXA },
                 children: leftParas,
-                borders: {
-                  top: { style: BorderStyle.NONE, size: 0, color: 'auto' },
-                  bottom: { style: BorderStyle.NONE, size: 0, color: 'auto' },
-                  left: { style: BorderStyle.NONE, size: 0, color: 'auto' },
-                  right: { style: BorderStyle.NONE, size: 0, color: 'auto' },
-                },
+                borders: NO_CELL_BORDERS,
               }),
               new TableCell({
-                width: { size: 5500, type: WidthType.DXA },
+                width: { size: rightColWidth, type: WidthType.DXA },
                 children: rightParas,
-                borders: {
-                  top: { style: BorderStyle.NONE, size: 0, color: 'auto' },
-                  bottom: { style: BorderStyle.NONE, size: 0, color: 'auto' },
-                  left: { style: BorderStyle.SINGLE, size: 4, color: 'E2E8F0' },
-                  right: { style: BorderStyle.NONE, size: 0, color: 'auto' },
-                },
+                borders: NO_CELL_BORDERS,
               }),
             ],
           })
@@ -915,26 +1114,46 @@ export async function generateTamilLeftRightDocx(data: TamilScreenplayData): Pro
       }
     });
 
+    // Push 2-Column Content Table with ZERO borders
     children.push(
       new Table({
-        width: { size: 10000, type: WidthType.DXA },
+        width: { size: totalWidthDxa, type: WidthType.DXA },
+        borders: NO_TABLE_BORDERS,
         rows: tableRows,
       })
     );
 
-    children.push(new Paragraph({ spacing: { after: 200 }, children: [] }));
+    children.push(new Paragraph({ spacing: { after: 180 }, children: [] }));
   });
+
+  // Calculate margins in DXA (1mm = 56.7 dxa)
+  const marginTop = Math.round((options?.marginTopMm ?? 22) * 56.7);
+  const marginBottom = Math.round((options?.marginBottomMm ?? 22) * 56.7);
+  const marginLeft = Math.round((options?.marginLeftMm ?? 22) * 56.7);
+  const marginRight = Math.round((options?.marginRightMm ?? 22) * 56.7);
+
+  // Paper standard sizes in DXA (twentieths of a point)
+  const PAGE_DIMENSIONS_DXA: Record<string, { width: number; height: number }> = {
+    A4: { width: 11906, height: 16838 },
+    US_Letter: { width: 12240, height: 15840 },
+    Legal: { width: 12240, height: 20160 },
+  };
+  const pageDim = PAGE_DIMENSIONS_DXA[options?.paperStandard || 'A4'] || PAGE_DIMENSIONS_DXA.A4;
 
   const doc = new Document({
     sections: [
       {
         properties: {
           page: {
+            size: {
+              width: pageDim.width,
+              height: pageDim.height,
+            },
             margin: {
-              top: 1440,
-              bottom: 1440,
-              left: 1440,
-              right: 1440,
+              top: marginTop,
+              bottom: marginBottom,
+              left: marginLeft,
+              right: marginRight,
             },
           },
         },

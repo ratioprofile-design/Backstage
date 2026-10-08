@@ -1176,6 +1176,8 @@ export interface ProductionDocument {
   // Original file preservation & Tamil Left-Right Screenplay integration
   originalFileDataUrl?: string; // Byte-exact original file preserved for re-download
   originalFileName?: string;
+  convertedDocxDataUrl?: string; // Word (.docx) file with Bamini transcoded to Unicode, preserving 100% original styles, formatting, sizes & colors
+  isBaminiConverted?: boolean;
   isLeftRightFormat?: boolean;
   leftRightDocId?: string;
   sourceDocId?: string;

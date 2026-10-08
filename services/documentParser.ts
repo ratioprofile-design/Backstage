@@ -3,6 +3,7 @@ import mammoth from 'mammoth';
 import * as XLSX from 'xlsx';
 import { ProductionDocument, DocumentFormat } from '../types';
 import { isLegacyBamini, transcodeBaminiToUnicode, transcodeHtmlBaminiToUnicode } from './tamilTranscoder';
+import { transcodeDocxBinaryBaminiToUnicode } from './docxBaminiTranscoder';
 import { paginateDocumentHtml, paginatePlainText } from './documentPaginator';
 
 export interface ParsedDocumentResult {
@@ -20,6 +21,7 @@ export interface ParsedDocumentResult {
   isBaminiConverted?: boolean;
   originalFileDataUrl?: string;
   originalFileName?: string;
+  convertedDocxDataUrl?: string;
 }
 
 function readFileAsDataUrl(file: File): Promise<string> {
@@ -34,7 +36,7 @@ function readFileAsDataUrl(file: File): Promise<string> {
 /**
  * Universal document parser for Production Vault.
  * Supports Word (.docx), PDF (.pdf), Excel/CSV (.xlsx, .csv), Images (.png, .jpg, .webp, .svg), and Plain Text/Markdown.
- * Automatically detects and transcodes legacy Bamini typewriter scripts to Tamil Unicode.
+ * Automatically detects and transcodes legacy Bamini typewriter scripts to Tamil Unicode while preserving original Word formatting.
  */
 export async function parseUniversalFile(file: File, defaultCategory: ProductionDocument['category'] = 'OTHER'): Promise<ParsedDocumentResult> {
   const fileName = file.name;
@@ -48,15 +50,36 @@ export async function parseUniversalFile(file: File, defaultCategory: Production
   if (extension === '.docx' || extension === '.doc') {
     try {
       const arrayBuffer = await file.arrayBuffer();
-      const htmlResult = await mammoth.convertToHtml({ arrayBuffer });
-      const textResult = await mammoth.extractRawText({ arrayBuffer });
+      let bufferToParse = arrayBuffer;
+      let isBamini = false;
+      let convertedDocxDataUrl: string | undefined;
+
+      // In-place binary transcoding of Word (.docx) to preserve 100% original formatting, font sizes, colors, and tables
+      if (extension === '.docx') {
+        try {
+          const transResult = await transcodeDocxBinaryBaminiToUnicode(arrayBuffer);
+          if (transResult.isConverted) {
+            isBamini = true;
+            bufferToParse = transResult.convertedBuffer;
+            convertedDocxDataUrl = transResult.convertedDataUrl;
+          }
+        } catch (docxErr) {
+          console.warn('Docx binary Bamini transcoding notice:', docxErr);
+        }
+      }
+
+      const htmlResult = await mammoth.convertToHtml({ arrayBuffer: bufferToParse });
+      const textResult = await mammoth.extractRawText({ arrayBuffer: bufferToParse });
 
       let rawText = textResult.value || '';
       let rawHtml = htmlResult.value || '';
-      let isBamini = isLegacyBamini(rawText);
 
-      // Auto-transcode Bamini script to Unicode by default
-      if (isBamini) {
+      if (!isBamini) {
+        isBamini = isLegacyBamini(rawText);
+      }
+
+      // Auto-transcode HTML/text fallback if binary didn't catch it
+      if (isBamini && !convertedDocxDataUrl) {
         rawText = transcodeBaminiToUnicode(rawText);
         rawHtml = transcodeHtmlBaminiToUnicode(rawHtml);
       }
@@ -77,6 +100,7 @@ export async function parseUniversalFile(file: File, defaultCategory: Production
         isBaminiConverted: isBamini,
         originalFileDataUrl,
         originalFileName: fileName,
+        convertedDocxDataUrl,
       };
     } catch (err) {
       console.error('Word Document parsing failed:', err);

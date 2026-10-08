@@ -12,6 +12,8 @@ import {
   getSceneEffects,
 } from '../../services/tamilLeftRightEngine';
 import { ScriptCharacterInput, SceneCharactersDropdown } from '../ScriptCharacterInput';
+import { TwoColumnSceneSidebar } from '../TwoColumnSceneSidebar';
+import { TwoColumnFindReplace } from '../TwoColumnFindReplace';
 import confetti from 'canvas-confetti';
 import {
   ArrowLeft,
@@ -33,6 +35,9 @@ import {
   X,
   Edit2,
   FileText,
+  Search,
+  PanelLeft,
+  PanelLeftClose,
 } from 'lucide-react';
 
 export interface DocumentTwoColumnEditorProps {
@@ -68,6 +73,39 @@ export const DocumentTwoColumnEditor: React.FC<DocumentTwoColumnEditorProps> = (
     id: string;
     sceneId: string;
   } | null>(null);
+
+  // Scene Navigator & Find-Replace State
+  const [isSceneSidebarOpen, setIsSceneSidebarOpen] = useState<boolean>(true);
+  const [activeSceneId, setActiveSceneId] = useState<string | null>(null);
+  const [isFindReplaceOpen, setIsFindReplaceOpen] = useState<boolean>(false);
+  const [showReplaceByDefault, setShowReplaceByDefault] = useState<boolean>(false);
+
+  // Global keyboard shortcuts for Find & Replace (Cmd+F, Cmd+H)
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'f') {
+        e.preventDefault();
+        setIsFindReplaceOpen(true);
+        setShowReplaceByDefault(false);
+      } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'h') {
+        e.preventDefault();
+        setIsFindReplaceOpen(true);
+        setShowReplaceByDefault(true);
+      }
+    };
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+  }, []);
+
+  const handleSelectScene = (sceneId: string) => {
+    setActiveSceneId(sceneId);
+    setTimeout(() => {
+      const el = document.getElementById(`scene-header-${sceneId}`);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }, 60);
+  };
 
   useEffect(() => {
     const handleClose = () => setActiveDropdown(null);
@@ -627,7 +665,13 @@ export const DocumentTwoColumnEditor: React.FC<DocumentTwoColumnEditorProps> = (
   const handleDownloadWordDocx = async () => {
     try {
       setIsGeneratingDocx(true);
-      const blob = await generateTamilLeftRightDocx(screenplayData);
+      const blob = await generateTamilLeftRightDocx(screenplayData, {
+        baseFontFamily: "'Vijaya', 'Latha', 'Mukta Malar', 'Noto Sans Tamil', system-ui, sans-serif",
+        baseFontSizePx: 13.5,
+        characterColor: '#0284c7',
+        columnSplitPercent: 48,
+        paperStandard: 'A4',
+      });
       const filename = `${(screenplayData.title || doc.title || 'Screenplay').replace(/\s+/g, '_')}_Tamil_Left_Right.docx`;
       downloadBlobAsFile(blob, filename);
       confetti({ particleCount: 40, spread: 60, origin: { y: 0.7 } });
@@ -724,8 +768,39 @@ export const DocumentTwoColumnEditor: React.FC<DocumentTwoColumnEditorProps> = (
           )}
         </div>
 
-        {/* Right: Actions (Word Download & Save) */}
+        {/* Right: Actions (Scenes, Find, Zoom, Word Download & Save) */}
         <div className="flex items-center gap-2">
+          {/* Scenes Sidebar Toggle */}
+          <button
+            onClick={() => setIsSceneSidebarOpen(!isSceneSidebarOpen)}
+            className={`px-2.5 py-1 text-xs font-bold rounded-lg border flex items-center gap-1.5 transition-all shadow-xs cursor-pointer ${
+              isSceneSidebarOpen
+                ? 'bg-emerald-600 text-white border-emerald-500 shadow-emerald-950/20'
+                : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border-zinc-700'
+            }`}
+            title="Toggle Scene Cards Navigator (Left side)"
+          >
+            <PanelLeft size={13} className={isSceneSidebarOpen ? 'text-white' : 'text-emerald-400'} />
+            <span>Scenes</span>
+            <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-black/40 font-mono font-bold">
+              {screenplayData.scenes.length}
+            </span>
+          </button>
+
+          {/* Find & Replace Trigger */}
+          <button
+            onClick={() => {
+              setIsFindReplaceOpen(true);
+              setShowReplaceByDefault(false);
+            }}
+            className="px-2.5 py-1 text-xs font-bold rounded-lg border bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border-zinc-700 flex items-center gap-1.5 transition-all shadow-xs cursor-pointer"
+            title="Advanced Find & Replace in script (Cmd+F / Ctrl+F)"
+          >
+            <Search size={13} className="text-amber-400" />
+            <span>Find</span>
+            <span className="hidden xl:inline text-[9.5px] font-mono px-1 py-0.2 rounded bg-black/40 text-zinc-400 border border-zinc-700">⌘F</span>
+          </button>
+
           {/* Zoom controls */}
           <div className="flex items-center gap-1 bg-zinc-800/60 border border-zinc-700/60 rounded-lg p-0.5 mr-2">
             <button
@@ -859,7 +934,33 @@ export const DocumentTwoColumnEditor: React.FC<DocumentTwoColumnEditorProps> = (
       {/* =========================================================================
           THE SCRIPT SHEET (A4 Two-Column Canvas)
          ========================================================================= */}
-      <div className="flex-1 overflow-y-auto px-4 py-8 flex flex-col items-center">
+      <div className="flex-1 flex overflow-hidden relative">
+
+        {/* 1. Leftside Scene Cards & Thumbnails Navigator */}
+        <TwoColumnSceneSidebar
+          screenplayData={screenplayData}
+          isLight={isLight}
+          isOpen={isSceneSidebarOpen}
+          onToggleOpen={() => setIsSceneSidebarOpen(!isSceneSidebarOpen)}
+          activeSceneId={activeSceneId}
+          onSelectScene={handleSelectScene}
+        />
+
+        {/* 2. Floating / Docked Advanced Find & Replace Bar */}
+        <TwoColumnFindReplace
+          screenplayData={screenplayData}
+          onUpdateScreenplay={(updater) => {
+            setScreenplayData(updater);
+            setHasUnsavedChanges(true);
+          }}
+          isOpen={isFindReplaceOpen}
+          onClose={() => setIsFindReplaceOpen(false)}
+          isLight={isLight}
+          onToast={showToast}
+          initialShowReplace={showReplaceByDefault}
+        />
+
+        <div className="flex-1 overflow-y-auto px-4 py-8 flex flex-col items-center">
         <div
           style={{ transform: `scale(${zoomLevel / 100})`, transformOrigin: 'top center' }}
           className={`w-[840px] min-h-[1188px] p-12 relative shadow-2xl rounded-sm transition-all border ${
@@ -906,7 +1007,12 @@ export const DocumentTwoColumnEditor: React.FC<DocumentTwoColumnEditorProps> = (
               const effects = getSceneEffects(scene);
 
               return (
-                <div key={scene.id} className="space-y-2">
+                <div
+                  key={scene.id}
+                  id={`scene-header-${scene.id}`}
+                  data-scene-id={scene.id}
+                  className="space-y-2"
+                >
                   {/* Scene Heading Box (Exact Layout From Diagram) */}
                   <div className={`group/hdr relative p-3 rounded-lg border border-black dark:border-zinc-600 transition-all ${
                     isLight
@@ -1408,5 +1514,6 @@ export const DocumentTwoColumnEditor: React.FC<DocumentTwoColumnEditorProps> = (
         </div>
       </div>
     </div>
-  );
+  </div>
+);
 };

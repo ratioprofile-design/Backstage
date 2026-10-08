@@ -27,6 +27,8 @@ import {
 } from '../../services/twoColumnPaginator';
 import { parseUniversalFile } from '../../services/documentParser';
 import { ScriptCharacterInput, SceneCharactersDropdown } from '../ScriptCharacterInput';
+import { TwoColumnSceneSidebar } from '../TwoColumnSceneSidebar';
+import { TwoColumnFindReplace } from '../TwoColumnFindReplace';
 import confetti from 'canvas-confetti';
 import {
   Columns,
@@ -59,6 +61,9 @@ import {
   AlignLeft,
   Eye,
   RotateCcw,
+  Search,
+  PanelLeft,
+  PanelLeftClose,
 } from 'lucide-react';
 
 export interface TwoColumnScriptViewProps {
@@ -133,6 +138,29 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
     id: string;
     sceneId: string;
   } | null>(null);
+
+  // Scene Navigator & Find-Replace State
+  const [isSceneSidebarOpen, setIsSceneSidebarOpen] = useState<boolean>(true);
+  const [activeSceneId, setActiveSceneId] = useState<string | null>(null);
+  const [isFindReplaceOpen, setIsFindReplaceOpen] = useState<boolean>(false);
+  const [showReplaceByDefault, setShowReplaceByDefault] = useState<boolean>(false);
+
+  // Global keyboard shortcuts for Find & Replace (Cmd+F, Cmd+H)
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'f') {
+        e.preventDefault();
+        setIsFindReplaceOpen(true);
+        setShowReplaceByDefault(false);
+      } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'h') {
+        e.preventDefault();
+        setIsFindReplaceOpen(true);
+        setShowReplaceByDefault(true);
+      }
+    };
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+  }, []);
 
   useEffect(() => {
     const handleClose = () => setActiveDropdown(null);
@@ -223,6 +251,33 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
   }, [screenplayData, layoutOptions]);
 
   const { pages, totalPages, totalItems, totalScenes } = paginationResult;
+
+  // Map sceneId -> starting page number for quick thumbnail jumping
+  const scenePageMap = useMemo(() => {
+    const map: Record<string, number> = {};
+    pages.forEach((page) => {
+      page.elements.forEach((elem) => {
+        if (elem.type === 'scene_header' && elem.sceneId && !map[elem.sceneId]) {
+          map[elem.sceneId] = page.pageNumber;
+        }
+      });
+    });
+    return map;
+  }, [pages]);
+
+  // Handle scene selection from sidebar (smooth scrolls canvas directly to scene)
+  const handleSelectScene = (sceneId: string, pageNumber?: number) => {
+    setActiveSceneId(sceneId);
+    if (pageViewMode === 'single' && pageNumber) {
+      setCurrentSinglePage(pageNumber);
+    }
+    setTimeout(() => {
+      const el = document.getElementById(`scene-header-${sceneId}`);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }, 60);
+  };
 
   // Flatten all items for selection utilities
   const { allItemIds, orderedItemIds } = useMemo(() => {
@@ -688,7 +743,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
   const handleDownloadWordDocx = async () => {
     try {
       setIsExportingDocx(true);
-      const blob = await generateTamilLeftRightDocx(screenplayData);
+      const blob = await generateTamilLeftRightDocx(screenplayData, layoutOptions);
       const filename = `${(screenplayData.title || activeDoc?.title || 'Screenplay').replace(/\s+/g, '_')}_Tamil_Left_Right.docx`;
       downloadBlobAsFile(blob, filename);
       confetti({ particleCount: 35, spread: 60, origin: { y: 0.7 } });
@@ -829,6 +884,39 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
             title="Import Word (.docx), Fountain, or Text script"
           >
             <Upload size={14} />
+          </button>
+
+          <div className="w-[1px] h-4 bg-zinc-700 mx-0.5" />
+
+          {/* Scenes Sidebar Toggle */}
+          <button
+            onClick={() => setIsSceneSidebarOpen(!isSceneSidebarOpen)}
+            className={`px-2.5 py-1 text-xs font-bold rounded-lg border flex items-center gap-1.5 transition-all shadow-xs cursor-pointer ${
+              isSceneSidebarOpen
+                ? 'bg-emerald-600 text-white border-emerald-500 shadow-emerald-950/20'
+                : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border-zinc-700'
+            }`}
+            title="Toggle Scene Cards Navigator (Left side)"
+          >
+            <PanelLeft size={13} className={isSceneSidebarOpen ? 'text-white' : 'text-emerald-400'} />
+            <span>Scenes</span>
+            <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-black/40 font-mono font-bold">
+              {screenplayData.scenes.length}
+            </span>
+          </button>
+
+          {/* Find & Replace Trigger */}
+          <button
+            onClick={() => {
+              setIsFindReplaceOpen(true);
+              setShowReplaceByDefault(false);
+            }}
+            className="px-2.5 py-1 text-xs font-bold rounded-lg border bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border-zinc-700 flex items-center gap-1.5 transition-all shadow-xs cursor-pointer"
+            title="Advanced Find & Replace in script (Cmd+F / Ctrl+F)"
+          >
+            <Search size={13} className="text-amber-400" />
+            <span>Find</span>
+            <span className="hidden xl:inline text-[9.5px] font-mono px-1 py-0.2 rounded bg-black/40 text-zinc-400 border border-zinc-700">⌘F</span>
           </button>
         </div>
 
@@ -1044,6 +1132,31 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
          ========================================================================= */}
       <div className="flex-1 flex overflow-hidden relative">
 
+        {/* 1. Leftside Scene Cards & Thumbnails Navigator */}
+        <TwoColumnSceneSidebar
+          screenplayData={screenplayData}
+          isLight={isLight}
+          isOpen={isSceneSidebarOpen}
+          onToggleOpen={() => setIsSceneSidebarOpen(!isSceneSidebarOpen)}
+          activeSceneId={activeSceneId}
+          onSelectScene={handleSelectScene}
+          scenePageMap={scenePageMap}
+        />
+
+        {/* 2. Floating / Docked Advanced Find & Replace Bar */}
+        <TwoColumnFindReplace
+          screenplayData={screenplayData}
+          onUpdateScreenplay={(updater) => {
+            setScreenplayData(updater);
+            setHasUnsavedChanges(true);
+          }}
+          isOpen={isFindReplaceOpen}
+          onClose={() => setIsFindReplaceOpen(false)}
+          isLight={isLight}
+          onToast={showToast}
+          initialShowReplace={showReplaceByDefault}
+        />
+
         {/* =====================================================================
             PAGINATED SCRIPT SHEETS CANVAS
            ===================================================================== */}
@@ -1108,6 +1221,8 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
                       return (
                         <div
                           key={`hdr-${elem.sceneId}-${idx}`}
+                          id={`scene-header-${elem.sceneId}`}
+                          data-scene-id={elem.sceneId}
                           style={{
                             marginBottom: `${layoutOptions.gapSceneHeaderPx}px`,
                             fontFamily: layoutOptions.sceneHeadingFontFamily,

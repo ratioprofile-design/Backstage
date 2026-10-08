@@ -1,17 +1,22 @@
+import { transcodeBaminiWithDict } from './baminiDictionary';
+
 /**
  * High-Accuracy Bamini / Tamil Typewriter to Unicode Screenplay Transcoder
- * Handles exact typewriter layouts, Grantha characters (~, ], [, \\), special numerals (&, $, }),
- * prefixes, suffixes, and screenplay sluglines.
+ * Powered by canonical Bamini dictionary mappings and screenplay sluglines.
  */
-
 export function transcodeBaminiToUnicode(raw: string): string {
   if (!raw) return '';
 
-  let text = raw;
+  // 1. Run canonical 352-entry Bamini ordered dictionary mapping
+  let text = transcodeBaminiWithDict(raw);
 
   // 1. Screenplay Structure Headers & Sluglines
   text = text.replace(/fhl;rp\s*:\s*/g, 'காட்சி: ');
   text = text.replace(/fhl;rp/g, 'காட்சி');
+  text = text.replace(/ntsp\s*:\s*/g, 'வெளி: ');
+  text = text.replace(/ntsp/g, 'வெளி');
+  text = text.replace(/cs;\s*:\s*/g, 'உள்: ');
+  text = text.replace(/cs;/g, 'உள்');
   text = text.replace(/,lk;\s*:\s*/g, 'இடம்: ');
   text = text.replace(/,lk;/g, 'இடம்');
   text = text.replace(/Neuk;\s*:\s*/g, 'நேரம்: ');
