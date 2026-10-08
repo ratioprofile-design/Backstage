@@ -90,8 +90,11 @@ export const AVAILABLE_ENGLISH_FONTS = [
 export const AVAILABLE_FONTS = AVAILABLE_ENGLISH_FONTS;
 
 export const AVAILABLE_IMAGE_MODELS = [
-    { label: 'Gemini 2.5 Flash Image (Fast & Cheap)', value: 'gemini-2.5-flash-image' },
-    { label: 'Imagen 3 (Premium)', value: 'imagen-3.0-generate-002' }
+    { label: 'Pollinations AI Turbo (Fast & Unlimited • Recommended)', value: 'pollinations-turbo' },
+    { label: 'Gemini 2.0 Flash (Fast Multi-modal Vision)', value: 'gemini-2.0-flash-exp' },
+    { label: 'Gemini 2.5 Flash Image (Google AI)', value: 'gemini-2.5-flash-image' },
+    { label: 'Pollinations AI Flux (Detailed • High Latency)', value: 'pollinations-flux' },
+    { label: 'Imagen 3 (Google Cloud Paid)', value: 'imagen-3.0-generate-002' }
 ];
 
 export const AVAILABLE_TEXT_MODELS = [
@@ -279,7 +282,7 @@ export const INITIAL_STATE: ProjectState = {
   storyboardConfig: {
     style: 'Charcoal Sketch',
     aspectRatio: '16:9',
-    imageModel: 'gemini-2.5-flash-image', 
+    imageModel: 'pollinations-turbo', 
     textModel: 'gemini-3.6-flash'
   },
   isStoryboardFeatureEnabled: true,

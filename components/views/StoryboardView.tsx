@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef, memo, useMemo } from 'react';
 import { useProject } from '../../context/ProjectContext';
 import { useAiKeyStatus } from '../../context/AiKeyStatusContext';
-import { generateShotList, generateImage } from '../../services/gemini';
+import { generateShotList, generateImage, generateProceduralSketch } from '../../services/gemini';
 import { 
     Wand2, Image as ImageIcon, Film, Loader2, Download, Camera,
     Plus, Trash2, RefreshCw, Play, Pause, Clock, 
@@ -17,7 +17,7 @@ import html2canvas from 'html2canvas';
 import * as XLSX from 'xlsx';
 import { Shot, CharacterData, Annotation } from '../../types';
 import { 
-    SHOT_SIZES, SHOT_ANGLES, VISUAL_STYLES,
+    SHOT_SIZES, SHOT_ANGLES, VISUAL_STYLES, AVAILABLE_IMAGE_MODELS,
     SB_FRAMING, SB_HEADROOM, SB_LOOKING, SB_CAM_HEIGHT, SB_HORIZON, SB_DEPTH,
     SB_LIGHTING_STYLE, SB_KEY_LIGHT, SB_FILL_RATIO, SB_BACKLIGHT, SB_COLOR_TEMP, SB_SHADOWS,
     SB_MOVEMENT, SB_EYELINE
@@ -321,7 +321,19 @@ const StoryCard = memo(({ shot, index, total, onUpdate, onAddNext, onDelete, onM
                 isLight ? 'bg-slate-200/90 border-slate-300' : 'bg-black border-black/20'
             }`}>
                 {isValidImage(displayImage) ? (
-                    <img src={displayImage} alt={`Shot ${index + 1}`} loading="lazy" className="w-full h-full object-cover" />
+                    <img 
+                        src={displayImage} 
+                        alt={`Shot ${index + 1}`} 
+                        loading="lazy" 
+                        className="w-full h-full object-cover" 
+                        onError={(e) => {
+                            const fallback = generateProceduralSketch(shot.description || shot.subject || `Shot ${index + 1}`, '16:9');
+                            if (fallback) {
+                                e.currentTarget.src = fallback;
+                                onUpdate(shot.id, { imageUrl: fallback });
+                            }
+                        }}
+                    />
                 ) : (
                     <div className={`flex flex-col items-center gap-2 ${isLight ? 'text-slate-400' : 'text-zinc-600'}`}><Film size={32} /></div>
                 )}
@@ -547,7 +559,20 @@ const ShotRow = memo(({ shot, index, total, onUpdate, onAddNext, onDelete, onMov
             </td>
             <td className={`p-2 w-32 border-r ${isLight ? 'border-slate-200' : 'border-[#22222a]'}`}>
                 <div className={`w-28 h-16 bg-black rounded border overflow-hidden relative flex items-center justify-center ${aiAvailable ? 'cursor-pointer hover:border-amber-500 group/thumb' : 'cursor-not-allowed opacity-40 group/thumb'} ${isLight ? 'border-slate-300' : 'border-[#2a2a36]'}`} onClick={() => aiAvailable && onRender(index)} title={aiAvailable ? undefined : "AI unavailable — no working API key"}>
-                    {isValidImage(shot.imageUrl) ? (<img src={shot.imageUrl} loading="lazy" className="w-full h-full object-cover" />) : (<Film size={16} className="text-zinc-600" />)}
+                    {isValidImage(shot.imageUrl) ? (
+                        <img 
+                            src={shot.imageUrl} 
+                            loading="lazy" 
+                            className="w-full h-full object-cover" 
+                            onError={(e) => {
+                                const fallback = generateProceduralSketch(shot.description || shot.subject || `Shot ${index + 1}`, '16:9');
+                                if (fallback) {
+                                    e.currentTarget.src = fallback;
+                                    onUpdate(shot.id, { imageUrl: fallback });
+                                }
+                            }}
+                        />
+                    ) : (<Film size={16} className="text-zinc-600" />)}
                     {isRendering ? (<div className="absolute inset-0 bg-black/60 flex items-center justify-center"><Loader2 size={16} className="animate-spin text-amber-400" /></div>) : (<div className="absolute inset-0 bg-black/60 opacity-0 group-hover/thumb:opacity-100 flex items-center justify-center transition-opacity"><Wand2 size={16} className="text-white" /></div>)}
                 </div>
             </td>
@@ -635,11 +660,27 @@ const StoryboardView: React.FC = () => {
   // Multi-Selection State
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
-  // Render Queue State
-  const [delay, setDelay] = useState(5); // Seconds
+  // Render Queue State: Configurable request delay between 2 and 10 seconds
+  const [delay, setDelay] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem('storyboard_prompt_delay');
+      return saved ? Math.min(10, Math.max(2, parseInt(saved))) : 5;
+    } catch {
+      return 5;
+    }
+  });
+  const [cooldownCountdown, setCooldownCountdown] = useState<number>(0);
   const [isQueueRunning, setIsQueueRunning] = useState(false);
   const [queueProgress, setQueueProgress] = useState({ current: 0, total: 0 });
   const [currentlyRenderingId, setCurrentlyRenderingId] = useState<string | null>(null);
+
+  const handleSetDelay = (newDelay: number) => {
+    const clamped = Math.min(10, Math.max(2, newDelay));
+    setDelay(clamped);
+    try {
+      localStorage.setItem('storyboard_prompt_delay', String(clamped));
+    } catch { /* ignore */ }
+  };
   
   // Inspector State
   const [inspectorShotId, setInspectorShotId] = useState<string | null>(null);
@@ -713,7 +754,7 @@ const StoryboardView: React.FC = () => {
                const url = await generateImage({
                    prompt, 
                    aspectRatio: storyboardConfig.aspectRatio || '16:9',
-                   model: storyboardConfig.imageModel || 'gemini-2.5-flash-image'
+                   model: storyboardConfig.imageModel || 'pollinations-turbo'
                });
                if (url) {
                    const newHistory = shot.imageHistory ? [...shot.imageHistory] : [];
@@ -722,15 +763,27 @@ const StoryboardView: React.FC = () => {
                }
           } catch (e: any) { 
               console.error(`Failed to render shot ${i + 1}`, e);
-              alert(`Batch Queue Stopped at Shot ${i+1}:\n${e.message || 'Unknown Error'}`);
-              break;
+              try {
+                  const fallbackUrl = generateProceduralSketch(buildEnhancedPrompt(shot), storyboardConfig.aspectRatio || '16:9');
+                  if (fallbackUrl) {
+                      updateGeneratedShot(shot.id, { imageUrl: fallbackUrl });
+                  }
+              } catch (fallbackErr) {
+                  console.error('Procedural sketch fallback error:', fallbackErr);
+              }
           }
           if (i < targetShots.length - 1 && !cancelQueueRef.current) {
                setCurrentlyRenderingId(null);
-               await new Promise(resolve => setTimeout(resolve, delay * 1000));
+               for (let s = delay; s > 0; s--) {
+                   if (cancelQueueRef.current) break;
+                   setCooldownCountdown(s);
+                   await new Promise(resolve => setTimeout(resolve, 1000));
+               }
+               setCooldownCountdown(0);
           }
       }
       setCurrentlyRenderingId(null);
+      setCooldownCountdown(0);
       setIsQueueRunning(false);
   };
 
@@ -1065,7 +1118,7 @@ const StoryboardView: React.FC = () => {
       const url = await generateImage({
           prompt, 
           aspectRatio: storyboardConfig.aspectRatio || '16:9',
-          model: storyboardConfig.imageModel || 'gemini-2.5-flash-image'
+          model: storyboardConfig.imageModel || 'pollinations-turbo'
       });
 
       if (url) {
@@ -1075,7 +1128,14 @@ const StoryboardView: React.FC = () => {
       }
     } catch (e: any) {
       console.error("Single render failed", e);
-      alert(`Image Generation Failed:\n${e.message || 'Unknown error'}`);
+      try {
+        const fallbackUrl = generateProceduralSketch(buildEnhancedPrompt(shot), storyboardConfig.aspectRatio || '16:9');
+        if (fallbackUrl) {
+          updateGeneratedShot(shot.id, { imageUrl: fallbackUrl });
+        }
+      } catch (fallbackErr) {
+        console.error('Single render procedural fallback error:', fallbackErr);
+      }
     } finally {
       setCurrentlyRenderingId(null);
     }
@@ -1097,7 +1157,7 @@ const StoryboardView: React.FC = () => {
              const url = await generateImage({
                  prompt, 
                  aspectRatio: storyboardConfig.aspectRatio || '16:9',
-                 model: storyboardConfig.imageModel || 'gemini-2.5-flash-image'
+                 model: storyboardConfig.imageModel || 'pollinations-turbo'
              });
              if (url) {
                  const newHistory = shot.imageHistory ? [...shot.imageHistory] : [];
@@ -1106,15 +1166,27 @@ const StoryboardView: React.FC = () => {
              }
         } catch (e: any) { 
             console.error(`Failed to render shot ${i + 1}`, e);
-            alert(`Queue Stopped at Shot ${i+1}:\n${e.message || 'Unknown Error'}`);
-            break;
+            try {
+                const fallbackUrl = generateProceduralSketch(buildEnhancedPrompt(shot), storyboardConfig.aspectRatio || '16:9');
+                if (fallbackUrl) {
+                    updateGeneratedShot(shot.id, { imageUrl: fallbackUrl });
+                }
+            } catch (fallbackErr) {
+                console.error('Procedural sketch fallback error:', fallbackErr);
+            }
         }
         if (i < generatedShots.length - 1 && !cancelQueueRef.current) {
              setCurrentlyRenderingId(null);
-             await new Promise(resolve => setTimeout(resolve, delay * 1000));
+             for (let s = delay; s > 0; s--) {
+                 if (cancelQueueRef.current) break;
+                 setCooldownCountdown(s);
+                 await new Promise(resolve => setTimeout(resolve, 1000));
+             }
+             setCooldownCountdown(0);
         }
     }
     setCurrentlyRenderingId(null);
+    setCooldownCountdown(0);
     setIsQueueRunning(false);
   };
 
@@ -1122,6 +1194,7 @@ const StoryboardView: React.FC = () => {
       cancelQueueRef.current = true;
       setIsQueueRunning(false);
       setCurrentlyRenderingId(null);
+      setCooldownCountdown(0);
   };
 
   const generateCardDataUrl = async (shot: Shot, scale = 2): Promise<string | null> => {
@@ -1347,6 +1420,66 @@ const StoryboardView: React.FC = () => {
                     <button onClick={() => setShowSceneBreaks(!showSceneBreaks)} className={`p-1.5 rounded flex items-center gap-1 text-[10px] font-bold uppercase cursor-pointer ${showSceneBreaks ? 'text-amber-500' : 'text-zinc-500'}`} title="Toggle Scene Breaks">
                         <Scissors size={14} /> Breaks
                     </button>
+                </div>
+            )}
+
+            {/* Image Generation Engine Selector */}
+            <select
+                value={storyboardConfig.imageModel || 'pollinations-turbo'}
+                onChange={(e) => setStoryboardConfig({ ...storyboardConfig, imageModel: e.target.value })}
+                className={`h-8 px-2.5 rounded-lg border text-[11px] font-semibold outline-none cursor-pointer ${
+                    isLight 
+                    ? 'bg-white border-slate-300 text-slate-800 focus:border-amber-500 shadow-xs' 
+                    : 'bg-[#181820] border-[#262634] text-zinc-200 focus:border-amber-500 shadow-xs'
+                }`}
+                title="Select Image Generation Engine (Pollinations Turbo is Fast & Unlimited)"
+            >
+                {AVAILABLE_IMAGE_MODELS.map(m => (
+                    <option key={m.value} value={m.value} className={isLight ? 'bg-white text-slate-900' : 'bg-[#181820] text-zinc-100'}>
+                        {m.label}
+                    </option>
+                ))}
+            </select>
+
+            {/* Request Throttle Delay Selector (2s - 10s) */}
+            <div className={`flex items-center gap-1.5 h-8 px-2 rounded-lg border text-xs shadow-xs ${
+                isLight ? 'bg-white border-slate-300 text-slate-700' : 'bg-[#181820] border-[#262634] text-zinc-300'
+            }`} title="Cooldown delay between prompt requests (2s - 10s) to reduce rate-limits and API failures">
+                <Clock size={13} className="text-amber-500 shrink-0 ml-0.5" />
+                <span className="text-[10px] font-bold uppercase text-zinc-400 hidden sm:inline">Delay:</span>
+                <select
+                    value={delay}
+                    onChange={(e) => handleSetDelay(Number(e.target.value))}
+                    className="bg-transparent font-mono font-bold text-xs outline-none cursor-pointer pr-1"
+                >
+                    <option value={2} className={isLight ? 'bg-white text-slate-900' : 'bg-[#181820] text-zinc-100'}>2s</option>
+                    <option value={3} className={isLight ? 'bg-white text-slate-900' : 'bg-[#181820] text-zinc-100'}>3s</option>
+                    <option value={4} className={isLight ? 'bg-white text-slate-900' : 'bg-[#181820] text-zinc-100'}>4s</option>
+                    <option value={5} className={isLight ? 'bg-white text-slate-900' : 'bg-[#181820] text-zinc-100'}>5s (Default)</option>
+                    <option value={6} className={isLight ? 'bg-white text-slate-900' : 'bg-[#181820] text-zinc-100'}>6s</option>
+                    <option value={8} className={isLight ? 'bg-white text-slate-900' : 'bg-[#181820] text-zinc-100'}>8s</option>
+                    <option value={10} className={isLight ? 'bg-white text-slate-900' : 'bg-[#181820] text-zinc-100'}>10s (Safe)</option>
+                </select>
+            </div>
+
+            {/* Live Queue / Cooldown indicator */}
+            {isQueueRunning && (
+                <div className={`h-8 px-2.5 rounded-lg border text-xs font-mono font-bold flex items-center gap-1.5 animate-in fade-in ${
+                    cooldownCountdown > 0
+                        ? 'bg-amber-500/15 border-amber-500/40 text-amber-400'
+                        : 'bg-emerald-500/15 border-emerald-500/40 text-emerald-400'
+                }`}>
+                    {cooldownCountdown > 0 ? (
+                        <>
+                            <Clock size={12} className="animate-pulse text-amber-400" />
+                            <span>Cooldown: {cooldownCountdown}s</span>
+                        </>
+                    ) : (
+                        <>
+                            <Loader2 size={12} className="animate-spin text-emerald-400" />
+                            <span>Rendering {queueProgress.current}/{queueProgress.total}</span>
+                        </>
+                    )}
                 </div>
             )}
 

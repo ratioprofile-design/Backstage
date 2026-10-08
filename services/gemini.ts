@@ -802,37 +802,245 @@ Example JSON:
   }
 }
 
-export async function generateImage(promptOrOptions: any): Promise<string | null> {
-  let prompt = typeof promptOrOptions === 'object' ? (promptOrOptions.prompt || '') : (promptOrOptions || '');
-  let model = (typeof promptOrOptions === 'object' && promptOrOptions?.model) ? promptOrOptions.model : 'gemini-2.5-flash-image';
-  let aspectRatio = (typeof promptOrOptions === 'object' && promptOrOptions?.aspectRatio) ? promptOrOptions.aspectRatio : '16:9';
+/**
+ * Sanitizes and cleans prompts for URL-safe AI image generation.
+ * Strips verbose markdown, boilerplate, brackets, asterisks, and keeps
+ * core visual descriptors under 250 characters.
+ */
+export function sanitizePromptForImageGen(rawPrompt: string): string {
+  if (!rawPrompt) return 'Cinematic storyboard frame, charcoal sketch';
+  
+  // Strip out character consistency blocks and technical headers
+  let cleaned = rawPrompt
+    .replace(/\*\*\*[\s\S]*?\*\*\*/g, '')
+    .replace(/\[CHARACTER REFERENCE:[\s\S]*?\]/gi, '')
+    .replace(/\[.*?\]/g, '')
+    .replace(/Character Reference:.*$/gim, '')
+    .replace(/Framing:|Headroom:|Action:|Subject:|Shot Type:|Angle:/gi, '')
+    .replace(/[\r\n]+/g, ', ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  // Remove any remaining special characters that break URLs
+  cleaned = cleaned.replace(/[^\w\s,.'"-]/g, '');
+
+  // Truncate to safe length (~220 chars) so GET URLs don't exceed limits
+  if (cleaned.length > 250) {
+    const cut = cleaned.substring(0, 250);
+    const lastComma = cut.lastIndexOf(',');
+    const lastSpace = cut.lastIndexOf(' ');
+    cleaned = cut.substring(0, lastComma > 140 ? lastComma : lastSpace > 140 ? lastSpace : 250);
+  }
+
+  // Ensure style is present
+  if (!cleaned.toLowerCase().includes('sketch') && !cleaned.toLowerCase().includes('cinematic')) {
+    cleaned = `Cinematic storyboard charcoal sketch, ${cleaned}`;
+  }
+
+  return cleaned.trim();
+}
+
+/**
+ * Generates an image via Pollinations AI (Fast Turbo / Sana model).
+ * Completely free, high-speed (2-4s), no API key required, with CORS support.
+ */
+export async function generatePollinationsImage(
+  prompt: string,
+  aspectRatio: string = '16:9'
+): Promise<string> {
+  let width = 1024;
+  let height = 576;
+  if (aspectRatio === '9:16') {
+    width = 576;
+    height = 1024;
+  } else if (aspectRatio === '4:3') {
+    width = 1024;
+    height = 768;
+  } else if (aspectRatio === '1:1') {
+    width = 768;
+    height = 768;
+  } else if (aspectRatio === '2.35:1') {
+    width = 1024;
+    height = 436;
+  }
+
+  const cleanPrompt = sanitizePromptForImageGen(prompt);
+  const seed = Math.floor(Math.random() * 10000000);
+  
+  // Use fast, reliable Turbo engine (2-3s response)
+  const pollinationsUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(cleanPrompt)}?width=${width}&height=${height}&seed=${seed}&nologo=true&model=turbo`;
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 18000);
 
   try {
-    const ai = new GoogleGenAI({ apiKey: getGeminiApiKey() });
-    if (model && model.includes('imagen')) {
-        const response = await ai.models.generateImages({
-            model: model,
-            prompt: prompt,
-            config: { numberOfImages: 1, aspectRatio: aspectRatio, outputMimeType: 'image/jpeg' },
-        });
-        const base64 = response.generatedImages?.[0]?.image?.imageBytes;
-        return base64 ? `data:image/jpeg;base64,${base64}` : null;
-    } else {
-        const response = await ai.models.generateContent({
-            model: model,
-            contents: { parts: [{ text: prompt }] },
-            config: { imageConfig: { aspectRatio: aspectRatio } } as any,
-        });
-        if (response.candidates?.[0]?.content?.parts) {
-            for (const part of response.candidates[0].content.parts) {
-                if (part.inlineData) return `data:image/png;base64,${part.inlineData.data}`;
-            }
-        }
-        return null;
+    const res = await fetch(pollinationsUrl, { signal: controller.signal });
+    clearTimeout(timer);
+    if (!res.ok) {
+      throw new Error(`Pollinations HTTP ${res.status}`);
     }
-  } catch (error) {
-    console.error("Image Generation Error:", error);
-    throw error;
+    const blob = await res.blob();
+    if (!blob || blob.size < 500) {
+      throw new Error('Received invalid or empty image blob');
+    }
+    return await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        if (typeof reader.result === 'string') resolve(reader.result);
+        else reject(new Error('Failed to read image as DataURL'));
+      };
+      reader.onerror = () => reject(new Error('FileReader error'));
+      reader.readAsDataURL(blob);
+    });
+  } catch (err) {
+    clearTimeout(timer);
+    console.warn('Pollinations Turbo fetch error, using procedural canvas sketch:', err);
+    // CRITICAL: NEVER return an unverified URL that shows a broken image icon!
+    // Immediately return the procedural canvas sketch so the UI always has a valid visual image.
+    return generateProceduralSketch(cleanPrompt, aspectRatio);
+  }
+}
+
+/**
+ * Procedural Canvas fallback for offline or emergency storyboard sketch generation.
+ */
+export function generateProceduralSketch(prompt: string, aspectRatio: string = '16:9'): string {
+  if (typeof document === 'undefined') return '';
+  try {
+    const canvas = document.createElement('canvas');
+    let width = 1280;
+    let height = 720;
+    if (aspectRatio === '9:16') { width = 720; height = 1280; }
+    else if (aspectRatio === '4:3') { width = 1024; height = 768; }
+    else if (aspectRatio === '1:1') { width = 1024; height = 1024; }
+    else if (aspectRatio === '2.35:1') { width = 1280; height = 544; }
+
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return '';
+
+    // Dark charcoal vignette background
+    const bg = ctx.createRadialGradient(width / 2, height / 2, 80, width / 2, height / 2, width * 0.7);
+    bg.addColorStop(0, '#252630');
+    bg.addColorStop(0.6, '#15161c');
+    bg.addColorStop(1, '#0a0a0d');
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, width, height);
+
+    // Cinematic frame border
+    ctx.strokeStyle = '#f5a623';
+    ctx.lineWidth = 4;
+    ctx.strokeRect(30, 30, width - 60, height - 60);
+
+    // Rule of thirds subtle grid
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([6, 6]);
+    ctx.beginPath();
+    ctx.moveTo(width / 3, 30); ctx.lineTo(width / 3, height - 30);
+    ctx.moveTo((width * 2) / 3, 30); ctx.lineTo((width * 2) / 3, height - 30);
+    ctx.moveTo(30, height / 3); ctx.lineTo(width - 30, height / 3);
+    ctx.moveTo(30, (height * 2) / 3); ctx.lineTo(width - 30, (height * 2) / 3);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Focal subject halo
+    const halo = ctx.createRadialGradient(width / 2, height / 2, 10, width / 2, height / 2, height * 0.35);
+    halo.addColorStop(0, 'rgba(245, 166, 35, 0.18)');
+    halo.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    ctx.fillStyle = halo;
+    ctx.beginPath();
+    ctx.arc(width / 2, height / 2, height * 0.35, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Storyboard Header
+    ctx.fillStyle = '#f5a623';
+    ctx.font = 'bold 24px monospace';
+    ctx.fillText('STORYBOARD CONCEPT FRAME', 60, 80);
+
+    // Aspect Ratio & Mode
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+    ctx.font = 'bold 16px monospace';
+    ctx.fillText(`${aspectRatio} • CHARCOAL COMPOSITION`, width - 300, 80);
+
+    // Prompt lines
+    ctx.fillStyle = '#f4f4f5';
+    ctx.font = '16px sans-serif';
+    const lines = prompt.split('\n').filter(l => l.trim()).slice(0, 4);
+    let y = height - 140;
+    for (const line of lines) {
+      ctx.fillText(line.substring(0, 95), 60, y);
+      y += 26;
+    }
+
+    return canvas.toDataURL('image/jpeg', 0.85);
+  } catch (err) {
+    console.error('Canvas sketch generation failed:', err);
+    return '';
+  }
+}
+
+/**
+ * Universal Image Generation function with resilient multi-tier fallbacks:
+ * 1. Pollinations AI Flux (if selected, or no Gemini key)
+ * 2. Google Gemini / Imagen (if configured)
+ * 3. Automatic fallback to Pollinations AI on quota 429 / limit:0 errors
+ * 4. Procedural Canvas sketch fallback if completely offline
+ */
+export async function generateImage(promptOrOptions: any): Promise<string | null> {
+  let prompt = typeof promptOrOptions === 'object' ? (promptOrOptions.prompt || '') : (promptOrOptions || '');
+  let model = (typeof promptOrOptions === 'object' && promptOrOptions?.model) ? promptOrOptions.model : 'pollinations-turbo';
+  let aspectRatio = (typeof promptOrOptions === 'object' && promptOrOptions?.aspectRatio) ? promptOrOptions.aspectRatio : '16:9';
+
+  const geminiKey = getGeminiApiKey();
+
+  // If explicit Pollinations model, or no Gemini key available:
+  if (!model || model.includes('pollinations') || model === 'free' || !geminiKey) {
+    try {
+      return await generatePollinationsImage(prompt, aspectRatio);
+    } catch (e) {
+      console.warn('Pollinations direct failed, generating procedural sketch:', e);
+      return generateProceduralSketch(prompt, aspectRatio);
+    }
+  }
+
+  // Attempt Google Gemini / Imagen
+  try {
+    const ai = new GoogleGenAI({ apiKey: geminiKey });
+    if (model && model.includes('imagen')) {
+      const response = await ai.models.generateImages({
+        model: model,
+        prompt: prompt,
+        config: { numberOfImages: 1, aspectRatio: aspectRatio, outputMimeType: 'image/jpeg' },
+      });
+      const base64 = response.generatedImages?.[0]?.image?.imageBytes;
+      if (base64) return `data:image/jpeg;base64,${base64}`;
+    } else {
+      const response = await ai.models.generateContent({
+        model: model,
+        contents: { parts: [{ text: prompt }] },
+        config: { imageConfig: { aspectRatio: aspectRatio } } as any,
+      });
+      if (response.candidates?.[0]?.content?.parts) {
+        for (const part of response.candidates[0].content.parts) {
+          if (part.inlineData) return `data:image/png;base64,${part.inlineData.data}`;
+        }
+      }
+    }
+    // If response didn't contain an image, fall back to Pollinations
+    console.warn(`No image bytes returned from Gemini (${model}), falling back to Pollinations AI...`);
+    return await generatePollinationsImage(prompt, aspectRatio);
+  } catch (error: any) {
+    const msg = error?.message || '';
+    console.warn(`Primary image model ${model} failed (${msg}). Seamlessly falling back to Pollinations AI Flux engine...`);
+    // Seamless fallback so the storyboard queue NEVER stops on 429 quota errors!
+    try {
+      return await generatePollinationsImage(prompt, aspectRatio);
+    } catch (fallbackError) {
+      console.warn('Both Gemini and Pollinations failed. Generating procedural sketch:', fallbackError);
+      return generateProceduralSketch(prompt, aspectRatio);
+    }
   }
 }
 

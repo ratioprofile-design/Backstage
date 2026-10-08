@@ -2109,7 +2109,7 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard, onClos
 
                         <div className="bg-[#111] p-6 rounded-sm border border-[#222]">
                             <h4 className="text-sm font-bold text-white uppercase mb-1">Storyboard Model Configuration</h4>
-                            <p className="text-[10px] text-gray-500 mb-4">Storyboard generation always runs on Google Gemini (Gemini / Imagen).</p>
+                            <p className="text-[10px] text-gray-500 mb-4">Supports Pollinations AI Flux (free & unlimited) and Google Gemini / Imagen (with automatic free fallback on quota limits).</p>
                             <div className="space-y-4">
                                 <div>
                                     <Label>Image Generation Model</Label>

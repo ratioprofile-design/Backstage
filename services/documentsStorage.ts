@@ -127,7 +127,7 @@ export function generateBreakdownHtmlTable(
 
       return `
         <tr style="background: ${zebraBg}; border-bottom: 1px solid #e2e8f0;" class="doc-table-row">
-          <td style="padding: 10px 12px; font-weight: 700; color: #64748b; font-family: ui-monospace, monospace; text-align: center;">${num}</td>
+          <td style="padding: 10px 12px; font-weight: 700; color: #64748b; font-family: 'JetBrains Mono', ui-monospace, monospace; text-align: center;">${num}</td>
           <td style="padding: 10px 12px;">
             <span style="display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; background: ${style.bg}; color: ${style.text}; border: 1px solid ${style.border};">
               ${cat}
@@ -154,12 +154,12 @@ export function generateBreakdownHtmlTable(
     .join('');
 
   return `
-<div class="doc-document-wrapper" style="font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: inherit; width: 100%;">
+<div class="doc-document-wrapper breakdown-document" style="font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: inherit; width: 100%;">
   <!-- Document Header -->
   <div style="margin-bottom: 20px; border-bottom: 2px solid rgba(148, 163, 184, 0.3); padding-bottom: 14px;">
     <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
       <span style="background: #f5a623; color: #000000; font-weight: 900; font-size: 10px; padding: 2px 8px; border-radius: 4px; letter-spacing: 0.06em; text-transform: uppercase;">1ST AD BREAKDOWN</span>
-      <span style="font-size: 11px; font-family: ui-monospace, monospace; opacity: 0.7; text-transform: uppercase;">SHOOT DAY: ${shootDay} &bull; ${pages} &bull; ${totalCount} ITEMS</span>
+      <span style="font-size: 11px; font-family: 'JetBrains Mono', ui-monospace, monospace; opacity: 0.8; text-transform: uppercase;">SHOOT DAY: ${shootDay} &bull; ${pages} &bull; ${totalCount} ITEMS</span>
     </div>
     <h1 style="margin: 0 0 6px 0; font-size: 22px; font-weight: 900; letter-spacing: -0.02em; color: inherit;">Scene ${sceneNumber}: ${sceneHeading}</h1>
   </div>
@@ -175,7 +175,7 @@ export function generateBreakdownHtmlTable(
 
   <!-- The Document Table -->
   <div style="overflow-x: auto; margin-bottom: 24px;">
-    <table class="doc-vault-table" style="width: 100%; border-collapse: collapse; font-size: 12px; text-align: left; border: 1px solid #cbd5e1;">
+    <table class="doc-vault-table" style="width: 100%; border-collapse: collapse; font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 12.5px; text-align: left; border: 1px solid #cbd5e1;">
       <thead>
         <tr style="background: rgba(148, 163, 184, 0.15); border-bottom: 2px solid #cbd5e1; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em;">
           <th style="padding: 10px 12px; width: 44px; text-align: center; border: 1px solid rgba(148, 163, 184, 0.25);">#</th>

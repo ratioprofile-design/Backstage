@@ -28,7 +28,7 @@ import * as XLSX from 'xlsx';
 import { parseUniversalFile } from '../../services/documentParser';
 import { generateText } from '../../services/gemini';
 import { isLegacyBamini, transcodeBaminiToUnicode, transcodeHtmlBaminiToUnicode } from '../../services/tamilTranscoder';
-import { paginateDocumentHtml, paginatePlainText } from '../../services/documentPaginator';
+import { paginateDocumentHtml, paginatePlainText, FONT_STACK_MAP } from '../../services/documentPaginator';
 import {
   parseScreenplayToTamilLeftRight,
   generateTamilLeftRightHtml,
@@ -238,7 +238,7 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
   // Document In-Place Editing & Typography
   const [isEditMode, setIsEditMode] = useState<boolean>(false);
   const [docFontSize, setDocFontSize] = useState<'sm' | 'md' | 'lg' | 'xl'>('md');
-  const [docFontFamily, setDocFontFamily] = useState<'serif' | 'sans' | 'mono'>('serif');
+  const [docFontFamily, setDocFontFamily] = useState<'sans' | 'serif' | 'mono' | 'calibri' | 'inter' | 'vijaya'>('sans');
   const [showHeader, setShowHeader] = useState<boolean>(true);
   const [customHeaderTitle, setCustomHeaderTitle] = useState<string>('');
   const [showFooter, setShowFooter] = useState<boolean>(true);
@@ -734,13 +734,14 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
   const paginatedDoc = useMemo(() => {
     if (!selectedDoc) return { totalPages: 1, pages: [] };
     const content = editedHtmlContent || selectedDoc.htmlContent;
-    const targetHeightPx = showHeader && showFooter ? 860 : showHeader || showFooter ? 910 : 960;
+    const targetHeightPx = showHeader && showFooter ? 880 : showHeader || showFooter ? 920 : 960;
 
     if (content) {
       return paginateDocumentHtml(content, {
         fontSize: docFontSize,
         fontFamily: docFontFamily,
         targetHeightPx,
+        isWordDocument: selectedDoc?.fileType === 'docx',
       });
     }
     if (selectedDoc.textContent && !selectedDoc.sheetData && !selectedDoc.imageDataUrl && !selectedDoc.pdfDataUrl) {
@@ -748,6 +749,7 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
         fontSize: docFontSize,
         fontFamily: docFontFamily,
         targetHeightPx,
+        isWordDocument: selectedDoc?.fileType === 'docx',
       });
     }
     return {
@@ -815,7 +817,14 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
     setEditedHtmlContent(initialContent);
     setHasUnsavedChanges(false);
     setStudioViewMode(doc?.isLeftRightFormat ? 'two-column' : 'page');
-    setIsEditMode(true);
+    setIsEditMode(false); // Default to authentic Paginated A4 View!
+    if (doc?.fileType === 'docx' || doc?.fileName?.endsWith('.docx')) {
+      setDocFontFamily('calibri');
+    } else if (doc?.category === 'BREAKDOWN' || doc?.builtInType === 'breakdown') {
+      setDocFontFamily('inter');
+    } else {
+      setDocFontFamily('sans');
+    }
     setBreakdownCategoryFilter('ALL');
     setBreakdownSearchQuery('');
     setInStudioMode(true);
@@ -1609,8 +1618,8 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
       {/* =========================================================================
           TOP HEADER: VAULT NAVIGATION & MASTER ACTION BAR
          ========================================================================= */}
-      <header className={`h-16 px-6 border-b flex items-center justify-between shrink-0 transition-colors z-20 ${
-        isLight ? 'bg-white/80 border-slate-200 backdrop-blur-md' : 'bg-[#121215]/80 border-[#222226] backdrop-blur-md'
+      <header className={`h-12 px-5 border-b flex items-center justify-between shrink-0 transition-colors z-20 ${
+        isLight ? 'bg-white/60 border-slate-200/70 backdrop-blur-md' : 'bg-[#0e0e10]/70 border-[#1e1e22] backdrop-blur-md'
       }`}>
         {/* Left: Vault Title, View Switcher or Back to Gallery */}
         <div className="flex items-center gap-4">
@@ -1623,27 +1632,31 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                   setPlayingDocId(null);
                 }
               }}
-              className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold border transition-all hover:border-[#f5a623] hover:text-[#f5a623] bg-zinc-800/40 border-zinc-700/60"
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold border transition-all ${
+                isLight
+                  ? 'bg-white hover:bg-slate-100 border-slate-300 text-slate-700 hover:text-slate-900 shadow-sm'
+                  : 'bg-zinc-800/40 border-zinc-700/60 text-zinc-300 hover:border-[#f5a623] hover:text-[#f5a623]'
+              }`}
             >
               <ChevronLeft size={16} />
               <span>Back to Gallery</span>
             </button>
           ) : (
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#f5a623]/20 to-amber-500/10 border border-[#f5a623]/30 flex items-center justify-center text-[#f5a623] shadow-inner">
-                <FileStack size={20} />
+            <div className="flex items-center gap-2.5">
+              <div className="w-7 h-7 rounded-lg bg-[#f5a623]/10 border border-[#f5a623]/20 flex items-center justify-center text-[#f5a623]/70">
+                <FileStack size={14} />
               </div>
               <div>
-                <div className="flex items-center gap-2">
-                  <h1 className="text-lg font-black tracking-tight flex items-center gap-2">
-                    Production Document Vault
+                <div className="flex items-center gap-1.5">
+                  <h1 className={`text-sm font-semibold tracking-tight ${isLight ? 'text-slate-700' : 'text-zinc-300'}`}>
+                    Document Vault
                   </h1>
-                  <span className="px-2 py-0.5 text-[10px] font-black uppercase tracking-wider rounded-full bg-[#f5a623]/15 text-[#f5a623] border border-[#f5a623]/30">
+                  <span className={`px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-widest rounded-md ${isLight ? 'bg-slate-100 text-slate-400 border border-slate-200' : 'bg-zinc-800/60 text-zinc-500 border border-zinc-700/50'}`}>
                     Grand Gallery
                   </span>
                 </div>
-                <p className={`text-xs ${isLight ? 'text-slate-500' : 'text-zinc-400'}`}>
-                  {counts.ALL || 0} active assets • {counts.ARCHIVED || 0} preserved in archive • Permanent production record
+                <p className={`text-[10px] ${isLight ? 'text-slate-400' : 'text-zinc-600'}`}>
+                  {counts.ALL || 0} active • {counts.ARCHIVED || 0} archived
                 </p>
               </div>
             </div>
@@ -1696,7 +1709,7 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
             }`}>
               {selectedDoc?.category}
             </span>
-            <span className="text-sm font-bold truncate max-w-md">
+            <span className={`text-sm font-bold truncate max-w-md ${isLight ? 'text-slate-900' : 'text-white'}`}>
               {selectedDoc?.title}
             </span>
           </div>
@@ -1707,12 +1720,18 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
           {!inStudioMode ? (
             <>
               {/* View Mode Switcher (Gallery, Table, Kanban, Timeline) */}
-              <div className="flex items-center p-1 rounded-xl bg-zinc-900/60 border border-zinc-800/80">
+              <div className={`flex items-center p-1 rounded-xl border ${
+                isLight ? 'bg-slate-100 border-slate-200' : 'bg-zinc-900/60 border-zinc-800/80'
+              }`}>
                 <button
                   onClick={() => setGalleryViewMode('gallery')}
                   title="Visual Card Gallery View"
                   className={`p-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
-                    galleryViewMode === 'gallery' ? 'bg-[#f5a623] text-black shadow-sm' : 'text-zinc-400 hover:text-white'
+                    galleryViewMode === 'gallery'
+                      ? 'bg-[#f5a623] text-black shadow-sm'
+                      : isLight
+                      ? 'text-slate-600 hover:text-slate-900'
+                      : 'text-zinc-400 hover:text-white'
                   }`}
                 >
                   <Grid size={14} />
@@ -1722,7 +1741,11 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                   onClick={() => setGalleryViewMode('table')}
                   title="Detailed Table / List View"
                   className={`p-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
-                    galleryViewMode === 'table' ? 'bg-[#f5a623] text-black shadow-sm' : 'text-zinc-400 hover:text-white'
+                    galleryViewMode === 'table'
+                      ? 'bg-[#f5a623] text-black shadow-sm'
+                      : isLight
+                      ? 'text-slate-600 hover:text-slate-900'
+                      : 'text-zinc-400 hover:text-white'
                   }`}
                 >
                   <List size={14} />
@@ -1732,7 +1755,11 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                   onClick={() => setGalleryViewMode('kanban')}
                   title="Category Board (Kanban) View"
                   className={`p-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
-                    galleryViewMode === 'kanban' ? 'bg-[#f5a623] text-black shadow-sm' : 'text-zinc-400 hover:text-white'
+                    galleryViewMode === 'kanban'
+                      ? 'bg-[#f5a623] text-black shadow-sm'
+                      : isLight
+                      ? 'text-slate-600 hover:text-slate-900'
+                      : 'text-zinc-400 hover:text-white'
                   }`}
                 >
                   <Columns size={14} />
@@ -1742,7 +1769,11 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                   onClick={() => setGalleryViewMode('timeline')}
                   title="Production Timeline Feed"
                   className={`p-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
-                    galleryViewMode === 'timeline' ? 'bg-[#f5a623] text-black shadow-sm' : 'text-zinc-400 hover:text-white'
+                    galleryViewMode === 'timeline'
+                      ? 'bg-[#f5a623] text-black shadow-sm'
+                      : isLight
+                      ? 'text-slate-600 hover:text-slate-900'
+                      : 'text-zinc-400 hover:text-white'
                   }`}
                 >
                   <Calendar size={14} />
@@ -1756,10 +1787,12 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                   setVoiceNoteTitle('');
                   setIsVoiceRecorderOpen(true);
                 }}
-                className="px-3 py-1.5 text-xs font-bold rounded-xl bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 hover:bg-cyan-500/20 flex items-center gap-1.5 transition-all shadow-sm"
+                className={`px-2.5 py-1 text-xs font-medium rounded-lg border flex items-center gap-1.5 transition-all ${
+                  isLight ? 'bg-slate-50 border-slate-200 text-slate-500 hover:text-slate-700 hover:border-slate-300' : 'bg-transparent border-zinc-800 text-zinc-500 hover:text-zinc-300 hover:border-zinc-700'
+                }`}
                 title="Record Voice Note directly in Vault"
               >
-                <Mic size={14} />
+                <Mic size={13} />
                 <span className="hidden md:inline">Voice Note</span>
               </button>
 
@@ -1769,19 +1802,23 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                   setQuickNoteContent('');
                   setIsNoteModalOpen(true);
                 }}
-                className="px-3 py-1.5 text-xs font-bold rounded-xl bg-lime-500/10 border border-lime-500/30 text-lime-400 hover:bg-lime-500/20 flex items-center gap-1.5 transition-all shadow-sm"
+                className={`px-2.5 py-1 text-xs font-medium rounded-lg border flex items-center gap-1.5 transition-all ${
+                  isLight ? 'bg-slate-50 border-slate-200 text-slate-500 hover:text-slate-700 hover:border-slate-300' : 'bg-transparent border-zinc-800 text-zinc-500 hover:text-zinc-300 hover:border-zinc-700'
+                }`}
                 title="Write a Production Memo"
               >
-                <StickyNote size={14} />
+                <StickyNote size={13} />
                 <span className="hidden md:inline">Quick Note</span>
               </button>
 
               <button
                 onClick={() => fileInputRef.current?.click()}
-                className="px-3 py-1.5 text-xs font-bold rounded-xl bg-zinc-800 hover:bg-zinc-700 text-gray-200 border border-zinc-700 flex items-center gap-1.5 transition-all shadow-sm"
+                className={`px-2.5 py-1 text-xs font-medium rounded-lg border flex items-center gap-1.5 transition-all ${
+                  isLight ? 'bg-slate-50 border-slate-200 text-slate-500 hover:text-slate-700 hover:border-slate-300' : 'bg-transparent border-zinc-800 text-zinc-500 hover:text-zinc-300 hover:border-zinc-700'
+                }`}
                 title="Import PDF, Word, Image, Audio, Sheet"
               >
-                <Upload size={14} />
+                <Upload size={13} />
                 <span className="hidden md:inline">Import</span>
               </button>
 
@@ -1798,19 +1835,23 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                     }
                   }
                 }}
-                className="px-3.5 py-1.5 text-xs font-bold rounded-xl bg-emerald-500/15 border border-emerald-500/35 text-emerald-400 hover:bg-emerald-500/25 flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
+                className={`px-2.5 py-1 text-xs font-medium rounded-lg border flex items-center gap-1.5 transition-all ${
+                  isLight ? 'bg-slate-50 border-slate-200 text-slate-500 hover:text-slate-700 hover:border-slate-300' : 'bg-transparent border-zinc-800 text-zinc-500 hover:text-zinc-300 hover:border-zinc-700'
+                }`}
                 title="Open Dedicated 2-Column Kollywood Script Studio"
               >
-                <Columns size={14} className="text-emerald-400" />
+                <Columns size={13} />
                 <span className="hidden md:inline">2-Col Script Studio</span>
               </button>
 
               <button
                 onClick={handleSyncArtifacts}
-                className="px-3 py-1.5 text-xs font-bold rounded-xl bg-[#f5a623] hover:bg-[#e09612] text-black flex items-center gap-1.5 transition-all shadow-md font-mono"
+                className={`px-2.5 py-1 text-xs font-medium rounded-lg border flex items-center gap-1.5 transition-all ${
+                  isLight ? 'bg-slate-100 border-slate-300 text-slate-600 hover:bg-slate-200' : 'bg-zinc-900 border-zinc-700 text-zinc-400 hover:text-zinc-200 hover:border-zinc-600'
+                }`}
                 title="Scan and synchronize all notes, voice memos, storyboard panels, and breakdowns from project"
               >
-                <Sparkles size={14} />
+                <RefreshCw size={13} />
                 <span>Sync Artifacts</span>
               </button>
             </>
@@ -1818,14 +1859,18 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
             /* Studio Mode Header Actions */
             <div className="flex items-center gap-2">
               {/* Prev / Next Doc Navigation */}
-              <div className="flex items-center rounded-lg bg-zinc-800/80 border border-zinc-700/60 p-0.5">
+              <div className={`flex items-center rounded-lg border p-0.5 ${
+                isLight ? 'bg-white border-slate-200 shadow-sm' : 'bg-zinc-800/80 border-zinc-700/60'
+              }`}>
                 <button
                   onClick={() => {
                     const idx = filteredDocuments.findIndex((d) => d.id === selectedDocId);
                     if (idx > 0) handleOpenDocInStudio(filteredDocuments[idx - 1].id);
                   }}
                   disabled={filteredDocuments.findIndex((d) => d.id === selectedDocId) <= 0}
-                  className="p-1 rounded hover:bg-zinc-700 text-zinc-300 disabled:opacity-30"
+                  className={`p-1 rounded disabled:opacity-30 ${
+                    isLight ? 'hover:bg-slate-100 text-slate-700' : 'hover:bg-zinc-700 text-zinc-300'
+                  }`}
                   title="Previous Document"
                 >
                   <ChevronLeft size={15} />
@@ -1838,40 +1883,14 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                     }
                   }}
                   disabled={filteredDocuments.findIndex((d) => d.id === selectedDocId) >= filteredDocuments.length - 1}
-                  className="p-1 rounded hover:bg-zinc-700 text-zinc-300 disabled:opacity-30"
+                  className={`p-1 rounded disabled:opacity-30 ${
+                    isLight ? 'hover:bg-slate-100 text-slate-700' : 'hover:bg-zinc-700 text-zinc-300'
+                  }`}
                   title="Next Document"
                 >
                   <ChevronRight size={15} />
                 </button>
               </div>
-
-              {/* Table & Document Editing Quick Helpers */}
-              <button
-                onClick={handleAddTableRow}
-                className="px-2.5 py-1.5 text-xs font-bold rounded-lg bg-zinc-800/80 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 flex items-center gap-1.5 transition-all shadow-sm"
-                title="Add a new row to the table in this document"
-              >
-                <Plus size={13} className="text-[#f5a623]" />
-                <span className="hidden sm:inline">Add Row</span>
-              </button>
-
-              <button
-                onClick={handleAddTextBelow}
-                className="px-2.5 py-1.5 text-xs font-bold rounded-lg bg-zinc-800/80 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 flex items-center gap-1.5 transition-all shadow-sm"
-                title="Add note paragraph or text below the table"
-              >
-                <Plus size={13} className="text-lime-400" />
-                <span className="hidden md:inline">Add Text Below</span>
-              </button>
-
-              <button
-                onClick={handleInsertTable}
-                className="px-2.5 py-1.5 text-xs font-bold rounded-lg bg-zinc-800/80 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 flex items-center gap-1.5 transition-all shadow-sm"
-                title="Insert an editable table into this document"
-              >
-                <TableIcon size={13} className="text-cyan-400" />
-                <span className="hidden lg:inline">Insert Table</span>
-              </button>
 
               {/* Toggle 2-Column Left/Right Shooting Script Layout on Document */}
               <button
@@ -1881,11 +1900,13 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                 className={`px-3 py-1.5 text-xs font-bold rounded-lg border flex items-center gap-1.5 transition-all shadow-sm cursor-pointer ${
                   studioViewMode === 'two-column'
                     ? 'bg-emerald-500 text-black border-emerald-500 shadow-md font-black'
+                    : isLight
+                    ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border-emerald-200'
                     : 'bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 border border-emerald-500/40'
                 }`}
                 title="Toggle Kollywood 2-Column Left-Right (இருபக்க காட்சி-வசனம்) layout on this document"
               >
-                <Columns size={13} className={studioViewMode === 'two-column' ? 'text-black' : 'text-emerald-400'} />
+                <Columns size={13} className={studioViewMode === 'two-column' ? 'text-black' : isLight ? 'text-emerald-700' : 'text-emerald-400'} />
                 <span>{studioViewMode === 'two-column' ? 'Standard View' : '2-Column Left/Right'}</span>
               </button>
 
@@ -1893,10 +1914,14 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
               {(selectedDoc?.convertedDocxDataUrl || selectedDoc?.isBaminiConverted || isBaminiDetected) && (
                 <button
                   onClick={() => handleDownloadConvertedWordDocx()}
-                  className="px-2.5 py-1.5 text-xs font-bold rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
+                  className={`px-2.5 py-1.5 text-xs font-bold rounded-lg border flex items-center gap-1.5 transition-all shadow-sm cursor-pointer ${
+                    isLight
+                      ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border-emerald-200'
+                      : 'bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40'
+                  }`}
                   title="Download Word (.docx) with Bamini converted to Unicode (preserving 100% of original formatting, font sizes, colors and tables)"
                 >
-                  <Download size={13} className="text-emerald-400" />
+                  <Download size={13} className={isLight ? 'text-emerald-700' : 'text-emerald-400'} />
                   <span>Download Converted (.docx)</span>
                 </button>
               )}
@@ -1905,7 +1930,11 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
               {(selectedDoc?.originalFileDataUrl || selectedDoc?.fileType === 'docx' || selectedDoc?.fileName?.endsWith('.docx')) && (
                 <button
                   onClick={() => handleDownloadOriginalFile(selectedDoc)}
-                  className="px-2.5 py-1.5 text-xs font-bold rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700 flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
+                  className={`px-2.5 py-1.5 text-xs font-bold rounded-lg border flex items-center gap-1.5 transition-all shadow-sm cursor-pointer ${
+                    isLight
+                      ? 'bg-white hover:bg-slate-100 text-slate-700 border-slate-300'
+                      : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700'
+                  }`}
                   title="Download the raw original Word document"
                 >
                   <Download size={13} />
@@ -1917,7 +1946,11 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
               <button
                 onClick={toggleEditMode}
                 className={`px-3 py-1.5 text-xs font-bold rounded-lg border flex items-center gap-1.5 transition-all ${
-                  isEditMode ? 'bg-[#f5a623] text-black border-[#f5a623] shadow-md' : 'bg-zinc-800/80 border-zinc-700 text-zinc-200 hover:bg-zinc-700'
+                  isEditMode
+                    ? 'bg-[#f5a623] text-black border-[#f5a623] shadow-md'
+                    : isLight
+                    ? 'bg-white border-slate-300 text-slate-700 hover:bg-slate-100 shadow-sm'
+                    : 'bg-zinc-800/80 border-zinc-700 text-zinc-200 hover:bg-zinc-700'
                 }`}
               >
                 <Edit3 size={14} />
@@ -1938,7 +1971,11 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
               {selectedDoc?.isArchived ? (
                 <button
                   onClick={(e) => handleUnarchiveDocument(e, selectedDoc.id)}
-                  className="px-3 py-1.5 text-xs font-bold rounded-lg bg-amber-500/20 border border-amber-500/40 text-amber-400 hover:bg-amber-500/30 flex items-center gap-1.5 transition-all"
+                  className={`px-3 py-1.5 text-xs font-bold rounded-lg border flex items-center gap-1.5 transition-all ${
+                    isLight
+                      ? 'bg-amber-50 border-amber-200 text-amber-700 hover:bg-amber-100'
+                      : 'bg-amber-500/20 border-amber-500/40 text-amber-400 hover:bg-amber-500/30'
+                  }`}
                   title="Restore document to active Vault"
                 >
                   <ArchiveRestore size={14} />
@@ -1947,7 +1984,11 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
               ) : (
                 <button
                   onClick={(e) => handleArchiveDocument(e, selectedDoc?.id || '')}
-                  className="px-3 py-1.5 text-xs font-bold rounded-lg bg-zinc-800/80 border border-zinc-700 text-zinc-300 hover:text-amber-400 hover:border-amber-500/40 flex items-center gap-1.5 transition-all"
+                  className={`px-3 py-1.5 text-xs font-bold rounded-lg border flex items-center gap-1.5 transition-all ${
+                    isLight
+                      ? 'bg-white border-slate-300 text-slate-600 hover:text-amber-700 hover:border-amber-300 shadow-sm'
+                      : 'bg-zinc-800/80 border-zinc-700 text-zinc-300 hover:text-amber-400 hover:border-amber-500/40'
+                  }`}
                   title="Safely archive this document into Vault history"
                 >
                   <Archive size={14} />
@@ -1958,7 +1999,11 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
               {/* Print Preview */}
               <button
                 onClick={() => window.print()}
-                className="p-2 rounded-lg bg-zinc-800/80 border border-zinc-700 text-zinc-300 hover:text-white"
+                className={`p-2 rounded-lg border ${
+                  isLight
+                    ? 'bg-white border-slate-300 text-slate-600 hover:text-slate-900 shadow-sm'
+                    : 'bg-zinc-800/80 border-zinc-700 text-zinc-300 hover:text-white'
+                }`}
                 title="Print Document"
               >
                 <Printer size={15} />
@@ -2476,7 +2521,7 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                           <th className="p-3.5 text-right pr-5">Actions</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-zinc-800/40">
+                      <tbody className={`divide-y ${isLight ? 'divide-slate-200' : 'divide-zinc-800/40'}`}>
                         {filteredDocuments.map((doc) => {
                           const style = CATEGORY_STYLES[doc.category] || CATEGORY_STYLES.OTHER;
                           const isAudio = doc.category === 'VOICE_NOTE' || doc.fileType === 'audio' || !!doc.audioUrl;
@@ -2499,7 +2544,7 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                                     <div className="font-bold text-sm tracking-tight group-hover:text-[#f5a623] transition-colors">
                                       {doc.title}
                                     </div>
-                                    <div className="font-mono text-[11px] text-zinc-500">
+                                    <div className={`font-mono text-[11px] ${isLight ? 'text-slate-400' : 'text-zinc-500'}`}>
                                       {doc.fileName}
                                     </div>
                                     {doc.tags && doc.tags.length > 0 && (
@@ -2516,7 +2561,9 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                                               }}
                                               className={`text-[9px] px-1.5 py-0.5 rounded font-medium transition-all ${
                                                 isTagActive
-                                                  ? 'bg-[#f5a623] text-black font-bold'
+                                                  ? 'bg-[#f5a623] text-black font-bold shadow-xs'
+                                                  : isLight
+                                                  ? 'bg-slate-100 text-slate-600 border border-slate-200 hover:text-amber-600'
                                                   : 'bg-zinc-800/80 text-zinc-400 hover:text-amber-400'
                                               }`}
                                               title={`Filter by #${tag}`}
@@ -2537,19 +2584,19 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                                 </span>
                               </td>
 
-                              <td className="p-3.5 font-mono uppercase text-zinc-400">
+                              <td className={`p-3.5 font-mono uppercase ${isLight ? 'text-slate-500' : 'text-zinc-400'}`}>
                                 {doc.fileType || 'PDF'}
                               </td>
 
-                              <td className="p-3.5 text-zinc-300">
+                              <td className={`p-3.5 ${isLight ? 'text-slate-800 font-medium' : 'text-zinc-300'}`}>
                                 {doc.author || 'Production'}
                               </td>
 
-                              <td className="p-3.5 font-mono text-zinc-400">
+                              <td className={`p-3.5 font-mono ${isLight ? 'text-slate-500' : 'text-zinc-400'}`}>
                                 {doc.durationSeconds ? `${doc.durationSeconds}s` : doc.fileSize || '1.1 MB'}
                               </td>
 
-                              <td className="p-3.5 font-mono text-zinc-500">
+                              <td className={`p-3.5 font-mono ${isLight ? 'text-slate-400' : 'text-zinc-500'}`}>
                                 {new Date(doc.uploadedAt).toLocaleDateString()}
                               </td>
 
@@ -2559,7 +2606,7 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                                     {doc.annotations.length} marks
                                   </span>
                                 ) : (
-                                  <span className="text-zinc-600">—</span>
+                                  <span className={isLight ? 'text-slate-300' : 'text-zinc-600'}>—</span>
                                 )}
                               </td>
 
@@ -2577,7 +2624,11 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
 
                                   <button
                                     onClick={() => handleOpenDocInStudio(doc.id)}
-                                    className="p-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200"
+                                    className={`p-1.5 rounded-lg transition-colors ${
+                                      isLight
+                                        ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200'
+                                        : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-200'
+                                    }`}
                                     title="Open in Document Studio"
                                   >
                                     <ExternalLink size={13} />
@@ -2594,7 +2645,11 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                                   ) : (
                                     <button
                                       onClick={(e) => handleArchiveDocument(e, doc.id)}
-                                      className="p-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-amber-400 transition-all"
+                                      className={`p-1.5 rounded-lg transition-all ${
+                                        isLight
+                                          ? 'bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-amber-600 border border-slate-200'
+                                          : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-amber-400'
+                                      }`}
                                       title="Archive document"
                                     >
                                       <Archive size={13} />
@@ -2648,7 +2703,9 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                                 {style.label}
                               </span>
                             </div>
-                            <span className="text-xs font-mono font-bold px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-400">
+                            <span className={`text-xs font-mono font-bold px-2 py-0.5 rounded-full ${
+                              isLight ? 'bg-slate-200 text-slate-700' : 'bg-zinc-800 text-zinc-400'
+                            }`}>
                               {colDocs.length}
                             </span>
                           </div>
@@ -2666,7 +2723,7 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                                 <div className="text-xs font-bold leading-snug mb-1 line-clamp-2">
                                   {doc.title}
                                 </div>
-                                <div className="text-[11px] text-zinc-500 line-clamp-2 mb-2 font-mono">
+                                <div className={`text-[11px] line-clamp-2 mb-2 font-mono ${isLight ? 'text-slate-500' : 'text-zinc-500'}`}>
                                   {doc.textContent || doc.fileName}
                                 </div>
                                 {doc.tags && doc.tags.length > 0 && (
@@ -2684,6 +2741,8 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                                           className={`text-[9px] px-1.5 py-0.5 rounded font-medium transition-all ${
                                             isTagActive
                                               ? 'bg-[#f5a623] text-black font-bold'
+                                              : isLight
+                                              ? 'bg-slate-100 text-slate-600 border border-slate-200 hover:text-amber-600'
                                               : 'bg-zinc-800/80 text-zinc-400 hover:text-amber-400'
                                           }`}
                                           title={`Filter by #${tag}`}
@@ -2694,14 +2753,16 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                                     })}
                                   </div>
                                 )}
-                                <div className="flex items-center justify-between text-[10px] text-zinc-400 pt-2 border-t border-zinc-800/60 font-mono">
+                                <div className={`flex items-center justify-between text-[10px] pt-2 border-t font-mono ${
+                                  isLight ? 'text-slate-500 border-slate-100' : 'text-zinc-400 border-zinc-800/60'
+                                }`}>
                                   <span>{doc.author || 'Production'}</span>
                                   <span>{doc.fileSize || '1.1 MB'}</span>
                                 </div>
                               </div>
                             ))}
                             {colDocs.length === 0 && (
-                              <div className="py-8 text-center text-xs text-zinc-500 italic">
+                              <div className={`py-8 text-center text-xs italic ${isLight ? 'text-slate-400' : 'text-zinc-500'}`}>
                                 No items in this category
                               </div>
                             )}
@@ -2717,7 +2778,9 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                    ------------------------------------------------------------- */}
                 {galleryViewMode === 'timeline' && (
                   <div className="max-w-3xl mx-auto py-4">
-                    <div className="relative border-l-2 border-zinc-800 ml-4 pl-6 space-y-6">
+                    <div className={`relative border-l-2 ml-4 pl-6 space-y-6 ${
+                      isLight ? 'border-slate-300' : 'border-zinc-800'
+                    }`}>
                       {filteredDocuments.map((doc) => {
                         const style = CATEGORY_STYLES[doc.category] || CATEGORY_STYLES.OTHER;
                         const IconComp = style.icon;
@@ -2725,7 +2788,9 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                         return (
                           <div key={doc.id} className="relative group">
                             {/* Dot on line */}
-                            <div className={`absolute -left-[33px] top-1.5 w-6 h-6 rounded-full border-2 flex items-center justify-center ${style.badgeBg} ${style.badgeText} ${style.border} bg-zinc-950 shadow-md`}>
+                            <div className={`absolute -left-[33px] top-1.5 w-6 h-6 rounded-full border-2 flex items-center justify-center ${style.badgeBg} ${style.badgeText} ${style.border} ${
+                              isLight ? 'bg-white shadow-sm' : 'bg-zinc-950 shadow-md'
+                            }`}>
                               <IconComp size={12} />
                             </div>
 
@@ -2740,7 +2805,7 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                                 <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider border ${style.badgeBg} ${style.badgeText} ${style.border}`}>
                                   {doc.category}
                                 </span>
-                                <span className="text-xs font-mono text-zinc-500">
+                                <span className={`text-xs font-mono ${isLight ? 'text-slate-400' : 'text-zinc-500'}`}>
                                   {new Date(doc.uploadedAt).toLocaleString()}
                                 </span>
                               </div>
@@ -2748,7 +2813,7 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                               <h4 className="text-sm font-bold tracking-tight mb-1 group-hover:text-[#f5a623] transition-colors">
                                 {doc.title}
                               </h4>
-                              <p className="text-xs text-zinc-400 line-clamp-2 mb-2 font-mono">
+                              <p className={`text-xs line-clamp-2 mb-2 font-mono ${isLight ? 'text-slate-600' : 'text-zinc-400'}`}>
                                 {doc.textContent || doc.fileName}
                               </p>
                               {doc.tags && doc.tags.length > 0 && (
@@ -2766,6 +2831,8 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                                         className={`text-[9px] px-1.5 py-0.5 rounded font-medium transition-all ${
                                           isTagActive
                                             ? 'bg-[#f5a623] text-black font-bold'
+                                            : isLight
+                                            ? 'bg-slate-100 text-slate-600 border border-slate-200 hover:text-amber-600'
                                             : 'bg-zinc-800/80 text-zinc-400 hover:text-amber-400'
                                         }`}
                                         title={`Filter by #${tag}`}
@@ -2777,7 +2844,9 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                                 </div>
                               )}
 
-                              <div className="flex items-center justify-between text-xs text-zinc-500 font-mono pt-2 border-t border-zinc-800/40">
+                              <div className={`flex items-center justify-between text-xs font-mono pt-2 border-t ${
+                                isLight ? 'text-slate-500 border-slate-100' : 'text-zinc-500 border-zinc-800/40'
+                              }`}>
                                 <span>Author: {doc.author || 'Production Member'}</span>
                                 <span className="flex items-center gap-2">
                                   {doc.annotations?.length ? `${doc.annotations.length} comments` : ''}
@@ -2821,219 +2890,341 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
               </div>
             )}
 
-            {/* Studio Action Sub-Toolbar: Markup Tools, Audio Controls, Zoom, Layout */}
-            <div className={`h-12 px-6 border-b flex items-center justify-between shrink-0 ${
-              isLight ? 'bg-white/90 border-slate-200' : 'bg-[#141418]/90 border-[#222226]'
+            {/* Studio Action Sub-Toolbar: Clean, De-Clustered Professional Toolbar */}
+            <div className={`h-11 px-4 border-b flex items-center justify-between gap-3 shrink-0 transition-colors overflow-x-auto scrollbar-none ${
+              isLight ? 'bg-white border-slate-200' : 'bg-[#141418]/90 border-[#222226]'
             }`}>
-              {/* Left: Markup & Annotation Tool Selector */}
-              <div className="flex items-center gap-1.5">
-                <button
-                  onClick={() => setActiveTool('hand')}
-                  className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 border transition-all ${
-                    activeTool === 'hand' ? 'bg-[#f5a623] text-black border-[#f5a623]' : 'bg-zinc-800/60 border-zinc-700 text-zinc-300 hover:bg-zinc-800'
-                  }`}
-                  title="Hand Tool (Pan & Select)"
-                >
-                  <Hand size={13} />
-                  <span>Pan</span>
-                </button>
-
-                <button
-                  onClick={() => setActiveTool('highlight')}
-                  className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 border transition-all ${
-                    activeTool === 'highlight' ? 'bg-[#f5a623] text-black border-[#f5a623]' : 'bg-zinc-800/60 border-zinc-700 text-zinc-300 hover:bg-zinc-800'
-                  }`}
-                  title="Highlighter"
-                >
-                  <Highlighter size={13} />
-                  <span>Highlight</span>
-                </button>
-
-                <button
-                  onClick={() => setActiveTool('pen')}
-                  className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 border transition-all ${
-                    activeTool === 'pen' ? 'bg-[#f5a623] text-black border-[#f5a623]' : 'bg-zinc-800/60 border-zinc-700 text-zinc-300 hover:bg-zinc-800'
-                  }`}
-                  title="Pen / Freehand Draw"
-                >
-                  <PenTool size={13} />
-                  <span>Draw</span>
-                </button>
-
-                <button
-                  onClick={() => setActiveTool('rect')}
-                  className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 border transition-all ${
-                    activeTool === 'rect' ? 'bg-[#f5a623] text-black border-[#f5a623]' : 'bg-zinc-800/60 border-zinc-700 text-zinc-300 hover:bg-zinc-800'
-                  }`}
-                  title="Draw Rectangle Marker"
-                >
-                  <Square size={13} />
-                  <span>Box</span>
-                </button>
-
-                <button
-                  onClick={() => setActiveTool('note')}
-                  className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 border transition-all ${
-                    activeTool === 'note' ? 'bg-[#f5a623] text-black border-[#f5a623]' : 'bg-zinc-800/60 border-zinc-700 text-zinc-300 hover:bg-zinc-800'
-                  }`}
-                  title="Sticky Note Marker"
-                >
-                  <StickyNote size={13} />
-                  <span>Sticky Note</span>
-                </button>
-
-                {/* Color Picker Swatches */}
-                <div className="flex items-center gap-1 ml-2 pl-2 border-l border-zinc-700/60">
-                  {HIGHLIGHT_COLORS.map((c) => (
-                    <button
-                      key={c.name}
-                      onClick={() => setActiveColor(c.color)}
-                      className={`w-4 h-4 rounded-full border transition-all ${
-                        activeColor === c.color ? 'scale-125 border-white shadow' : 'border-transparent opacity-75 hover:opacity-100'
-                      }`}
-                      style={{ backgroundColor: c.color }}
-                      title={c.name}
-                    />
-                  ))}
-                </div>
-              </div>
-
-              {/* Center: Audio Player Bar if Selected Doc is Audio */}
-              {selectedDoc?.audioUrl && (
-                <div className="flex items-center gap-3 bg-cyan-950/40 border border-cyan-800/50 px-3 py-1 rounded-xl">
+              {/* Group 1 (Left): Document Page Navigation & Zoom & Continuous/Single */}
+              <div className="flex items-center gap-2 shrink-0">
+                {/* Page Stepper */}
+                <div className={`flex items-center rounded-lg border p-0.5 text-xs font-mono shadow-xs ${
+                  isLight ? 'bg-slate-50 border-slate-200' : 'bg-zinc-800/80 border-zinc-700/60'
+                }`}>
                   <button
-                    onClick={(e) => togglePlayAudio(selectedDoc, e)}
-                    className="w-7 h-7 rounded-full bg-cyan-500 text-black flex items-center justify-center font-bold shadow-md hover:bg-cyan-400"
+                    onClick={() => {
+                      const p = Math.max(1, currentPage - 1);
+                      setCurrentPage(p);
+                      const el = document.getElementById(`doc-page-${p}`);
+                      el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    }}
+                    disabled={currentPage <= 1}
+                    className={`p-1 rounded disabled:opacity-30 cursor-pointer ${
+                      isLight ? 'hover:bg-slate-200 text-slate-700' : 'hover:bg-zinc-700 text-zinc-300'
+                    }`}
+                    title="Previous Page"
                   >
-                    {playingDocId === selectedDoc.id ? <Pause size={14} /> : <Play size={14} className="ml-0.5" />}
+                    <ChevronLeft size={13} />
                   </button>
-
-                  <div className="flex items-center gap-2 font-mono text-xs text-cyan-300">
-                    <span>
-                      {playingDocId === selectedDoc.id
-                        ? `${Math.floor(audioCurrentTime)}s`
-                        : '0s'}
-                    </span>
-                    <span className="text-zinc-500">/</span>
-                    <span>{selectedDoc.durationSeconds ? `${selectedDoc.durationSeconds}s` : 'Audio'}</span>
-                  </div>
-
-                  {/* Playback Speed Multiplier */}
-                  <div className="flex items-center gap-1 font-mono text-[10px]">
-                    {[1, 1.5, 2].map((spd) => (
-                      <button
-                        key={spd}
-                        onClick={() => handleSetSpeed(spd)}
-                        className={`px-1.5 py-0.5 rounded ${
-                          audioPlaybackRate === spd ? 'bg-cyan-500 text-black font-bold' : 'text-cyan-400 hover:bg-cyan-900/40'
-                        }`}
-                      >
-                        {spd}x
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Right: Zoom & Layout View (Stacked, Single, Spread) */}
-              <div className="flex items-center gap-2">
-                <div className="flex items-center rounded-lg bg-zinc-800/80 border border-zinc-700/60 p-0.5">
-                  <button
-                    onClick={() => setZoomLevel((z) => Math.max(50, z - 15))}
-                    className="p-1 rounded hover:bg-zinc-700 text-zinc-300"
-                    title="Zoom Out"
-                  >
-                    <ZoomOut size={14} />
-                  </button>
-                  <span className="px-2 font-mono text-xs text-zinc-300 min-w-[45px] text-center">
-                    {zoomLevel}%
+                  <span className={`px-2 font-bold text-[11px] min-w-[56px] text-center ${isLight ? 'text-slate-700' : 'text-zinc-200'}`}>
+                    {currentPage} / {totalPages}
                   </span>
                   <button
-                    onClick={() => setZoomLevel((z) => Math.min(200, z + 15))}
-                    className="p-1 rounded hover:bg-zinc-700 text-zinc-300"
-                    title="Zoom In"
+                    onClick={() => {
+                      const p = Math.min(totalPages, currentPage + 1);
+                      setCurrentPage(p);
+                      const el = document.getElementById(`doc-page-${p}`);
+                      el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    }}
+                    disabled={currentPage >= totalPages}
+                    className={`p-1 rounded disabled:opacity-30 cursor-pointer ${
+                      isLight ? 'hover:bg-slate-200 text-slate-700' : 'hover:bg-zinc-700 text-zinc-300'
+                    }`}
+                    title="Next Page"
                   >
-                    <ZoomIn size={14} />
+                    <ChevronRight size={13} />
+                  </button>
+                </div>
+
+                {/* Zoom Controls */}
+                <div className={`flex items-center rounded-lg border p-0.5 shadow-xs ${
+                  isLight ? 'bg-slate-50 border-slate-200' : 'bg-zinc-800/80 border-zinc-700/60'
+                }`}>
+                  <button
+                    onClick={() => setZoomLevel((z) => Math.max(50, z - 15))}
+                    className={`p-1 rounded ${
+                      isLight ? 'hover:bg-slate-200 text-slate-700' : 'hover:bg-zinc-700 text-zinc-300'
+                    }`}
+                    title="Zoom Out (-15%)"
+                  >
+                    <ZoomOut size={13} />
                   </button>
                   <button
                     onClick={() => setZoomLevel(100)}
-                    className="px-1.5 text-[10px] font-bold text-zinc-400 hover:text-white"
-                    title="Reset Zoom"
+                    className={`px-1.5 font-mono text-[11px] font-bold min-w-[44px] text-center transition-colors ${
+                      zoomLevel === 100
+                        ? isLight ? 'text-slate-700' : 'text-zinc-300'
+                        : 'text-[#f5a623] hover:underline'
+                    }`}
+                    title="Click to reset zoom to 100%"
                   >
-                    Reset
+                    {zoomLevel}%
+                  </button>
+                  <button
+                    onClick={() => setZoomLevel((z) => Math.min(200, z + 15))}
+                    className={`p-1 rounded ${
+                      isLight ? 'hover:bg-slate-200 text-slate-700' : 'hover:bg-zinc-700 text-zinc-300'
+                    }`}
+                    title="Zoom In (+15%)"
+                  >
+                    <ZoomIn size={13} />
                   </button>
                 </div>
 
-                {/* View Mode Switcher: Document Page vs 2-Column Left/Right vs Breakdown Table */}
-                <div className="flex items-center rounded-xl bg-zinc-900 border border-zinc-700/80 p-0.5 shadow-inner">
-                  <button
-                    onClick={() => setStudioViewMode('page')}
-                    className={`px-3 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all ${
-                      studioViewMode === 'page'
-                        ? 'bg-[#f5a623] text-black shadow-md'
-                        : 'text-zinc-400 hover:text-white'
-                    }`}
-                    title="Standard Document View"
-                  >
-                    <BookOpen size={13} />
-                    <span>Document View</span>
-                  </button>
-                  <button
-                    onClick={() => setStudioViewMode('two-column')}
-                    className={`px-3 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all ${
-                      studioViewMode === 'two-column'
-                        ? 'bg-emerald-500 text-black shadow-md font-black'
-                        : 'text-zinc-400 hover:text-emerald-400'
-                    }`}
-                    title="Kollywood 2-Column Left-Right (இருபக்க காட்சி-வசனம்) layout"
-                  >
-                    <Columns size={13} />
-                    <span>2-Column Left/Right</span>
-                  </button>
-                  {isBreakdownDoc && (
-                    <button
-                      onClick={() => setStudioViewMode('table')}
-                      className={`px-3 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all ${
-                        studioViewMode === 'table'
-                          ? 'bg-[#f5a623] text-black shadow-md'
-                          : 'text-zinc-400 hover:text-white'
-                      }`}
-                      title="Interactive Breakdown Table Studio"
-                    >
-                      <TableIcon size={13} />
-                      <span>Table Studio</span>
-                    </button>
-                  )}
-                </div>
-
-                {/* Reader Layout Mode */}
-                <div className="flex items-center rounded-lg bg-zinc-800/80 border border-zinc-700/60 p-0.5">
+                {/* View Mode (Continuous Stacked vs Single Page) */}
+                <div className={`flex items-center rounded-lg border p-0.5 shadow-xs ${
+                  isLight ? 'bg-slate-50 border-slate-200' : 'bg-zinc-800/80 border-zinc-700/60'
+                }`}>
                   <button
                     onClick={() => setReaderViewMode('stacked')}
-                    className={`p-1 rounded ${readerViewMode === 'stacked' ? 'bg-[#f5a623] text-black' : 'text-zinc-300'}`}
-                    title="Stacked Continuous Pages"
+                    className={`p-1 rounded transition-colors ${
+                      readerViewMode === 'stacked'
+                        ? 'bg-[#f5a623] text-black shadow-xs'
+                        : isLight
+                        ? 'text-slate-600 hover:text-slate-900'
+                        : 'text-zinc-400 hover:text-white'
+                    }`}
+                    title="Continuous Scroll Layout"
                   >
-                    <Layers size={14} />
+                    <Layers size={13} />
                   </button>
                   <button
                     onClick={() => setReaderViewMode('single')}
-                    className={`p-1 rounded ${readerViewMode === 'single' ? 'bg-[#f5a623] text-black' : 'text-zinc-300'}`}
-                    title="Single Page Mode"
+                    className={`p-1 rounded transition-colors ${
+                      readerViewMode === 'single'
+                        ? 'bg-[#f5a623] text-black shadow-xs'
+                        : isLight
+                        ? 'text-slate-600 hover:text-slate-900'
+                        : 'text-zinc-400 hover:text-white'
+                    }`}
+                    title="Single Page Layout"
                   >
-                    <BookOpen size={14} />
+                    <BookOpen size={13} />
+                  </button>
+                </div>
+              </div>
+
+              {/* Group 2 (Center): Audio Player Bar (if audio) OR Typography Styling Pill */}
+              <div className="flex items-center gap-2 shrink-0">
+                {selectedDoc?.audioUrl ? (
+                  <div className="flex items-center gap-3 bg-cyan-950/40 border border-cyan-800/50 px-3 py-1 rounded-xl shadow-xs">
+                    <button
+                      onClick={(e) => togglePlayAudio(selectedDoc, e)}
+                      className="w-7 h-7 rounded-full bg-cyan-500 text-black flex items-center justify-center font-bold shadow-md hover:bg-cyan-400"
+                    >
+                      {playingDocId === selectedDoc.id ? <Pause size={14} /> : <Play size={14} className="ml-0.5" />}
+                    </button>
+
+                    <div className="flex items-center gap-2 font-mono text-xs text-cyan-300">
+                      <span>
+                        {playingDocId === selectedDoc.id
+                          ? `${Math.floor(audioCurrentTime)}s`
+                          : '0s'}
+                      </span>
+                      <span className="text-zinc-500">/</span>
+                      <span>{selectedDoc.durationSeconds ? `${selectedDoc.durationSeconds}s` : 'Audio'}</span>
+                    </div>
+
+                    <div className="flex items-center gap-1 font-mono text-[10px]">
+                      {[1, 1.5, 2].map((spd) => (
+                        <button
+                          key={spd}
+                          onClick={() => handleSetSpeed(spd)}
+                          className={`px-1.5 py-0.5 rounded ${
+                            audioPlaybackRate === spd ? 'bg-cyan-500 text-black font-bold' : 'text-cyan-400 hover:bg-cyan-900/40'
+                          }`}
+                        >
+                          {spd}x
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  /* Compact Unified Typography Control */
+                  <div className={`flex items-center gap-1 px-2 py-0.5 rounded-lg border text-xs shadow-xs ${
+                    isLight ? 'bg-slate-50 border-slate-200' : 'bg-zinc-800/80 border-zinc-700/60'
+                  }`}>
+                    <Type size={13} className="text-amber-500 shrink-0" />
+                    <select
+                      value={docFontFamily}
+                      onChange={(e) => setDocFontFamily(e.target.value as any)}
+                      className={`bg-transparent outline-none text-xs font-semibold cursor-pointer py-1 max-w-[110px] truncate ${
+                        isLight ? 'text-slate-800' : 'text-zinc-200'
+                      }`}
+                      title="Document Font Family"
+                    >
+                      <option value="calibri" className="bg-zinc-900 text-white">Calibri (Word)</option>
+                      <option value="inter" className="bg-zinc-900 text-white">Inter</option>
+                      <option value="serif" className="bg-zinc-900 text-white">Georgia</option>
+                      <option value="mono" className="bg-zinc-900 text-white">JetBrains Mono</option>
+                      <option value="vijaya" className="bg-zinc-900 text-white">தமிழ் (Vijaya)</option>
+                    </select>
+
+                    <div className={`h-3.5 w-px mx-1 ${isLight ? 'bg-slate-300' : 'bg-zinc-700'}`} />
+
+                    {/* Compact Size Selector */}
+                    <div className="flex items-center gap-0.5">
+                      {(['sm', 'md', 'lg', 'xl'] as const).map((sz) => (
+                        <button
+                          key={sz}
+                          onClick={() => setDocFontSize(sz)}
+                          className={`w-5 h-5 rounded text-[10px] font-mono font-bold uppercase flex items-center justify-center transition-all ${
+                            docFontSize === sz
+                              ? 'bg-[#f5a623] text-black shadow-xs'
+                              : isLight
+                              ? 'text-slate-500 hover:text-slate-900'
+                              : 'text-zinc-400 hover:text-white'
+                          }`}
+                          title={`Font size ${sz.toUpperCase()}`}
+                        >
+                          {sz.charAt(0)}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Group 3 (Right): Markup Tools, Contextual Colors, Table Studio & Comments */}
+              <div className="flex items-center gap-2 shrink-0">
+                {/* Markup & Annotation Tools (Icon Segmented Control) */}
+                <div className={`flex items-center rounded-lg border p-0.5 shadow-xs ${
+                  isLight ? 'bg-slate-50 border-slate-200' : 'bg-zinc-800/80 border-zinc-700/60'
+                }`}>
+                  <button
+                    onClick={() => setActiveTool('hand')}
+                    className={`p-1.5 rounded-md transition-all ${
+                      activeTool === 'hand'
+                        ? 'bg-[#f5a623] text-black shadow-xs font-bold'
+                        : isLight
+                        ? 'text-slate-600 hover:text-slate-900'
+                        : 'text-zinc-400 hover:text-white'
+                    }`}
+                    title="Pan & Select Tool"
+                  >
+                    <Hand size={14} />
+                  </button>
+
+                  <button
+                    onClick={() => setActiveTool('highlight')}
+                    className={`p-1.5 rounded-md transition-all ${
+                      activeTool === 'highlight'
+                        ? 'bg-[#f5a623] text-black shadow-xs font-bold'
+                        : isLight
+                        ? 'text-slate-600 hover:text-slate-900'
+                        : 'text-zinc-400 hover:text-white'
+                    }`}
+                    title="Highlight Tool"
+                  >
+                    <Highlighter size={14} />
+                  </button>
+
+                  <button
+                    onClick={() => setActiveTool('pen')}
+                    className={`p-1.5 rounded-md transition-all ${
+                      activeTool === 'pen'
+                        ? 'bg-[#f5a623] text-black shadow-xs font-bold'
+                        : isLight
+                        ? 'text-slate-600 hover:text-slate-900'
+                        : 'text-zinc-400 hover:text-white'
+                    }`}
+                    title="Pen / Freehand Draw"
+                  >
+                    <PenTool size={14} />
+                  </button>
+
+                  <button
+                    onClick={() => setActiveTool('rect')}
+                    className={`p-1.5 rounded-md transition-all ${
+                      activeTool === 'rect'
+                        ? 'bg-[#f5a623] text-black shadow-xs font-bold'
+                        : isLight
+                        ? 'text-slate-600 hover:text-slate-900'
+                        : 'text-zinc-400 hover:text-white'
+                    }`}
+                    title="Rectangle Marker Tool"
+                  >
+                    <Square size={14} />
+                  </button>
+
+                  <button
+                    onClick={() => setActiveTool('note')}
+                    className={`p-1.5 rounded-md transition-all ${
+                      activeTool === 'note'
+                        ? 'bg-[#f5a623] text-black shadow-xs font-bold'
+                        : isLight
+                        ? 'text-slate-600 hover:text-slate-900'
+                        : 'text-zinc-400 hover:text-white'
+                    }`}
+                    title="Sticky Note Marker"
+                  >
+                    <StickyNote size={14} />
                   </button>
                 </div>
 
-                {/* Toggle Comments Side Panel */}
+                {/* Contextual Color Swatches (Shown ONLY when an annotation tool is active) */}
+                {activeTool !== 'hand' && (
+                  <div className={`flex items-center gap-1 px-1.5 py-1 rounded-lg border animate-in fade-in zoom-in-95 duration-150 shadow-xs ${
+                    isLight ? 'bg-slate-50 border-slate-200' : 'bg-zinc-800/80 border-zinc-700/60'
+                  }`}>
+                    {HIGHLIGHT_COLORS.map((c) => (
+                      <button
+                        key={c.name}
+                        onClick={() => setActiveColor(c.color)}
+                        className={`w-3.5 h-3.5 rounded-full border transition-transform ${
+                          activeColor === c.color ? 'scale-125 ring-2 ring-black/30 dark:ring-white/40' : 'opacity-70 hover:opacity-100 hover:scale-110'
+                        }`}
+                        style={{ backgroundColor: c.color }}
+                        title={c.name}
+                      />
+                    ))}
+                  </div>
+                )}
+
+                {/* Breakdown Table Studio Toggle (if Breakdown document) */}
+                {isBreakdownDoc && (
+                  <button
+                    onClick={() => setStudioViewMode(studioViewMode === 'table' ? 'page' : 'table')}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-bold border flex items-center gap-1.5 transition-all shadow-xs ${
+                      studioViewMode === 'table'
+                        ? 'bg-[#f5a623] text-black border-[#f5a623]'
+                        : isLight
+                        ? 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
+                        : 'bg-zinc-800/80 border-zinc-700/60 text-zinc-300 hover:bg-zinc-800'
+                    }`}
+                    title="Toggle Interactive Table Studio"
+                  >
+                    <TableIcon size={13} />
+                    <span className="hidden sm:inline">Table Studio</span>
+                  </button>
+                )}
+
+                {/* Toggle Comments / Inspector Side Panel */}
                 <button
                   onClick={() => setShowCommentsPanel(!showCommentsPanel)}
-                  className={`px-2.5 py-1 rounded-lg text-xs font-bold border transition-all flex items-center gap-1.5 ${
-                    showCommentsPanel ? 'bg-[#f5a623]/20 border-[#f5a623]/40 text-[#f5a623]' : 'bg-zinc-800 border-zinc-700 text-zinc-300'
+                  className={`px-2.5 py-1 rounded-lg text-xs font-bold border transition-all flex items-center gap-1.5 shadow-xs ${
+                    showCommentsPanel
+                      ? isLight
+                        ? 'bg-amber-100 border-amber-300 text-amber-900'
+                        : 'bg-[#f5a623]/20 border-[#f5a623]/40 text-[#f5a623]'
+                      : isLight
+                      ? 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-700'
+                      : 'bg-zinc-800/80 border-zinc-700/60 text-zinc-300 hover:bg-zinc-800'
                   }`}
-                  title="Toggle Comments & AI Panel"
+                  title="Toggle Comments & Inspector Panel"
                 >
                   <MessageSquare size={13} />
-                  <span>Comments ({annotations.length})</span>
+                  <span className="hidden md:inline">Comments</span>
+                  {annotations.length > 0 && (
+                    <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${
+                      showCommentsPanel
+                        ? 'bg-amber-400/30'
+                        : isLight
+                        ? 'bg-slate-200 text-slate-700'
+                        : 'bg-zinc-700 text-zinc-200'
+                    }`}>
+                      {annotations.length}
+                    </span>
+                  )}
                 </button>
               </div>
             </div>
@@ -3042,7 +3233,7 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
             <div
               ref={documentSheetRef}
               className={`flex-1 overflow-auto p-8 flex justify-center ${
-                isLight ? 'bg-slate-200/80' : 'bg-[#0c0c0e]'
+                isLight ? 'bg-[#ebedf2]' : 'bg-[#0c0c0e]'
               }`}
               style={{
                 cursor: activeTool === 'hand' ? 'default' : 'crosshair',
@@ -3416,52 +3607,16 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                     /* Continuous Editable Document Sheet */
                     <div
                       id="doc-page-edit-canvas"
-                      className={`w-[780px] min-h-[1060px] p-16 relative shadow-2xl rounded-sm transition-all ${
-                        isLight ? 'bg-white text-black' : 'bg-[#18181b] text-gray-100'
-                      } ${docFontFamily === 'serif' ? 'font-serif' : docFontFamily === 'mono' ? 'font-mono' : 'font-sans'}`}
+                      style={{
+                        fontFamily: FONT_STACK_MAP[docFontFamily] || FONT_STACK_MAP.sans,
+                      }}
+                      className="word-document-page w-[794px] min-h-[1123px] px-14 py-14 relative transition-all rounded-xs bg-white text-slate-900 border border-slate-300 shadow-2xl"
                     >
-                      {/* Edit Mode Helper Top Ribbon */}
-                      <div className="flex flex-wrap items-center justify-between gap-3 mb-6 pb-3 border-b border-amber-500/30 bg-amber-500/10 -mx-10 px-10 py-2.5 rounded-t text-xs font-mono text-amber-400">
-                        <div className="flex items-center gap-2">
-                          <Edit3 size={14} className="text-[#f5a623]" />
-                          <span className="font-bold">DOCUMENT & TABLE EDITOR</span>
-                          <span className="text-zinc-400 hidden sm:inline">— Ready to edit. Click any cell to type, or click ✕ to edit out rows.</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <button
-                            onClick={handleAddTableRow}
-                            className="px-2.5 py-1 rounded bg-[#f5a623] hover:bg-amber-400 text-black font-bold text-xs flex items-center gap-1 shadow-sm transition-all cursor-pointer"
-                            title="Add a new row to the table in this document"
-                          >
-                            <Plus size={12} />
-                            Add Row
-                          </button>
-                          <button
-                            onClick={handleAddTextBelow}
-                            className="px-2.5 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-white font-bold text-xs flex items-center gap-1 border border-zinc-600 transition-all cursor-pointer"
-                            title="Add note paragraph or text below the table"
-                          >
-                            <Plus size={12} />
-                            Add Text Below
-                          </button>
-                          <button
-                            onClick={handleSaveDocumentContent}
-                            className={`px-3 py-1 rounded font-bold text-xs flex items-center gap-1 transition-all shadow-sm cursor-pointer ${
-                              hasUnsavedChanges
-                                ? 'bg-emerald-500 hover:bg-emerald-400 text-black animate-pulse'
-                                : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-600'
-                            }`}
-                            title="Save document changes"
-                          >
-                            <Save size={12} />
-                            Save Changes
-                          </button>
-                        </div>
-                      </div>
-
                       {/* Page Header */}
                       {showHeader && (
-                        <div className="flex justify-between items-center text-[10px] text-zinc-400 pb-4 mb-6 border-b border-zinc-200 dark:border-zinc-800 uppercase tracking-widest font-mono">
+                        <div className={`flex justify-between items-center text-[10px] pb-4 mb-6 border-b uppercase tracking-widest font-mono ${
+                          isLight ? 'border-slate-200 text-slate-500' : 'border-zinc-800 text-zinc-400'
+                        }`}>
                           <span>{customHeaderTitle || selectedDoc?.title}</span>
                           <span>{selectedDoc?.category}</span>
                         </div>
@@ -3512,37 +3667,25 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                         className="outline-none min-h-[850px] leading-relaxed text-sm focus:ring-1 focus:ring-[#f5a623]/40 rounded p-2"
                       />
 
-                      {/* In-Document Bottom Actions Bar */}
-                      <div className="mt-6 pt-3 border-t border-dashed border-zinc-300 dark:border-zinc-800 flex items-center justify-between text-xs font-mono text-zinc-400">
-                        <div className="flex items-center gap-2">
+                      {/* In-Document Bottom Save Bar (only if unsaved changes exist) */}
+                      {hasUnsavedChanges && (
+                        <div className={`mt-6 pt-3 border-t border-dashed flex items-center justify-end text-xs font-mono ${
+                          isLight ? 'border-slate-200 text-slate-500' : 'border-zinc-800 text-zinc-400'
+                        }`}>
                           <button
-                            onClick={handleAddTableRow}
-                            className="px-2.5 py-1 rounded bg-amber-500/15 hover:bg-amber-500/25 text-amber-500 border border-amber-500/30 font-bold flex items-center gap-1 cursor-pointer transition-all"
+                            onClick={handleSaveDocumentContent}
+                            className="px-3 py-1 rounded bg-emerald-500 hover:bg-emerald-400 text-black font-bold flex items-center gap-1 shadow-sm cursor-pointer transition-all animate-pulse"
                           >
-                            <Plus size={11} /> Add Row
-                          </button>
-                          <button
-                            onClick={handleAddTextBelow}
-                            className="px-2.5 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700 font-bold flex items-center gap-1 cursor-pointer transition-all"
-                          >
-                            <Plus size={11} /> Add Text Below
+                            <Save size={11} /> Save Changes
                           </button>
                         </div>
-                        <div className="flex items-center gap-2">
-                          {hasUnsavedChanges && (
-                            <button
-                              onClick={handleSaveDocumentContent}
-                              className="px-3 py-1 rounded bg-emerald-500 hover:bg-emerald-400 text-black font-bold flex items-center gap-1 shadow-sm cursor-pointer transition-all animate-pulse"
-                            >
-                              <Save size={11} /> Save Changes
-                            </button>
-                          )}
-                        </div>
-                      </div>
+                      )}
 
                       {/* Page Footer */}
                       {showFooter && (
-                        <div className="mt-6 flex justify-between items-center text-[10px] text-zinc-400 pt-4 border-t border-zinc-200 dark:border-zinc-800 font-mono">
+                        <div className={`mt-6 flex justify-between items-center text-[10px] pt-4 border-t font-mono ${
+                          isLight ? 'border-slate-200 text-slate-500' : 'border-zinc-800 text-zinc-400'
+                        }`}>
                           <span>{customFooterText || 'Backstage Production Sequencer'}</span>
                           <span>Document Canvas &bull; Edit Mode</span>
                         </div>
@@ -3562,31 +3705,38 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                         <div
                           id={`doc-page-${pageNum}`}
                           key={pageNum}
-                          className={`w-[780px] min-h-[1060px] p-16 relative shadow-2xl rounded-sm transition-all cursor-text ${
-                            isLight ? 'bg-white text-black' : 'bg-[#18181b] text-gray-100'
-                          } ${docFontFamily === 'serif' ? 'font-serif' : docFontFamily === 'mono' ? 'font-mono' : 'font-sans'}`}
-                          onClick={toggleEditMode}
+                          style={{
+                            fontFamily: FONT_STACK_MAP[docFontFamily] || FONT_STACK_MAP.sans,
+                          }}
+                          className={`word-document-page w-[794px] min-h-[1123px] px-14 py-14 relative transition-all cursor-text rounded-xs bg-white text-slate-900 border ${
+                            isLight
+                              ? 'border-slate-300 shadow-[0_4px_25px_rgba(0,0,0,0.08)]'
+                              : 'border-zinc-700/80 shadow-[0_16px_40px_rgba(0,0,0,0.6)]'
+                          }`}
                           onDoubleClick={toggleEditMode}
                         >
                           {/* Page Header */}
                           {showHeader && (
-                            <div className="flex justify-between items-center text-[10px] text-zinc-400 pb-4 mb-6 border-b border-zinc-200 dark:border-zinc-800 uppercase tracking-widest font-mono">
-                              <span>{customHeaderTitle || selectedDoc?.title}</span>
-                              <span>{selectedDoc?.category}</span>
+                            <div className="flex justify-between items-center text-[10.5px] pb-3 mb-5 border-b border-slate-200 text-slate-500 font-mono uppercase tracking-wider">
+                              <span className="font-semibold truncate max-w-sm">{customHeaderTitle || selectedDoc?.title}</span>
+                              <span className="text-[10px] px-2 py-0.5 rounded bg-slate-100 text-slate-600 font-bold">{selectedDoc?.category}</span>
                             </div>
                           )}
 
-                          {/* Static Page Content */}
+                          {/* Static Page Content Styled as Word Document */}
                           <div
                             dangerouslySetInnerHTML={{ __html: pg.html }}
-                            className="leading-relaxed text-sm min-h-[850px]"
+                            className="word-doc-content leading-relaxed text-sm min-h-[900px] text-slate-900"
+                            style={{
+                              fontFamily: FONT_STACK_MAP[docFontFamily] || FONT_STACK_MAP.sans,
+                            }}
                           />
 
                           {/* Page Footer */}
                           {showFooter && (
-                            <div className="absolute bottom-8 left-16 right-16 flex justify-between items-center text-[10px] text-zinc-400 pt-4 border-t border-zinc-200 dark:border-zinc-800 font-mono">
-                              <span>{customFooterText || 'Backstage Production Sequencer'}</span>
-                              <span>Page {pageNum} of {totalPages}</span>
+                            <div className="absolute bottom-6 left-14 right-14 flex justify-between items-center text-[10px] pt-3 border-t border-slate-200 text-slate-500 font-mono">
+                              <span>{customFooterText || (selectedDoc?.fileName ? `${selectedDoc.fileName} • Confidential` : 'Backstage Production Document')}</span>
+                              <span className="font-bold text-slate-700">Page {pageNum} of {totalPages}</span>
                             </div>
                           )}
 
@@ -3643,13 +3793,19 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
               isLight ? 'bg-white border-slate-200' : 'bg-[#121215] border-[#222226]'
             }`}>
               {/* Panel Header */}
-              <div className="p-3.5 border-b flex items-center justify-between shrink-0">
+              <div className={`p-3.5 border-b flex items-center justify-between shrink-0 ${
+                isLight ? 'border-slate-200' : 'border-[#222226]'
+              }`}>
                 <div className="flex items-center gap-2">
-                  <span className="font-black text-xs uppercase tracking-wider text-zinc-300">Inspector</span>
+                  <span className={`font-bold text-xs uppercase tracking-wider ${
+                    isLight ? 'text-slate-900' : 'text-zinc-300'
+                  }`}>Inspector</span>
                 </div>
                 <button
                   onClick={() => setShowCommentsPanel(false)}
-                  className="p-1 rounded hover:bg-zinc-800 text-zinc-400 hover:text-white"
+                  className={`p-1 rounded ${
+                    isLight ? 'hover:bg-slate-100 text-slate-400 hover:text-slate-700' : 'hover:bg-zinc-800 text-zinc-400 hover:text-white'
+                  }`}
                   title="Close Inspector"
                 >
                   <X size={14} />
@@ -3657,18 +3813,26 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
               </div>
 
               {/* Panel Tab Switcher: Comments vs Tags vs Details */}
-              <div className="flex border-b border-zinc-800/80 bg-zinc-950/40 shrink-0 text-xs font-bold">
+              <div className={`flex border-b shrink-0 text-xs font-bold ${
+                isLight ? 'border-slate-200 bg-slate-50' : 'border-zinc-800/80 bg-zinc-950/40'
+              }`}>
                 <button
                   onClick={() => setActiveSideTab('comments')}
                   className={`flex-1 py-2.5 flex items-center justify-center gap-1.5 border-b-2 transition-all ${
                     activeSideTab === 'comments'
-                      ? 'border-[#f5a623] text-[#f5a623] bg-zinc-900/50'
+                      ? isLight
+                        ? 'border-[#f5a623] text-amber-600 bg-white shadow-sm'
+                        : 'border-[#f5a623] text-[#f5a623] bg-zinc-900/50'
+                      : isLight
+                      ? 'border-transparent text-slate-500 hover:text-slate-800'
                       : 'border-transparent text-zinc-400 hover:text-zinc-200'
                   }`}
                 >
                   <MessageSquare size={13} />
                   <span>Comments</span>
-                  <span className="text-[10px] font-mono px-1 py-0.2 rounded-full bg-zinc-800 text-zinc-300">
+                  <span className={`text-[10px] font-mono px-1 py-0.2 rounded-full ${
+                    isLight ? 'bg-slate-200 text-slate-700' : 'bg-zinc-800 text-zinc-300'
+                  }`}>
                     {annotations.length}
                   </span>
                 </button>
@@ -3677,13 +3841,19 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                   onClick={() => setActiveSideTab('tags')}
                   className={`flex-1 py-2.5 flex items-center justify-center gap-1.5 border-b-2 transition-all ${
                     activeSideTab === 'tags'
-                      ? 'border-[#f5a623] text-[#f5a623] bg-zinc-900/50'
+                      ? isLight
+                        ? 'border-[#f5a623] text-amber-600 bg-white shadow-sm'
+                        : 'border-[#f5a623] text-[#f5a623] bg-zinc-900/50'
+                      : isLight
+                      ? 'border-transparent text-slate-500 hover:text-slate-800'
                       : 'border-transparent text-zinc-400 hover:text-zinc-200'
                   }`}
                 >
                   <Tag size={13} />
                   <span>Tags</span>
-                  <span className="text-[10px] font-mono px-1 py-0.2 rounded-full bg-zinc-800 text-zinc-300">
+                  <span className={`text-[10px] font-mono px-1 py-0.2 rounded-full ${
+                    isLight ? 'bg-slate-200 text-slate-700' : 'bg-zinc-800 text-zinc-300'
+                  }`}>
                     {selectedDoc?.tags?.length || 0}
                   </span>
                 </button>
@@ -3692,7 +3862,11 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                   onClick={() => setActiveSideTab('info')}
                   className={`py-2.5 px-3 flex items-center justify-center gap-1 border-b-2 transition-all ${
                     activeSideTab === 'info'
-                      ? 'border-[#f5a623] text-[#f5a623] bg-zinc-900/50'
+                      ? isLight
+                        ? 'border-[#f5a623] text-amber-600 bg-white shadow-sm'
+                        : 'border-[#f5a623] text-[#f5a623] bg-zinc-900/50'
+                      : isLight
+                      ? 'border-transparent text-slate-500 hover:text-slate-800'
                       : 'border-transparent text-zinc-400 hover:text-zinc-200'
                   }`}
                   title="Document Info"
@@ -3705,24 +3879,30 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
               {activeSideTab === 'comments' && (
                 <>
                   {/* Quick Tags summary bar */}
-                  <div className="px-3.5 py-2 bg-zinc-900/40 border-b border-zinc-800/60 flex items-center justify-between text-xs shrink-0">
+                  <div className={`px-3.5 py-2 border-b flex items-center justify-between text-xs shrink-0 ${
+                    isLight ? 'bg-slate-50 border-slate-200' : 'bg-zinc-900/40 border-zinc-800/60'
+                  }`}>
                     <div className="flex items-center gap-1.5 overflow-hidden">
                       <Tag size={11} className="text-[#f5a623] shrink-0" />
                       <div className="flex items-center gap-1 overflow-x-auto scrollbar-none py-0.5">
                         {selectedDoc?.tags && selectedDoc.tags.length > 0 ? (
                           selectedDoc.tags.map((t, i) => (
-                            <span key={i} className="text-[10px] px-1.5 py-0.2 rounded bg-zinc-800 text-zinc-300 shrink-0 font-medium">
+                            <span key={i} className={`text-[10px] px-1.5 py-0.2 rounded shrink-0 font-medium ${
+                              isLight ? 'bg-white border border-slate-200 text-slate-700 shadow-xs' : 'bg-zinc-800 text-zinc-300'
+                            }`}>
                               #{t}
                             </span>
                           ))
                         ) : (
-                          <span className="text-[11px] text-zinc-500 italic">No tags</span>
+                          <span className={`text-[11px] italic ${isLight ? 'text-slate-400' : 'text-zinc-500'}`}>No tags</span>
                         )}
                       </div>
                     </div>
                     <button
                       onClick={() => setActiveSideTab('tags')}
-                      className="text-[10px] text-amber-400 hover:underline font-bold shrink-0 ml-2"
+                      className={`text-[10px] font-bold shrink-0 ml-2 ${
+                        isLight ? 'text-amber-600 hover:text-amber-700 hover:underline' : 'text-amber-400 hover:underline'
+                      }`}
                     >
                       Edit Tags
                     </button>
@@ -3731,10 +3911,10 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                   {/* Comments List */}
                   <div className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-thin">
                     {annotations.filter((a) => a.type === 'comment' || a.type === 'note').length === 0 ? (
-                      <div className="py-12 text-center text-xs text-zinc-500">
+                      <div className={`py-12 text-center text-xs ${isLight ? 'text-slate-400' : 'text-zinc-500'}`}>
                         <MessageSquare size={24} className="mx-auto mb-2 opacity-40" />
                         <p>No comments on this document yet.</p>
-                        <p className="text-[11px] text-zinc-600 mt-1">Add a note or comment below to collaborate.</p>
+                        <p className={`text-[11px] mt-1 ${isLight ? 'text-slate-400' : 'text-zinc-600'}`}>Add a note or comment below to collaborate.</p>
                       </div>
                     ) : (
                       annotations
@@ -3744,34 +3924,36 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                             key={anno.id}
                             className={`p-3.5 rounded-xl border transition-all ${
                               anno.status === 'resolved'
-                                ? 'opacity-60 bg-zinc-900/30 border-zinc-800'
+                                ? isLight ? 'opacity-60 bg-slate-100 border-slate-200' : 'opacity-60 bg-zinc-900/30 border-zinc-800'
                                 : isLight
                                 ? 'bg-slate-50 border-slate-200'
                                 : 'bg-[#18181e] border-[#2a2a32]'
                             }`}
                           >
                             <div className="flex items-center justify-between mb-1">
-                              <span className="font-bold text-xs text-zinc-200">
+                              <span className={`font-bold text-xs ${isLight ? 'text-slate-900' : 'text-zinc-200'}`}>
                                 {anno.author || 'Production Member'}
                               </span>
-                              <span className="text-[10px] font-mono text-zinc-500">
+                              <span className={`text-[10px] font-mono ${isLight ? 'text-slate-400' : 'text-zinc-500'}`}>
                                 p. {anno.pageNumber}
                               </span>
                             </div>
 
-                            <p className="text-xs text-zinc-300 leading-relaxed mb-2.5">
+                            <p className={`text-xs leading-relaxed mb-2.5 ${isLight ? 'text-slate-700' : 'text-zinc-300'}`}>
                               {anno.text}
                             </p>
 
                             {/* Threaded Replies */}
                             {anno.replies && anno.replies.length > 0 && (
-                              <div className="pl-3 border-l-2 border-zinc-700 space-y-2 mb-2 pt-1">
+                              <div className={`pl-3 border-l-2 space-y-2 mb-2 pt-1 ${
+                                isLight ? 'border-slate-300' : 'border-zinc-700'
+                              }`}>
                                 {anno.replies.map((reply) => (
                                   <div key={reply.id} className="text-xs">
                                     <span className="font-bold text-[#f5a623] mr-1 text-[11px]">
                                       {reply.author}:
                                     </span>
-                                    <span className="text-zinc-300">{reply.text}</span>
+                                    <span className={isLight ? 'text-slate-700' : 'text-zinc-300'}>{reply.text}</span>
                                   </div>
                                 ))}
                               </div>
@@ -3785,7 +3967,9 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                                 onChange={(e) => setReplyInput({ ...replyInput, [anno.id]: e.target.value })}
                                 onKeyDown={(e) => e.key === 'Enter' && handleAddReply(anno.id)}
                                 placeholder="Reply..."
-                                className="flex-1 py-1 px-2 text-xs rounded bg-zinc-900 border border-zinc-700 outline-none"
+                                className={`flex-1 py-1 px-2 text-xs rounded outline-none border ${
+                                  isLight ? 'bg-white border-slate-300 text-slate-800 placeholder:text-slate-400' : 'bg-zinc-900 border-zinc-700 text-zinc-200'
+                                }`}
                               />
                               <button
                                 onClick={() => handleAddReply(anno.id)}
@@ -3800,7 +3984,7 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                   </div>
 
                   {/* Add New Comment Box */}
-                  <div className="p-3 border-t bg-zinc-950/60">
+                  <div className={`p-3 border-t ${isLight ? 'bg-white border-slate-200' : 'bg-zinc-950/60 border-zinc-800'}`}>
                     <div className="flex items-center gap-2">
                       <input
                         type="text"
@@ -3808,7 +3992,11 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                         onChange={(e) => setNewCommentText(e.target.value)}
                         onKeyDown={(e) => e.key === 'Enter' && handleAddGeneralComment()}
                         placeholder="Add comment on this document..."
-                        className="flex-1 py-1.5 px-3 text-xs rounded-xl bg-zinc-900 border border-zinc-700 outline-none text-zinc-200 placeholder:text-zinc-500"
+                        className={`flex-1 py-1.5 px-3 text-xs rounded-xl outline-none border transition-colors ${
+                          isLight
+                            ? 'bg-slate-100 border-slate-300 text-slate-800 placeholder:text-slate-400 focus:bg-white focus:border-amber-500'
+                            : 'bg-zinc-900 border-zinc-700 text-zinc-200 placeholder:text-zinc-500 focus:border-[#f5a623]'
+                        }`}
                       />
                       <button
                         onClick={handleAddGeneralComment}
@@ -3825,11 +4013,13 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
               {activeSideTab === 'tags' && (
                 <div className="flex-1 overflow-y-auto p-4 space-y-5 scrollbar-thin">
                   <div>
-                    <h4 className="text-xs font-black uppercase tracking-wider text-zinc-400 mb-1 flex items-center gap-1.5">
+                    <h4 className={`text-xs font-bold uppercase tracking-wider mb-1 flex items-center gap-1.5 ${
+                      isLight ? 'text-slate-700' : 'text-zinc-400'
+                    }`}>
                       <Tag size={13} className="text-[#f5a623]" />
                       Document Tags
                     </h4>
-                    <p className="text-[11px] text-zinc-500 mb-3">
+                    <p className={`text-[11px] mb-3 ${isLight ? 'text-slate-500' : 'text-zinc-500'}`}>
                       Tags categorize assets and power instantaneous Vault filtering.
                     </p>
 
@@ -3839,13 +4029,17 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                         {selectedDoc.tags.map((tag, tIdx) => (
                           <span
                             key={tIdx}
-                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold bg-[#f5a623]/15 text-[#f5a623] border border-[#f5a623]/30 shadow-sm"
+                            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold border shadow-sm ${
+                              isLight
+                                ? 'bg-amber-50 text-amber-700 border-amber-200'
+                                : 'bg-[#f5a623]/15 text-[#f5a623] border-[#f5a623]/30'
+                            }`}
                           >
                             <span>#{tag}</span>
                             <button
                               type="button"
                               onClick={() => selectedDoc && handleRemoveTagFromDoc(selectedDoc.id, tag)}
-                              className="hover:bg-[#f5a623]/30 p-0.5 rounded-full text-zinc-400 hover:text-white transition-colors"
+                              className="hover:bg-amber-500/20 p-0.5 rounded-full text-slate-400 hover:text-slate-700 dark:hover:text-white transition-colors"
                               title={`Remove #${tag}`}
                             >
                               <X size={11} />
@@ -3854,7 +4048,9 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                         ))}
                       </div>
                     ) : (
-                      <div className="p-3 rounded-xl bg-zinc-900/50 border border-zinc-800 text-xs text-zinc-500 italic mb-4">
+                      <div className={`p-3 rounded-xl border text-xs italic mb-4 ${
+                        isLight ? 'bg-slate-50 border-slate-200 text-slate-500' : 'bg-zinc-900/50 border-zinc-800 text-zinc-500'
+                      }`}>
                         No tags assigned to this document yet. Add tags below.
                       </div>
                     )}
@@ -3872,7 +4068,11 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                         value={newTagInput}
                         onChange={(e) => setNewTagInput(e.target.value)}
                         placeholder="Add tag (e.g. Madurai, Lookbook)..."
-                        className="flex-1 py-1.5 px-3 text-xs rounded-xl bg-zinc-900 border border-zinc-700 outline-none text-zinc-200 placeholder:text-zinc-500 focus:border-[#f5a623]"
+                        className={`flex-1 py-1.5 px-3 text-xs rounded-xl outline-none border transition-colors ${
+                          isLight
+                            ? 'bg-slate-100 border-slate-300 text-slate-800 placeholder:text-slate-400 focus:bg-white focus:border-amber-500'
+                            : 'bg-zinc-900 border-zinc-700 text-zinc-200 placeholder:text-zinc-500 focus:border-[#f5a623]'
+                        }`}
                       />
                       <button
                         type="submit"
@@ -3887,8 +4087,10 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
 
                   {/* Suggested Project Tags */}
                   {selectedDoc && (
-                    <div className="pt-4 border-t border-zinc-800/80">
-                      <span className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider block mb-2">
+                    <div className={`pt-4 border-t ${isLight ? 'border-slate-200' : 'border-zinc-800/80'}`}>
+                      <span className={`text-[11px] font-bold uppercase tracking-wider block mb-2 ${
+                        isLight ? 'text-slate-600' : 'text-zinc-400'
+                      }`}>
                         Suggested Vault Tags
                       </span>
                       <div className="flex flex-wrap gap-1.5">
@@ -3900,7 +4102,11 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                               key={tag}
                               type="button"
                               onClick={() => handleAddTagToDoc(selectedDoc.id, tag)}
-                              className="text-[11px] px-2 py-1 rounded-lg bg-zinc-900 border border-zinc-700/70 text-zinc-300 hover:bg-[#f5a623]/20 hover:text-[#f5a623] hover:border-[#f5a623]/40 transition-all flex items-center gap-1 font-medium"
+                              className={`text-[11px] px-2 py-1 rounded-lg border transition-all flex items-center gap-1 font-medium ${
+                                isLight
+                                  ? 'bg-slate-100 border-slate-200 text-slate-700 hover:bg-amber-50 hover:text-amber-700 hover:border-amber-300'
+                                  : 'bg-zinc-900 border-zinc-700/70 text-zinc-300 hover:bg-[#f5a623]/20 hover:text-[#f5a623] hover:border-[#f5a623]/40'
+                              }`}
                               title={`Add #${tag} to document`}
                             >
                               <Plus size={10} />
@@ -3908,7 +4114,7 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                             </button>
                           ))}
                         {allTagsWithCounts.filter(({ tag }) => !selectedDoc.tags?.some((t) => t.toLowerCase() === tag.toLowerCase())).length === 0 && (
-                          <span className="text-xs text-zinc-500 italic">All current vault tags are already added.</span>
+                          <span className={`text-xs italic ${isLight ? 'text-slate-400' : 'text-zinc-500'}`}>All current vault tags are already added.</span>
                         )}
                       </div>
                     </div>
@@ -3919,30 +4125,32 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
               {/* TAB 3: DOCUMENT INFO */}
               {activeSideTab === 'info' && selectedDoc && (
                 <div className="flex-1 overflow-y-auto p-4 space-y-4 text-xs font-mono scrollbar-thin">
-                  <div className="p-3 rounded-xl bg-zinc-900/60 border border-zinc-800 space-y-2">
-                    <div className="flex justify-between py-1 border-b border-zinc-800/60">
-                      <span className="text-zinc-500">Category</span>
-                      <span className="text-zinc-200 font-bold">{selectedDoc.category}</span>
+                  <div className={`p-3 rounded-xl border space-y-2 ${
+                    isLight ? 'bg-slate-50 border-slate-200 text-slate-700' : 'bg-zinc-900/60 border-zinc-800'
+                  }`}>
+                    <div className={`flex justify-between py-1 border-b ${isLight ? 'border-slate-200' : 'border-zinc-800/60'}`}>
+                      <span className={isLight ? 'text-slate-500' : 'text-zinc-500'}>Category</span>
+                      <span className={`font-bold ${isLight ? 'text-slate-900' : 'text-zinc-200'}`}>{selectedDoc.category}</span>
                     </div>
-                    <div className="flex justify-between py-1 border-b border-zinc-800/60">
-                      <span className="text-zinc-500">File Name</span>
-                      <span className="text-zinc-200 truncate max-w-[150px]" title={selectedDoc.fileName}>{selectedDoc.fileName}</span>
+                    <div className={`flex justify-between py-1 border-b ${isLight ? 'border-slate-200' : 'border-zinc-800/60'}`}>
+                      <span className={isLight ? 'text-slate-500' : 'text-zinc-500'}>File Name</span>
+                      <span className={`truncate max-w-[150px] ${isLight ? 'text-slate-900' : 'text-zinc-200'}`} title={selectedDoc.fileName}>{selectedDoc.fileName}</span>
                     </div>
-                    <div className="flex justify-between py-1 border-b border-zinc-800/60">
-                      <span className="text-zinc-500">Author</span>
-                      <span className="text-zinc-200">{selectedDoc.author || 'Production Member'}</span>
+                    <div className={`flex justify-between py-1 border-b ${isLight ? 'border-slate-200' : 'border-zinc-800/60'}`}>
+                      <span className={isLight ? 'text-slate-500' : 'text-zinc-500'}>Author</span>
+                      <span className={isLight ? 'text-slate-900' : 'text-zinc-200'}>{selectedDoc.author || 'Production Member'}</span>
                     </div>
-                    <div className="flex justify-between py-1 border-b border-zinc-800/60">
-                      <span className="text-zinc-500">Uploaded</span>
-                      <span className="text-zinc-200">{new Date(selectedDoc.uploadedAt).toLocaleDateString()}</span>
+                    <div className={`flex justify-between py-1 border-b ${isLight ? 'border-slate-200' : 'border-zinc-800/60'}`}>
+                      <span className={isLight ? 'text-slate-500' : 'text-zinc-500'}>Uploaded</span>
+                      <span className={isLight ? 'text-slate-900' : 'text-zinc-200'}>{new Date(selectedDoc.uploadedAt).toLocaleDateString()}</span>
                     </div>
-                    <div className="flex justify-between py-1 border-b border-zinc-800/60">
-                      <span className="text-zinc-500">Size / Length</span>
-                      <span className="text-zinc-200">{selectedDoc.durationSeconds ? `${selectedDoc.durationSeconds}s` : selectedDoc.fileSize || '1.1 MB'}</span>
+                    <div className={`flex justify-between py-1 border-b ${isLight ? 'border-slate-200' : 'border-zinc-800/60'}`}>
+                      <span className={isLight ? 'text-slate-500' : 'text-zinc-500'}>Size / Length</span>
+                      <span className={isLight ? 'text-slate-900' : 'text-zinc-200'}>{selectedDoc.durationSeconds ? `${selectedDoc.durationSeconds}s` : selectedDoc.fileSize || '1.1 MB'}</span>
                     </div>
                     <div className="flex justify-between py-1">
-                      <span className="text-zinc-500">Status</span>
-                      <span className="text-emerald-400 uppercase font-bold">{selectedDoc.status || 'Active'}</span>
+                      <span className={isLight ? 'text-slate-500' : 'text-zinc-500'}>Status</span>
+                      <span className="text-emerald-500 dark:text-emerald-400 uppercase font-bold">{selectedDoc.status || 'Active'}</span>
                     </div>
                   </div>
                 </div>

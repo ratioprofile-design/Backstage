@@ -1,7 +1,8 @@
 /**
- * Universal Document Pagination Engine for Production Vault.
+ * Universal Document Pagination Engine for Production Vault & Word Documents.
  * Accurately breaks Word HTML, plain text, and script documents into discrete A4 pages
- * using cumulative DOM layout measurement, sentence-level splitting, and orphan prevention.
+ * exactly matching Microsoft Word print layout using cumulative DOM layout measurement,
+ * intelligent table row splitting, sentence-level breaking, and orphan prevention.
  */
 
 export interface DocumentPage {
@@ -20,16 +21,26 @@ export interface DocumentPaginationResult {
 
 export interface PaginationOptions {
   fontSize?: 'sm' | 'md' | 'lg' | 'xl'; // Document font size scaling
-  fontFamily?: 'serif' | 'sans' | 'mono'; // Document font family
-  targetHeightPx?: number; // Target printable content height in pixels (~860px for A4)
-  contentWidthPx?: number; // Printable content width (~676px)
+  fontFamily?: 'sans' | 'serif' | 'mono' | 'calibri' | 'inter' | 'vijaya'; // Document font family
+  targetHeightPx?: number; // Target printable content height in pixels (~880px - 940px for A4)
+  contentWidthPx?: number; // Printable content width (~670px - 700px)
+  isWordDocument?: boolean; // Apply Microsoft Word paragraph and line spacing rules
 }
 
+export const FONT_STACK_MAP: Record<string, string> = {
+  inter: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+  sans: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+  calibri: "'Calibri', 'Aptos', 'Segoe UI', Arial, sans-serif",
+  serif: "'Georgia', 'Cambria', 'Times New Roman', serif",
+  mono: "'JetBrains Mono', 'Courier Prime', Menlo, Consolas, monospace",
+  vijaya: "'Vijaya', 'Noto Sans Tamil', 'Mukta Malar', sans-serif",
+};
+
 const FONT_METRICS_MAP = {
-  sm: { targetHeightPx: 860, charsPerLine: 78, lineHeightPx: 17.5, pMarginPx: 6.0 },
-  md: { targetHeightPx: 860, charsPerLine: 66, lineHeightPx: 20.0, pMarginPx: 6.5 },
-  lg: { targetHeightPx: 860, charsPerLine: 56, lineHeightPx: 24.0, pMarginPx: 7.5 },
-  xl: { targetHeightPx: 860, charsPerLine: 44, lineHeightPx: 28.0, pMarginPx: 8.5 },
+  sm: { targetHeightPx: 880, charsPerLine: 82, lineHeightPx: 17.5, pMarginPx: 6.0 },
+  md: { targetHeightPx: 880, charsPerLine: 70, lineHeightPx: 20.0, pMarginPx: 7.0 },
+  lg: { targetHeightPx: 880, charsPerLine: 58, lineHeightPx: 24.0, pMarginPx: 8.0 },
+  xl: { targetHeightPx: 880, charsPerLine: 46, lineHeightPx: 28.0, pMarginPx: 9.0 },
 };
 
 /**
@@ -58,7 +69,7 @@ function isSceneHeadingBlock(text: string, html: string): boolean {
 function getMeasurer(
   widthPx: number,
   fontSize: 'sm' | 'md' | 'lg' | 'xl',
-  fontFamily: 'serif' | 'sans' | 'mono'
+  fontFamily: 'sans' | 'serif' | 'mono' | 'calibri' | 'inter' | 'vijaya' = 'sans'
 ): HTMLElement | null {
   if (typeof document === 'undefined') return null;
 
@@ -78,9 +89,8 @@ function getMeasurer(
     }
 
     measurer.style.width = `${widthPx}px`;
+    measurer.style.fontFamily = FONT_STACK_MAP[fontFamily] || FONT_STACK_MAP.sans;
     measurer.className = `prose prose-sm max-w-none text-slate-800 ${
-      fontFamily === 'sans' ? 'font-sans' : fontFamily === 'mono' ? 'font-mono' : 'font-serif'
-    } ${
       fontSize === 'sm'
         ? 'text-[11px] leading-relaxed'
         : fontSize === 'lg'
@@ -88,7 +98,7 @@ function getMeasurer(
         : fontSize === 'xl'
         ? 'text-[16px] leading-normal'
         : 'text-[12px] leading-relaxed'
-    } [&_p]:my-1.5 [&_p]:leading-relaxed [&_h1]:my-2 [&_h2]:my-2 [&_h3]:my-1.5`;
+    } [&_p]:my-1.5 [&_p]:leading-relaxed [&_h1]:my-2 [&_h2]:my-2 [&_h3]:my-1.5 [&_table]:w-full [&_table]:border-collapse [&_th]:p-2 [&_td]:p-2`;
 
     return measurer;
   } catch {
@@ -101,7 +111,7 @@ function getMeasurer(
  */
 function estimateHtmlHeightFallback(html: string, fontSize: 'sm' | 'md' | 'lg' | 'xl'): number {
   const metrics = FONT_METRICS_MAP[fontSize] || FONT_METRICS_MAP.md;
-  
+
   if (typeof DOMParser !== 'undefined') {
     try {
       const parser = new DOMParser();
@@ -115,7 +125,7 @@ function estimateHtmlHeightFallback(html: string, fontSize: 'sm' | 'md' | 'lg' |
       });
       return Math.max(total, 20);
     } catch {
-      // fallback to regex
+      // fallback
     }
   }
 
@@ -128,13 +138,13 @@ function estimateHtmlHeightFallback(html: string, fontSize: 'sm' | 'md' | 'lg' |
 
 /**
  * Measures the exact cumulative rendered height of an array of HTML blocks rendered together.
- * Measuring cumulatively is critical to properly account for CSS paragraph margin collapsing.
+ * Measuring cumulatively is critical to properly account for CSS paragraph margin collapsing and table layouts.
  */
 function measureBlocksCumulativeHeight(
   blocksHtml: string[],
   widthPx: number,
   fontSize: 'sm' | 'md' | 'lg' | 'xl',
-  fontFamily: 'serif' | 'sans' | 'mono'
+  fontFamily: 'sans' | 'serif' | 'mono' | 'calibri' | 'inter' | 'vijaya'
 ): number {
   if (blocksHtml.length === 0) return 0;
   const combinedHtml = blocksHtml.join('\n');
@@ -147,6 +157,156 @@ function measureBlocksCumulativeHeight(
   }
 
   return estimateHtmlHeightFallback(combinedHtml, fontSize);
+}
+
+interface ContentBlock {
+  html: string;
+  text: string;
+  isHeading: boolean;
+  vChars: number;
+  wordCount: number;
+  isTable?: boolean;
+}
+
+/**
+ * Recursively extracts granular block-level elements from a container.
+ * Unwraps outer wrappers (<div class="doc-document-wrapper">, sections, etc.)
+ * so each paragraph, heading, list, or table can be independently paginated across pages.
+ */
+function extractBlockElementsFromNode(node: Element): ContentBlock[] {
+  const blocks: ContentBlock[] = [];
+  const tag = node.tagName.toLowerCase();
+
+  // If node is a TABLE, check if it's large and can be row-split, or keep as atomic table block
+  if (tag === 'table') {
+    const text = node.textContent || '';
+    blocks.push({
+      html: node.outerHTML,
+      text,
+      isHeading: false,
+      vChars: getVisualLength(text),
+      wordCount: text.trim() ? text.trim().split(/\s+/).length : 0,
+      isTable: true,
+    });
+    return blocks;
+  }
+
+  // Pure leaf block elements
+  if (/^(p|h[1-6]|blockquote|pre|hr|ul|ol)$/i.test(tag)) {
+    const html = node.outerHTML;
+    const text = node.textContent || '';
+    const isHeading = isSceneHeadingBlock(text, html);
+    const vChars = getVisualLength(text);
+    const wordCount = text.trim() ? text.trim().split(/\s+/).length : 0;
+    blocks.push({ html, text, isHeading, vChars, wordCount });
+    return blocks;
+  }
+
+  // Wrapper containers (div, section, article, main, header, footer)
+  const children = Array.from(node.children);
+  if (children.length > 0) {
+    children.forEach((child) => {
+      blocks.push(...extractBlockElementsFromNode(child));
+    });
+    return blocks;
+  }
+
+  // Leaf container with text only
+  const text = node.textContent || '';
+  if (text.trim()) {
+    const html = node.outerHTML;
+    const isHeading = isSceneHeadingBlock(text, html);
+    const vChars = getVisualLength(text);
+    const wordCount = text.trim() ? text.trim().split(/\s+/).length : 0;
+    blocks.push({ html, text, isHeading, vChars, wordCount });
+  }
+
+  return blocks;
+}
+
+/**
+ * Splits an oversized <table> element across pages by rows (<tr>).
+ * Preserves the <thead> or header row on each page so the table looks authentic to Microsoft Word.
+ */
+function splitTableIntoPageChunks(
+  tableHtml: string,
+  availableHeightPx: number,
+  pageHeightPx: number,
+  contentWidthPx: number,
+  fontSize: 'sm' | 'md' | 'lg' | 'xl',
+  fontFamily: 'sans' | 'serif' | 'mono' | 'calibri' | 'inter' | 'vijaya'
+): string[] {
+  if (typeof DOMParser === 'undefined') return [tableHtml];
+
+  try {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(tableHtml, 'text/html');
+    const tableEl = doc.querySelector('table');
+    if (!tableEl) return [tableHtml];
+
+    // Extract table attributes, classes, and styles
+    const tableAttrs = Array.from(tableEl.attributes)
+      .map((a) => `${a.name}="${a.value}"`)
+      .join(' ');
+
+    // Extract the header (either <thead> or first <tr> with <th>)
+    let theadHtml = '';
+    const thead = tableEl.querySelector('thead');
+    if (thead) {
+      theadHtml = thead.outerHTML;
+    } else {
+      const firstTr = tableEl.querySelector('tr');
+      if (firstTr && firstTr.querySelector('th')) {
+        theadHtml = `<thead>${firstTr.outerHTML}</thead>`;
+      }
+    }
+
+    // Extract all data rows
+    const allRows = Array.from(tableEl.querySelectorAll('tbody tr, tr:not(thead tr)'));
+    // If the first row was used as thead, exclude it
+    const dataRows = thead ? allRows : (allRows[0]?.querySelector('th') ? allRows.slice(1) : allRows);
+
+    if (dataRows.length <= 1) return [tableHtml];
+
+    const tableChunks: string[] = [];
+    let currentRowChunk: string[] = [];
+    let currentLimitPx = availableHeightPx;
+
+    const buildTableChunkHtml = (rowsHtml: string[]): string => {
+      return `<table ${tableAttrs}>\n${theadHtml}\n<tbody>\n${rowsHtml.join('\n')}\n</tbody>\n</table>`;
+    };
+
+    for (let i = 0; i < dataRows.length; i++) {
+      const rowHtml = dataRows[i].outerHTML;
+      const testChunkRows = [...currentRowChunk, rowHtml];
+      const testTableHtml = buildTableChunkHtml(testChunkRows);
+
+      const measuredH = measureBlocksCumulativeHeight(
+        [testTableHtml],
+        contentWidthPx,
+        fontSize,
+        fontFamily
+      );
+
+      if (measuredH <= currentLimitPx || currentRowChunk.length === 0) {
+        currentRowChunk.push(rowHtml);
+      } else {
+        // Current chunk is full; push completed table chunk and start a fresh page chunk
+        tableChunks.push(buildTableChunkHtml(currentRowChunk));
+        currentRowChunk = [rowHtml];
+        currentLimitPx = pageHeightPx - 60; // Fresh page gets full height (with margin for table header)
+      }
+    }
+
+    if (currentRowChunk.length > 0) {
+      tableChunks.push(buildTableChunkHtml(currentRowChunk));
+    }
+
+    return tableChunks.length > 0 ? tableChunks : [tableHtml];
+  } catch (err) {
+    console.warn('Table pagination error:', err);
+    return [tableHtml];
+  }
 }
 
 /**
@@ -166,20 +326,13 @@ export function paginateDocumentHtml(
   }
 
   const fontSize = options.fontSize || 'md';
-  const fontFamily = options.fontFamily || 'serif';
-  const targetHeightPx = options.targetHeightPx || 860;
+  const fontFamily = options.fontFamily || 'sans';
+  const targetHeightPx = options.targetHeightPx || 880;
   const contentWidthPx = options.contentWidthPx || 676;
 
   const pages: DocumentPage[] = [];
 
-  // 1. Extract discrete block elements from incoming HTML
-  interface ContentBlock {
-    html: string;
-    text: string;
-    isHeading: boolean;
-    vChars: number;
-    wordCount: number;
-  }
+  // 1. Extract discrete block elements from incoming HTML with deep wrapper unwrapping
   let blocks: ContentBlock[] = [];
 
   if (typeof DOMParser !== 'undefined') {
@@ -190,12 +343,7 @@ export function paginateDocumentHtml(
 
       if (bodyChildren.length > 0) {
         bodyChildren.forEach((child) => {
-          const html = child.outerHTML;
-          const text = child.textContent || '';
-          const isHeading = isSceneHeadingBlock(text, html);
-          const vChars = getVisualLength(text);
-          const wordCount = text.trim() ? text.trim().split(/\s+/).length : 0;
-          blocks.push({ html, text, isHeading, vChars, wordCount });
+          blocks.push(...extractBlockElementsFromNode(child));
         });
       }
     } catch (e) {
@@ -255,7 +403,68 @@ export function paginateDocumentHtml(
   for (let i = 0; i < blocks.length; i++) {
     const block = blocks[i];
 
-    // Check if adding this block to the current page exceeds target height
+    // SPECIAL HANDLING: Multi-row Tables that exceed available page room
+    if (block.isTable || /<table\b/i.test(block.html)) {
+      const currentHeightBefore = measureBlocksCumulativeHeight(
+        currentPageBlocks,
+        contentWidthPx,
+        fontSize,
+        fontFamily
+      );
+      const remainingRoomPx = Math.max(0, targetHeightPx - currentHeightBefore);
+
+      const tableHeight = measureBlocksCumulativeHeight(
+        [block.html],
+        contentWidthPx,
+        fontSize,
+        fontFamily
+      );
+
+      // Fits on current page
+      if (tableHeight <= remainingRoomPx) {
+        currentPageBlocks.push(block.html);
+        currentWords += block.wordCount;
+        currentChars += block.vChars;
+        continue;
+      }
+
+      // Doesn't fit on current page. Can it fit on an empty fresh page?
+      if (tableHeight <= targetHeightPx) {
+        if (currentPageBlocks.length > 0) {
+          pushCurrentPage();
+        }
+        currentPageBlocks.push(block.html);
+        currentWords = block.wordCount;
+        currentChars = block.vChars;
+        continue;
+      }
+
+      // Large multi-row table: split across pages row-by-row
+      const tableChunks = splitTableIntoPageChunks(
+        block.html,
+        remainingRoomPx > 140 ? remainingRoomPx : targetHeightPx,
+        targetHeightPx,
+        contentWidthPx,
+        fontSize,
+        fontFamily
+      );
+
+      if (remainingRoomPx <= 140 && currentPageBlocks.length > 0) {
+        pushCurrentPage();
+      }
+
+      tableChunks.forEach((chunk, chunkIdx) => {
+        if (chunkIdx > 0 && currentPageBlocks.length > 0) {
+          pushCurrentPage();
+        }
+        currentPageBlocks.push(chunk);
+        currentWords += Math.round(block.wordCount / tableChunks.length);
+        currentChars += Math.round(block.vChars / tableChunks.length);
+      });
+      continue;
+    }
+
+    // Standard Block: Check if adding this block to the current page exceeds target height
     const testCumulativeHtml = [...currentPageBlocks, block.html];
     const candidateHeight = measureBlocksCumulativeHeight(
       testCumulativeHtml,
@@ -282,7 +491,7 @@ export function paginateDocumentHtml(
       continue;
     }
 
-    // Case C: Short block (single line dialogue or heading <= 60 chars) or page is nearly full (> 85% target)
+    // Case C: Short block or page is nearly full (> 85% target)
     const currentHeightBefore = measureBlocksCumulativeHeight(
       currentPageBlocks,
       contentWidthPx,
@@ -291,7 +500,7 @@ export function paginateDocumentHtml(
     );
     const remainingRoomPx = targetHeightPx - currentHeightBefore;
 
-    if (remainingRoomPx < 45 || block.vChars <= 60 || block.text.length <= 60) {
+    if (remainingRoomPx < 50 || block.vChars <= 60 || block.text.length <= 60) {
       if (currentPageBlocks.length > 0) {
         pushCurrentPage();
       }
@@ -302,7 +511,6 @@ export function paginateDocumentHtml(
     }
 
     // Case D: Multi-sentence paragraph that can be split across the page boundary to fill the page snuggly
-    // Structured elements like tables, lists, pre, or blockquotes must never be shredded into <p> sentences
     const isSplittableText = !/<(?:table|tbody|thead|tr|td|th|ul|ol|li|div|blockquote|pre)/i.test(block.html);
     if (!isSplittableText) {
       if (currentPageBlocks.length > 0) {
@@ -319,7 +527,7 @@ export function paginateDocumentHtml(
     let part2Sentences: string[] = [];
     let fillingPart1 = true;
 
-    for (let s of sentences) {
+    for (const s of sentences) {
       if (fillingPart1) {
         const testP1 = [...part1Sentences, s].join(' ').trim();
         const testP1Html = `<p class="mb-1.5 leading-relaxed">${testP1}</p>`;
@@ -413,4 +621,3 @@ export function paginatePlainText(
 
   return paginateDocumentHtml(htmlParagraphs, options);
 }
-

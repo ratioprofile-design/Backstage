@@ -29,13 +29,19 @@ import { parseUniversalFile } from '../../services/documentParser';
 import { ScriptCharacterInput, SceneCharactersDropdown } from '../ScriptCharacterInput';
 import { TwoColumnSceneSidebar } from '../TwoColumnSceneSidebar';
 import { TwoColumnFindReplace } from '../TwoColumnFindReplace';
+import { TwoColumnExportModal } from '../TwoColumnExportModal';
+import { printTwoColumnVector } from '../../services/twoColumnExportEngine';
 import confetti from 'canvas-confetti';
+import html2canvas from 'html2canvas';
+import { jsPDF } from 'jspdf';
 import {
   Columns,
   ArrowLeft,
   ArrowRight,
   Minus,
   Download,
+  FileDown,
+  Loader2,
   Save,
   Plus,
   Trash2,
@@ -127,6 +133,8 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
   const [zoomLevel, setZoomLevel] = useState<number>(100);
   const [isStyleDrawerOpen, setIsStyleDrawerOpen] = useState<boolean>(false);
   const [isExportingDocx, setIsExportingDocx] = useState<boolean>(false);
+  const [isExportingPdf, setIsExportingPdf] = useState<boolean>(false);
+  const [isExportModalOpen, setIsExportModalOpen] = useState<boolean>(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [lastSelectedId, setLastSelectedId] = useState<string | null>(null);
@@ -756,6 +764,80 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
     }
   };
 
+  // Export full paginated 2-column Kollywood Screenplay PDF
+  const handleExportPdf = async () => {
+    try {
+      setIsExportingPdf(true);
+      showToast('Generating 2-Column PDF...');
+
+      if (document.fonts) {
+        await document.fonts.ready;
+      }
+
+      // If in single or spread mode, temporarily switch to stacked so all pages are in DOM
+      const prevMode = pageViewMode;
+      if (prevMode !== 'stacked') {
+        setPageViewMode('stacked');
+        await new Promise((resolve) => setTimeout(resolve, 200));
+      }
+
+      const pageElements = Array.from(document.querySelectorAll('[id^="script-page-"]')) as HTMLElement[];
+      if (pageElements.length === 0) {
+        throw new Error('No pages found to export');
+      }
+
+      const pdf = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: 'a4',
+        compress: true,
+      });
+
+      for (let i = 0; i < pageElements.length; i++) {
+        const pageEl = pageElements[i];
+        const canvas = await html2canvas(pageEl, {
+          scale: 2,
+          useCORS: true,
+          logging: false,
+          backgroundColor: '#ffffff',
+          onclone: (clonedDoc) => {
+            clonedDoc.querySelectorAll('button, .no-print, [title*="Insert"], [title*="Delete"], [title*="Add"], [title*="select paragraph"]').forEach((b) => {
+              (b as HTMLElement).style.display = 'none';
+            });
+            const clonedPage = clonedDoc.getElementById(pageEl.id);
+            if (clonedPage) {
+              clonedPage.style.boxShadow = 'none';
+              clonedPage.style.border = 'none';
+              clonedPage.style.backgroundColor = '#ffffff';
+              clonedPage.style.color = '#111827';
+            }
+          },
+        });
+
+        if (i > 0) {
+          pdf.addPage('a4', 'p');
+        }
+
+        const imgData = canvas.toDataURL('image/jpeg', 0.95);
+        pdf.addImage(imgData, 'JPEG', 0, 0, 210, 297, undefined, 'FAST');
+      }
+
+      if (prevMode !== 'stacked') {
+        setPageViewMode(prevMode);
+      }
+
+      const filename = `${(screenplayData.title || activeDoc?.title || 'Screenplay').replace(/\s+/g, '_')}_2Column_Script.pdf`;
+      pdf.save(filename);
+      confetti({ particleCount: 40, spread: 60, origin: { y: 0.7 } });
+      showToast(`✓ Exported "${filename}"!`);
+    } catch (err) {
+      console.error('PDF Export Error:', err);
+      showToast('Failed to export PDF.');
+    } finally {
+      setIsExportingPdf(false);
+    }
+  };
+
   // Save changes to Vault
   const handleSaveToVault = () => {
     const html = generateTamilLeftRightHtml(screenplayData);
@@ -1021,6 +1103,16 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
             <span>{isExportingDocx ? 'Exporting...' : 'Word (.docx)'}</span>
           </button>
 
+          {/* Export PDF */}
+          <button
+            onClick={() => setIsExportModalOpen(true)}
+            className="px-3.5 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-md transition-all cursor-pointer"
+            title="Open 2-Column Script PDF Export Studio & Preview"
+          >
+            <FileDown size={13} />
+            <span>Export PDF</span>
+          </button>
+
           {/* Save to Vault */}
           <button
             onClick={handleSaveToVault}
@@ -1035,11 +1127,11 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
             <span>Save</span>
           </button>
 
-          {/* Print */}
+          {/* Print (Native Browser Vector Print Engine) */}
           <button
-            onClick={() => window.print()}
-            className="p-1.5 rounded-xl hover:bg-zinc-800 text-zinc-400 hover:text-white transition-colors"
-            title="Print Script"
+            onClick={() => printTwoColumnVector(screenplayData)}
+            className="p-1.5 rounded-xl hover:bg-zinc-800 text-zinc-400 hover:text-white transition-colors cursor-pointer border border-zinc-700/60"
+            title="Print Script (Vector Engine)"
           >
             <Printer size={15} />
           </button>
@@ -1283,9 +1375,9 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
                                   </div>
 
                                   {/* ROW 2: Script Location (Left) | [ Pages: 1/3 ] (Center Box) | Real Location (Right) */}
-                                  <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2.5">
+                                  <div className="flex items-center justify-between gap-3 min-w-0">
                                     {/* Left: Script Location (wraps naturally, no ellipsis cutoff) */}
-                                    <div className="text-left leading-tight min-w-0">
+                                    <div className="flex-1 text-left leading-tight min-w-0">
                                       <span className="font-bold mr-1.5 inline">Script Location:</span>
                                       <span
                                         contentEditable
@@ -1299,12 +1391,12 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
                                     </div>
 
                                     {/* Center: Box for Scene Pages (Wireframe Boxed Pill) */}
-                                    <div className="px-3 py-0.5 rounded-lg border border-black dark:border-zinc-300 text-center font-bold text-[11px] tracking-wide shadow-2xs select-none whitespace-nowrap justify-self-center">
+                                    <div className="shrink-0 px-3 py-0.5 rounded-lg border border-black dark:border-zinc-300 text-center font-bold text-[11px] tracking-wide shadow-2xs select-none whitespace-nowrap self-center">
                                       Pages: {elem.scenePageNumber || 1}/{elem.sceneTotalPages || 1}
                                     </div>
 
                                     {/* Right: Real Location (wraps naturally, no ellipsis cutoff) */}
-                                    <div className="text-right leading-tight min-w-0">
+                                    <div className="flex-1 text-right leading-tight min-w-0">
                                       <span className="font-bold mr-1.5 inline">Real Location:</span>
                                       <span
                                         contentEditable
@@ -2224,6 +2316,14 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
           </aside>
         )}
       </div>
+      
+      {/* Dedicated 2-Column Script PDF Export & Print Studio Modal */}
+      <TwoColumnExportModal
+        isOpen={isExportModalOpen}
+        onClose={() => setIsExportModalOpen(false)}
+        screenplayData={screenplayData}
+        isLight={isLight}
+      />
     </div>
   );
 };

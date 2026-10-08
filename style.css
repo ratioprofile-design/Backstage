@@ -1245,11 +1245,79 @@ select:not(.slug-input):not(.bg-transparent):focus {
    8. PRINT OVERRIDES
    ========================================== */
 @media print {
-  @page { margin: 1in; }
-  body { background: white !important; color: black !important; overflow: visible !important; height: auto !important; width: auto !important; }
-  #root, main { display: block !important; position: static !important; }
-  .no-print, header, .ui-layer { display: none !important; }
-  .bible-page { box-shadow: none !important; margin: 0 !important; border: none !important; }
+  @page {
+    size: A4 portrait;
+    margin: 10mm 12mm 12mm 12mm;
+  }
+  body {
+    background: #ffffff !important;
+    color: #000000 !important;
+    overflow: visible !important;
+    height: auto !important;
+    width: auto !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  #root, main {
+    display: block !important;
+    position: static !important;
+    overflow: visible !important;
+    height: auto !important;
+    background: #ffffff !important;
+  }
+  .no-print, header, .ui-layer, aside, nav, .sidebar, [data-sidebar], button, input[type="file"] {
+    display: none !important;
+  }
+  .bible-page {
+    box-shadow: none !important;
+    margin: 0 !important;
+    border: none !important;
+  }
+
+  /* 2-Column Kollywood Script Print Styles */
+  #two-column-print-canvas {
+    transform: none !important;
+    box-shadow: none !important;
+    border: none !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    background: #ffffff !important;
+    color: #111827 !important;
+    overflow: visible !important;
+  }
+
+  /* Prevent scene headers and dialogue lines from breaking awkwardly across page cuts */
+  [id^="scene-header-"],
+  [data-scene-id],
+  .scene-container {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+    margin-bottom: 14px !important;
+  }
+
+  [data-item-id],
+  .script-row {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+
+  /* Ensure text has sharp black contrast and correct Tamil letter-spacing */
+  #two-column-print-canvas * {
+    color: #0f172a !important;
+    letter-spacing: normal !important;
+  }
+  #two-column-print-canvas .text-emerald-500,
+  #two-column-print-canvas .text-emerald-400,
+  #two-column-print-canvas .text-emerald-600 {
+    color: #047857 !important;
+  }
+  #two-column-print-canvas .text-sky-400,
+  #two-column-print-canvas .text-sky-500,
+  #two-column-print-canvas .text-sky-600 {
+    color: #0284c7 !important;
+  }
 }
 
 /* ==========================================
@@ -1282,13 +1350,21 @@ html.theme-transitioning *::after {
 }
 
 /* ==========================================
-   10. DOCUMENT VAULT IN-PAGE EDITABLE TABLES & NOTES
+   10. DOCUMENT VAULT IN-PAGE EDITABLE TABLES & BREAKDOWN TYPOGRAPHY
    ========================================== */
+.doc-document-wrapper,
+.breakdown-document {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  color: inherit;
+  letter-spacing: -0.01em;
+}
+
 .doc-vault-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 12px;
-  line-height: 1.4;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 12.5px;
+  line-height: 1.45;
 }
 
 .doc-vault-table th,
@@ -1300,10 +1376,17 @@ html.theme-transitioning *::after {
 
 .doc-vault-table th {
   background-color: rgba(148, 163, 184, 0.12);
-  font-weight: 700;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-weight: 800;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.05em;
   font-size: 11px;
+}
+
+.doc-vault-table td:first-child {
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
 }
 
 .doc-vault-table tr:hover td {
@@ -1318,6 +1401,7 @@ html.theme-transitioning *::after {
 
 .doc-notes-below-table {
   transition: all 0.2s ease;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
 [contenteditable="true"] .doc-notes-below-table:hover,
@@ -1346,5 +1430,137 @@ html.theme-transitioning *::after {
 .doc-delete-row-btn:active {
   transform: scale(0.95);
 }
+
+/* ==========================================
+   11. AUTHENTIC MICROSOFT WORD DOCUMENT STYLES
+   ========================================== */
+.word-document-page {
+  width: 794px;
+  min-height: 1123px;
+  padding: 56px 64px;
+  box-sizing: border-box;
+  background-color: #ffffff !important;
+  color: #1e293b !important;
+  font-family: 'Calibri', 'Aptos', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.08), 0 2px 4px -2px rgba(0, 0, 0, 0.05), 0 16px 38px rgba(0, 0, 0, 0.16);
+  border: 1px solid #e2e8f0;
+  border-radius: 2px;
+  margin-bottom: 28px;
+  position: relative;
+  transition: box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.word-document-page:hover {
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.08), 0 20px 48px rgba(0, 0, 0, 0.22);
+}
+
+/* Word typography within document pages */
+.word-doc-content {
+  color: #1e293b !important;
+  font-family: inherit;
+  font-size: 14.5px;
+  line-height: 1.35;
+}
+
+.word-doc-content p {
+  margin-top: 0;
+  margin-bottom: 0.65rem;
+  line-height: 1.35;
+}
+
+.word-doc-content h1 {
+  font-size: 1.55rem;
+  font-weight: 700;
+  color: #1f497d;
+  margin-top: 1.1rem;
+  margin-bottom: 0.45rem;
+  line-height: 1.25;
+  letter-spacing: -0.015em;
+  border-bottom: 1px solid #e2e8f0;
+  padding-bottom: 0.25rem;
+}
+
+.word-doc-content h2 {
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: #2e74b5;
+  margin-top: 0.95rem;
+  margin-bottom: 0.35rem;
+  line-height: 1.3;
+}
+
+.word-doc-content h3 {
+  font-size: 1.12rem;
+  font-weight: 600;
+  color: #1f497d;
+  margin-top: 0.8rem;
+  margin-bottom: 0.3rem;
+  line-height: 1.3;
+}
+
+.word-doc-content h4,
+.word-doc-content h5,
+.word-doc-content h6 {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #334155;
+  margin-top: 0.65rem;
+  margin-bottom: 0.25rem;
+}
+
+.word-doc-content table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 0.6rem;
+  margin-bottom: 1.1rem;
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+
+.word-doc-content table th,
+.word-doc-content table td {
+  border: 1px solid #cbd5e1;
+  padding: 6px 10px;
+  vertical-align: top;
+}
+
+.word-doc-content table th {
+  background-color: #f1f5f9;
+  font-weight: 700;
+  color: #0f172a;
+  text-align: left;
+}
+
+.word-doc-content table tr:nth-child(even) td {
+  background-color: #f8fafc;
+}
+
+.word-doc-content ul,
+.word-doc-content ol {
+  margin-top: 0.25rem;
+  margin-bottom: 0.65rem;
+  padding-left: 1.6rem;
+}
+
+.word-doc-content li {
+  margin-bottom: 0.25rem;
+  line-height: 1.35;
+}
+
+.word-doc-content blockquote {
+  margin: 0.8rem 0;
+  padding: 0.4rem 1rem;
+  border-left: 3.5px solid #2e74b5;
+  background-color: #f8fafc;
+  color: #334155;
+  font-style: italic;
+}
+
+.word-doc-content hr {
+  border: none;
+  border-top: 1px solid #e2e8f0;
+  margin: 1.2rem 0;
+}
+
 
 

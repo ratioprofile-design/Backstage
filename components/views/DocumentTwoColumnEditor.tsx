@@ -14,12 +14,18 @@ import {
 import { ScriptCharacterInput, SceneCharactersDropdown } from '../ScriptCharacterInput';
 import { TwoColumnSceneSidebar } from '../TwoColumnSceneSidebar';
 import { TwoColumnFindReplace } from '../TwoColumnFindReplace';
+import { TwoColumnExportModal } from '../TwoColumnExportModal';
+import { printTwoColumnVector } from '../../services/twoColumnExportEngine';
 import confetti from 'canvas-confetti';
+import html2canvas from 'html2canvas';
+import { jsPDF } from 'jspdf';
 import {
   ArrowLeft,
   ArrowRight,
   Minus,
   Download,
+  FileDown,
+  Loader2,
   Save,
   Plus,
   Trash2,
@@ -38,6 +44,7 @@ import {
   Search,
   PanelLeft,
   PanelLeftClose,
+  Printer,
 } from 'lucide-react';
 
 export interface DocumentTwoColumnEditorProps {
@@ -63,9 +70,12 @@ export const DocumentTwoColumnEditor: React.FC<DocumentTwoColumnEditorProps> = (
   const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set());
   const [zoomLevel, setZoomLevel] = useState<number>(100);
   const [isGeneratingDocx, setIsGeneratingDocx] = useState<boolean>(false);
+  const [isExportingPdf, setIsExportingPdf] = useState<boolean>(false);
+  const [isExportModalOpen, setIsExportModalOpen] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState<boolean>(false);
   const [lastSelectedId, setLastSelectedId] = useState<string | null>(null);
+  const printCanvasRef = useRef<HTMLDivElement>(null);
 
   // Active floating dropdown state
   const [activeDropdown, setActiveDropdown] = useState<{
@@ -684,6 +694,162 @@ export const DocumentTwoColumnEditor: React.FC<DocumentTwoColumnEditorProps> = (
     }
   };
 
+  // Export high-resolution, paginated 2-column Kollywood Screenplay PDF
+  const handleExportPdf = async () => {
+    if (!printCanvasRef.current || isExportingPdf) return;
+    try {
+      setIsExportingPdf(true);
+      showToast('Preparing 2-Column PDF export...');
+
+      // Ensure system and custom fonts are completely ready
+      if (document.fonts) {
+        await document.fonts.ready;
+      }
+
+      const elem = printCanvasRef.current;
+      const domPageHeight = 1188; // Standard A4 height at 96 DPI (840px * 1.4142)
+      const totalHeight = elem.scrollHeight;
+
+      // Calculate clean natural page break positions before scenes and dialogue blocks to prevent slicing text
+      const candidates: number[] = [];
+      const blockNodes = Array.from(elem.querySelectorAll('[data-scene-id], [data-item-id], .scene-header-box'));
+      blockNodes.forEach((node) => {
+        const el = node as HTMLElement;
+        const top = el.offsetTop;
+        if (top > 40 && !candidates.includes(top)) {
+          candidates.push(top);
+        }
+      });
+      candidates.sort((a, b) => a - b);
+
+      const cutPoints: number[] = [0];
+      let currentY = 0;
+      while (currentY + domPageHeight < totalHeight) {
+        const targetCut = currentY + domPageHeight - 35; // 35px bottom tolerance cushion
+        let chosenCut = -1;
+        for (let i = candidates.length - 1; i >= 0; i--) {
+          if (candidates[i] <= targetCut && candidates[i] >= currentY + 300) {
+            chosenCut = candidates[i];
+            break;
+          }
+        }
+        if (chosenCut === -1) {
+          chosenCut = targetCut;
+        }
+        cutPoints.push(chosenCut);
+        currentY = chosenCut;
+      }
+      cutPoints.push(totalHeight);
+
+      // Render high-resolution canvas at 2x scale
+      const canvas = await html2canvas(elem, {
+        scale: 2,
+        useCORS: true,
+        logging: false,
+        backgroundColor: '#ffffff',
+        onclone: (clonedDoc) => {
+          const clonedCanvas = clonedDoc.getElementById('two-column-print-canvas');
+          if (clonedCanvas) {
+            clonedCanvas.style.transform = 'none';
+            clonedCanvas.style.boxShadow = 'none';
+            clonedCanvas.style.border = 'none';
+            clonedCanvas.style.backgroundColor = '#ffffff';
+            clonedCanvas.style.color = '#111827';
+          }
+          // Hide interactive controls, hover tools, buttons, checkboxes
+          clonedDoc.querySelectorAll('button, .no-print, [title*="Insert"], [title*="Delete"], [title*="Add"], [title*="select paragraph"], [title*="Move to"]').forEach((b) => {
+            (b as HTMLElement).style.display = 'none';
+          });
+          // Render script title input cleanly without editable outlines
+          const titleInput = clonedDoc.querySelector('input[type="text"]') as HTMLInputElement;
+          if (titleInput) {
+            const heading = clonedDoc.createElement('div');
+            heading.className = 'text-2xl font-black text-center w-full text-emerald-800 pb-1';
+            heading.textContent = titleInput.value || screenplayData.title || doc.title || 'திரைக்கதை (Screenplay)';
+            titleInput.parentNode?.replaceChild(heading, titleInput);
+          }
+          // Ensure scene heading boxes have high-contrast light borders and fill
+          clonedDoc.querySelectorAll('[id^="scene-header-"]').forEach((sc) => {
+            const scBox = sc.querySelector('.group\\/hdr') as HTMLElement;
+            if (scBox) {
+              scBox.style.backgroundColor = '#f8fafc';
+              scBox.style.color = '#0f172a';
+              scBox.style.borderColor = '#94a3b8';
+            }
+          });
+          // Ensure paragraph text has deep black contrast
+          clonedDoc.querySelectorAll('[data-item-id]').forEach((row) => {
+            (row as HTMLElement).style.color = '#0f172a';
+          });
+        },
+      });
+
+      const pdf = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: 'a4',
+        compress: true,
+      });
+
+      const pageWidthMm = 210;
+      const pageHeightMm = 297;
+      const totalPages = cutPoints.length - 1;
+      const scriptTitle = (screenplayData.title || doc.title || 'Screenplay').trim();
+
+      for (let i = 0; i < totalPages; i++) {
+        const startDomY = cutPoints[i];
+        const endDomY = cutPoints[i + 1];
+        const sliceDomHeight = endDomY - startDomY;
+
+        const sliceCanvasY = Math.round(startDomY * 2);
+        const sliceCanvasHeight = Math.round(sliceDomHeight * 2);
+        const targetCanvasPageHeight = Math.round(canvas.width * (pageHeightMm / pageWidthMm));
+
+        const pageCanvas = document.createElement('canvas');
+        pageCanvas.width = canvas.width;
+        pageCanvas.height = targetCanvasPageHeight;
+        const ctx = pageCanvas.getContext('2d');
+        if (ctx) {
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, pageCanvas.width, pageCanvas.height);
+          ctx.drawImage(
+            canvas,
+            0, sliceCanvasY, canvas.width, sliceCanvasHeight,
+            0, 0, canvas.width, sliceCanvasHeight
+          );
+        }
+
+        if (i > 0) {
+          pdf.addPage('a4', 'p');
+        }
+
+        const imgData = pageCanvas.toDataURL('image/jpeg', 0.95);
+        pdf.addImage(imgData, 'JPEG', 0, 0, pageWidthMm, pageHeightMm, undefined, 'FAST');
+
+        // Professional running footer
+        pdf.setFont('helvetica', 'normal');
+        pdf.setFontSize(8);
+        pdf.setTextColor(100, 116, 139);
+        pdf.text(
+          `Page ${i + 1} of ${totalPages}   •   ${scriptTitle}   •   Kollywood 2-Column Screenplay`,
+          105,
+          292,
+          { align: 'center' }
+        );
+      }
+
+      const filename = `${scriptTitle.replace(/\s+/g, '_')}_2Column_Script.pdf`;
+      pdf.save(filename);
+      confetti({ particleCount: 45, spread: 60, origin: { y: 0.7 } });
+      showToast(`✓ Exported "${filename}"!`);
+    } catch (err) {
+      console.error('PDF Export Error:', err);
+      showToast('Failed to export PDF.');
+    } finally {
+      setIsExportingPdf(false);
+    }
+  };
+
   // Save changes back to document
   const handleSaveChanges = () => {
     const html = generateTamilLeftRightHtml(screenplayData);
@@ -824,11 +990,30 @@ export const DocumentTwoColumnEditor: React.FC<DocumentTwoColumnEditorProps> = (
           <button
             onClick={handleDownloadWordDocx}
             disabled={isGeneratingDocx}
-            className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-md transition-all cursor-pointer disabled:opacity-50"
+            className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-md transition-all cursor-pointer disabled:opacity-50"
             title="Download formatted 2-column Microsoft Word (.docx) file"
           >
             <Download size={13} />
-            <span>{isGeneratingDocx ? 'Generating...' : 'Download Word (.docx)'}</span>
+            <span>{isGeneratingDocx ? 'Generating...' : 'Word (.docx)'}</span>
+          </button>
+
+          {/* Export PDF */}
+          <button
+            onClick={() => setIsExportModalOpen(true)}
+            className="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-md transition-all cursor-pointer"
+            title="Open 2-Column Script PDF Export Studio & Preview"
+          >
+            <FileDown size={13} />
+            <span>Export PDF</span>
+          </button>
+
+          {/* Script Printing Engine (Native Browser Vector Print to PDF) */}
+          <button
+            onClick={() => printTwoColumnVector(screenplayData)}
+            className="p-1.5 rounded-xl hover:bg-zinc-800 text-zinc-400 hover:text-white transition-colors cursor-pointer border border-zinc-700/60"
+            title="Script Printing Engine: 100% Vector Fonts & Native Layout Print to PDF"
+          >
+            <Printer size={15} />
           </button>
 
           {/* Save Changes */}
@@ -962,6 +1147,8 @@ export const DocumentTwoColumnEditor: React.FC<DocumentTwoColumnEditorProps> = (
 
         <div className="flex-1 overflow-y-auto px-4 py-8 flex flex-col items-center">
         <div
+          ref={printCanvasRef}
+          id="two-column-print-canvas"
           style={{ transform: `scale(${zoomLevel / 100})`, transformOrigin: 'top center' }}
           className={`w-[840px] min-h-[1188px] p-12 relative shadow-2xl rounded-sm transition-all border ${
             isLight
@@ -987,14 +1174,14 @@ export const DocumentTwoColumnEditor: React.FC<DocumentTwoColumnEditorProps> = (
           </div>
 
           {/* Two-Column Header Banner */}
-          <div className="grid grid-cols-2 gap-4 pb-2 mb-4 border-b-2 border-emerald-500/40 text-xs font-mono font-bold uppercase tracking-wider text-zinc-400">
-            <div className="flex items-center gap-2 text-emerald-400">
-              <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
-              <span>இடது: காட்சி விவரம் (Visual Action)</span>
+          <div className="flex items-center justify-between gap-4 pb-2 mb-4 border-b-2 border-emerald-500/40 text-xs font-mono font-bold uppercase tracking-wider text-zinc-400">
+            <div className="flex items-center gap-2 text-emerald-400 min-w-0">
+              <span className="shrink-0 inline-block w-2 h-2 rounded-full bg-emerald-400"></span>
+              <span className="truncate">இடது: காட்சி விவரம் (Visual Action)</span>
             </div>
-            <div className="flex items-center justify-end gap-2 text-sky-400">
-              <span>வலது: வசனம் & ஒலி (Dialogue & Audio)</span>
-              <span className="w-2 h-2 rounded-full bg-sky-400"></span>
+            <div className="flex items-center justify-end gap-2 text-sky-400 min-w-0">
+              <span className="truncate">வலது: வசனம் & ஒலி (Dialogue & Audio)</span>
+              <span className="shrink-0 inline-block w-2 h-2 rounded-full bg-sky-400"></span>
             </div>
           </div>
 
@@ -1055,9 +1242,9 @@ export const DocumentTwoColumnEditor: React.FC<DocumentTwoColumnEditorProps> = (
                       </div>
 
                       {/* ROW 2: Script Location (Left) | [ Pages: 1/1 ] (Center Box) | Real Location (Right) */}
-                      <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2.5">
+                      <div className="flex items-center justify-between gap-3 min-w-0">
                         {/* Left: Script Location (wraps naturally, no ellipsis cutoff) */}
-                        <div className="text-left leading-tight min-w-0">
+                        <div className="flex-1 text-left leading-tight min-w-0">
                           <span className="font-bold mr-1.5 inline">Script Location:</span>
                           <span
                             contentEditable
@@ -1071,12 +1258,12 @@ export const DocumentTwoColumnEditor: React.FC<DocumentTwoColumnEditorProps> = (
                         </div>
 
                         {/* Center: Box for Scene Pages (Wireframe Boxed Pill) */}
-                        <div className="px-3 py-0.5 rounded-lg border border-black dark:border-zinc-300 text-center font-bold text-[11px] tracking-wide shadow-2xs select-none whitespace-nowrap justify-self-center">
+                        <div className="shrink-0 px-3 py-0.5 rounded-lg border border-black dark:border-zinc-300 text-center font-bold text-[11px] tracking-wide shadow-2xs select-none whitespace-nowrap self-center">
                           Pages: 1/1
                         </div>
 
                         {/* Right: Real Location (wraps naturally, no ellipsis cutoff) */}
-                        <div className="text-right leading-tight min-w-0">
+                        <div className="flex-1 text-right leading-tight min-w-0">
                           <span className="font-bold mr-1.5 inline">Real Location:</span>
                           <span
                             contentEditable
@@ -1513,6 +1700,14 @@ export const DocumentTwoColumnEditor: React.FC<DocumentTwoColumnEditorProps> = (
           </div>
         </div>
       </div>
+
+      {/* Dedicated 2-Column Script PDF Export & Print Studio Modal */}
+      <TwoColumnExportModal
+        isOpen={isExportModalOpen}
+        onClose={() => setIsExportModalOpen(false)}
+        screenplayData={screenplayData}
+        isLight={isLight}
+      />
     </div>
   </div>
 );

@@ -243,7 +243,7 @@ const CharacterDesignView: React.FC<{ onNavigateToView?: (view: 'characterdesign
       const url = await generateImage({
         prompt,
         aspectRatio: '4:3',
-        model: storyboardConfig.imageModel || 'gemini-2.5-flash-image'
+        model: storyboardConfig.imageModel || 'pollinations-turbo'
       });
       if (url) {
         updateCharacter(activeRoleName, { aiImages: [...(target.aiImages || []), url] });
