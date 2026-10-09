@@ -76,6 +76,7 @@ import {
   Undo2,
   Redo2,
   Keyboard,
+  Edit2,
 } from 'lucide-react';
 
 export interface TwoColumnScriptViewProps {
@@ -115,6 +116,33 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
     const raw = activeDoc?.textContent || (activeDoc?.htmlContent ? activeDoc.htmlContent.replace(/<[^>]+>/g, '\n') : '');
     return parseScreenplayToTamilLeftRight(raw, activeDoc?.title || 'பைலட் ரங்கா');
   });
+
+  // Inline Title Rename State
+  const [titleInput, setTitleInput] = useState<string>(() => screenplayData.title || activeDoc?.title || 'Untitled Screenplay');
+
+  // Sync title when active document or screenplayData changes
+  useEffect(() => {
+    setTitleInput(screenplayData.title || activeDoc?.title || 'Untitled Screenplay');
+  }, [screenplayData.title, activeDoc?.title]);
+
+  const handleRenameTitle = (newVal: string) => {
+    const trimmed = newVal.trim() || 'Untitled Screenplay';
+    setTitleInput(trimmed);
+    setScreenplayData((prev) => ({ ...prev, title: trimmed }));
+    if (activeDoc) {
+      const updated: ProductionDocument = {
+        ...activeDoc,
+        title: trimmed,
+        lastModified: new Date().toISOString(),
+      };
+      const allDocs = getProductionDocuments();
+      const nextList = allDocs.map((d) => (d.id === updated.id ? updated : d));
+      saveProductionDocuments(nextList);
+      setDocuments(nextList);
+    }
+    setHasUnsavedChanges(true);
+    showToast('✓ Document Renamed');
+  };
 
   // Re-parse when switching documents
   useEffect(() => {
@@ -324,10 +352,10 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
     return Array.from(set);
   }, [screenplayData]);
 
-  const showToast = (msg: string) => {
+  const showToast = useCallback((msg: string) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 3200);
-  };
+  }, []);
 
   // Run Dedicated Pagination Engine
   const paginationResult = useMemo(() => {
@@ -473,7 +501,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
   };
 
   // Move paragraphs to column
-  const moveParagraphsToColumn = (targetColumn: 'left' | 'right' | 'center', specificItemId?: string) => {
+  const moveParagraphsToColumn = useCallback((targetColumn: 'left' | 'right' | 'center', specificItemId?: string) => {
     const idsToMove = specificItemId ? new Set([specificItemId]) : selectedItemIds;
     if (idsToMove.size === 0) return;
 
@@ -487,7 +515,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
             let text = item.rawText || item.leftAction || item.rightDialogue || '';
             let char = item.rightCharacter || '';
 
-            if (targetColumn === 'right' && !char) {
+            if (targetColumn === 'right' && !char && typeof text === 'string') {
               const colonMatch = text.match(/^([\u0B80-\u0BFFa-zA-Z0-9\s.]{2,30})\s*:\s*(.*)$/);
               if (colonMatch) {
                 char = colonMatch[1].trim();
@@ -523,7 +551,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
         ? 'வலது: வசனம் (Right)'
         : 'மத்திய தலைப்பு (Center)';
     showToast(`✓ Moved ${idsToMove.size} paragraph(s) to ${colName}`);
-  };
+  }, [selectedItemIds, screenplayData, pushToUndoHistory, showToast]);
 
   // Direct in-place text update
   const handleUpdateItemText = (itemId: string, newText: string) => {
@@ -757,7 +785,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
 
 
   // Direct alignment update for selected paragraphs or default layout
-  const handleUpdateItemAlignment = (align: 'left' | 'center' | 'right' | 'justify') => {
+  const handleUpdateItemAlignment = useCallback((align: 'left' | 'center' | 'right' | 'justify') => {
     if (selectedItemIds.size > 0) {
       pushToUndoHistory(screenplayData);
       setScreenplayData((prev) => ({
@@ -782,10 +810,10 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
       const alignLabel = align === 'justify' ? 'Justified' : align.charAt(0).toUpperCase() + align.slice(1);
       showToast(`✓ Set default text alignment to ${alignLabel}`);
     }
-  };
+  }, [selectedItemIds, screenplayData, pushToUndoHistory, showToast]);
 
   // Set alignment for a single item
-  const handleSetSingleItemAlignment = (
+  const handleSetSingleItemAlignment = useCallback((
     itemId: string,
     align: 'left' | 'center' | 'right' | 'justify',
     e?: React.MouseEvent
@@ -800,7 +828,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
       })),
     }));
     setHasUnsavedChanges(true);
-  };
+  }, [screenplayData, pushToUndoHistory]);
 
   // Direct text color update for single or selected paragraphs
   const handleUpdateItemColor = (itemIds: Set<string> | string, color?: string) => {
@@ -817,6 +845,224 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
     showToast(color ? `✓ Applied text color to ${ids.size} paragraph(s)` : `✓ Reset text color to default`);
   };
 
+  // Toggle Bold for single or selected items
+  const handleToggleItemBold = (itemId: string) => {
+    pushToUndoHistory(screenplayData);
+    const ids = selectedItemIds.has(itemId) && selectedItemIds.size > 1 ? selectedItemIds : new Set([itemId]);
+    let firstState: boolean | undefined = undefined;
+    for (const sc of screenplayData.scenes) {
+      for (const it of sc.items) {
+        if (ids.has(it.id)) {
+          if (firstState === undefined) firstState = !!it.isBold;
+        }
+      }
+    }
+    const nextBold = !firstState;
+    setScreenplayData((prev) => ({
+      ...prev,
+      scenes: prev.scenes.map((sc) => ({
+        ...sc,
+        items: sc.items.map((it) => (ids.has(it.id) ? { ...it, isBold: nextBold } : it)),
+      })),
+    }));
+    setHasUnsavedChanges(true);
+    showToast(nextBold ? `✓ Bold applied to ${ids.size} block(s)` : `Bold removed from ${ids.size} block(s)`);
+  };
+
+  // Toggle Italic for single or selected items
+  const handleToggleItemItalic = (itemId: string) => {
+    pushToUndoHistory(screenplayData);
+    const ids = selectedItemIds.has(itemId) && selectedItemIds.size > 1 ? selectedItemIds : new Set([itemId]);
+    let firstState: boolean | undefined = undefined;
+    for (const sc of screenplayData.scenes) {
+      for (const it of sc.items) {
+        if (ids.has(it.id)) {
+          if (firstState === undefined) firstState = !!it.isItalic;
+        }
+      }
+    }
+    const nextItalic = !firstState;
+    setScreenplayData((prev) => ({
+      ...prev,
+      scenes: prev.scenes.map((sc) => ({
+        ...sc,
+        items: sc.items.map((it) => (ids.has(it.id) ? { ...it, isItalic: nextItalic } : it)),
+      })),
+    }));
+    setHasUnsavedChanges(true);
+    showToast(nextItalic ? `✓ Italic applied to ${ids.size} block(s)` : `Italic removed from ${ids.size} block(s)`);
+  };
+
+  // Convert/set block to Montage
+  const handleSetMontage = (itemId: string) => {
+    pushToUndoHistory(screenplayData);
+    setScreenplayData((prev) => ({
+      ...prev,
+      scenes: prev.scenes.map((sc) => ({
+        ...sc,
+        items: sc.items.map((it) =>
+          it.id === itemId
+            ? {
+                ...it,
+                type: 'transition',
+                column: 'center',
+                rawText: it.rawText && (it.rawText.toLowerCase().includes('montage') || it.rawText.includes('மாண்டேஜ்')) ? it.rawText : 'மாண்டேஜ் (MONTAGE)',
+              }
+            : it
+        ),
+      })),
+    }));
+    setHasUnsavedChanges(true);
+    showToast('✓ Set to மாண்டேஜ் (MONTAGE)');
+  };
+
+  // Smart Scene Number Calculation (Kollywood & Industry Standard)
+  const calculateSmartSceneNumber = (
+    scenes: TamilScene[],
+    targetSceneId?: string,
+    position: 'before' | 'after' | 'end' = 'after'
+  ): string => {
+    if (scenes.length === 0) return '1';
+    if (!targetSceneId || position === 'end') {
+      let maxNum = 0;
+      for (const sc of scenes) {
+        const parsed = parseInt(sc.sceneNumber, 10);
+        if (!isNaN(parsed) && parsed > maxNum) {
+          maxNum = parsed;
+        }
+      }
+      return `${(maxNum || scenes.length) + 1}`;
+    }
+
+    const targetIdx = scenes.findIndex((sc) => sc.id === targetSceneId);
+    if (targetIdx === -1) return `${scenes.length + 1}`;
+
+    if (position === 'before') {
+      if (targetIdx === 0) {
+        return 'A1';
+      }
+      const prevScene = scenes[targetIdx - 1];
+      const prevNum = (prevScene.sceneNumber || '').trim();
+      const letterMatch = prevNum.match(/^(\d+)([A-Za-z]+)?$/);
+      if (letterMatch) {
+        const base = letterMatch[1];
+        const letter = letterMatch[2];
+        if (!letter) return `${base}A`;
+        const nextChar = String.fromCharCode(letter.toUpperCase().charCodeAt(0) + 1);
+        return `${base}${nextChar}`;
+      }
+      return `${prevNum}A`;
+    } else {
+      // position === 'after'
+      const targetScene = scenes[targetIdx];
+      const targetNum = (targetScene.sceneNumber || '').trim();
+      const letterMatch = targetNum.match(/^(\d+)([A-Za-z]+)?$/);
+      if (letterMatch) {
+        const base = letterMatch[1];
+        const letter = letterMatch[2];
+        if (!letter) {
+          const suffixes = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
+          for (const s of suffixes) {
+            const candidate = `${base}${s}`;
+            if (!scenes.some((sc) => sc.sceneNumber.trim().toUpperCase() === candidate.toUpperCase())) {
+              return candidate;
+            }
+          }
+          return `${base}A`;
+        } else {
+          const nextChar = String.fromCharCode(letter.toUpperCase().charCodeAt(0) + 1);
+          return `${base}${nextChar}`;
+        }
+      }
+      return `${targetNum}A`;
+    }
+  };
+
+  // Insert a fresh new scene
+  const handleInsertScene = (targetSceneId?: string, position: 'before' | 'after' | 'end' = 'after') => {
+    pushToUndoHistory(screenplayData);
+    const nextNum = calculateSmartSceneNumber(screenplayData.scenes, targetSceneId, position);
+    const newSceneId = `scene-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    const newScene: TamilScene = {
+      id: newSceneId,
+      sceneNumber: nextNum,
+      location: 'காட்சி இடம் (LOCATION)',
+      realLocation: '',
+      timeOfDay: 'Day / INT',
+      sluglineText: `காட்சி எண்: ${nextNum} - Day / INT`,
+      characters: [],
+      effects: 'None',
+      items: [
+        {
+          id: `item-${Date.now()}-1`,
+          type: 'action',
+          column: 'left',
+          leftAction: '',
+          rawText: '',
+        },
+      ],
+    };
+
+    let nextScenes: TamilScene[] = [];
+    if (!targetSceneId || position === 'end') {
+      nextScenes = [...screenplayData.scenes, newScene];
+    } else {
+      const idx = screenplayData.scenes.findIndex((sc) => sc.id === targetSceneId);
+      if (idx === -1) {
+        nextScenes = [...screenplayData.scenes, newScene];
+      } else if (position === 'before') {
+        nextScenes = [...screenplayData.scenes.slice(0, idx), newScene, ...screenplayData.scenes.slice(idx)];
+      } else {
+        nextScenes = [...screenplayData.scenes.slice(0, idx + 1), newScene, ...screenplayData.scenes.slice(idx + 1)];
+      }
+    }
+
+    setScreenplayData((prev) => ({
+      ...prev,
+      scenes: nextScenes,
+    }));
+    setActiveSceneId(newSceneId);
+    setHasUnsavedChanges(true);
+
+    setTimeout(() => {
+      const el = document.getElementById(`scene-${newSceneId}`) || document.getElementById(`hdr-sc-${newSceneId}`);
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 120);
+
+    showToast(`✓ Added Scene ${nextNum}`);
+  };
+
+  // Delete scene
+  const handleDeleteScene = (sceneId: string) => {
+    const sc = screenplayData.scenes.find((s) => s.id === sceneId);
+    if (!sc) return;
+    if (screenplayData.scenes.length <= 1) {
+      showToast('Cannot delete the only scene in the document');
+      return;
+    }
+    pushToUndoHistory(screenplayData);
+    setScreenplayData((prev) => ({
+      ...prev,
+      scenes: prev.scenes.filter((s) => s.id !== sceneId),
+    }));
+    setHasUnsavedChanges(true);
+    showToast(`✓ Deleted Scene ${sc.sceneNumber}`);
+  };
+
+  // Renumber all scenes sequentially (1, 2, 3...)
+  const handleRenumberAllScenes = () => {
+    pushToUndoHistory(screenplayData);
+    setScreenplayData((prev) => ({
+      ...prev,
+      scenes: prev.scenes.map((sc, idx) => ({
+        ...sc,
+        sceneNumber: `${idx + 1}`,
+      })),
+    }));
+    setHasUnsavedChanges(true);
+    showToast(`✓ Renumbered all ${screenplayData.scenes.length} scenes sequentially (1 to ${screenplayData.scenes.length})`);
+  };
+
   // Update scene metadata
   const handleUpdateScene = (sceneId: string, updates: Partial<TamilScene>) => {
     pushToUndoHistory(screenplayData);
@@ -827,13 +1073,51 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
     setHasUnsavedChanges(true);
   };
 
-  // Delete item
-  const handleDeleteItem = (itemId: string, e?: React.MouseEvent) => {
+  // Scroll smoothly and center item in viewport
+  const scrollToItem = useCallback((itemId: string, behavior: ScrollBehavior = 'smooth') => {
+    // If in single page mode, ensure the page holding this item is displayed
+    if (pageViewMode === 'single') {
+      const pageIdx = pages.findIndex((p) =>
+        p.elements.some((el) => el.type === 'item' && el.item.id === itemId)
+      );
+      if (pageIdx !== -1 && pageIdx + 1 !== currentSinglePage) {
+        setCurrentSinglePage(pageIdx + 1);
+      }
+    }
+
+    const performScroll = () => {
+      const el =
+        document.getElementById(`script-row-card-${itemId}`) ||
+        document.getElementById(`script-row-${itemId}`) ||
+        document.querySelector(`[data-item-row-id="${itemId}"]`);
+      if (el) {
+        el.scrollIntoView({ behavior, block: 'center', inline: 'nearest' });
+      }
+    };
+
+    performScroll();
+    requestAnimationFrame(performScroll);
+  }, [pageViewMode, pages, currentSinglePage]);
+
+  // Delete item and smoothly advance selection to the adjacent paragraph
+  const handleDeleteItem = useCallback((itemId: string, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
     if (itemId.startsWith('auto-cut-to-')) {
       showToast('Tip: You can turn off "Auto CUT TO at End of Scene" in the Style Drawer.');
       return;
     }
+
+    // Determine the next adjacent item BEFORE deleting
+    const curIdx = orderedItemIds.indexOf(itemId);
+    let nextCandidateId: string | null = null;
+    if (curIdx !== -1) {
+      if (curIdx < orderedItemIds.length - 1) {
+        nextCandidateId = orderedItemIds[curIdx + 1];
+      } else if (curIdx > 0) {
+        nextCandidateId = orderedItemIds[curIdx - 1];
+      }
+    }
+
     pushToUndoHistory(screenplayData);
     setScreenplayData((prev) => ({
       ...prev,
@@ -842,20 +1126,60 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
         items: sc.items.filter((it) => it.id !== itemId),
       })),
     }));
-    setSelectedItemIds((prev) => {
-      const next = new Set(prev);
-      next.delete(itemId);
-      return next;
-    });
+
+    if (nextCandidateId) {
+      setSelectedItemIds(new Set([nextCandidateId]));
+      setLastSelectedId(nextCandidateId);
+      setTimeout(() => {
+        scrollToItem(nextCandidateId);
+        const cardEl = document.getElementById(`script-row-card-${nextCandidateId}`);
+        if (cardEl) cardEl.focus({ preventScroll: true });
+      }, 25);
+    } else {
+      setSelectedItemIds(new Set());
+      setLastSelectedId(null);
+    }
+
     setHasUnsavedChanges(true);
     showToast('✓ Deleted item');
-  };
+  }, [orderedItemIds, screenplayData, pushToUndoHistory, scrollToItem]);
 
-  // Delete all selected paragraphs
-  const handleDeleteSelected = () => {
+  // Delete all selected paragraphs and smoothly maintain cursor at deleted location
+  const handleDeleteSelected = useCallback(() => {
     if (selectedItemIds.size === 0) return;
     pushToUndoHistory(screenplayData);
     const idsToDelete = new Set(selectedItemIds);
+
+    const sortedSelectedIndices = Array.from(selectedItemIds)
+      .map((id) => orderedItemIds.indexOf(id))
+      .filter((idx) => idx !== -1)
+      .sort((a, b) => a - b);
+
+    const lastDeletedIdx =
+      sortedSelectedIndices.length > 0
+        ? sortedSelectedIndices[sortedSelectedIndices.length - 1]
+        : -1;
+    const firstDeletedIdx =
+      sortedSelectedIndices.length > 0
+        ? sortedSelectedIndices[0]
+        : -1;
+
+    const remaining = orderedItemIds.filter((id) => !idsToDelete.has(id));
+    let nextCandidateId: string | null = null;
+    if (remaining.length > 0) {
+      if (lastDeletedIdx < orderedItemIds.length - 1) {
+        nextCandidateId =
+          orderedItemIds.slice(lastDeletedIdx + 1).find((id) => !idsToDelete.has(id)) ||
+          remaining[remaining.length - 1];
+      } else if (firstDeletedIdx > 0) {
+        nextCandidateId =
+          [...orderedItemIds.slice(0, firstDeletedIdx)].reverse().find((id) => !idsToDelete.has(id)) ||
+          remaining[0];
+      } else {
+        nextCandidateId = remaining[0];
+      }
+    }
+
     setScreenplayData((prev) => ({
       ...prev,
       scenes: prev.scenes.map((sc) => ({
@@ -863,10 +1187,23 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
         items: sc.items.filter((it) => !idsToDelete.has(it.id)),
       })),
     }));
-    setSelectedItemIds(new Set());
+
+    if (nextCandidateId) {
+      setSelectedItemIds(new Set([nextCandidateId]));
+      setLastSelectedId(nextCandidateId);
+      setTimeout(() => {
+        scrollToItem(nextCandidateId);
+        const cardEl = document.getElementById(`script-row-card-${nextCandidateId}`);
+        if (cardEl) cardEl.focus({ preventScroll: true });
+      }, 25);
+    } else {
+      setSelectedItemIds(new Set());
+      setLastSelectedId(null);
+    }
+
     setHasUnsavedChanges(true);
     showToast(`✓ Deleted ${idsToDelete.size} paragraph(s)`);
-  };
+  }, [selectedItemIds, orderedItemIds, screenplayData, pushToUndoHistory, scrollToItem]);
 
   // Permanently bake CUT TO transition into all scenes that don't have one
   const handleApplyCutToToAllScenes = () => {
@@ -1189,34 +1526,13 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
     }, 60);
   };
 
-  // Scroll smoothly to item element
-  const scrollToItem = (itemId: string) => {
-    // If in single page mode, ensure the page holding this item is displayed
-    if (pageViewMode === 'single') {
-      const pageIdx = pages.findIndex((p) =>
-        p.elements.some((el) => el.type === 'item' && el.item.id === itemId)
-      );
-      if (pageIdx !== -1 && pageIdx + 1 !== currentSinglePage) {
-        setCurrentSinglePage(pageIdx + 1);
-      }
-    }
-    setTimeout(() => {
-      const el =
-        document.getElementById(`script-row-${itemId}`) ||
-        document.querySelector(`[data-item-row-id="${itemId}"]`);
-      if (el) {
-        el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-      }
-    }, 20);
-  };
-
   // Focus item for keyboard editing
   const focusScriptItem = (
     itemId: string,
     targetField: 'auto' | 'action' | 'dialogue' | 'character' = 'auto',
     caretPosition: 'start' | 'end' = 'end'
   ) => {
-    scrollToItem(itemId);
+    scrollToItem(itemId, 'smooth');
 
     setTimeout(() => {
       let targetEl: HTMLElement | null = null;
@@ -1513,7 +1829,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
             setSelectedItemIds(new Set([nextId]));
           }
           setLastSelectedId(nextId);
-          scrollToItem(nextId);
+          scrollToItem(nextId, 'smooth');
 
           const cardEl = document.getElementById(`script-row-card-${nextId}`);
           if (cardEl) cardEl.focus({ preventScroll: true });
@@ -1529,8 +1845,8 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
             (selectedItemIds.size > 0 ? Array.from(selectedItemIds)[0] : null);
           const currentIdx = currentId
             ? orderedItemIds.indexOf(currentId)
-            : orderedItemIds.length;
-          const prevIdx = currentIdx === -1 ? orderedItemIds.length - 1 : Math.max(0, currentIdx - 1);
+            : -1;
+          const prevIdx = currentIdx === -1 ? 0 : Math.max(0, currentIdx - 1);
           const prevId = orderedItemIds[prevIdx];
 
           if (e.shiftKey && currentId) {
@@ -1544,7 +1860,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
             setSelectedItemIds(new Set([prevId]));
           }
           setLastSelectedId(prevId);
-          scrollToItem(prevId);
+          scrollToItem(prevId, 'smooth');
 
           const cardEl = document.getElementById(`script-row-card-${prevId}`);
           if (cardEl) cardEl.focus({ preventScroll: true });
@@ -1780,6 +2096,81 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
     }
   };
 
+  // Stable memoized row callbacks to ensure 60-120fps navigation without re-rendering all rows
+  const handleToggleSelect = useCallback((itemId: string) => {
+    setSelectedItemIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(itemId)) next.delete(itemId);
+      else next.add(itemId);
+      return next;
+    });
+    setLastSelectedId(itemId);
+  }, []);
+
+  const handleRowSetColor = useCallback((itemId: string, color?: string) => {
+    setSelectedItemIds((prev) => {
+      const targetIds = prev.has(itemId) && prev.size > 1 ? prev : itemId;
+      handleUpdateItemColor(targetIds, color);
+      return prev;
+    });
+  }, [handleUpdateItemColor]);
+
+  const handleRowDragStart = useCallback((itemId: string, e: React.DragEvent) => {
+    e.stopPropagation();
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', itemId);
+    setDraggedItemId(itemId);
+  }, []);
+
+  const handleRowDragEnd = useCallback(() => {
+    setDraggedItemId(null);
+    setDragOverTarget(null);
+  }, []);
+
+  const handleRowDragOver = useCallback((itemId: string, e: React.DragEvent) => {
+    if (!draggedItemId || draggedItemId === itemId) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = 'move';
+    const rect = e.currentTarget.getBoundingClientRect();
+    const midY = rect.top + rect.height / 2;
+    const pos = e.clientY < midY ? 'above' : 'below';
+    setDragOverTarget((prev) => {
+      if (prev?.itemId !== itemId || prev?.position !== pos) {
+        return { itemId, position: pos };
+      }
+      return prev;
+    });
+  }, [draggedItemId]);
+
+  const handleRowDragLeave = useCallback((itemId: string, e: React.DragEvent) => {
+    e.stopPropagation();
+    const rect = e.currentTarget.getBoundingClientRect();
+    if (
+      e.clientY < rect.top ||
+      e.clientY >= rect.bottom ||
+      e.clientX < rect.left ||
+      e.clientX >= rect.right
+    ) {
+      setDragOverTarget((prev) => (prev?.itemId === itemId ? null : prev));
+    }
+  }, []);
+
+  const handleRowDrop = useCallback((itemId: string, e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const sourceId = draggedItemId || e.dataTransfer.getData('text/plain');
+    if (sourceId && sourceId !== itemId && dragOverTarget) {
+      handleMoveScriptItem(sourceId, itemId, dragOverTarget.position);
+    }
+    setDraggedItemId(null);
+    setDragOverTarget(null);
+  }, [draggedItemId, dragOverTarget, handleMoveScriptItem]);
+
+  const handleOpenCharacterManager = useCallback(() => {
+    setIsCharacterManagerOpen(true);
+  }, []);
+
   const selectedCount = selectedItemIds.size;
   const paper = PAPER_DIMENSIONS[layoutOptions.paperStandard] || PAPER_DIMENSIONS.A4;
 
@@ -1810,51 +2201,71 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
       {/* =========================================================================
           TOP COMMAND NAVBAR
          ========================================================================= */}
-      <header className={`px-5 py-2.5 border-b flex items-center justify-between gap-4 shrink-0 shadow-sm z-30 overflow-x-auto ${
-        isLight ? 'bg-white border-slate-200 text-slate-800' : 'bg-[#121217] border-zinc-800 text-zinc-100'
+      <header className={`px-4 py-2 border-b flex items-center justify-between gap-3 shrink-0 shadow-xs z-30 overflow-x-auto ${
+        isLight ? 'bg-white border-slate-200 text-slate-800' : 'bg-[#121217] border-zinc-800/90 text-zinc-100'
       }`}>
-        {/* Left: Studio Brand & Script Switcher */}
+        {/* Left: Studio Brand, Document Title & Scenes / Find triggers */}
         <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2">
-            <span className={`p-1.5 rounded-lg border ${
+          <div className="flex items-center gap-2.5">
+            <span className={`p-1.5 rounded-lg border shrink-0 ${
               isLight
                 ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                : 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40'
+                : 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
             }`}>
               <Columns size={16} />
             </span>
-            <div>
+            <div className="min-w-0">
               <div className="flex items-center gap-2">
-                <span className={`text-xs font-black uppercase tracking-wider ${
+                <span className={`text-[11px] font-black uppercase tracking-wider ${
                   isLight ? 'text-emerald-700' : 'text-emerald-400'
                 }`}>
                   Kollywood 2-Column
                 </span>
-                <span className={`text-[10px] px-1.5 py-0.5 rounded font-mono border ${
+                <span className={`text-[10px] px-1.5 py-0.2 rounded font-mono border ${
                   isLight
                     ? 'bg-slate-100 text-slate-600 border-slate-200'
-                    : 'bg-zinc-800 text-zinc-400 border-transparent'
+                    : 'bg-zinc-800/80 text-zinc-400 border-zinc-700/50'
                 }`}>
                   {totalPages} {totalPages === 1 ? 'Page' : 'Pages'}
                 </span>
               </div>
-              <h1 className="text-sm font-bold truncate max-w-xs sm:max-w-sm">
-                {screenplayData.title || activeDoc?.title}
-              </h1>
+
+              {/* Directly Editable Document Title */}
+              <div className="relative group/title flex items-center gap-1.5 mt-0.5">
+                <input
+                  type="text"
+                  value={titleInput}
+                  onChange={(e) => setTitleInput(e.target.value)}
+                  onBlur={(e) => handleRenameTitle(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.currentTarget.blur();
+                    }
+                  }}
+                  className={`text-sm font-bold bg-transparent px-1.5 py-0.5 -ml-1.5 rounded-md border border-transparent transition-all outline-none truncate max-w-[180px] sm:max-w-[280px] md:max-w-[360px] ${
+                    isLight
+                      ? 'hover:border-slate-300 focus:border-emerald-500 focus:bg-white text-slate-800'
+                      : 'hover:border-zinc-700 focus:border-emerald-500 focus:bg-zinc-900 text-zinc-100'
+                  }`}
+                  title="Click to rename document"
+                  placeholder="Untitled Screenplay"
+                />
+                <Edit2 size={11} className="opacity-0 group-hover/title:opacity-60 transition-opacity pointer-events-none text-slate-400 dark:text-zinc-500 shrink-0" />
+              </div>
             </div>
           </div>
 
-          <div className={`w-[1px] h-5 mx-1 hidden sm:block ${isLight ? 'bg-slate-200' : 'bg-zinc-700/60'}`} />
+          <div className={`w-[1px] h-5 mx-0.5 hidden sm:block ${isLight ? 'bg-slate-200' : 'bg-zinc-700/60'}`} />
 
           {/* Scenes Sidebar Toggle */}
           <button
             onClick={() => setIsSceneSidebarOpen(!isSceneSidebarOpen)}
-            className={`px-2.5 py-1 text-xs font-bold rounded-lg border flex items-center gap-1.5 transition-all shadow-xs cursor-pointer ${
+            className={`px-2.5 py-1.5 text-xs font-semibold rounded-lg border flex items-center gap-1.5 transition-all cursor-pointer ${
               isSceneSidebarOpen
-                ? 'bg-emerald-600 text-white border-emerald-500 shadow-emerald-950/20'
+                ? 'bg-emerald-600 text-white border-emerald-500 shadow-xs'
                 : isLight
-                ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
-                : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border-zinc-700'
+                ? 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'
+                : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border-zinc-700/60'
             }`}
             title="Toggle Scene Cards Navigator (Left side)"
           >
@@ -1877,10 +2288,10 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
               setIsFindReplaceOpen(true);
               setShowReplaceByDefault(false);
             }}
-            className={`px-2.5 py-1 text-xs font-bold rounded-lg border flex items-center gap-1.5 transition-all shadow-xs cursor-pointer ${
+            className={`px-2.5 py-1.5 text-xs font-semibold rounded-lg border flex items-center gap-1.5 transition-all cursor-pointer ${
               isLight
-                ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
-                : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border-zinc-700'
+                ? 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'
+                : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border-zinc-700/60'
             }`}
             title="Advanced Find & Replace in script (Cmd+F / Ctrl+F)"
           >
@@ -1888,17 +2299,17 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
             <span>Find</span>
             <span className={`hidden xl:inline text-[9.5px] font-mono px-1 py-0.2 rounded border ${
               isLight
-                ? 'bg-white text-slate-600 border-slate-300'
+                ? 'bg-white text-slate-600 border-slate-200'
                 : 'bg-black/40 text-zinc-400 border-zinc-700'
             }`}>⌘F</span>
           </button>
         </div>
 
-        {/* Right: Zoom controls, Style Studio Drawer Toggle & Export Actions */}
+        {/* Right: Zoom controls, Undo/Redo, Shortcuts, Format & Style, Export Actions */}
         <div className="flex items-center gap-2">
           {/* Zoom controls */}
-          <div className={`flex items-center gap-1 border rounded-lg p-0.5 ${
-            isLight ? 'bg-slate-100 border-slate-300' : 'bg-zinc-900 border-zinc-800'
+          <div className={`flex items-center gap-0.5 border rounded-lg p-0.5 ${
+            isLight ? 'bg-slate-100/80 border-slate-200' : 'bg-zinc-900 border-zinc-800'
           }`}>
             <button
               onClick={() => setZoomLevel((z) => Math.max(70, z - 10))}
@@ -1909,7 +2320,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
             >
               <ZoomOut size={12} />
             </button>
-            <span className={`text-[11px] font-mono px-1 ${
+            <span className={`text-[11px] font-mono px-1.5 ${
               isLight ? 'text-slate-800 font-semibold' : 'text-zinc-300'
             }`}>{zoomLevel}%</span>
             <button
@@ -1923,59 +2334,12 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
             </button>
           </div>
 
-          <div className={`w-[1px] h-5 mx-1 hidden sm:block ${isLight ? 'bg-slate-200' : 'bg-zinc-700/60'}`} />
-
-          {/* Text Alignment Controls (2-Column Page: Left, Center, Right, Justify) */}
-          <div
-            className={`flex items-center gap-0.5 border rounded-lg p-0.5 ${
-              isLight ? 'bg-slate-100 border-slate-300' : 'bg-zinc-900 border-zinc-800'
-            }`}
-            title="Alignment: Left, Center, Right, Justify"
-          >
-            <button
-              onClick={() => handleUpdateItemAlignment('left')}
-              className={`p-1.5 rounded transition-colors cursor-pointer ${
-                isLight ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-200' : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
-              }`}
-              title="Align Left (Selected paragraphs or Column Default)"
-            >
-              <AlignLeft size={13} />
-            </button>
-            <button
-              onClick={() => handleUpdateItemAlignment('center')}
-              className={`p-1.5 rounded transition-colors cursor-pointer ${
-                isLight ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-200' : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
-              }`}
-              title="Align Center (Selected paragraphs or Column Default)"
-            >
-              <AlignCenter size={13} />
-            </button>
-            <button
-              onClick={() => handleUpdateItemAlignment('right')}
-              className={`p-1.5 rounded transition-colors cursor-pointer ${
-                isLight ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-200' : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
-              }`}
-              title="Align Right (Selected paragraphs or Column Default)"
-            >
-              <AlignRight size={13} />
-            </button>
-            <button
-              onClick={() => handleUpdateItemAlignment('justify')}
-              className={`p-1.5 rounded transition-colors cursor-pointer ${
-                isLight ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-200' : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
-              }`}
-              title="Justify (Selected paragraphs or Column Default)"
-            >
-              <AlignJustify size={13} />
-            </button>
-          </div>
-
-          <div className={`w-[1px] h-5 mx-1 hidden sm:block ${isLight ? 'bg-slate-200' : 'bg-zinc-700/60'}`} />
+          <div className={`w-[1px] h-5 mx-0.5 hidden sm:block ${isLight ? 'bg-slate-200' : 'bg-zinc-700/60'}`} />
 
           {/* Undo & Redo History Controls */}
           <div
             className={`flex items-center gap-0.5 border rounded-lg p-0.5 ${
-              isLight ? 'bg-slate-100 border-slate-300' : 'bg-zinc-900 border-zinc-800'
+              isLight ? 'bg-slate-100/80 border-slate-200' : 'bg-zinc-900 border-zinc-800'
             }`}
           >
             <button
@@ -2000,40 +2364,40 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
             </button>
           </div>
 
-          <div className={`w-[1px] h-5 mx-1 hidden sm:block ${isLight ? 'bg-slate-200' : 'bg-zinc-700/60'}`} />
+          <div className={`w-[1px] h-5 mx-0.5 hidden sm:block ${isLight ? 'bg-slate-200' : 'bg-zinc-700/60'}`} />
 
-          {/* Keyboard Shortcuts Trigger Button */}
+          {/* Keyboard Shortcuts Cheatsheet */}
           <button
             onClick={() => setIsShortcutsModalOpen(true)}
-            className={`px-2.5 py-1.5 text-xs font-bold rounded-xl border flex items-center gap-1.5 transition-all shadow-xs cursor-pointer ${
+            className={`px-2.5 py-1.5 text-xs font-semibold rounded-lg border flex items-center gap-1.5 transition-all cursor-pointer ${
               isLight
-                ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
-                : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border-zinc-700'
+                ? 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'
+                : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border-zinc-700/60'
             }`}
             title="Keyboard Shortcuts Cheatsheet (? / F1)"
           >
-            <Keyboard size={13} className={isLight ? 'text-emerald-700' : 'text-emerald-400'} />
+            <Keyboard size={13} className={isLight ? 'text-slate-500' : 'text-zinc-400'} />
             <span className="hidden sm:inline">Shortcuts</span>
             <span className={`text-[9.5px] font-mono px-1 py-0.2 rounded border ${
-              isLight ? 'bg-white text-slate-600 border-slate-300' : 'bg-black/40 text-zinc-400 border-zinc-700'
+              isLight ? 'bg-white text-slate-500 border-slate-200' : 'bg-black/40 text-zinc-400 border-zinc-700'
             }`}>?</span>
           </button>
-
-          <div className={`w-[1px] h-5 mx-1 hidden sm:block ${isLight ? 'bg-slate-200' : 'bg-zinc-700/60'}`} />
 
           {/* Format & Style Drawer Toggle */}
           <button
             onClick={() => setIsStyleDrawerOpen(!isStyleDrawerOpen)}
-            className={`px-3 py-1.5 text-xs font-bold rounded-xl border flex items-center gap-1.5 transition-all shadow-sm cursor-pointer ${
+            className={`px-2.5 py-1.5 text-xs font-semibold rounded-lg border flex items-center gap-1.5 transition-all cursor-pointer ${
               isStyleDrawerOpen
-                ? 'bg-[#f5a623] text-black border-[#f5a623]'
+                ? isLight
+                  ? 'bg-amber-50 text-amber-800 border-amber-300 shadow-xs'
+                  : 'bg-amber-500/15 text-amber-300 border-amber-500/40 shadow-xs'
                 : isLight
-                ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
-                : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border-zinc-700'
+                ? 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'
+                : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border-zinc-700/60'
             }`}
             title="Open Margins, Gaps & Font Styling Drawer"
           >
-            <Sliders size={13} />
+            <Sliders size={13} className={isStyleDrawerOpen ? 'text-amber-500' : isLight ? 'text-slate-500' : 'text-zinc-400'} />
             <span>Format & Style</span>
           </button>
 
@@ -2041,47 +2405,55 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
           <button
             onClick={handleDownloadWordDocx}
             disabled={isExportingDocx}
-            className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-md transition-all cursor-pointer disabled:opacity-50"
+            className={`px-2.5 py-1.5 rounded-lg border text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-50 ${
+              isLight
+                ? 'bg-emerald-50 hover:bg-emerald-100/80 text-emerald-800 border-emerald-200/90'
+                : 'bg-emerald-950/40 hover:bg-emerald-900/50 text-emerald-300 border-emerald-800/50'
+            }`}
             title="Download formatted 2-column Word document"
           >
-            <Download size={13} />
+            <Download size={13} className="text-emerald-500" />
             <span>{isExportingDocx ? 'Exporting...' : 'Word (.docx)'}</span>
           </button>
 
           {/* Export PDF */}
           <button
             onClick={() => setIsExportModalOpen(true)}
-            className="px-3.5 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-md transition-all cursor-pointer"
+            className={`px-3 py-1.5 rounded-lg border text-xs font-semibold flex items-center gap-1.5 transition-all shadow-xs cursor-pointer ${
+              isLight
+                ? 'bg-slate-900 hover:bg-slate-800 text-white border-slate-800'
+                : 'bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border-rose-500/30'
+            }`}
             title="Open 2-Column Script PDF Export Studio & Preview"
           >
-            <FileDown size={13} />
+            <FileDown size={13} className={isLight ? 'text-white' : 'text-rose-400'} />
             <span>Export PDF</span>
           </button>
 
           {/* Live Auto-Save Status & Manual Save Button */}
           <button
             onClick={() => saveToVault(true)}
-            className={`px-3 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer ${
+            className={`px-2.5 py-1.5 rounded-lg font-semibold text-xs flex items-center gap-1.5 border transition-all cursor-pointer ${
               isAutoSaving
-                ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 animate-pulse'
+                ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30 animate-pulse'
                 : hasUnsavedChanges
-                ? 'bg-[#f5a623] hover:bg-amber-400 text-black shadow-xs'
+                ? 'bg-amber-500 text-black border-amber-600 hover:bg-amber-400 shadow-xs'
                 : isLight
-                ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200'
-                : 'bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/20'
+                ? 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'
+                : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border-zinc-700/60'
             }`}
             title={
               isAutoSaving
                 ? 'Auto-saving changes to Vault in background...'
                 : hasUnsavedChanges
-                ? 'Changes detected (auto-saving in ~1.5s or click to save now)'
-                : `Live-saved to Vault (${lastSavedAt ? lastSavedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Live'})`
+                ? 'Changes detected (click to save to Vault)'
+                : `Saved to Vault (${lastSavedAt ? lastSavedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Live'})`
             }
           >
             {isAutoSaving ? (
               <>
                 <Loader2 size={13} className="animate-spin text-amber-500" />
-                <span>Auto-saving...</span>
+                <span>Saving...</span>
               </>
             ) : hasUnsavedChanges ? (
               <>
@@ -2090,8 +2462,8 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
               </>
             ) : (
               <>
-                <Check size={13} className="stroke-[3] text-emerald-600 dark:text-emerald-400" />
-                <span>Saved</span>
+                <Check size={13} className="stroke-[2.5] text-emerald-500" />
+                <span className="text-zinc-400 dark:text-zinc-400">Saved</span>
               </>
             )}
           </button>
@@ -2099,91 +2471,98 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
           {/* Print (Native Browser Vector Print Engine) */}
           <button
             onClick={() => printTwoColumnVector(screenplayData)}
-            className={`p-1.5 rounded-xl transition-colors cursor-pointer border ${
+            className={`p-1.5 rounded-lg transition-colors cursor-pointer border ${
               isLight
-                ? 'hover:bg-slate-100 text-slate-600 hover:text-slate-900 border-slate-300'
+                ? 'hover:bg-slate-100 text-slate-600 hover:text-slate-900 border-slate-200'
                 : 'hover:bg-zinc-800 text-zinc-400 hover:text-white border-zinc-700/60'
             }`}
             title="Print Script (Vector Engine)"
           >
-            <Printer size={15} />
+            <Printer size={14} />
           </button>
         </div>
       </header>
 
       {/* =========================================================================
-          FLOATING ARROW BAR (Appears whenever paragraphs are highlighted)
+          FLOATING SELECTION TOOLBAR (Appears whenever paragraphs are selected)
          ========================================================================= */}
       {selectedCount > 0 && (
-        <div className="sticky top-2 z-40 mx-auto w-full max-w-xl px-4 animate-in fade-in slide-in-from-top-3 duration-200">
+        <div className="sticky top-3 z-40 mx-auto w-fit max-w-[95vw] px-2 animate-in fade-in slide-in-from-top-2 duration-200">
           <div
-            className={`flex items-center justify-between gap-3 px-4 py-2 rounded-2xl border shadow-lg backdrop-blur-md transition-all ${
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-full border shadow-xl backdrop-blur-xl transition-all ${
               isLight
-                ? 'bg-white/95 border-slate-200/90 text-slate-800 shadow-[0_8px_30px_rgba(0,0,0,0.08)]'
-                : 'bg-zinc-900/95 border-zinc-700/80 text-zinc-100 shadow-[0_12px_36px_rgba(0,0,0,0.5)]'
+                ? 'bg-white/95 border-slate-200/90 text-slate-800 shadow-[0_8px_30px_rgba(0,0,0,0.12)]'
+                : 'bg-zinc-900/95 border-zinc-700/80 text-zinc-100 shadow-[0_12px_36px_rgba(0,0,0,0.6)]'
             }`}
           >
+            {/* Count Badge */}
             <div
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold ${
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ${
                 isLight
-                  ? 'bg-amber-500/12 text-amber-700 border border-amber-500/20'
+                  ? 'bg-amber-500/10 text-amber-700 border border-amber-500/20'
                   : 'bg-amber-500/15 text-amber-400 border border-amber-500/25'
               }`}
             >
-              <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
-              <span>{selectedCount} Highlighted</span>
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+              <span>{selectedCount} Selected</span>
             </div>
 
-            {/* Direct Arrow Controls */}
-            <div className="flex items-center gap-1.5">
+            <div className={`w-[1px] h-4 ${isLight ? 'bg-slate-200' : 'bg-zinc-700/70'}`} />
+
+            {/* Direct Column Controls */}
+            <div className={`flex items-center gap-0.5 p-0.5 rounded-lg border ${
+              isLight ? 'bg-slate-100/70 border-slate-200' : 'bg-zinc-950/60 border-zinc-800'
+            }`}>
               <button
                 onClick={() => moveParagraphsToColumn('left')}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer ${
+                className={`px-2.5 py-1 rounded-md text-xs font-medium flex items-center gap-1.5 transition-all cursor-pointer ${
                   isLight
-                    ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200/80'
-                    : 'bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25 border border-emerald-500/30'
+                    ? 'hover:bg-white text-slate-700 hover:text-emerald-700 hover:shadow-xs'
+                    : 'hover:bg-zinc-800 text-zinc-300 hover:text-emerald-400'
                 }`}
-                title="Send highlighted paragraphs to Left: காட்சி (Visual/Action) [ArrowLeft]"
+                title="Send highlighted to Left: காட்சி (Visual/Action) [ArrowLeft]"
               >
-                <ArrowLeft size={13} className="stroke-[2.5]" />
+                <ArrowLeft size={12} className="stroke-[2.5] text-emerald-500" />
                 <span>Left: காட்சி</span>
               </button>
 
               <button
                 onClick={() => moveParagraphsToColumn('center')}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer ${
+                className={`px-2 py-1 rounded-md text-xs font-medium flex items-center gap-1 transition-all cursor-pointer ${
                   isLight
-                    ? 'bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-200'
-                    : 'bg-zinc-800 text-zinc-200 hover:bg-zinc-700 border border-zinc-700'
+                    ? 'hover:bg-white text-slate-700 hover:text-amber-700 hover:shadow-xs'
+                    : 'hover:bg-zinc-800 text-zinc-300 hover:text-amber-400'
                 }`}
-                title="Send highlighted paragraphs to Center: தலைப்பு (Heading/Transition) [ArrowUp / C]"
+                title="Send highlighted to Center: தலைப்பு (Heading/Transition) [ArrowUp / C]"
               >
-                <Minus size={13} className="stroke-[2.5]" />
+                <Minus size={12} className="stroke-[2.5] text-amber-500" />
                 <span>Center</span>
               </button>
 
               <button
                 onClick={() => moveParagraphsToColumn('right')}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer ${
+                className={`px-2.5 py-1 rounded-md text-xs font-medium flex items-center gap-1.5 transition-all cursor-pointer ${
                   isLight
-                    ? 'bg-sky-50 text-sky-700 hover:bg-sky-100 border border-sky-200/80'
-                    : 'bg-sky-500/15 text-sky-300 hover:bg-sky-500/25 border border-sky-500/30'
+                    ? 'hover:bg-white text-slate-700 hover:text-sky-700 hover:shadow-xs'
+                    : 'hover:bg-zinc-800 text-zinc-300 hover:text-sky-400'
                 }`}
-                title="Send highlighted paragraphs to Right: வசனம் (Dialogue) [ArrowRight]"
+                title="Send highlighted to Right: வசனம் (Dialogue) [ArrowRight]"
               >
                 <span>Right: வசனம்</span>
-                <ArrowRight size={13} className="stroke-[2.5]" />
+                <ArrowRight size={12} className="stroke-[2.5] text-sky-500" />
               </button>
             </div>
 
+            <div className={`w-[1px] h-4 ${isLight ? 'bg-slate-200' : 'bg-zinc-700/70'}`} />
+
             {/* Direct Alignment for Highlighted Paragraphs */}
-            <div className={`flex items-center gap-0.5 border rounded-xl p-0.5 ${
-              isLight ? 'bg-slate-100 border-slate-200' : 'bg-black/40 border-zinc-700/60'
+            <div className={`flex items-center gap-0.5 p-0.5 rounded-lg border ${
+              isLight ? 'bg-slate-100/70 border-slate-200' : 'bg-zinc-950/60 border-zinc-800'
             }`}>
               <button
                 onClick={() => handleUpdateItemAlignment('left')}
-                className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
-                  isLight ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-200' : 'text-zinc-300 hover:text-white hover:bg-zinc-800'
+                className={`p-1 rounded transition-colors cursor-pointer ${
+                  isLight ? 'text-slate-600 hover:text-slate-900 hover:bg-white hover:shadow-xs' : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
                 }`}
                 title="Align Left for highlighted paragraphs"
               >
@@ -2191,8 +2570,8 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
               </button>
               <button
                 onClick={() => handleUpdateItemAlignment('center')}
-                className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
-                  isLight ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-200' : 'text-zinc-300 hover:text-white hover:bg-zinc-800'
+                className={`p-1 rounded transition-colors cursor-pointer ${
+                  isLight ? 'text-slate-600 hover:text-slate-900 hover:bg-white hover:shadow-xs' : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
                 }`}
                 title="Align Center for highlighted paragraphs"
               >
@@ -2200,8 +2579,8 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
               </button>
               <button
                 onClick={() => handleUpdateItemAlignment('right')}
-                className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
-                  isLight ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-200' : 'text-zinc-300 hover:text-white hover:bg-zinc-800'
+                className={`p-1 rounded transition-colors cursor-pointer ${
+                  isLight ? 'text-slate-600 hover:text-slate-900 hover:bg-white hover:shadow-xs' : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
                 }`}
                 title="Align Right for highlighted paragraphs"
               >
@@ -2209,8 +2588,8 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
               </button>
               <button
                 onClick={() => handleUpdateItemAlignment('justify')}
-                className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
-                  isLight ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-200' : 'text-zinc-300 hover:text-white hover:bg-zinc-800'
+                className={`p-1 rounded transition-colors cursor-pointer ${
+                  isLight ? 'text-slate-600 hover:text-slate-900 hover:bg-white hover:shadow-xs' : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
                 }`}
                 title="Justify highlighted paragraphs"
               >
@@ -2222,10 +2601,10 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
             <div className="relative">
               <button
                 onClick={() => setBulkColorPickerOpen(!bulkColorPickerOpen)}
-                className={`px-2 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer border ${
+                className={`px-2 py-1 rounded-lg text-xs font-medium flex items-center gap-1 transition-colors cursor-pointer border ${
                   isLight
-                    ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
-                    : 'bg-black/40 hover:bg-zinc-800 text-zinc-300 hover:text-white border-zinc-700/60'
+                    ? 'bg-slate-100/70 hover:bg-white text-slate-700 border-slate-200'
+                    : 'bg-zinc-950/60 hover:bg-zinc-800 text-zinc-300 border-zinc-800'
                 }`}
                 title="Change text color for highlighted paragraphs"
               >
@@ -2286,16 +2665,19 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
               )}
             </div>
 
+            <div className={`w-[1px] h-4 ${isLight ? 'bg-slate-200' : 'bg-zinc-700/70'}`} />
+
+            {/* Clear Selection Button */}
             <button
               onClick={handleClearSelection}
-              className={`p-1 rounded-lg transition-colors ${
+              className={`p-1 rounded-full transition-colors cursor-pointer ${
                 isLight
-                  ? 'text-slate-400 hover:text-slate-700 hover:bg-slate-100'
-                  : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
+                  ? 'hover:bg-slate-100 text-slate-400 hover:text-slate-700'
+                  : 'hover:bg-zinc-800 text-zinc-500 hover:text-zinc-200'
               }`}
-              title="Clear selection"
+              title="Clear selection (Esc)"
             >
-              <X size={15} />
+              <X size={13} />
             </button>
           </div>
         </div>
@@ -2314,6 +2696,9 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
           onToggleOpen={() => setIsSceneSidebarOpen(!isSceneSidebarOpen)}
           activeSceneId={activeSceneId}
           onSelectScene={handleSelectScene}
+          onAddScene={handleInsertScene}
+          onDeleteScene={handleDeleteScene}
+          onRenumberScenes={handleRenumberAllScenes}
           scenePageMap={scenePageMap}
         />
 
@@ -2401,6 +2786,50 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
                                   ? 'bg-white text-zinc-950 shadow-xs'
                                   : 'bg-zinc-900/80 text-zinc-100 shadow-xs'
                               }`}>
+                                {/* Scene Header Quick Action Hover Bar */}
+                                <div className="absolute -top-3.5 right-3 opacity-0 group-hover/hdr:opacity-100 transition-opacity z-30 flex items-center gap-1 border rounded-lg px-2 py-0.5 shadow-md backdrop-blur-xs bg-white/95 dark:bg-zinc-900/95 border-slate-300 dark:border-zinc-700 text-xs select-none">
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleInsertScene(elem.sceneId, 'before');
+                                    }}
+                                    className="p-1 rounded text-[11px] font-bold flex items-center gap-0.5 text-slate-700 dark:text-zinc-200 hover:text-emerald-600 dark:hover:text-emerald-400 cursor-pointer"
+                                    title="Insert scene before this scene"
+                                  >
+                                    <Plus size={11} className="stroke-[3]" />
+                                    <span>Before</span>
+                                  </button>
+                                  <div className="w-[1px] h-3 bg-slate-300 dark:bg-zinc-700" />
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleInsertScene(elem.sceneId, 'after');
+                                    }}
+                                    className="p-1 rounded text-[11px] font-bold flex items-center gap-0.5 text-slate-700 dark:text-zinc-200 hover:text-emerald-600 dark:hover:text-emerald-400 cursor-pointer"
+                                    title="Insert scene after this scene (auto suffix e.g. 4A)"
+                                  >
+                                    <Plus size={11} className="stroke-[3]" />
+                                    <span>After</span>
+                                  </button>
+                                  {screenplayData.scenes.length > 1 && (
+                                    <>
+                                      <div className="w-[1px] h-3 bg-slate-300 dark:bg-zinc-700" />
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleDeleteScene(elem.sceneId);
+                                        }}
+                                        className="p-1 rounded text-rose-500 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/60 cursor-pointer"
+                                        title="Delete this scene"
+                                      >
+                                        <Trash2 size={11} />
+                                      </button>
+                                    </>
+                                  )}
+                                </div>
                                 <div
                                   style={{ fontSize: `${layoutOptions.sceneHeadingFontSizePx || 12}px` }}
                                   className="flex flex-col gap-1.5 leading-snug"
@@ -2570,73 +2999,25 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
                         isDragged={draggedItemId === item.id}
                         dragOverPosition={dragOverTarget?.itemId === item.id ? dragOverTarget.position : null}
                         onParagraphClick={handleParagraphClick}
-                        onToggleSelect={(itemId) => {
-                          setSelectedItemIds((prev) => {
-                            const next = new Set(prev);
-                            if (next.has(itemId)) next.delete(itemId);
-                            else next.add(itemId);
-                            return next;
-                          });
-                          setLastSelectedId(itemId);
-                        }}
+                        onToggleSelect={handleToggleSelect}
                         onUpdateText={handleUpdateItemText}
                         onUpdateCharacter={handleUpdateItemCharacter}
                         onSetSingleAlignment={handleSetSingleItemAlignment}
                         onMoveColumn={moveParagraphsToColumn}
-                        onSetColor={(itemId, color) => {
-                          const targetIds = selectedItemIds.has(itemId) && selectedItemIds.size > 1 ? selectedItemIds : itemId;
-                          handleUpdateItemColor(targetIds, color);
-                        }}
+                        onSetColor={handleRowSetColor}
+                        onToggleBold={handleToggleItemBold}
+                        onToggleItalic={handleToggleItemItalic}
+                        onSetMontage={handleSetMontage}
+                        onDelete={handleDeleteItem}
                         onAddAbove={handleAddParagraphAbove}
                         onAddBelow={handleAddParagraphBelow}
                         onSplit={handleSplitParagraph}
-                        onDragStart={(itemId, e) => {
-                          e.stopPropagation();
-                          e.dataTransfer.effectAllowed = 'move';
-                          e.dataTransfer.setData('text/plain', itemId);
-                          setDraggedItemId(itemId);
-                        }}
-                        onDragEnd={() => {
-                          setDraggedItemId(null);
-                          setDragOverTarget(null);
-                        }}
-                        onDragOver={(itemId, e) => {
-                          if (!draggedItemId || draggedItemId === itemId) return;
-                          e.preventDefault();
-                          e.stopPropagation();
-                          e.dataTransfer.dropEffect = 'move';
-                          const rect = e.currentTarget.getBoundingClientRect();
-                          const midY = rect.top + rect.height / 2;
-                          const pos = e.clientY < midY ? 'above' : 'below';
-                          if (dragOverTarget?.itemId !== itemId || dragOverTarget?.position !== pos) {
-                            setDragOverTarget({ itemId, position: pos });
-                          }
-                        }}
-                        onDragLeave={(itemId, e) => {
-                          e.stopPropagation();
-                          const rect = e.currentTarget.getBoundingClientRect();
-                          if (
-                            e.clientY < rect.top ||
-                            e.clientY >= rect.bottom ||
-                            e.clientX < rect.left ||
-                            e.clientX >= rect.right
-                          ) {
-                            if (dragOverTarget?.itemId === itemId) {
-                              setDragOverTarget(null);
-                            }
-                          }
-                        }}
-                        onDrop={(itemId, e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          const sourceId = draggedItemId || e.dataTransfer.getData('text/plain');
-                          if (sourceId && sourceId !== itemId && dragOverTarget) {
-                            handleMoveScriptItem(sourceId, itemId, dragOverTarget.position);
-                          }
-                          setDraggedItemId(null);
-                          setDragOverTarget(null);
-                        }}
-                        onOpenCharacterManager={() => setIsCharacterManagerOpen(true)}
+                        onDragStart={handleRowDragStart}
+                        onDragEnd={handleRowDragEnd}
+                        onDragOver={handleRowDragOver}
+                        onDragLeave={handleRowDragLeave}
+                        onDrop={handleRowDrop}
+                        onOpenCharacterManager={handleOpenCharacterManager}
                         onFocusNextRow={handleFocusNextRow}
                         onFocusPrevRow={handleFocusPrevRow}
                         onEscapeToCard={handleEscapeToCard}

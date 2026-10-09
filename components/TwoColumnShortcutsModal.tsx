@@ -97,6 +97,18 @@ export const TwoColumnShortcutsModal: React.FC<TwoColumnShortcutsModalProps> = (
       ],
     },
     {
+      title: 'Formatting & Montage',
+      icon: <Sparkles size={16} className="text-amber-500" />,
+      items: [
+        { keys: ['Ctrl', 'B'], description: 'Toggle Bold formatting on text block / selected blocks', badge: '⌘B' },
+        { keys: ['Ctrl', 'I'], description: 'Toggle Italic style on text block / selected blocks', badge: '⌘I' },
+        { keys: ['Montage'], description: 'Convert block to மாண்டேஜ் (MONTAGE) Center element', badge: '⚡ Button' },
+        { keys: ['Delete'], description: 'Delete block from hover box or press Delete/Backspace', badge: 'Trash Icon' },
+        { keys: ['+ Scene'], description: 'Insert fresh scene with smart auto suffix (e.g. 4A)', badge: 'Sidebar / Header' },
+        { keys: ['Renumber'], description: 'Renumber all scenes sequentially (1, 2, 3...) in 1 click', badge: 'Sidebar' },
+      ],
+    },
+    {
       title: 'Column Conversion & Reordering',
       icon: <ArrowRight size={16} className="text-purple-500" />,
       items: [
@@ -105,7 +117,7 @@ export const TwoColumnShortcutsModal: React.FC<TwoColumnShortcutsModalProps> = (
         { keys: ['Alt', 'C'], description: 'Move to Center: தலைப்பு / Transition', badge: 'Alt+↑' },
         { keys: ['Alt', 'Shift', '↑'], description: 'Move current block UP above previous row' },
         { keys: ['Alt', 'Shift', '↓'], description: 'Move current block DOWN below next row' },
-        { keys: ['Ctrl', 'B'], description: 'Toggle Left Scenes Navigator sidebar', badge: '[' },
+        { keys: ['['], description: 'Toggle Left Scenes Navigator sidebar', badge: 'Sidebar Icon' },
       ],
     },
   ];

@@ -357,12 +357,15 @@ export const TwoColumnExportModal: React.FC<TwoColumnExportModalProps> = ({
                   const isCenter = item.column === 'center' || item.type === 'transition' || item.type === 'title';
                   if (isCenter) {
                     const text = item.rawText || item.leftAction || item.rightDialogue || '';
+                    const isMontage = text.toLowerCase().includes('montage') || text.includes('மாண்டேஜ்');
                     return (
                       <div
                         key={`item-${item.id}-${idx}`}
-                        className="w-full text-center py-1.5 my-2 font-bold text-xs text-amber-800 border-y border-dashed border-slate-300"
+                        className={`w-full text-center py-1.5 my-2 text-xs text-amber-800 border-y border-dashed border-slate-300 ${
+                          item.isBold !== false ? 'font-bold' : ''
+                        } ${item.isItalic ? 'italic' : ''}`}
                       >
-                        {text}
+                        {isMontage ? '⚡ ' : ''}{text}
                       </div>
                     );
                   }
@@ -391,7 +394,7 @@ export const TwoColumnExportModal: React.FC<TwoColumnExportModalProps> = ({
                         className="pr-3 text-left"
                       >
                         {!isRight && leftActionText ? (
-                          <span className="text-slate-900">{leftActionText}</span>
+                          <span className={`text-slate-900 ${item.isBold ? 'font-bold' : ''} ${item.isItalic ? 'italic' : ''}`}>{leftActionText}</span>
                         ) : null}
                       </div>
 
@@ -410,7 +413,7 @@ export const TwoColumnExportModal: React.FC<TwoColumnExportModalProps> = ({
                                 {charName} :
                               </div>
                             ) : null}
-                            <div className="text-slate-900">{diaText}</div>
+                            <div className={`text-slate-900 ${item.isBold ? 'font-bold' : ''} ${item.isItalic ? 'italic' : ''}`}>{diaText}</div>
                           </div>
                         ) : null}
                       </div>

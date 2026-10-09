@@ -15,6 +15,9 @@ import {
   ArrowRight,
   PanelLeftClose,
   PanelLeft,
+  Plus,
+  Trash2,
+  ListOrdered,
 } from 'lucide-react';
 
 export interface TwoColumnSceneSidebarProps {
@@ -24,6 +27,9 @@ export interface TwoColumnSceneSidebarProps {
   onToggleOpen: () => void;
   activeSceneId?: string | null;
   onSelectScene: (sceneId: string, pageNumber?: number) => void;
+  onAddScene?: (targetSceneId?: string, position?: 'before' | 'after' | 'end') => void;
+  onDeleteScene?: (sceneId: string) => void;
+  onRenumberScenes?: () => void;
   /** Optional map of sceneId -> starting page number for paginated views */
   scenePageMap?: Record<string, number>;
   className?: string;
@@ -36,6 +42,9 @@ export const TwoColumnSceneSidebar: React.FC<TwoColumnSceneSidebarProps> = ({
   onToggleOpen,
   activeSceneId,
   onSelectScene,
+  onAddScene,
+  onDeleteScene,
+  onRenumberScenes,
   scenePageMap = {},
   className = '',
 }) => {
@@ -132,15 +141,50 @@ export const TwoColumnSceneSidebar: React.FC<TwoColumnSceneSidebarProps> = ({
           </div>
         </div>
 
-        <button
-          onClick={onToggleOpen}
-          className={`p-1.5 rounded-lg transition-colors ${
-            isLight ? 'hover:bg-slate-200 text-slate-500' : 'hover:bg-zinc-800 text-zinc-400 hover:text-white'
-          }`}
-          title="Close Scene Navigator"
-        >
-          <PanelLeftClose size={15} />
-        </button>
+        <div className="flex items-center gap-1">
+          {/* Add Scene Button */}
+          {onAddScene && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onAddScene(undefined, 'end');
+              }}
+              className="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-bold bg-emerald-500 hover:bg-emerald-400 text-black shadow-xs transition-all cursor-pointer hover:scale-105 active:scale-95"
+              title="Add fresh scene at end"
+            >
+              <Plus size={12} className="stroke-[3]" />
+              <span>Add</span>
+            </button>
+          )}
+
+          {/* Renumber All Scenes Button */}
+          {onRenumberScenes && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onRenumberScenes();
+              }}
+              className={`p-1.5 rounded-lg text-xs transition-colors cursor-pointer ${
+                isLight
+                  ? 'hover:bg-amber-50 text-slate-500 hover:text-amber-700'
+                  : 'hover:bg-amber-500/10 text-zinc-400 hover:text-amber-400'
+              }`}
+              title="Renumber all scenes sequentially (1, 2, 3...)"
+            >
+              <ListOrdered size={14} />
+            </button>
+          )}
+
+          <button
+            onClick={onToggleOpen}
+            className={`p-1.5 rounded-lg transition-colors ${
+              isLight ? 'hover:bg-slate-200 text-slate-500' : 'hover:bg-zinc-800 text-zinc-400 hover:text-white'
+            }`}
+            title="Close Scene Navigator"
+          >
+            <PanelLeftClose size={15} />
+          </button>
+        </div>
       </div>
 
       {/* 2. Filter & Search Controls */}
@@ -263,7 +307,7 @@ export const TwoColumnSceneSidebar: React.FC<TwoColumnSceneSidebarProps> = ({
                     : 'bg-zinc-900/60 hover:bg-zinc-800/80 border-zinc-800 hover:border-zinc-700 shadow-xs'
                 }`}
               >
-                {/* Top Row: Scene Number Badge + Page # + Time Pill */}
+                {/* Top Row: Scene Number Badge + Page # + Time Pill + Hover Actions */}
                 <div className="flex items-center justify-between gap-1.5 mb-1.5">
                   <div className="flex items-center gap-1.5 min-w-0">
                     <span
@@ -285,15 +329,56 @@ export const TwoColumnSceneSidebar: React.FC<TwoColumnSceneSidebarProps> = ({
                     )}
                   </div>
 
-                  <span
-                    className={`text-[9.5px] font-mono px-1.5 py-0.5 rounded font-bold uppercase tracking-wider shrink-0 ${
-                      isNight
-                        ? 'bg-indigo-950/70 text-indigo-300 border border-indigo-800/40'
-                        : 'bg-amber-950/50 text-amber-300 border border-amber-800/40'
-                    }`}
-                  >
-                    {scene.timeOfDay || 'Day / INT'}
-                  </span>
+                  <div className="flex items-center gap-1">
+                    {/* Hover scene card quick actions */}
+                    <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5 mr-0.5">
+                      {onAddScene && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onAddScene(scene.id, 'after');
+                          }}
+                          className={`p-1 rounded text-[10px] font-bold flex items-center gap-0.5 transition-colors ${
+                            isLight
+                              ? 'bg-slate-200 hover:bg-emerald-500 hover:text-black text-slate-700'
+                              : 'bg-zinc-800 hover:bg-emerald-500 hover:text-black text-zinc-300'
+                          }`}
+                          title="Insert new scene after this scene (auto suffix e.g. 4A)"
+                        >
+                          <Plus size={10} className="stroke-[3]" />
+                          <span>Add</span>
+                        </button>
+                      )}
+                      {onDeleteScene && screenplayData.scenes.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onDeleteScene(scene.id);
+                          }}
+                          className={`p-1 rounded transition-colors ${
+                            isLight
+                              ? 'text-rose-500 hover:bg-rose-100'
+                              : 'text-rose-400 hover:bg-rose-950/60 hover:text-rose-200'
+                          }`}
+                          title="Delete this scene"
+                        >
+                          <Trash2 size={11} />
+                        </button>
+                      )}
+                    </div>
+
+                    <span
+                      className={`text-[9.5px] font-mono px-1.5 py-0.5 rounded font-bold uppercase tracking-wider shrink-0 ${
+                        isNight
+                          ? 'bg-indigo-950/70 text-indigo-300 border border-indigo-800/40'
+                          : 'bg-amber-950/50 text-amber-300 border border-amber-800/40'
+                      }`}
+                    >
+                      {scene.timeOfDay || 'Day / INT'}
+                    </span>
+                  </div>
                 </div>
 
                 {/* Location Heading */}

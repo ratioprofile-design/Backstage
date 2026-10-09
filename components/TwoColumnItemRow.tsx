@@ -14,6 +14,11 @@ import {
   Palette,
   RotateCcw,
   Plus,
+  Trash2,
+  Bold,
+  Italic,
+  Zap,
+  Sparkles,
 } from 'lucide-react';
 
 export interface TwoColumnItemRowProps {
@@ -43,6 +48,10 @@ export interface TwoColumnItemRowProps {
   onSetSingleAlignment: (itemId: string, align: 'left' | 'center' | 'right' | 'justify', e?: React.MouseEvent) => void;
   onMoveColumn: (targetColumn: 'left' | 'right' | 'center', itemId: string) => void;
   onSetColor: (itemId: string, color?: string) => void;
+  onToggleBold?: (itemId: string) => void;
+  onToggleItalic?: (itemId: string) => void;
+  onSetMontage?: (itemId: string) => void;
+  onDelete: (itemId: string, e?: React.MouseEvent) => void;
   onAddAbove: (itemId: string, column: 'left' | 'right' | 'center') => void;
   onAddBelow: (itemId: string, column: 'left' | 'right' | 'center') => void;
   onSplit: (itemId: string, splitOffset?: number, customFullText?: string) => void;
@@ -139,6 +148,10 @@ export const TwoColumnItemRow: React.FC<TwoColumnItemRowProps> = React.memo(
     onSetSingleAlignment,
     onMoveColumn,
     onSetColor,
+    onToggleBold,
+    onToggleItalic,
+    onSetMontage,
+    onDelete,
     onAddAbove,
     onAddBelow,
     onSplit,
@@ -345,8 +358,8 @@ export const TwoColumnItemRow: React.FC<TwoColumnItemRowProps> = React.memo(
                     : current === 'right'
                     ? 'justify'
                     : 'left';
-                onSetSingleAlignment(item.id, next, e);
-                showToast(`✓ Aligned: ${next}`);
+                onSetSingleAlignment?.(item.id, next, e);
+                showToast?.(`✓ Aligned: ${next}`);
               }}
               className={`p-1 rounded transition-colors cursor-pointer ${
                 isLight ? 'text-slate-500 hover:text-amber-600 hover:bg-slate-100' : 'text-zinc-400 hover:text-amber-400'
@@ -370,7 +383,7 @@ export const TwoColumnItemRow: React.FC<TwoColumnItemRowProps> = React.memo(
             <button
               onClick={(e) => {
                 e.stopPropagation();
-                onMoveColumn('left', item.id);
+                onMoveColumn?.('left', item.id);
               }}
               className={`p-1 rounded text-xs transition-colors cursor-pointer ${
                 isLeft
@@ -388,16 +401,16 @@ export const TwoColumnItemRow: React.FC<TwoColumnItemRowProps> = React.memo(
             <button
               onClick={(e) => {
                 e.stopPropagation();
-                onMoveColumn('center', item.id);
+                onMoveColumn?.('center', item.id);
               }}
               className={`p-1 rounded text-xs transition-colors cursor-pointer ${
                 isCenter
-                  ? 'bg-amber-500 text-black shadow-xs'
+                  ? 'bg-amber-500 text-black shadow-xs font-bold'
                   : isLight
                   ? 'text-slate-500 hover:text-amber-600 hover:bg-slate-100'
                   : 'text-zinc-400 hover:text-amber-400'
               }`}
-              title="Move to Center: தலைப்பு / Transition [Alt+C]"
+              title="Move to Center: Transition / Title [Alt+C]"
             >
               <Minus size={11} className="stroke-[3]" />
             </button>
@@ -406,7 +419,7 @@ export const TwoColumnItemRow: React.FC<TwoColumnItemRowProps> = React.memo(
             <button
               onClick={(e) => {
                 e.stopPropagation();
-                onMoveColumn('right', item.id);
+                onMoveColumn?.('right', item.id);
               }}
               className={`p-1 rounded text-xs transition-colors cursor-pointer ${
                 isRight
@@ -422,7 +435,46 @@ export const TwoColumnItemRow: React.FC<TwoColumnItemRowProps> = React.memo(
 
             <div className={`w-[1px] h-3 mx-0.5 ${isLight ? 'bg-slate-200' : 'bg-zinc-700/80'}`} />
 
-            {/* 5. Selected paragraph text color changer */}
+            {/* 5. Bold & Italic Toggles */}
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleBold?.(item.id);
+                showToast?.(item.isBold ? 'Bold disabled' : '✓ Bold enabled');
+              }}
+              className={`p-1 rounded text-xs transition-colors cursor-pointer ${
+                item.isBold
+                  ? 'bg-amber-500 text-black font-black shadow-xs'
+                  : isLight
+                  ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                  : 'text-zinc-400 hover:text-zinc-100'
+              }`}
+              title="Toggle Bold [Cmd+B / Ctrl+B]"
+            >
+              <Bold size={11} className="stroke-[2.5]" />
+            </button>
+
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleItalic?.(item.id);
+                showToast?.(item.isItalic ? 'Italic disabled' : '✓ Italic enabled');
+              }}
+              className={`p-1 rounded text-xs transition-colors cursor-pointer ${
+                item.isItalic
+                  ? 'bg-amber-500 text-black font-black shadow-xs'
+                  : isLight
+                  ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                  : 'text-zinc-400 hover:text-zinc-100'
+              }`}
+              title="Toggle Italic [Cmd+I / Ctrl+I]"
+            >
+              <Italic size={11} className="stroke-[2.5]" />
+            </button>
+
+            <div className={`w-[1px] h-3 mx-0.5 ${isLight ? 'bg-slate-200' : 'bg-zinc-700/80'}`} />
+
+            {/* 6. Selected paragraph text color changer */}
             <div className="relative">
               <button
                 onClick={(e) => {
@@ -504,98 +556,196 @@ export const TwoColumnItemRow: React.FC<TwoColumnItemRowProps> = React.memo(
                 </div>
               )}
             </div>
+
+            <div className={`w-[1px] h-3 mx-0.5 ${isLight ? 'bg-slate-200' : 'bg-zinc-700/80'}`} />
+
+            {/* 7. Delete button on hover box */}
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onDelete(item.id, e);
+              }}
+              className={`p-1 rounded text-xs transition-colors cursor-pointer ${
+                isLight
+                  ? 'text-rose-500 hover:bg-rose-50 hover:text-rose-700'
+                  : 'text-rose-400 hover:bg-rose-950/60 hover:text-rose-200'
+              }`}
+              title="Delete this block [Delete / Backspace]"
+            >
+              <Trash2 size={11} className="stroke-[2.2]" />
+            </button>
           </div>
 
-          {/* CASE B1: Transition / Centered Marker */}
-          {isCenter && (
-            <div className="w-full text-center py-1">
-              {transitionStyle === 'pill' ? (
-                <span
-                  data-item-id={item.id}
-                  contentEditable
-                  suppressContentEditableWarning
-                  onBlur={(e) => onUpdateText(item.id, e.currentTarget.innerText)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'ArrowDown' && (e.altKey || isCaretOnLastLine(e.currentTarget))) {
-                      e.preventDefault();
-                      onFocusNextRow?.(item.id, 'auto');
-                      return;
-                    }
-                    if (e.key === 'ArrowUp' && (e.altKey || isCaretOnFirstLine(e.currentTarget))) {
-                      e.preventDefault();
-                      onFocusPrevRow?.(item.id, 'auto');
-                      return;
-                    }
-                    if (e.key === 'Escape') {
-                      e.preventDefault();
-                      e.currentTarget.blur();
-                      onEscapeToCard?.(item.id);
-                      return;
-                    }
-                  }}
-                  onClick={(e) => {
-                    if (e.metaKey || e.ctrlKey) {
-                      e.preventDefault();
+          {/* CASE B1: Transition / Centered Marker / Montage */}
+          {isCenter && (() => {
+            const raw = item.rawText || item.leftAction || item.rightDialogue || 'காட்சி மாற்றம்';
+            const isMontage = raw.toLowerCase().includes('montage') || raw.includes('மாண்டேஜ்');
+
+            return (
+              <div className="w-full text-center py-1 flex items-center justify-center">
+                {isMontage ? (
+                  <span
+                    data-item-id={item.id}
+                    contentEditable
+                    suppressContentEditableWarning
+                    onBlur={(e) => onUpdateText(item.id, e.currentTarget.innerText)}
+                    onKeyDown={(e) => {
+                      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'b') {
+                        e.preventDefault();
+                        onToggleBold?.(item.id);
+                        return;
+                      }
+                      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'i') {
+                        e.preventDefault();
+                        onToggleItalic?.(item.id);
+                        return;
+                      }
+                      if (e.key === 'ArrowDown' && (e.altKey || isCaretOnLastLine(e.currentTarget))) {
+                        e.preventDefault();
+                        onFocusNextRow?.(item.id, 'auto');
+                        return;
+                      }
+                      if (e.key === 'ArrowUp' && (e.altKey || isCaretOnFirstLine(e.currentTarget))) {
+                        e.preventDefault();
+                        onFocusPrevRow?.(item.id, 'auto');
+                        return;
+                      }
+                      if (e.key === 'Escape') {
+                        e.preventDefault();
+                        e.currentTarget.blur();
+                        onEscapeToCard?.(item.id);
+                        return;
+                      }
+                    }}
+                    onClick={(e) => {
+                      if (e.metaKey || e.ctrlKey) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        onParagraphClick(item.id, e);
+                        return;
+                      }
                       e.stopPropagation();
-                      onParagraphClick(item.id, e);
-                      return;
-                    }
-                    e.stopPropagation();
-                  }}
-                  style={{
-                    backgroundColor: `${transitionColor}18`,
-                    color: item.textColor || transitionColor,
-                    borderColor: `${transitionColor}50`,
-                  }}
-                  className={`outline-none inline-block px-3 py-1 rounded-full border text-xs focus:ring-1 focus:ring-amber-500 ${
-                    transitionBold !== false ? 'font-bold' : 'font-normal'
-                  }`}
-                >
-                  {item.rawText || item.leftAction || item.rightDialogue || 'காட்சி மாற்றம்'}
-                </span>
-              ) : (
-                <span
-                  data-item-id={item.id}
-                  contentEditable
-                  suppressContentEditableWarning
-                  onBlur={(e) => onUpdateText(item.id, e.currentTarget.innerText)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'ArrowDown' && (e.altKey || isCaretOnLastLine(e.currentTarget))) {
-                      e.preventDefault();
-                      onFocusNextRow?.(item.id, 'auto');
-                      return;
-                    }
-                    if (e.key === 'ArrowUp' && (e.altKey || isCaretOnFirstLine(e.currentTarget))) {
-                      e.preventDefault();
-                      onFocusPrevRow?.(item.id, 'auto');
-                      return;
-                    }
-                    if (e.key === 'Escape') {
-                      e.preventDefault();
-                      e.currentTarget.blur();
-                      onEscapeToCard?.(item.id);
-                      return;
-                    }
-                  }}
-                  onClick={(e) => {
-                    if (e.metaKey || e.ctrlKey) {
-                      e.preventDefault();
+                    }}
+                    style={{
+                      backgroundColor: isLight ? '#fef3c7' : '#78350f35',
+                      color: item.textColor || '#d97706',
+                      borderColor: isLight ? '#f59e0b' : '#b45309',
+                    }}
+                    className={`outline-none inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full border text-xs tracking-wider uppercase shadow-xs focus:ring-1 focus:ring-amber-500 ${
+                      item.isBold !== false ? 'font-black' : 'font-semibold'
+                    } ${item.isItalic ? 'italic' : ''}`}
+                  >
+                    <Zap size={11} className="shrink-0 text-amber-500" />
+                    <span>{raw}</span>
+                  </span>
+                ) : transitionStyle === 'pill' ? (
+                  <span
+                    data-item-id={item.id}
+                    contentEditable
+                    suppressContentEditableWarning
+                    onBlur={(e) => onUpdateText(item.id, e.currentTarget.innerText)}
+                    onKeyDown={(e) => {
+                      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'b') {
+                        e.preventDefault();
+                        onToggleBold?.(item.id);
+                        return;
+                      }
+                      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'i') {
+                        e.preventDefault();
+                        onToggleItalic?.(item.id);
+                        return;
+                      }
+                      if (e.key === 'ArrowDown' && (e.altKey || isCaretOnLastLine(e.currentTarget))) {
+                        e.preventDefault();
+                        onFocusNextRow?.(item.id, 'auto');
+                        return;
+                      }
+                      if (e.key === 'ArrowUp' && (e.altKey || isCaretOnFirstLine(e.currentTarget))) {
+                        e.preventDefault();
+                        onFocusPrevRow?.(item.id, 'auto');
+                        return;
+                      }
+                      if (e.key === 'Escape') {
+                        e.preventDefault();
+                        e.currentTarget.blur();
+                        onEscapeToCard?.(item.id);
+                        return;
+                      }
+                    }}
+                    onClick={(e) => {
+                      if (e.metaKey || e.ctrlKey) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        onParagraphClick(item.id, e);
+                        return;
+                      }
                       e.stopPropagation();
-                      onParagraphClick(item.id, e);
-                      return;
-                    }
-                    e.stopPropagation();
-                  }}
-                  style={{ color: item.textColor || transitionColor }}
-                  className={`outline-none italic font-serif text-sm focus:ring-1 focus:ring-amber-500 rounded px-1 ${
-                    transitionBold !== false ? 'font-bold' : 'font-normal'
-                  }`}
-                >
-                  {item.rawText || item.leftAction || item.rightDialogue || 'காட்சி மாற்றம்'}
-                </span>
-              )}
-            </div>
-          )}
+                    }}
+                    style={{
+                      backgroundColor: `${transitionColor}18`,
+                      color: item.textColor || transitionColor,
+                      borderColor: `${transitionColor}50`,
+                    }}
+                    className={`outline-none inline-block px-3 py-1 rounded-full border text-xs focus:ring-1 focus:ring-amber-500 ${
+                      item.isBold !== undefined ? (item.isBold ? 'font-bold' : 'font-normal') : (transitionBold !== false ? 'font-bold' : 'font-normal')
+                    } ${item.isItalic ? 'italic' : ''}`}
+                  >
+                    {raw}
+                  </span>
+                ) : (
+                  <span
+                    data-item-id={item.id}
+                    contentEditable
+                    suppressContentEditableWarning
+                    onBlur={(e) => onUpdateText(item.id, e.currentTarget.innerText)}
+                    onKeyDown={(e) => {
+                      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'b') {
+                        e.preventDefault();
+                        onToggleBold?.(item.id);
+                        return;
+                      }
+                      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'i') {
+                        e.preventDefault();
+                        onToggleItalic?.(item.id);
+                        return;
+                      }
+                      if (e.key === 'ArrowDown' && (e.altKey || isCaretOnLastLine(e.currentTarget))) {
+                        e.preventDefault();
+                        onFocusNextRow?.(item.id, 'auto');
+                        return;
+                      }
+                      if (e.key === 'ArrowUp' && (e.altKey || isCaretOnFirstLine(e.currentTarget))) {
+                        e.preventDefault();
+                        onFocusPrevRow?.(item.id, 'auto');
+                        return;
+                      }
+                      if (e.key === 'Escape') {
+                        e.preventDefault();
+                        e.currentTarget.blur();
+                        onEscapeToCard?.(item.id);
+                        return;
+                      }
+                    }}
+                    onClick={(e) => {
+                      if (e.metaKey || e.ctrlKey) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        onParagraphClick(item.id, e);
+                        return;
+                      }
+                      e.stopPropagation();
+                    }}
+                    style={{ color: item.textColor || transitionColor }}
+                    className={`outline-none font-serif text-sm focus:ring-1 focus:ring-amber-500 rounded px-1 ${
+                      item.isBold !== undefined ? (item.isBold ? 'font-bold' : 'font-normal') : (transitionBold !== false ? 'font-bold' : 'font-normal')
+                    } ${item.isItalic !== undefined ? (item.isItalic ? 'italic' : '') : 'italic'}`}
+                  >
+                    {raw}
+                  </span>
+                )}
+              </div>
+            );
+          })()}
 
           {/* CASE B2: Two-Column Row (Left Action vs Right Dialogue) */}
           {!isCenter && (
@@ -779,6 +929,8 @@ export const TwoColumnItemRow: React.FC<TwoColumnItemRowProps> = React.memo(
                         }}
                         style={{ textAlign: actAlign, color: item.textColor || undefined }}
                         className={`min-h-[28px] ${alignClass} leading-relaxed outline-none focus:ring-1 focus:ring-emerald-500/50 rounded p-1 transition-all ${
+                          item.isBold ? 'font-bold' : ''
+                        } ${item.isItalic ? 'italic' : ''} ${
                           !item.leftAction && !item.rawText
                             ? 'border border-dashed border-emerald-500/40 bg-emerald-500/[0.04]'
                             : ''
@@ -924,6 +1076,8 @@ export const TwoColumnItemRow: React.FC<TwoColumnItemRowProps> = React.memo(
                         }}
                         style={{ textAlign: diaAlign, color: item.textColor || undefined }}
                         className={`min-h-[28px] leading-relaxed outline-none focus:ring-1 focus:ring-sky-500/50 rounded p-1 ${alignClass} transition-all ${
+                          item.isBold ? 'font-bold' : ''
+                        } ${item.isItalic ? 'italic' : ''} ${
                           !text
                             ? 'border border-dashed border-sky-500/40 bg-sky-500/[0.04]'
                             : ''
@@ -1007,6 +1161,29 @@ export const TwoColumnItemRow: React.FC<TwoColumnItemRowProps> = React.memo(
           </div>
         </div>
       </div>
+    );
+  },
+  (prev, next) => {
+    return (
+      prev.item === next.item &&
+      prev.isSelected === next.isSelected &&
+      prev.isDragged === next.isDragged &&
+      prev.dragOverPosition === next.dragOverPosition &&
+      prev.isLight === next.isLight &&
+      prev.isFirstItemInScene === next.isFirstItemInScene &&
+      prev.columnSplitPercent === next.columnSplitPercent &&
+      prev.columnGutterPx === next.columnGutterPx &&
+      prev.showDivider === next.showDivider &&
+      prev.dividerStyle === next.dividerStyle &&
+      prev.actionTextAlign === next.actionTextAlign &&
+      prev.dialogueTextAlign === next.dialogueTextAlign &&
+      prev.characterNameBold === next.characterNameBold &&
+      prev.characterColor === next.characterColor &&
+      prev.transitionBold === next.transitionBold &&
+      prev.transitionColor === next.transitionColor &&
+      prev.transitionStyle === next.transitionStyle &&
+      prev.gapParagraphRowPx === next.gapParagraphRowPx &&
+      prev.allKnownCharacters === next.allKnownCharacters
     );
   }
 );

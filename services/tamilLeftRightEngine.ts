@@ -24,6 +24,8 @@ export interface TamilScriptItem {
   rawText?: string;
   textAlign?: 'left' | 'center' | 'right' | 'justify';
   textColor?: string;
+  isBold?: boolean;
+  isItalic?: boolean;
 }
 
 export interface TamilScene {
@@ -68,7 +70,7 @@ export function parseScreenplayToTamilLeftRight(text: string, defaultTitle = '�
   // Regex patterns for Tamil & standard cinema conventions
   const tamilSceneHeaderRegex = /^(?:காட்சி(?:\s*எண்)?|Scene(?:\s*no\.?)?|SCENE(?:\s*NO\.?)?|sc\s*no\.?|sc\.?\s*no\.?)\s*[:.\s\-]*(\d+[A-Za-z]?)(.*)/i;
   const intExtHeaderRegex = /^(?:INT\.|EXT\.|INT\/EXT\.|I\/E\.)\s+(.+?)(?:[-–—]\s*(NIGHT|DAY|EVENING|MORNING|DAWN|DUSK|LATER|CONTINUOUS|NIG|EXT))?$/i;
-  const transitionRegex = /^(?:Fade\s*in|Fade\s*out|Cut\s*to|Dissolve\s*to|Fade\s*out\s*[-–—]\s*Fade\s*in|காட்சி\s*மாற்றம்|இடைவேளை|முற்றும்|>.*<|.*TO:)$/i;
+  const transitionRegex = /^(?:Fade\s*in|Fade\s*out|Cut\s*to|Dissolve\s*to|Fade\s*out\s*[-–—]\s*Fade\s*in|Montage|மாண்டேஜ்|காட்சி\s*மாற்றம்|இடைவேளை|முற்றும்|>.*<|.*TO:)$/i;
   
   // Dialogue matching: "சுரேஷ் :" or "சுரேஷ்:" or "கதாபாத்திரம்: வசனம்"
   const dialogueLineRegex = /^([\u0B80-\u0BFFa-zA-Z0-9\s.]{2,35})\s*:\s*(.*)$/;
@@ -1125,7 +1127,8 @@ export async function generateTamilLeftRightDocx(
                     children: parseFormattedRuns(centerText, {
                       font: fontObj,
                       size: fontSizeHalfPt + 2,
-                      bold: isTransBold,
+                      bold: item.isBold !== undefined ? item.isBold : isTransBold,
+                      italics: item.isItalic,
                       color: validItemColor || transColor,
                     }),
                   }),
@@ -1199,6 +1202,8 @@ export async function generateTamilLeftRightDocx(
                 children: parseFormattedRuns(actionText, {
                   font: fontObj,
                   size: fontSizeHalfPt,
+                  bold: item.isBold,
+                  italics: item.isItalic,
                   color: validItemColor,
                 }),
               })
@@ -1218,6 +1223,8 @@ export async function generateTamilLeftRightDocx(
               children: parseFormattedRuns(diaText, {
                 font: fontObj,
                 size: fontSizeHalfPt,
+                bold: item.isBold,
+                italics: item.isItalic,
                 color: validItemColor,
               }),
             })

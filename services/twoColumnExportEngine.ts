@@ -101,12 +101,16 @@ export function generateTwoColumnPrintHtml(
 
       // Script Item Row
       const item = elem.item;
+      const itemFontWeight = item.isBold ? '700' : 'normal';
+      const itemFontStyle = item.isItalic ? 'italic' : 'normal';
+
       if (item.column === 'center' || item.type === 'transition' || item.type === 'title') {
         const text = item.rawText || item.leftAction || item.rightDialogue || '';
         const transColor = item.textColor || options.transitionColor || '#b45309';
+        const isMontage = text.toLowerCase().includes('montage') || text.includes('மாண்டேஜ்');
         return `
-          <div style="width: 100%; text-align: center; padding: 6px 0; margin: 8px 0; font-weight: bold; font-size: 12.5px; color: ${transColor}; border-top: 1px dashed #cbd5e1; border-bottom: 1px dashed #cbd5e1;">
-            ${text}
+          <div style="width: 100%; text-align: center; padding: 6px 0; margin: 8px 0; font-weight: ${item.isBold !== false ? '700' : 'normal'}; font-style: ${itemFontStyle}; font-size: 12.5px; color: ${transColor}; border-top: 1px dashed #cbd5e1; border-bottom: 1px dashed #cbd5e1;">
+            ${isMontage ? `⚡ ` : ''}${text}
           </div>
         `;
       }
@@ -131,7 +135,7 @@ export function generateTwoColumnPrintHtml(
         <div style="display: flex; align-items: flex-start; margin-bottom: 6px; font-size: ${options.baseFontSizePx}px; line-height: ${options.baseLineHeight};">
           <!-- Left Column: Visual Action ONLY -->
           <div style="width: ${options.columnSplitPercent}%; padding-right: 14px; box-sizing: border-box; text-align: left;">
-            ${!isRight && leftActionText ? `<span style="color: ${actionColor};">${leftActionText}</span>` : ''}
+            ${!isRight && leftActionText ? `<span style="color: ${actionColor}; font-weight: ${itemFontWeight}; font-style: ${itemFontStyle};">${leftActionText}</span>` : ''}
           </div>
 
           <!-- Vertical Hairline Divider -->
@@ -143,7 +147,7 @@ export function generateTwoColumnPrintHtml(
               isRight || charName || diaText
                 ? `
                   ${charName ? `<div style="font-weight: 700; color: ${charColor}; font-size: 12px; margin-bottom: 1.5px;">${charName} :</div>` : ''}
-                  <div style="color: ${diaColor};">${diaText}</div>
+                  <div style="color: ${diaColor}; font-weight: ${itemFontWeight}; font-style: ${itemFontStyle};">${diaText}</div>
                 `
                 : ''
             }
