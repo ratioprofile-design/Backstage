@@ -7,30 +7,178 @@ import { transcodeBaminiWithDict } from './baminiDictionary';
 export function transcodeBaminiToUnicode(raw: string): string {
   if (!raw) return '';
 
-  // 1. Run canonical 352-entry Bamini ordered dictionary mapping
-  let text = transcodeBaminiWithDict(raw);
+  let text = raw;
 
-  // 1. Screenplay Structure Headers & Sluglines
+  // 0. Pre-processing: Screenplay Sluglines, Headers, English keywords & Proper Names
+  // These MUST execute on raw Bamini ASCII before the single-letter dictionary replaces characters!
+  
+  // Screenplay Directions & English keywords
+  text = text.replace(/fead\s+out/gi, 'fade out');
+  text = text.replace(/fead\s+in/gi, 'fade in');
+  text = text.replace(/fhl;rp\s*::\s*/g, 'காட்சி: ');
   text = text.replace(/fhl;rp\s*:\s*/g, 'காட்சி: ');
   text = text.replace(/fhl;rp/g, 'காட்சி');
+  text = text.replace(/ntsp\s*::\s*/g, 'வெளி: ');
   text = text.replace(/ntsp\s*:\s*/g, 'வெளி: ');
   text = text.replace(/ntsp/g, 'வெளி');
+  text = text.replace(/cs;\s*::\s*/g, 'உள்: ');
   text = text.replace(/cs;\s*:\s*/g, 'உள்: ');
   text = text.replace(/cs;/g, 'உள்');
+  text = text.replace(/,lk;\s*::\s*/g, 'இடம்: ');
   text = text.replace(/,lk;\s*:\s*/g, 'இடம்: ');
   text = text.replace(/,lk;/g, 'இடம்');
+  text = text.replace(/Neuk;\s*::\s*/g, 'நேரம்: ');
   text = text.replace(/Neuk;\s*:\s*/g, 'நேரம்: ');
   text = text.replace(/Neuk;/g, 'நேரம்');
+  text = text.replace(/ebfh;fs;\s*::\s*/g, 'நடிகர்கள்: ');
   text = text.replace(/ebfh;fs;\s*:\s*/g, 'நடிகர்கள்: ');
   text = text.replace(/ebfh;fs;/g, 'நடிகர்கள்');
+  text = text.replace(/Jizebfh;fs;\s*::\s*/g, 'துணைநடிகர்கள்: ');
+  text = text.replace(/Jizebfh;fs;\s*:\s*/g, 'துணைநடிகர்கள்: ');
   text = text.replace(/Jizebfh;fs;/g, 'துணைநடிகர்கள்');
   text = text.replace(/Jizebfh;fs/g, 'துணைநடிகர்கள்');
+  text = text.replace(/tha;\]\s*::\s*/g, 'வாய்ஸ்: ');
   text = text.replace(/tha;\]\s*:\s*/g, 'வாய்ஸ்: ');
   text = text.replace(/tha;\]\s*Xth;\s*fhl;rp\s*:\s*/g, 'வாய்ஸ் ஓவர் காட்சி:\n');
   text = text.replace(/tha;\]\s*Xth;/g, 'வாய்ஸ் ஓவர்');
   text = text.replace(/tha;\]/g, 'வாய்ஸ்');
   text = text.replace(/,ilNtis/g, 'இடைவேளை');
   text = text.replace(/Kw;Wk;/g, 'முற்றும்');
+
+  // Proper Names & Colloquial Screenplay Vocabulary
+  text = text.replace(/jptz;zhkiyapy/g, 'திருவண்ணாமலையில');
+  text = text.replace(/jpUtz;zhkiyapy/g, 'திருவண்ணாமலையில');
+  text = text.replace(/jptz;zhkiy/g, 'திருவண்ணாமலை');
+  text = text.replace(/jpUtz;zhkiy/g, 'திருவண்ணாமலை');
+  text = text.replace(/Me;jpruh/g, 'ஆந்திரா');
+  text = text.replace(/Me;jpuh/g, 'ஆந்திரா');
+  text = text.replace(/Ntq;flhrygjp/g, 'வேங்கடாசலபதி');
+  text = text.replace(/ntq;flhrygjp/g, 'வேங்கடாசலபதி');
+  text = text.replace(/Ntq;flrygjp/g, 'வேங்கடாசலபதி');
+  text = text.replace(/Ntq;lhrygjp/g, 'வேங்கடாசலபதி');
+  text = text.replace(/ntq;lhrygjp/g, 'வேங்கடாசலபதி');
+  text = text.replace(/VOkiy/g, 'ஏழுமலை');
+  text = text.replace(/vOkiy/g, 'ஏழுமலை');
+  text = text.replace(/re;JU/g, 'சந்துரு');
+  text = text.replace(/re;J/g, 'சந்து');
+  text = text.replace(/tzq;fk;/g, 'வணக்கம்');
+  text = text.replace(/tzq;f/g, 'வணங்க');
+  text = text.replace(/XLeh;fSf;F/g, 'ஓட்டுநர்களுக்கு');
+  text = text.replace(/XLeh;fs;/g, 'ஓட்டுநர்கள்');
+  text = text.replace(/XLeh;/g, 'ஓட்டுநர்');
+  text = text.replace(/fz;ilf;lh;fSf;F/g, 'கண்டக்டர்களுக்கு');
+  text = text.replace(/fz;ilf;lh;fs;/g, 'கண்டக்டர்கள்');
+  text = text.replace(/fz;ilf;lh;/g, 'கண்டக்டர்');
+  text = text.replace(/igyl;\s*uq;fh/g, 'பைலட் ரங்கா');
+  text = text.replace(/igyl;/g, 'பைலட்');
+  text = text.replace(/igad;\s*::\s*/g, 'பையன்: ');
+  text = text.replace(/igad;\s*:\s*/g, 'பையன்: ');
+  text = text.replace(/igad;/g, 'பையன்');
+  text = text.replace(/Ms;(\d+)\s*::\s*/g, 'ஆள்$1: ');
+  text = text.replace(/Ms;(\d+)\s*:\s*/g, 'ஆள்$1: ');
+  text = text.replace(/Ms;(\d+)/g, 'ஆள்$1');
+  text = text.replace(/Ms;\s*::\s*/g, 'ஆள்: ');
+  text = text.replace(/Ms;\s*:\s*/g, 'ஆள்: ');
+  text = text.replace(/Ms;/g, 'ஆள்');
+
+  // Page 1 specific screenplay idioms and vocabulary
+  text = text.replace(/nGUk;/g, 'பெரும்');
+  text = text.replace(/nGUk/g, 'பெரும்');
+  text = text.replace(/XU\s+NghyP\];/g, 'ஒரு போலீஸ்');
+  text = text.replace(/xUtd\s+Rl/g, 'ஒருவனை சுட');
+  text = text.replace(/xUtd/g, 'ஒருவனை');
+  text = text.replace(/xype;J/g, 'ஒளிந்து');
+  text = text.replace(/xLth;fis/g, 'ஓடுபவர்களை');
+  text = text.replace(/gahh;\s*gz;z/g, 'பயர் பண்ண');
+  text = text.replace(/gah;\s*gz;z/g, 'பயர் பண்ண');
+  text = text.replace(/tpo;tJ/g, 'விழுவது');
+  text = text.replace(/nrj;J\s+tpo/g, 'செத்து விழ');
+  text = text.replace(/Kbl;b/g, 'முட்டி');
+  text = text.replace(/gbf;Fnwd;/g, 'படிக்குறேன்');
+  text = text.replace(/Mh;l;\];/g, 'ஆர்ட்ஸ்');
+  text = text.replace(/fhNy\[;y/g, 'காலேஜ்ல');
+  // ghh; patterns (பார் family)
+  text = text.replace(/ghh;j;Jk;/g, 'பார்த்தும்');
+  text = text.replace(/ghh;j;jhh;fs;/g, 'பார்த்தார்கள்');
+  text = text.replace(/ghh;j;jhh;/g, 'பார்த்தார்');
+  text = text.replace(/ghh;j;jhd;/g, 'பார்த்தான்');
+  text = text.replace(/ghh;j;J/g, 'பார்த்து');
+  text = text.replace(/ghh;f;f/g, 'பார்க்க');
+  text = text.replace(/ghh;g;gJ/g, 'பார்ப்பது');
+  text = text.replace(/ghh;fpwhh;/g, 'பார்க்கிறார்');
+  text = text.replace(/ghh;fpwhd;/g, 'பார்க்கிறான்');
+  text = text.replace(/ghh;/g, 'பார்');
+
+  // rhh; patterns (சார் family)
+  text = text.replace(/rhh;\s*::\s*/g, 'சார்: ');
+  text = text.replace(/rhh;\s*:\s*/g, 'சார்: ');
+  text = text.replace(/rhh;::/g, 'சார்: ');
+  text = text.replace(/rhh;:/g, 'சார்: ');
+  text = text.replace(/rhh;/g, 'சார்');
+  text = text.replace(/rhh([\s,\.\?\!\n])/g, 'சார்$1');
+
+  // fhh; patterns (கார் family)
+  text = text.replace(/fhh;\s*::\s*/g, 'கார்: ');
+  text = text.replace(/fhh;\s*:\s*/g, 'கார்: ');
+  text = text.replace(/fhh;::/g, 'கார்: ');
+  text = text.replace(/fhh;:/g, 'கார்: ');
+  text = text.replace(/fhh;/g, 'கார்');
+  text = text.replace(/fhh([\s,\.\?\!\n])/g, 'கார்$1');
+
+  // khh; (மார்)
+  text = text.replace(/khh;:/g, 'மார்:');
+  text = text.replace(/khh;/g, 'மார்');
+  text = text.replace(/khh([\s,\.\?\!\n])/g, 'மார்$1');
+
+  // thh; (வார்)
+  text = text.replace(/thh;:/g, 'வார்:');
+  text = text.replace(/thh;/g, 'வார்');
+  text = text.replace(/thh([\s,\.\?\!\n])/g, 'வார்$1');
+
+  // whh; (றார்)
+  text = text.replace(/whh;fs;\.\./g, 'றார்கள்..');
+  text = text.replace(/whh;fs;/g, 'றார்கள்');
+  text = text.replace(/whh;fs/g, 'றார்கள்');
+  text = text.replace(/whh;/g, 'றார்');
+  text = text.replace(/whh([\s,\.\?\!\n])/g, 'றார்$1');
+
+  // Other double-h words
+  text = text.replace(/ahh;ahhy/g, 'யார்யாரால');
+  text = text.replace(/ahh;/g, 'யார்');
+  text = text.replace(/yhhapy;/g, 'லாரியில்');
+  text = text.replace(/yhh;/g, 'லார்');
+  text = text.replace(/ehh;/g, 'நார்');
+  text = text.replace(/dhh;/g, 'னார்');
+  text = text.replace(/ohh;/g, 'ழார்');
+  text = text.replace(/shh;/g, 'ளார்');
+
+  // Common screenplay directions and typo variants
+  text = text.replace(/gpwF/g, 'பிறகு');
+  text = text.replace(/pwF(\s+tz;b|\s+fhL)/g, 'பிறகு$1');
+
+  // Protect English screenplay directions from character transcoding
+  const englishTermsMap: { [key: string]: string } = {};
+  let engIdx = 0;
+  const protectEnglish = (matchStr: string) => {
+    const placeholder = `\uFFF0\uFFF1${engIdx++}\uFFF2`;
+    englishTermsMap[placeholder] = matchStr;
+    return placeholder;
+  };
+
+  // Replace English terms with placeholders before dictionary lookup
+  text = text.replace(/\b(fade\s+out|fade\s+in|fead\s+out|fead\s+in|cut\s+to:|cut|dissolve\s+to:|dissolve|intercut|super:|beat|the\s+end)\b/gi, (m) => {
+    // Normalize fead -> fade
+    let normalized = m;
+    if (/^fead\s+out$/i.test(m)) normalized = 'Fade Out';
+    else if (/^fead\s+in$/i.test(m)) normalized = 'Fade In';
+    else if (/^fade\s+out$/i.test(m)) normalized = 'Fade Out';
+    else if (/^fade\s+in$/i.test(m)) normalized = 'Fade In';
+    else if (/^cut$/i.test(m)) normalized = 'CUT';
+    return protectEnglish(normalized);
+  });
+
+  // 1. Run canonical Bamini ordered dictionary mapping
+  text = transcodeBaminiWithDict(text);
 
   // 2. Specialized Multi-letter Grantha & Compound Glyphs (~ = ஷ, ] = ஸ்/ஷ், [ = ஜ, & = ரூ, $ = கூ)
   text = text.replace(/&gh/g, 'ரூபாய்');
@@ -80,6 +228,26 @@ export function transcodeBaminiToUnicode(raw: string): string {
   text = text.replace(/~/g, 'ஷ');
 
   // 3. Common Proper Names & Colloquial Tamil Words in Screenplay
+  text = text.replace(/Me;jpruh/g, 'ஆந்திரா');
+  text = text.replace(/Me;jpuh/g, 'ஆந்திரா');
+  text = text.replace(/tzq;fk;/g, 'வணக்கம்');
+  text = text.replace(/tzq;f/g, 'வணங்க');
+  text = text.replace(/XLeh;fs;/g, 'ஓட்டுநர்கள்');
+  text = text.replace(/XLeh;fSf;F/g, 'ஓட்டுநர்களுக்கு');
+  text = text.replace(/XLeh;/g, 'ஓட்டுநர்');
+  text = text.replace(/fz;ilf;lh;fs;/g, 'கண்டக்டர்கள்');
+  text = text.replace(/fz;ilf;lh;fSf;F/g, 'கண்டக்டர்களுக்கு');
+  text = text.replace(/fz;ilf;lh;/g, 'கண்டக்டர்');
+  text = text.replace(/igyl;\s*uq;fh/g, 'பைலட் ரங்கா');
+  text = text.replace(/igyl;/g, 'பைலட்');
+  text = text.replace(/igad;\s*:\s*/g, 'பையன்: ');
+  text = text.replace(/igad;/g, 'பையன்');
+  text = text.replace(/Ms;\s*:\s*/g, 'ஆள்: ');
+  text = text.replace(/Ms;(\d+)\s*:\s*/g, 'ஆள்$1: ');
+  text = text.replace(/Ms;(\d+)/g, 'ஆள்$1');
+  text = text.replace(/Ms;/g, 'ஆள்');
+  text = text.replace(/fead\s+out/gi, 'fade out');
+  text = text.replace(/fead\s+in/gi, 'fade in');
   text = text.replace(/uq;fh/g, 'ரங்கா');
   text = text.replace(/uq;fht/g, 'ரங்காவை');
   text = text.replace(/uq;fhit/g, 'ரங்காவை');
@@ -125,24 +293,7 @@ export function transcodeBaminiToUnicode(raw: string): string {
   text = text.replace(/J}/g, 'தூ');
   text = text.replace(/O/g, 'ழு'); // Bamini capital O is 'ழு'
 
-  // Special Words with 'h;' (ர்) and combinations
-  text = text.replace(/ghh;j;Jk;/g, 'பார்த்தும்');
-  text = text.replace(/ghh;j;J/g, 'பார்த்து');
-  text = text.replace(/ghh;f;f/g, 'பார்க்க');
-  text = text.replace(/ghh;g;gJ/g, 'பார்ப்பது');
-  text = text.replace(/ghh;gJ/g, 'பார்ப்பது');
-  text = text.replace(/ghh;fpwhh;/g, 'பார்க்கிறார்');
-  text = text.replace(/ghh;fpwhd;/g, 'பார்க்கிறான்');
-  text = text.replace(/ghh;j;jhh;fs;/g, 'பார்த்தார்கள்');
-  text = text.replace(/ghh;j;jhh;/g, 'பார்த்தார்');
-  text = text.replace(/ghh;j;jhd;/g, 'பார்த்தான்');
-  text = text.replace(/fhh;/g, 'கார்');
-  text = text.replace(/khh;/g, 'மார்');
-  text = text.replace(/thh;/g, 'வார்');
-  text = text.replace(/whh;fs;\.\./g, 'றார்கள்..');
-  text = text.replace(/whh;fs;/g, 'றார்கள்');
-  text = text.replace(/whh;fs/g, 'றார்கள்');
-  text = text.replace(/whh;/g, 'றார்');
+  // Special Words (already pre-processed double-h patterns above, these catch remaining compound words)
   text = text.replace(/RLfpwhh;\./g, 'சுடுகிறார்.');
   text = text.replace(/RLfpwhh;/g, 'சுடுகிறார்');
   text = text.replace(/myhp/g, 'அலறி');
@@ -402,7 +553,6 @@ export function transcodeBaminiToUnicode(raw: string): string {
   text = text.replace(/xs/g, 'ஔ');
   text = text.replace(/m/g, 'அ');
   text = text.replace(/M/g, 'ஆ');
-  text = text.replace(/,/g, 'இ');
   text = text.replace(/</g, 'ஈ');
   text = text.replace(/c/g, 'உ');
   text = text.replace(/C/g, 'ஊ');
@@ -438,6 +588,30 @@ export function transcodeBaminiToUnicode(raw: string): string {
 
   // 16. Clean up punctuation & delimiters
   text = text.replace(/>/g, ',');
+
+  // 17. Post-processing: fix any dangling Latin 'h' + pulli artifacts
+  // When a double-h pattern slipped through earlier processing, we may get சாh் instead of சார்
+  text = text.replace(/சாh்/g, 'சார்');
+  text = text.replace(/காh்/g, 'கார்');
+  text = text.replace(/மாh்/g, 'மார்');
+  text = text.replace(/வாh்/g, 'வார்');
+  text = text.replace(/றாh்/g, 'றார்');
+  text = text.replace(/பாh்/g, 'பார்');
+  text = text.replace(/யாh்/g, 'யார்');
+  text = text.replace(/லாh்/g, 'லார்');
+  text = text.replace(/நாh்/g, 'நார்');
+  text = text.replace(/னாh்/g, 'னார்');
+  text = text.replace(/ளாh்/g, 'ளார்');
+  text = text.replace(/ழாh்/g, 'ழார்');
+  text = text.replace(/டாh்/g, 'டார்');
+  text = text.replace(/ணாh்/g, 'ணார்');
+  text = text.replace(/தாh்/g, 'தார்');
+  // Generic fallback: any Tamil vowel sign ா followed by Latin h + pulli
+  text = text.replace(/([஀-௿])h்/g, '$1ர்');
+  // 18. Restore protected English screenplay directions
+  for (const [placeholder, original] of Object.entries(englishTermsMap)) {
+    text = text.replace(new RegExp(placeholder, 'g'), original);
+  }
 
   return text;
 }

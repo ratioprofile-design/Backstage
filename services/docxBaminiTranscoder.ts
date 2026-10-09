@@ -168,8 +168,8 @@ export function transcodeWordXmlString(
             const decoded = decodeXmlEntities(textContent);
             if (!decoded.trim()) return tOpen + textContent + tClose;
 
-            // Use comprehensive 352-entry ordered dictionary mapping
-            const converted = transcodeBaminiWithDict(decoded);
+            // Use full Bamini→Unicode pipeline with compound-word pre/post-processing
+            const converted = transcodeBaminiToUnicode(decoded);
             if (converted !== decoded) {
               wasConverted = true;
               count++;
