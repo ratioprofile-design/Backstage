@@ -36,6 +36,7 @@ export interface TwoColumnExportModalProps {
   isOpen: boolean;
   onClose: () => void;
   isLight?: boolean;
+  initialOptions?: Partial<TwoColumnExportOptions>;
 }
 
 export const TwoColumnExportModal: React.FC<TwoColumnExportModalProps> = ({
@@ -43,10 +44,21 @@ export const TwoColumnExportModal: React.FC<TwoColumnExportModalProps> = ({
   isOpen,
   onClose,
   isLight = false,
+  initialOptions,
 }) => {
-  const [exportOptions, setExportOptions] = useState<TwoColumnExportOptions>(
-    DEFAULT_TWO_COLUMN_EXPORT_OPTIONS
-  );
+  const [exportOptions, setExportOptions] = useState<TwoColumnExportOptions>(() => ({
+    ...DEFAULT_TWO_COLUMN_EXPORT_OPTIONS,
+    ...(initialOptions || {}),
+  }));
+
+  React.useEffect(() => {
+    if (isOpen && initialOptions) {
+      setExportOptions((prev) => ({
+        ...prev,
+        ...initialOptions,
+      }));
+    }
+  }, [isOpen, initialOptions]);
   const [currentPageNum, setCurrentPageNum] = useState<number>(1);
   const [zoomLevel, setZoomLevel] = useState<number>(90);
   const [isExportingPdf, setIsExportingPdf] = useState<boolean>(false);
@@ -247,7 +259,8 @@ export const TwoColumnExportModal: React.FC<TwoColumnExportModalProps> = ({
               transform: `scale(${zoomLevel / 100})`,
               transformOrigin: 'top center',
               width: `${activePage.widthPx}px`,
-              minHeight: `${activePage.heightPx}px`,
+              height: `${activePage.heightPx}px`,
+              maxHeight: `${activePage.heightPx}px`,
               paddingTop: `${activePage.paddingTopPx}px`,
               paddingBottom: `${activePage.paddingBottomPx}px`,
               paddingLeft: `${activePage.paddingLeftPx}px`,
@@ -256,43 +269,26 @@ export const TwoColumnExportModal: React.FC<TwoColumnExportModalProps> = ({
               fontSize: `${exportOptions.baseFontSizePx}px`,
               lineHeight: exportOptions.baseLineHeight,
             }}
-            className="relative bg-white text-[#0f172a] shadow-[0_20px_60px_rgba(0,0,0,0.6)] rounded-xs border border-slate-300 flex flex-col justify-between transition-transform"
+            className="relative bg-white text-[#0f172a] shadow-[0_20px_60px_rgba(0,0,0,0.6)] rounded-xs border border-slate-300 overflow-hidden transition-transform"
           >
             {/* Top Page Content */}
             <div>
-              {/* Document Title Banner on Page 1 */}
-              {activePage.pageNumber === 1 && (
-                <div className="text-center pb-4 mb-4 border-b border-slate-200">
-                  <h1 className="text-2xl font-black text-emerald-800 tracking-wide">
-                    {screenplayData.title || 'திரைக்கதை (Screenplay)'}
-                  </h1>
-                  <p className="text-[11px] text-slate-500 font-mono mt-1">
-                    தமிழ் இருபக்க காட்சி-வசனம் வடிவம் &bull; Kollywood 2-Column Format
-                  </p>
-                </div>
-              )}
-
-              {/* Two-Column Header Banner on Page 1 */}
+              {/* Document Name as Heading on Page 1 */}
               {activePage.pageNumber === 1 ? (
-                <div className="flex items-center justify-between pb-2 mb-4 border-b-2 border-emerald-500 text-xs font-mono font-bold uppercase tracking-wider text-slate-500">
-                  <div className="flex items-center gap-2 text-emerald-700 min-w-0">
-                    <span className="shrink-0 inline-block w-2 h-2 rounded-full bg-emerald-600"></span>
-                    <span className="truncate">இடது: காட்சி விவரம் (Visual Action)</span>
-                  </div>
-                  <div className="flex items-center justify-end gap-2 text-sky-700 min-w-0">
-                    <span className="truncate">வலது: வசனம் & ஒலி (Dialogue & Audio)</span>
-                    <span className="shrink-0 inline-block w-2 h-2 rounded-full bg-sky-600"></span>
-                  </div>
+                <div className="text-center pb-3 mb-4 border-b border-slate-300">
+                  <h1 className="text-2xl font-black text-slate-900 tracking-wide">
+                    {screenplayData.title || 'Screenplay'}
+                  </h1>
                 </div>
               ) : (
                 <div className="flex items-center justify-between text-[10px] font-mono text-slate-400 border-b border-slate-200 pb-1.5 mb-4 uppercase">
                   <span>{(screenplayData.title || 'Screenplay').toUpperCase()}</span>
-                  <span>KOLLYWOOD 2-COLUMN FORMAT</span>
+                  <span>Page {activePage.pageNumber}</span>
                 </div>
               )}
 
               {/* Elements on this page */}
-              <div className="space-y-4">
+              <div className="space-y-3">
                 {activePage.elements.map((elem, idx) => {
                   if (elem.type === 'scene_header') {
                     const chars = elem.characters || [];
@@ -312,7 +308,7 @@ export const TwoColumnExportModal: React.FC<TwoColumnExportModalProps> = ({
                     return (
                       <div
                         key={`hdr-${elem.sceneId}-${idx}`}
-                        className="p-3 rounded-lg border border-slate-800 bg-slate-50 text-slate-900 mb-3 shadow-2xs"
+                        className="p-3 rounded-lg border border-slate-800 bg-white text-slate-900 mb-3 shadow-2xs"
                       >
                         {/* ROW 1: Sc no & Time */}
                         <div className="flex items-center justify-between font-bold text-xs mb-1.5">
@@ -330,14 +326,14 @@ export const TwoColumnExportModal: React.FC<TwoColumnExportModalProps> = ({
                         <div className="flex items-center justify-between gap-3 text-xs mb-1.5">
                           <div className="flex-1 text-left min-w-0 truncate">
                             <span className="font-bold mr-1">Script Location: </span>
-                            <span>{elem.location || 'xyz'}</span>
+                            <span className="text-slate-700">{elem.location || 'xyz'}</span>
                           </div>
-                          <div className="shrink-0 px-3 py-0.5 rounded-lg border border-slate-900 font-bold text-[11px] bg-white text-center shadow-2xs">
+                          <div className="shrink-0 px-3 py-0.5 rounded-lg border border-slate-900 font-bold text-[11px] bg-slate-50 text-center shadow-2xs">
                             Pages: {elem.scenePageNumber || 1}/{elem.sceneTotalPages || 1}
                           </div>
                           <div className="flex-1 text-right min-w-0 truncate">
                             <span className="font-bold mr-1">Real Location: </span>
-                            <span>{elem.realLocation || elem.location || 'xyz'}</span>
+                            <span className="text-slate-700">{elem.realLocation || elem.location || 'xyz'}</span>
                           </div>
                         </div>
 
@@ -349,7 +345,7 @@ export const TwoColumnExportModal: React.FC<TwoColumnExportModalProps> = ({
                           </div>
                           <div className="text-right whitespace-nowrap">
                             <span className="text-slate-600 mr-1">Effect: </span>
-                            <span>{elem.effects || 'None'}</span>
+                            <span className="text-slate-700">{elem.effects || 'None'}</span>
                           </div>
                         </div>
                       </div>
@@ -374,7 +370,7 @@ export const TwoColumnExportModal: React.FC<TwoColumnExportModalProps> = ({
                   const isRight = item.column === 'right';
                   let charName = (item.rightCharacter || '').trim();
                   let diaText = (item.rightDialogue || (isRight ? item.rawText : '') || '').trim();
-                  if (isRight && !charName && diaText) {
+                  if (!charName && diaText) {
                     const m = diaText.match(/^([\u0B80-\u0BFFa-zA-Z0-9\s.]{2,30})\s*:\s*(.*)$/);
                     if (m) {
                       charName = m[1].trim();
@@ -387,34 +383,35 @@ export const TwoColumnExportModal: React.FC<TwoColumnExportModalProps> = ({
                   return (
                     <div
                       key={`item-${item.id}-${idx}`}
-                      className="flex items-start text-xs leading-relaxed"
+                      className="flex items-start text-xs leading-relaxed mb-1.5"
                     >
-                      {/* Left Column (48%) */}
+                      {/* Left Column (Visual Action ONLY) */}
                       <div
                         style={{ width: `${exportOptions.columnSplitPercent}%` }}
-                        className={`pr-3 ${isRight ? 'text-right' : 'text-left'}`}
+                        className="pr-3 text-left"
                       >
-                        {isRight ? (
-                          charName ? (
-                            <span className="font-bold text-sky-700 text-xs">
-                              {charName} :
-                            </span>
-                          ) : null
-                        ) : (
+                        {!isRight && leftActionText ? (
                           <span className="text-slate-900">{leftActionText}</span>
-                        )}
+                        ) : null}
                       </div>
 
                       {/* Hairline Divider */}
                       <div className="w-[1px] bg-slate-300 self-stretch shrink-0 min-h-[18px]" />
 
-                      {/* Right Column (52%) */}
+                      {/* Right Column (Character & Dialogue) */}
                       <div
                         style={{ width: `${100 - exportOptions.columnSplitPercent}%` }}
                         className="pl-3 text-left"
                       >
-                        {isRight ? (
-                          <span className="text-slate-900">{diaText}</span>
+                        {(isRight || charName || diaText) ? (
+                          <div>
+                            {charName ? (
+                              <div className="font-bold text-sky-700 text-xs mb-0.5">
+                                {charName} :
+                              </div>
+                            ) : null}
+                            <div className="text-slate-900">{diaText}</div>
+                          </div>
                         ) : null}
                       </div>
                     </div>
@@ -423,11 +420,19 @@ export const TwoColumnExportModal: React.FC<TwoColumnExportModalProps> = ({
               </div>
             </div>
 
-            {/* Bottom Running Footer */}
-            <div className="mt-8 pt-3 border-t border-slate-200 flex items-center justify-between text-[10px] font-mono text-slate-400">
-              <div>{screenplayData.title || 'Screenplay'} &bull; Draft 1.0</div>
+            {/* Bottom Running Footer: Anchored inside bottom margin */}
+            <div
+              style={{
+                position: 'absolute',
+                bottom: '8px',
+                left: `${activePage.paddingLeftPx}px`,
+                right: `${activePage.paddingRightPx}px`,
+              }}
+              className="pt-2 border-t border-slate-200 flex items-center justify-between text-[10px] font-mono text-slate-400"
+            >
+              <div>{screenplayData.title || 'Screenplay'}</div>
               <div className="font-bold text-slate-600">Page {activePage.pageNumber} of {totalPages}</div>
-              <div>Kollywood 2-Column Format</div>
+              <div>Backstage Core</div>
             </div>
           </div>
         )}

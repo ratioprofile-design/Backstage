@@ -1168,8 +1168,12 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
       const blob = await generateTamilLeftRightDocx(tamilScreenplayData);
       const filename = `${(tamilScreenplayData.title || 'Screenplay').replace(/\s+/g, '_')}_Tamil_Left_Right.docx`;
       downloadBlobAsFile(blob, filename);
+
+      // Also automatically save the Left-Right document into the Vault
+      handleSaveTamilLeftRightToVault();
+
       confetti({ particleCount: 35, spread: 50, origin: { y: 0.7 } });
-      showToast(`✓ Downloaded "${filename}"!`);
+      showToast(`✓ Downloaded & Saved "${filename}" to Vault!`);
     } catch (err) {
       console.error(err);
       showToast('Failed to generate Word document.');

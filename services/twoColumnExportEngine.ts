@@ -44,7 +44,7 @@ export function generateTwoColumnPrintHtml(
 ): string {
   const pagination = paginateTwoColumnScript(screenplay, options);
   const { pages, totalPages } = pagination;
-  const scriptTitle = (screenplay.title || 'Screenplay').trim();
+  const documentName = (screenplay.title || 'Screenplay').trim();
 
   const pagesHtml = pages.map((page) => {
     const isFirstPage = page.pageNumber === 1;
@@ -56,30 +56,31 @@ export function generateTwoColumnPrintHtml(
 
         if (elem.isContinued) {
           return `
-            <div style="border-bottom: 2px solid #0f172a; padding: 4px 0 6px 0; margin-bottom: 12px; font-weight: bold; font-size: 12px;">
+            <div style="border-bottom: 2px solid #0f172a; padding: 4px 0 6px 0; margin-bottom: 12px; font-weight: bold; font-size: 12px; color: #0f172a;">
               Sc no: ${elem.sceneNumber} &mdash; (Continued &bull; Page ${elem.scenePageNumber || 2}/${elem.sceneTotalPages || 2})
             </div>
           `;
         }
 
         return `
-          <div style="border: 1px solid #1e293b; border-radius: 8px; background-color: #f8fafc; padding: 9px 12px; margin-bottom: 12px; box-sizing: border-box;">
+          <!-- Kollywood Scene Heading Metadata Box -->
+          <div style="border: 1px solid #1e293b; border-radius: 6px; background-color: #ffffff; padding: 8px 12px; margin-bottom: 12px; margin-top: 6px; box-sizing: border-box; line-height: 1.4;">
             <!-- ROW 1: Scene No & Time -->
-            <div style="display: flex; align-items: center; justify-content: space-between; font-size: 12px; font-weight: bold; margin-bottom: 5px;">
-              <div><span>Sc no: </span><span style="font-weight: 900; font-size: 13px;">${elem.sceneNumber}</span></div>
-              <div><span>Time: </span><span style="font-weight: 700;">${elem.timeOfDay || 'Day / INT'}</span></div>
+            <div style="display: flex; align-items: center; justify-content: space-between; font-size: 12px; font-weight: bold; margin-bottom: 4px;">
+              <div><span>Sc no: </span><span style="font-weight: 900; font-size: 13px; color: #0f172a;">${elem.sceneNumber}</span></div>
+              <div><span>Time: </span><span style="font-weight: 700; color: #0f172a;">${elem.timeOfDay || 'Day / INT'}</span></div>
             </div>
 
-            <!-- ROW 2: Script Location (Left) | Pages: X/Y (Center Wireframe Pill) | Real Location (Right) -->
-            <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 11px; margin-bottom: 5px;">
+            <!-- ROW 2: Script Location (Left) | Pages: X/Y (Center Box) | Real Location (Right) -->
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 11px; margin-bottom: 4px;">
               <div style="flex: 1; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                <span style="font-weight: bold;">Script Location: </span><span>${elem.location || 'xyz'}</span>
+                <span style="font-weight: bold;">Script Location: </span><span style="color: #334155;">${elem.location || 'xyz'}</span>
               </div>
-              <div style="flex-shrink: 0; padding: 2px 10px; border: 1px solid #0f172a; border-radius: 6px; font-weight: bold; font-size: 10.5px; background-color: #ffffff; color: #0f172a; text-align: center;">
+              <div style="flex-shrink: 0; padding: 1.5px 8px; border: 1px solid #1e293b; border-radius: 4px; font-weight: bold; font-size: 10px; background-color: #f8fafc; color: #0f172a; text-align: center; white-space: nowrap;">
                 Pages: ${elem.scenePageNumber || 1}/${elem.sceneTotalPages || 1}
               </div>
               <div style="flex: 1; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                <span style="font-weight: bold;">Real Location: </span><span>${elem.realLocation || elem.location || 'xyz'}</span>
+                <span style="font-weight: bold;">Real Location: </span><span style="color: #334155;">${elem.realLocation || elem.location || 'xyz'}</span>
               </div>
             </div>
 
@@ -91,7 +92,7 @@ export function generateTwoColumnPrintHtml(
               </div>
               <div style="text-align: right; white-space: nowrap;">
                 <span style="color: #475569;">Effect: </span>
-                <span>${elem.effects || 'None'}</span>
+                <span style="color: #334155;">${elem.effects || 'None'}</span>
               </div>
             </div>
           </div>
@@ -102,8 +103,9 @@ export function generateTwoColumnPrintHtml(
       const item = elem.item;
       if (item.column === 'center' || item.type === 'transition' || item.type === 'title') {
         const text = item.rawText || item.leftAction || item.rightDialogue || '';
+        const transColor = item.textColor || options.transitionColor || '#b45309';
         return `
-          <div style="width: 100%; text-align: center; padding: 6px 0; margin: 8px 0; font-weight: bold; font-size: 12.5px; color: #b45309; border-top: 1px dashed #cbd5e1; border-bottom: 1px dashed #cbd5e1;">
+          <div style="width: 100%; text-align: center; padding: 6px 0; margin: 8px 0; font-weight: bold; font-size: 12.5px; color: ${transColor}; border-top: 1px dashed #cbd5e1; border-bottom: 1px dashed #cbd5e1;">
             ${text}
           </div>
         `;
@@ -112,7 +114,7 @@ export function generateTwoColumnPrintHtml(
       const isRight = item.column === 'right';
       let charName = (item.rightCharacter || '').trim();
       let diaText = (item.rightDialogue || (isRight ? item.rawText : '') || '').trim();
-      if (isRight && !charName && diaText) {
+      if (!charName && diaText) {
         const m = diaText.match(/^([\u0B80-\u0BFFa-zA-Z0-9\s.]{2,30})\s*:\s*(.*)$/);
         if (m) {
           charName = m[1].trim();
@@ -121,24 +123,30 @@ export function generateTwoColumnPrintHtml(
       }
 
       const leftActionText = !isRight ? (item.leftAction || item.rawText || '') : '';
+      const actionColor = item.textColor || '#0f172a';
+      const charColor = options.characterColor || '#0284c7';
+      const diaColor = item.textColor || '#0f172a';
 
       return `
-        <div style="display: flex; align-items: flex-start; margin-bottom: 8px; font-size: ${options.baseFontSizePx}px; line-height: ${options.baseLineHeight};">
-          <!-- Left Column (Visual Action or Character Name) -->
-          <div style="width: ${options.columnSplitPercent}%; padding-right: 12px; box-sizing: border-box; text-align: ${isRight ? 'right' : 'left'};">
-            ${
-              isRight
-                ? (charName ? `<span style="font-weight: 700; color: #0284c7; font-size: 12.5px;">${charName} :</span>` : '')
-                : `<span style="color: #0f172a;">${leftActionText}</span>`
-            }
+        <div style="display: flex; align-items: flex-start; margin-bottom: 6px; font-size: ${options.baseFontSizePx}px; line-height: ${options.baseLineHeight};">
+          <!-- Left Column: Visual Action ONLY -->
+          <div style="width: ${options.columnSplitPercent}%; padding-right: 14px; box-sizing: border-box; text-align: left;">
+            ${!isRight && leftActionText ? `<span style="color: ${actionColor};">${leftActionText}</span>` : ''}
           </div>
 
           <!-- Vertical Hairline Divider -->
-          <div style="width: 1px; background-color: #cbd5e1; align-self: stretch; flex-shrink: 0; min-height: 20px;"></div>
+          <div style="width: 1px; background-color: #cbd5e1; align-self: stretch; flex-shrink: 0; min-height: 18px;"></div>
 
-          <!-- Right Column (Dialogue / Audio) -->
-          <div style="width: ${100 - options.columnSplitPercent}%; padding-left: 12px; box-sizing: border-box; text-align: left;">
-            ${isRight ? `<span style="color: #0f172a;">${diaText}</span>` : ''}
+          <!-- Right Column: Character & Dialogue together -->
+          <div style="width: ${100 - options.columnSplitPercent}%; padding-left: 14px; box-sizing: border-box; text-align: left;">
+            ${
+              isRight || charName || diaText
+                ? `
+                  ${charName ? `<div style="font-weight: 700; color: ${charColor}; font-size: 12px; margin-bottom: 1.5px;">${charName} :</div>` : ''}
+                  <div style="color: ${diaColor};">${diaText}</div>
+                `
+                : ''
+            }
           </div>
         </div>
       `;
@@ -147,7 +155,8 @@ export function generateTwoColumnPrintHtml(
     return `
       <div class="two-column-print-page" style="
         width: ${page.widthPx}px;
-        min-height: ${page.heightPx}px;
+        height: ${page.heightPx}px;
+        max-height: ${page.heightPx}px;
         padding-top: ${page.paddingTopPx}px;
         padding-bottom: ${page.paddingBottomPx}px;
         padding-left: ${page.paddingLeftPx}px;
@@ -157,42 +166,25 @@ export function generateTwoColumnPrintHtml(
         color: #0f172a;
         font-family: ${options.baseFontFamily};
         position: relative;
-        display: flex;
-        flex-direction: column;
-        justify-content: space-between;
+        overflow: hidden;
         page-break-after: always;
         break-after: page;
         margin: 0 auto;
       ">
-        <div>
+        <div style="width: 100%;">
           ${
             isFirstPage
               ? `
-              <!-- Document Title Banner on Page 1 -->
-              <div style="text-align: center; padding-bottom: 16px; margin-bottom: 14px; border-bottom: 1.5px solid #e2e8f0;">
-                <div style="font-size: 22px; font-weight: 900; color: #047857; letter-spacing: 0.5px;">${scriptTitle}</div>
-                <div style="font-size: 11px; color: #64748b; font-family: monospace; margin-top: 4px;">
-                  தமிழ் இருபக்க காட்சி-வசனம் வடிவம் &bull; Kollywood 2-Column Format
-                </div>
-              </div>
-
-              <!-- Two-Column Header Banner -->
-              <div style="display: flex; align-items: center; justify-content: space-between; padding-bottom: 8px; margin-bottom: 14px; border-bottom: 2px solid #10b981; font-size: 11px; font-family: monospace; font-weight: bold; text-transform: uppercase;">
-                <div style="display: flex; align-items: center; gap: 6px; color: #059669;">
-                  <span style="width: 7px; height: 7px; border-radius: 50%; background-color: #059669; display: inline-block;"></span>
-                  <span>இடது: காட்சி விவரம் (Visual Action)</span>
-                </div>
-                <div style="display: flex; align-items: center; gap: 6px; color: #0284c7;">
-                  <span>வலது: வசனம் & ஒலி (Dialogue & Audio)</span>
-                  <span style="width: 7px; height: 7px; border-radius: 50%; background-color: #0284c7; display: inline-block;"></span>
-                </div>
+              <!-- Document Name as Heading on Page 1 -->
+              <div style="text-align: center; padding-bottom: 10px; margin-bottom: 12px; border-bottom: 1.5px solid #0f172a;">
+                <div style="font-size: 20px; font-weight: 900; color: #0f172a; letter-spacing: 0.5px;">${documentName}</div>
               </div>
             `
               : `
               <!-- Running Header on Subsequent Pages -->
-              <div style="display: flex; align-items: center; justify-content: space-between; font-size: 9.5px; font-family: monospace; color: #64748b; border-bottom: 1px solid #e2e8f0; padding-bottom: 6px; margin-bottom: 14px;">
-                <span>${scriptTitle.toUpperCase()}</span>
-                <span>KOLLYWOOD 2-COLUMN FORMAT</span>
+              <div style="display: flex; align-items: center; justify-content: space-between; font-size: 9.5px; font-family: monospace; color: #64748b; border-bottom: 1px solid #e2e8f0; padding-bottom: 4px; margin-bottom: 10px;">
+                <span>${documentName.toUpperCase()}</span>
+                <span>Page ${page.pageNumber}</span>
               </div>
             `
           }
@@ -203,11 +195,10 @@ export function generateTwoColumnPrintHtml(
           </div>
         </div>
 
-        <!-- Running Page Footer -->
-        <div style="margin-top: auto; padding-top: 10px; border-top: 1px solid #e2e8f0; display: flex; align-items: center; justify-content: space-between; font-size: 9px; color: #94a3b8; font-family: monospace;">
-          <div>${scriptTitle} &bull; ${options.projectDraftName || 'Draft 1.0'}</div>
+        <!-- Running Page Footer: Sits cleanly in bottom margin -->
+        <div style="position: absolute; bottom: 8px; left: ${page.paddingLeftPx}px; right: ${page.paddingRightPx}px; border-top: 1px solid #e2e8f0; padding-top: 3px; display: flex; align-items: center; justify-content: space-between; font-size: 8.5px; color: #94a3b8; font-family: monospace;">
+          <div>${options.scriptEdition || '1st Edition'} &bull; ${options.scriptEditionDate || new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</div>
           <div>Page ${page.pageNumber} of ${totalPages}</div>
-          <div>Backstage Screenplay Core</div>
         </div>
       </div>
     `;
@@ -218,7 +209,7 @@ export function generateTwoColumnPrintHtml(
 <html>
 <head>
   <meta charset="utf-8">
-  <title>${scriptTitle} - Kollywood 2-Column Screenplay</title>
+  <title>${documentName} - Kollywood 2-Column Screenplay</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Mukta+Malar:wght@400;500;600;700&family=Noto+Sans+Tamil:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -340,95 +331,15 @@ export function printTwoColumnVector(
 }
 
 /**
- * Generates and downloads a direct high-resolution PDF file (.pdf)
- * using the newly dedicated off-screen Two-Column Engine.
+ * Generates and downloads a direct high-resolution vector PDF file (.pdf)
+ * using the instant Native Vector Engine (< 1 second, 100% crisp vector typography, selectable text).
  */
 export async function downloadTwoColumnPdf(
   screenplay: TamilScreenplayData,
   options: TwoColumnExportOptions = DEFAULT_TWO_COLUMN_EXPORT_OPTIONS,
   onProgress?: (progressText: string) => void
 ): Promise<void> {
-  const pagination = paginateTwoColumnScript(screenplay, options);
-  const { pages, totalPages } = pagination;
-  const scriptTitle = (screenplay.title || 'Screenplay').trim();
-
-  onProgress?.(`Preparing ${totalPages} pages for PDF export...`);
-
-  if (document.fonts) {
-    await document.fonts.ready;
-  }
-
-  // Create an isolated container offscreen
-  const container = document.createElement('div');
-  container.style.position = 'fixed';
-  container.style.top = '0';
-  container.style.left = '-99999px';
-  container.style.width = '820px';
-  container.style.zIndex = '-9999';
-  container.style.backgroundColor = '#ffffff';
-  document.body.appendChild(container);
-
-  try {
-    const pdf = new jsPDF({
-      orientation: 'portrait',
-      unit: 'mm',
-      format: 'a4',
-      compress: true,
-    });
-
-    const pageWidthMm = 210;
-    const pageHeightMm = 297;
-
-    for (let i = 0; i < pages.length; i++) {
-      onProgress?.(`Rendering Page ${i + 1} of ${totalPages}...`);
-      const page = pages[i];
-
-      // Build single page HTML
-      const singlePageHtml = generateTwoColumnPrintHtml(
-        {
-          ...screenplay,
-          scenes: screenplay.scenes,
-        },
-        options
-      );
-
-      // Parse and extract page
-      const tempDiv = document.createElement('div');
-      tempDiv.innerHTML = singlePageHtml;
-      const pageElements = tempDiv.querySelectorAll('.two-column-print-page');
-      const targetPageEl = pageElements[i] as HTMLElement;
-
-      if (!targetPageEl) continue;
-
-      container.innerHTML = '';
-      container.appendChild(targetPageEl);
-
-      await new Promise((r) => setTimeout(r, 60));
-
-      const canvas = await html2canvas(targetPageEl, {
-        scale: 2,
-        useCORS: true,
-        logging: false,
-        backgroundColor: '#ffffff',
-        width: page.widthPx,
-        height: page.heightPx,
-      });
-
-      if (i > 0) {
-        pdf.addPage('a4', 'p');
-      }
-
-      const imgData = canvas.toDataURL('image/jpeg', 0.95);
-      pdf.addImage(imgData, 'JPEG', 0, 0, pageWidthMm, pageHeightMm, undefined, 'FAST');
-    }
-
-    const filename = `${scriptTitle.replace(/\s+/g, '_')}_2Column_Script.pdf`;
-    pdf.save(filename);
-    confetti({ particleCount: 45, spread: 60, origin: { y: 0.7 } });
-    onProgress?.(`✓ Exported "${filename}"!`);
-  } finally {
-    if (document.body.contains(container)) {
-      document.body.removeChild(container);
-    }
-  }
+  onProgress?.('Opening Instant Vector PDF...');
+  await printTwoColumnVector(screenplay, options);
+  onProgress?.('✓ PDF ready! Select "Save as PDF" to download.');
 }

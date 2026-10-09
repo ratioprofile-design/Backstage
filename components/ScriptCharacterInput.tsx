@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
+import { Users } from 'lucide-react';
 import { useProject } from '../context/ProjectContext';
 
 interface ScriptCharacterInputProps {
@@ -12,6 +13,7 @@ interface ScriptCharacterInputProps {
   align?: 'left' | 'right';
   onNext?: () => void;
   disabled?: boolean;
+  onManageCharacters?: () => void;
 }
 
 /**
@@ -28,6 +30,7 @@ export const ScriptCharacterInput: React.FC<ScriptCharacterInputProps> = ({
   align = 'right',
   onNext,
   disabled = false,
+  onManageCharacters,
 }) => {
   const { appTheme, appAccentColor = '#f5a623' } = useProject();
   const isLight =
@@ -248,6 +251,29 @@ export const ScriptCharacterInput: React.FC<ScriptCharacterInputProps> = ({
                 </div>
               );
             })}
+
+            {onManageCharacters && (
+              <div
+                className={`mt-1 pt-1 border-t px-2 py-1.5 flex items-center justify-center text-[11px] ${
+                  isLight ? 'border-slate-100 bg-slate-50/80 text-slate-600' : 'border-zinc-800 bg-zinc-900/60 text-zinc-400'
+                }`}
+              >
+                <button
+                  type="button"
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setIsOpen(false);
+                    onManageCharacters();
+                  }}
+                  className="w-full flex items-center justify-center gap-1.5 font-bold text-amber-500 hover:text-amber-600 transition-colors cursor-pointer py-1 rounded hover:bg-amber-500/10 text-xs"
+                  title="Open Auto-Suggestion Names Management System to fix typos and merge characters"
+                >
+                  <Users size={12} />
+                  <span>Manage Names / Fix Typos</span>
+                </button>
+              </div>
+            )}
           </div>,
           document.body
         )}
@@ -260,6 +286,7 @@ interface SceneCharactersDropdownProps {
   allKnownCharacters: string[];
   onChange: (updatedChars: string[]) => void;
   className?: string;
+  onManageCharacters?: () => void;
 }
 
 /**
@@ -271,6 +298,7 @@ export const SceneCharactersDropdown: React.FC<SceneCharactersDropdownProps> = (
   allKnownCharacters = [],
   onChange,
   className = '',
+  onManageCharacters,
 }) => {
   const { appTheme, appAccentColor = '#f5a623' } = useProject();
   const isLight =
@@ -480,6 +508,29 @@ export const SceneCharactersDropdown: React.FC<SceneCharactersDropdownProps> = (
                 })
               )}
             </div>
+
+            {onManageCharacters && (
+              <div
+                className={`p-1.5 border-t flex items-center justify-center text-[11px] ${
+                  isLight ? 'border-slate-100 bg-slate-50/80 text-slate-600' : 'border-zinc-800 bg-zinc-900/60 text-zinc-400'
+                }`}
+              >
+                <button
+                  type="button"
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setIsOpen(false);
+                    onManageCharacters();
+                  }}
+                  className="w-full flex items-center justify-center gap-1.5 font-bold text-amber-500 hover:text-amber-600 transition-colors cursor-pointer py-1 rounded hover:bg-amber-500/10 text-xs"
+                  title="Open Auto-Suggestion Names Management System to fix typos and merge characters"
+                >
+                  <Users size={12} />
+                  <span>Manage Names / Fix Typos</span>
+                </button>
+              </div>
+            )}
           </div>,
           document.body
         )}

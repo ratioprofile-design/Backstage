@@ -4,6 +4,7 @@ import {
   TamilScriptItem,
   getSceneCharacters,
   getSceneEffects,
+  hasEndSceneTransition,
 } from './tamilLeftRightEngine';
 
 export type PaperStandard = 'A4' | 'US_Letter' | 'Legal';
@@ -30,18 +31,29 @@ export interface TwoColumnPaginationOptions {
   showDivider?: boolean;
   dividerStyle?: 'hairline' | 'dashed' | 'none';
   freshPagePerScene?: boolean; // Every fresh scene starts on a new fresh page
+  actionTextAlign?: 'left' | 'center' | 'right' | 'justify';
+  dialogueTextAlign?: 'left' | 'center' | 'right' | 'justify';
+  characterNameBold?: boolean; // Bold character names (default true)
+  transitionBold?: boolean; // Bold transitions/titles (default true)
+  columnGutterPx?: number; // Space/gutter between left and right columns (default 16px)
+  showColumnGuides?: boolean; // Guide header banner (default false, removed everywhere)
+  autoEndSceneCutTo?: boolean; // Auto append CUT TO: at the end of scenes if not present (default true)
+  endSceneCutToText?: string; // Text for the end transition (default 'CUT TO:')
+  transitionColor?: string; // Center / Transition text color (default #f59e0b)
+  scriptEdition?: string; // Running footer edition/version name (default '1st Edition')
+  scriptEditionDate?: string; // Running footer edition date (e.g. '09 Oct 2026')
 }
 
 export const DEFAULT_TWO_COLUMN_PAGINATION_OPTIONS: TwoColumnPaginationOptions = {
   paperStandard: 'A4',
-  marginTopMm: 22,
-  marginBottomMm: 22,
-  marginLeftMm: 22,
-  marginRightMm: 22,
-  gapSceneHeaderPx: 20,
-  gapParagraphRowPx: 10,
-  baseFontSizePx: 13.5,
-  baseLineHeight: 1.6,
+  marginTopMm: 20,
+  marginBottomMm: 20,
+  marginLeftMm: 20,
+  marginRightMm: 20,
+  gapSceneHeaderPx: 16,
+  gapParagraphRowPx: 8,
+  baseFontSizePx: 13,
+  baseLineHeight: 1.5,
   baseFontFamily: "'Vijaya', 'Latha', 'Mukta Malar', 'Noto Sans Tamil', system-ui, sans-serif",
   columnSplitPercent: 48,
   sceneHeadingStyle: 'kollywood',
@@ -49,9 +61,20 @@ export const DEFAULT_TWO_COLUMN_PAGINATION_OPTIONS: TwoColumnPaginationOptions =
   sceneHeadingFontFamily: "'Inter', system-ui, sans-serif",
   sceneHeadingFontSizePx: 12,
   characterColor: '#0284c7',
+  transitionColor: '#f59e0b',
   showDivider: true,
   dividerStyle: 'dashed',
   freshPagePerScene: true,
+  actionTextAlign: 'justify',
+  dialogueTextAlign: 'left',
+  characterNameBold: true,
+  transitionBold: true,
+  columnGutterPx: 16,
+  showColumnGuides: false,
+  autoEndSceneCutTo: true,
+  endSceneCutToText: 'CUT TO:',
+  scriptEdition: '1st Edition',
+  scriptEditionDate: '',
 };
 
 // Paper Dimensions in CSS pixels (96 DPI standard: 1 inch = 96px, 1mm = 3.7795px)
@@ -120,6 +143,58 @@ function getVisualGraphemeCount(text: string): number {
 }
 
 /**
+ * Detects if an item is a transition or centered heading/marker
+ */
+export function isTransitionOrCenterItem(item: TamilScriptItem): boolean {
+  if (item.type === 'transition' || item.type === 'title' || item.column === 'center') {
+    return true;
+  }
+  const raw = (item.rawText || item.leftAction || item.rightDialogue || '').trim();
+  if (!raw) return true; // empty item
+
+  const normalized = raw.toUpperCase().replace(/[-\s_:]+/g, ' ');
+  const transitionPhrases = [
+    'CUT TO',
+    'DISSOLVE TO',
+    'FADE OUT',
+    'FADE TO',
+    'FADE IN',
+    'SMASH CUT',
+    'MATCH CUT',
+    'JUMP CUT',
+    'TIME CUT',
+    'CROSSFADE',
+    'IRIS OUT',
+    'WIPE TO',
+    'FLASH CUT',
+    'கட் டூ',
+    'காட்சி மாற்றம்',
+    'முடிவு',
+    'முற்றும்',
+    'திரை மறைவு',
+  ];
+  return transitionPhrases.some((phrase) => normalized.includes(phrase) || raw.includes(phrase));
+}
+
+/**
+ * Checks if all remaining items from fromIdx to the end of effectiveItems are only transitions or empty items.
+ */
+function areRemainingItemsOnlyTransitions(items: TamilScriptItem[], fromIdx: number): boolean {
+  for (let k = fromIdx; k < items.length; k++) {
+    const it = items[k];
+    const isTrans = isTransitionOrCenterItem(it);
+    if (!isTrans) {
+      const hasAction = Boolean((it.leftAction || '').trim());
+      const hasDialogue = Boolean((it.rightDialogue || '').trim() || (it.rightCharacter || '').trim());
+      if (hasAction || hasDialogue) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+/**
  * Core Two-Column Pagination Engine
  * Measures height of each scene heading, transition, and 2-column row,
  * and splits items across discrete standardized pages with orphan prevention.
@@ -139,9 +214,8 @@ export function paginateTwoColumnScript(
   const paddingRightPx = Math.round(options.marginRightMm * 3.7795);
 
   const contentWidthPx = widthPx - paddingLeftPx - paddingRightPx;
-  // Reserve ~32px for bottom page number footer (top running header removed)
-  const headerFooterReservedPx = 32;
-  const printableHeightPx = heightPx - paddingTopPx - paddingBottomPx - headerFooterReservedPx;
+  // Symmetrical printable area: exactly equal top and bottom boundaries
+  const printableHeightPx = heightPx - paddingTopPx - paddingBottomPx - 8;
 
   const leftColWidthPx = Math.round(contentWidthPx * (options.columnSplitPercent / 100)) - 16;
   const rightColWidthPx = Math.round(contentWidthPx * ((100 - options.columnSplitPercent) / 100)) - 16;
@@ -175,18 +249,14 @@ export function paginateTwoColumnScript(
   };
 
   let totalItemsCount = 0;
+  const isFreshPage = options.freshPagePerScene === true;
 
   screenplay.scenes.forEach((scene) => {
     const sceneChars = getSceneCharacters(scene);
     const sceneEffects = getSceneEffects(scene);
     const isKollywood = options.sceneHeadingStyle === 'kollywood';
 
-    // Track pages belonging to this specific scene
-    const scenePagesStartIndex = pages.length;
-    let scenePageCount = 1;
-
-    // 1. Scene Heading Element for Page 1 of this scene
-    // Dynamically calculate box height based on character count and wrapping
+    // 1. Calculate heading height
     let extraCharHeightPx = 0;
     if (isKollywood) {
       const charText = `Characters(${sceneChars.length}): ${sceneChars.join(', ')}`;
@@ -198,7 +268,23 @@ export function paginateTwoColumnScript(
         extraCharHeightPx = (charLines - 1) * Math.round(options.baseFontSizePx * 1.35);
       }
     }
-    const headingHeightPx = (isKollywood ? (90 + extraCharHeightPx) : 36) + options.gapSceneHeaderPx;
+    const headingHeightPx = (isKollywood ? (78 + extraCharHeightPx) : 32) + options.gapSceneHeaderPx;
+
+    // Check whether to start a new page before this scene:
+    if (isFreshPage && currentPageElements.length > 0) {
+      flushPage(false);
+    } else if (!isFreshPage && currentPageElements.length > 0) {
+      // Continuous mode: require heading + at least 1 item to prevent orphan heading at page bottom
+      const minRequiredSpacePx = headingHeightPx + 48;
+      if (currentHeightUsed + minRequiredSpacePx > printableHeightPx) {
+        flushPage(false);
+      } else {
+        // Fits comfortably on current page! Add small inter-scene separator gap
+        currentHeightUsed += 14;
+      }
+    }
+
+    let scenePageCount = 1;
 
     const page1Header: PageSceneHeadingElement = {
       type: 'scene_header',
@@ -218,8 +304,18 @@ export function paginateTwoColumnScript(
     currentPageElements.push(page1Header);
     currentHeightUsed += headingHeightPx;
 
-    // 2. Scene Items
-    scene.items.forEach((item) => {
+    // 2. Scene Items (with auto end-of-scene CUT TO if enabled and not already ending with a transition)
+    const effectiveItems: TamilScriptItem[] = [...scene.items];
+    if (options.autoEndSceneCutTo !== false && !hasEndSceneTransition(scene.items)) {
+      effectiveItems.push({
+        id: `auto-cut-to-${scene.id}`,
+        type: 'transition',
+        column: 'center',
+        rawText: options.endSceneCutToText || 'CUT TO:',
+      });
+    }
+
+    effectiveItems.forEach((item, itemIdx) => {
       totalItemsCount++;
 
       let itemHeightPx = 0;
@@ -228,7 +324,7 @@ export function paginateTwoColumnScript(
         // Center text (transition / title)
         const text = item.rawText || item.leftAction || item.rightDialogue || '';
         const lines = Math.ceil((getVisualGraphemeCount(text) * avgCharWidthPx) / (contentWidthPx * 0.8)) || 1;
-        itemHeightPx = Math.max(30, lines * lineHeightPx + 16) + options.gapParagraphRowPx;
+        itemHeightPx = Math.max(28, lines * lineHeightPx + 14) + options.gapParagraphRowPx;
       } else {
         // Two-column row:
         const isRight = item.column === 'right';
@@ -253,12 +349,26 @@ export function paginateTwoColumnScript(
           : 0;
 
         const rowLines = Math.max(leftLines, rightLines, 1);
-        itemHeightPx = Math.round(rowLines * lineHeightPx + 8) + options.gapParagraphRowPx;
+        itemHeightPx = Math.round(rowLines * lineHeightPx + 6) + options.gapParagraphRowPx;
       }
 
       // Check if item overflows current page
       if (currentHeightUsed + itemHeightPx > printableHeightPx && currentPageElements.length > 0) {
-        flushPage(true); // Marks current page as continuing to next page (- Continues -)
+        // If all remaining items in this scene are only transitions (e.g. CUT TO:, DISSOLVE TO:),
+        // NEVER orphan the transition onto a new page alone and NEVER show "- Continues -"!
+        // Instead, squeeze the transition onto the current page so the scene concludes properly.
+        if (areRemainingItemsOnlyTransitions(effectiveItems, itemIdx)) {
+          currentPageElements.push({
+            type: 'script_item',
+            sceneId: scene.id,
+            sceneNumber: scene.sceneNumber,
+            item,
+          });
+          currentHeightUsed += itemHeightPx;
+          return;
+        }
+
+        flushPage(true); // Marks current page as continuing to next page
         scenePageCount++;
 
         // On new continued page of this scene:
@@ -278,7 +388,7 @@ export function paginateTwoColumnScript(
         };
 
         currentPageElements.push(continuedHeader);
-        currentHeightUsed += (isKollywood ? 36 : 28) + options.gapSceneHeaderPx * 0.5;
+        currentHeightUsed += (isKollywood ? 32 : 24) + options.gapSceneHeaderPx * 0.4;
       }
 
       currentPageElements.push({
@@ -290,25 +400,91 @@ export function paginateTwoColumnScript(
       currentHeightUsed += itemHeightPx;
     });
 
-    // Flush final page of this scene (fresh scene on fresh page: terminates here)
-    if (currentPageElements.length > 0) {
+    // If explicit freshPagePerScene requested, flush page at the end of this scene
+    if (isFreshPage && currentPageElements.length > 0) {
       flushPage(false);
     }
+  });
 
-    // Update scene total pages across all pages of THIS scene
-    const totalPagesForScene = scenePageCount;
-    for (let pIdx = scenePagesStartIndex; pIdx < pages.length; pIdx++) {
-      const p = pages[pIdx];
-      p.sceneTotalPages = totalPagesForScene;
-      p.scenePageNumber = (pIdx - scenePagesStartIndex) + 1;
-      p.sceneId = scene.id;
-      p.sceneNumber = scene.sceneNumber;
-      p.elements.forEach((elem) => {
-        if (elem.type === 'scene_header') {
-          elem.sceneTotalPages = totalPagesForScene;
-        }
-      });
+  // Flush remaining elements on final page
+  if (currentPageElements.length > 0) {
+    flushPage(false);
+  }
+
+  // Consolidate orphan transition pages (where a page consists ONLY of a continued header and transitions)
+  for (let i = pages.length - 1; i >= 1; i--) {
+    const p = pages[i];
+    const hasStoryItems = p.elements.some((elem) => {
+      if (elem.type === 'script_item') {
+        return !isTransitionOrCenterItem(elem.item);
+      }
+      return false;
+    });
+
+    if (!hasStoryItems) {
+      // This entire page has no action and no dialogue!
+      // Move any transition items back to the previous page and remove this redundant page
+      const prevPage = pages[i - 1];
+      const transitionsToMove = p.elements.filter((elem) => elem.type === 'script_item');
+      if (transitionsToMove.length > 0) {
+        prevPage.elements.push(...transitionsToMove);
+      }
+      prevPage.continuesToNextPage = false;
+      pages.splice(i, 1);
     }
+  }
+
+  // Safety check: A page should NEVER display "- Continues -" if the subsequent page
+  // contains only a transition or no active action/dialogue story content.
+  for (let i = 0; i < pages.length - 1; i++) {
+    const p = pages[i];
+    if (p.continuesToNextPage) {
+      const nextPage = pages[i + 1];
+      const nextPageHasStoryContent = nextPage.elements.some((elem) => {
+        if (elem.type === 'script_item') {
+          return !isTransitionOrCenterItem(elem.item);
+        }
+        return false;
+      });
+
+      if (!nextPageHasStoryContent) {
+        p.continuesToNextPage = false;
+      }
+    }
+  }
+
+  // Re-number pages after consolidation
+  pages.forEach((p, idx) => {
+    p.pageNumber = idx + 1;
+  });
+
+  // Calculate accurate scene pages mapping across all pages
+  const scenePageMap = new Map<string, number[]>();
+  pages.forEach((p) => {
+    p.elements.forEach((elem) => {
+      const sId = elem.sceneId;
+      if (sId) {
+        if (!scenePageMap.has(sId)) {
+          scenePageMap.set(sId, []);
+        }
+        const list = scenePageMap.get(sId)!;
+        if (!list.includes(p.pageNumber)) {
+          list.push(p.pageNumber);
+        }
+      }
+    });
+  });
+
+  // Assign accurate scenePageNumber and sceneTotalPages
+  pages.forEach((p) => {
+    p.elements.forEach((elem) => {
+      if (elem.type === 'scene_header') {
+        const pageList = scenePageMap.get(elem.sceneId) || [p.pageNumber];
+        const pageIdxInScene = pageList.indexOf(p.pageNumber);
+        elem.scenePageNumber = pageIdxInScene >= 0 ? pageIdxInScene + 1 : 1;
+        elem.sceneTotalPages = pageList.length;
+      }
+    });
   });
 
   // Update overall totalPages across all pages

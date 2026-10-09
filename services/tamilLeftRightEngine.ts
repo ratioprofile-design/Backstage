@@ -22,6 +22,8 @@ export interface TamilScriptItem {
   rightDialogue?: string;
   rightAudioSfx?: string;
   rawText?: string;
+  textAlign?: 'left' | 'center' | 'right' | 'justify';
+  textColor?: string;
 }
 
 export interface TamilScene {
@@ -363,6 +365,55 @@ export function getAllScriptCharacters(scenes: TamilScene[]): string[] {
 }
 
 /**
+ * Detects if a scene already ends with a transition element (e.g. CUT TO:, FADE OUT., காட்சி மாற்றம், etc.)
+ */
+export function hasEndSceneTransition(items: TamilScriptItem[]): boolean {
+  if (!items || items.length === 0) return false;
+
+  for (let i = items.length - 1; i >= 0; i--) {
+    const item = items[i];
+    const text = (item.rawText || item.leftAction || item.rightDialogue || '').trim();
+    if (!text && item.type !== 'transition') {
+      continue;
+    }
+
+    if (item.type === 'transition') return true;
+
+    const upper = text.toUpperCase();
+    const normalized = upper.replace(/[-\s_:]+/g, ' ');
+    const transitionPhrases = [
+      'CUT TO',
+      'DISSOLVE TO',
+      'FADE OUT',
+      'FADE TO',
+      'FADE IN',
+      'SMASH CUT',
+      'MATCH CUT',
+      'JUMP CUT',
+      'TIME CUT',
+      'CROSSFADE',
+      'IRIS OUT',
+      'WIPE TO',
+      'FLASH CUT',
+      'கட் டூ',
+      'காட்சி மாற்றம்',
+      'முடிவு',
+      'முற்றும்',
+      'திரை மறைவு',
+    ];
+
+    if (transitionPhrases.some((phrase) => normalized.includes(phrase) || upper.includes(phrase) || text.includes(phrase))) {
+      return true;
+    }
+
+    // Hit the last non-empty item and it's not a transition
+    return false;
+  }
+
+  return false;
+}
+
+/**
  * Generates an authentic Kollywood Left-Right HTML layout from curated user items
  */
 export function generateTamilLeftRightHtml(data: TamilScreenplayData): string {
@@ -511,6 +562,15 @@ export interface DocxExportOptions {
   freshPagePerScene?: boolean;
   showDivider?: boolean;
   dividerStyle?: 'hairline' | 'dashed' | 'none';
+  actionTextAlign?: 'left' | 'center' | 'right' | 'justify';
+  dialogueTextAlign?: 'left' | 'center' | 'right' | 'justify';
+  characterNameBold?: boolean;
+  transitionBold?: boolean;
+  columnGutterPx?: number;
+  showColumnGuides?: boolean;
+  autoEndSceneCutTo?: boolean;
+  endSceneCutToText?: string;
+  transitionColor?: string;
 }
 
 /**
@@ -627,6 +687,23 @@ export async function generateTamilLeftRightDocx(
 ): Promise<Blob> {
   const children: (Paragraph | Table)[] = [];
 
+  // Paper standard sizes in DXA (twentieths of a point)
+  const PAGE_DIMENSIONS_DXA: Record<string, { width: number; height: number }> = {
+    A4: { width: 11906, height: 16838 },
+    US_Letter: { width: 12240, height: 15840 },
+    Legal: { width: 12240, height: 20160 },
+  };
+  const pageDim = PAGE_DIMENSIONS_DXA[options?.paperStandard || 'A4'] || PAGE_DIMENSIONS_DXA.A4;
+
+  // Calculate margins in DXA (1mm = 56.7 dxa)
+  const marginTop = Math.round((options?.marginTopMm ?? 20) * 56.7);
+  const marginBottom = Math.round((options?.marginBottomMm ?? 20) * 56.7);
+  const marginLeft = Math.round((options?.marginLeftMm ?? 20) * 56.7);
+  const marginRight = Math.round((options?.marginRightMm ?? 20) * 56.7);
+
+  // Exact printable content width in DXA (prevents table right edge overflow/clipping in Word)
+  const contentWidthDxa = Math.max(6800, pageDim.width - marginLeft - marginRight);
+
   // Extract clean primary font name
   const rawFont = options?.baseFontFamily || "'Vijaya', 'Latha', 'Mukta Malar', 'Noto Sans Tamil', system-ui, sans-serif";
   const fontMatch = rawFont.match(/['"]([^'"]+)['"]/);
@@ -649,11 +726,17 @@ export async function generateTamilLeftRightDocx(
   let charColor = (options?.characterColor || '#0284c7').replace('#', '').toUpperCase();
   if (!/^[0-9A-F]{6}$/i.test(charColor)) charColor = '0284C7';
 
-  // Column split widths (total 10000 DXA)
+  let transColor = (options?.transitionColor || '#16a34a').replace('#', '').toUpperCase();
+  if (!/^[0-9A-F]{6}$/i.test(transColor)) transColor = '16A34A';
+
+  // Column split widths (total matches printable contentWidthDxa)
   const splitPercent = options?.columnSplitPercent ?? 48;
-  const totalWidthDxa = 10000;
-  const leftColWidth = Math.round(totalWidthDxa * (splitPercent / 100));
-  const rightColWidth = totalWidthDxa - leftColWidth;
+  const leftColWidth = Math.round(contentWidthDxa * (splitPercent / 100));
+  const rightColWidth = contentWidthDxa - leftColWidth;
+
+  // Element spacing in DXA: gives comfortable, distinct vertical separation between consecutive beats
+  const elemSpacingBefore = Math.max(140, Math.round((options?.gapParagraphRowPx ?? 10) * 16));
+  const elemSpacingAfter = Math.max(120, Math.round((options?.gapParagraphRowPx ?? 10) * 14));
 
   // Zero-border definitions to eliminate table boxes in Microsoft Word
   const NO_BORDER = { style: BorderStyle.NONE, size: 0, color: 'auto' };
@@ -749,17 +832,29 @@ export async function generateTamilLeftRightDocx(
       options?.sceneHeadingStyle === 'boxed' ||
       options?.sceneHeadingStyle === 'card';
 
-    // 3-Column Scene Heading Box
+    // 3-Column Scene Heading Box widths: Col 1 (44%), Col 2 (14%), Col 3 (42%)
+    const hdrCol1 = Math.round(contentWidthDxa * 0.44);
+    const hdrCol2 = Math.round(contentWidthDxa * 0.14);
+    const hdrCol3 = contentWidthDxa - hdrCol1 - hdrCol2;
+
+    // 3-Column Scene Heading Box (Properly enclosed, exact table grid widths & inner cell padding)
     children.push(
       new Table({
-        width: { size: totalWidthDxa, type: WidthType.DXA },
+        width: { size: contentWidthDxa, type: WidthType.DXA },
+        columnWidths: [hdrCol1, hdrCol2, hdrCol3],
+        margins: {
+          top: 100,
+          bottom: 100,
+          left: 140,
+          right: 140,
+        },
         borders: headingBorders,
         rows: [
           // Row 1: Sc no: (Left) | empty (Center) | Time: (Right)
           new TableRow({
             children: [
               new TableCell({
-                width: { size: 4200, type: WidthType.DXA },
+                width: { size: hdrCol1, type: WidthType.DXA },
                 borders: NO_CELL_BORDERS,
                 children: [
                   new Paragraph({
@@ -778,12 +873,12 @@ export async function generateTamilLeftRightDocx(
                 ],
               }),
               new TableCell({
-                width: { size: 1600, type: WidthType.DXA },
+                width: { size: hdrCol2, type: WidthType.DXA },
                 borders: NO_CELL_BORDERS,
                 children: [new Paragraph({ children: [] })],
               }),
               new TableCell({
-                width: { size: 4200, type: WidthType.DXA },
+                width: { size: hdrCol3, type: WidthType.DXA },
                 borders: NO_CELL_BORDERS,
                 children: [
                   new Paragraph({
@@ -808,7 +903,7 @@ export async function generateTamilLeftRightDocx(
           new TableRow({
             children: [
               new TableCell({
-                width: { size: 4200, type: WidthType.DXA },
+                width: { size: hdrCol1, type: WidthType.DXA },
                 borders: NO_CELL_BORDERS,
                 children: [
                   new Paragraph({
@@ -827,7 +922,7 @@ export async function generateTamilLeftRightDocx(
                 ],
               }),
               new TableCell({
-                width: { size: 1600, type: WidthType.DXA },
+                width: { size: hdrCol2, type: WidthType.DXA },
                 borders: isBoxedHeader
                   ? {
                       top: { style: BorderStyle.SINGLE, size: 6, color: '000000' },
@@ -854,7 +949,7 @@ export async function generateTamilLeftRightDocx(
                 ],
               }),
               new TableCell({
-                width: { size: 4200, type: WidthType.DXA },
+                width: { size: hdrCol3, type: WidthType.DXA },
                 borders: NO_CELL_BORDERS,
                 children: [
                   new Paragraph({
@@ -875,12 +970,12 @@ export async function generateTamilLeftRightDocx(
               }),
             ],
           }),
-          // Row 3: Characters(n): (Left) | Effect: (Right)
+          // Row 3: Characters(n): (Left ColSpan 2) | Effect: (Right)
           new TableRow({
             children: [
               new TableCell({
                 columnSpan: 2,
-                width: { size: 6500, type: WidthType.DXA },
+                width: { size: hdrCol1 + hdrCol2, type: WidthType.DXA },
                 borders: NO_CELL_BORDERS,
                 children: [
                   new Paragraph({
@@ -905,7 +1000,7 @@ export async function generateTamilLeftRightDocx(
                 ],
               }),
               new TableCell({
-                width: { size: 3500, type: WidthType.DXA },
+                width: { size: hdrCol3, type: WidthType.DXA },
                 borders: NO_CELL_BORDERS,
                 children: [
                   new Paragraph({
@@ -930,59 +1025,89 @@ export async function generateTamilLeftRightDocx(
       })
     );
 
-    // Two-Column Content Rows (Completely borderless, zero boxes)
-    const tableRows: TableRow[] = [];
-
-    // Subtle Column Header Row (NO cell boxes)
-    tableRows.push(
-      new TableRow({
-        children: [
-          new TableCell({
-            width: { size: leftColWidth, type: WidthType.DXA },
-            borders: NO_CELL_BORDERS,
-            children: [
-              new Paragraph({
-                spacing: { before: 100, after: 60 },
-                children: [
-                  new TextRun({
-                    text: 'காட்சி விவரம் (Visual Action)',
-                    bold: true,
-                    boldComplexScript: true,
-                    size: fontSizeHalfPt - 2,
-                    sizeComplexScript: fontSizeHalfPt - 2,
-                    color: '16A34A',
-                    font: fontObj,
-                  }),
-                ],
-              }),
-            ],
-          }),
-          new TableCell({
-            width: { size: rightColWidth, type: WidthType.DXA },
-            borders: NO_CELL_BORDERS,
-            children: [
-              new Paragraph({
-                spacing: { before: 100, after: 60 },
-                children: [
-                  new TextRun({
-                    text: 'வசனம் & ஒலி (Dialogue & Audio)',
-                    bold: true,
-                    boldComplexScript: true,
-                    size: fontSizeHalfPt - 2,
-                    sizeComplexScript: fontSizeHalfPt - 2,
-                    color: '0284C7',
-                    font: fontObj,
-                  }),
-                ],
-              }),
-            ],
-          }),
-        ],
+    // Clean vertical breathing room between Scene Heading Box and Two-Column Content
+    children.push(
+      new Paragraph({
+        spacing: { before: 200, after: 120 },
+        children: [],
       })
     );
 
-    // Content rows
-    scene.items.forEach((item) => {
+    // Two-Column Content Rows (Completely borderless, zero boxes)
+    const tableRows: TableRow[] = [];
+
+    // Generous gutter separation between Left (Action) and Right (Dialogue) columns
+    const gutterDxa = Math.max(220, Math.round((options?.columnGutterPx ?? 16) * 14));
+    const isCharBold = options?.characterNameBold !== false;
+    const isTransBold = options?.transitionBold !== false;
+
+    // Optional column guide banner (Omitted by default)
+    if (options?.showColumnGuides) {
+      tableRows.push(
+        new TableRow({
+          children: [
+            new TableCell({
+              width: { size: leftColWidth, type: WidthType.DXA },
+              borders: NO_CELL_BORDERS,
+              margins: { top: 60, bottom: 60, left: 40, right: gutterDxa },
+              children: [
+                new Paragraph({
+                  spacing: { before: 120, after: 100 },
+                  children: [
+                    new TextRun({
+                      text: 'காட்சி விவரம் (Visual Action)',
+                      bold: true,
+                      boldComplexScript: true,
+                      size: fontSizeHalfPt - 2,
+                      sizeComplexScript: fontSizeHalfPt - 2,
+                      color: '16A34A',
+                      font: fontObj,
+                    }),
+                  ],
+                }),
+              ],
+            }),
+            new TableCell({
+              width: { size: rightColWidth, type: WidthType.DXA },
+              borders: NO_CELL_BORDERS,
+              margins: { top: 60, bottom: 60, left: gutterDxa, right: 40 },
+              children: [
+                new Paragraph({
+                  spacing: { before: 120, after: 100 },
+                  children: [
+                    new TextRun({
+                      text: 'வசனம் & ஒலி (Dialogue & Audio)',
+                      bold: true,
+                      boldComplexScript: true,
+                      size: fontSizeHalfPt - 2,
+                      sizeComplexScript: fontSizeHalfPt - 2,
+                      color: '0284C7',
+                      font: fontObj,
+                    }),
+                  ],
+                }),
+              ],
+            }),
+          ],
+        })
+      );
+    }
+
+    // Content rows (with auto end-of-scene CUT TO if enabled)
+    const effectiveItems: TamilScriptItem[] = [...scene.items];
+    if (options?.autoEndSceneCutTo !== false && !hasEndSceneTransition(scene.items)) {
+      effectiveItems.push({
+        id: `auto-cut-to-${scene.id}`,
+        type: 'transition',
+        column: 'center',
+        rawText: options?.endSceneCutToText || 'CUT TO:',
+      });
+    }
+
+    effectiveItems.forEach((item) => {
+      const itemColor = item.textColor ? item.textColor.replace('#', '').toUpperCase() : undefined;
+      const validItemColor = itemColor && /^[0-9A-F]{6}$/i.test(itemColor) ? itemColor : undefined;
+
       if (item.column === 'center' || item.type === 'transition' || item.type === 'title') {
         const centerText = item.rawText || item.leftAction || item.rightDialogue || '';
         tableRows.push(
@@ -991,17 +1116,17 @@ export async function generateTamilLeftRightDocx(
             children: [
               new TableCell({
                 columnSpan: 2,
-                width: { size: totalWidthDxa, type: WidthType.DXA },
+                width: { size: contentWidthDxa, type: WidthType.DXA },
                 borders: NO_CELL_BORDERS,
                 children: [
                   new Paragraph({
                     alignment: AlignmentType.CENTER,
-                    spacing: { before: 160, after: 160 },
+                    spacing: { before: 240, after: 200 },
                     children: parseFormattedRuns(centerText, {
                       font: fontObj,
                       size: fontSizeHalfPt + 2,
-                      bold: true,
-                      color: '16A34A',
+                      bold: isTransBold,
+                      color: validItemColor || transColor,
                     }),
                   }),
                 ],
@@ -1022,18 +1147,39 @@ export async function generateTamilLeftRightDocx(
         }
         if (charName.endsWith(':')) charName = charName.slice(0, -1).trim();
 
+        // Alignment resolution: item-specific -> option fallback -> default
+        const actionAlign = item.textAlign || options?.actionTextAlign || 'justify';
+        const docxActionAlign =
+          actionAlign === 'left'
+            ? AlignmentType.LEFT
+            : actionAlign === 'center'
+            ? AlignmentType.CENTER
+            : actionAlign === 'right'
+            ? AlignmentType.RIGHT
+            : AlignmentType.BOTH;
+
+        const diaAlign = item.textAlign || options?.dialogueTextAlign || 'left';
+        const docxDiaAlign =
+          diaAlign === 'justify'
+            ? AlignmentType.BOTH
+            : diaAlign === 'center'
+            ? AlignmentType.CENTER
+            : diaAlign === 'right'
+            ? AlignmentType.RIGHT
+            : AlignmentType.LEFT;
+
         const leftParas: Paragraph[] = [];
         if (isRight) {
           // Dialogue Row: Character Name on Left TableCell, Right-Aligned with ":"
           leftParas.push(
             new Paragraph({
               alignment: AlignmentType.RIGHT,
-              spacing: { before: 70, after: 70 },
+              spacing: { before: elemSpacingBefore, after: 60 },
               children: [
                 new TextRun({
                   text: `${charName || 'கதாபாத்திரம்'} :`,
-                  bold: true,
-                  boldComplexScript: true,
+                  bold: isCharBold,
+                  boldComplexScript: isCharBold,
                   size: fontSizeHalfPt,
                   sizeComplexScript: fontSizeHalfPt,
                   color: charColor,
@@ -1043,15 +1189,17 @@ export async function generateTamilLeftRightDocx(
             })
           );
         } else {
-          // Action Row: Action on Left TableCell, Left-Aligned
+          // Action Row: Action on Left TableCell with configured alignment
           const actionText = item.leftAction || item.rawText || '';
           if (actionText) {
             leftParas.push(
               new Paragraph({
-                spacing: { before: 70, after: 90 },
+                alignment: docxActionAlign,
+                spacing: { before: elemSpacingBefore, after: elemSpacingAfter, line: 280 },
                 children: parseFormattedRuns(actionText, {
                   font: fontObj,
                   size: fontSizeHalfPt,
+                  color: validItemColor,
                 }),
               })
             );
@@ -1065,11 +1213,12 @@ export async function generateTamilLeftRightDocx(
           // Dialogue starts directly next to the character name on right TableCell
           rightParas.push(
             new Paragraph({
-              alignment: AlignmentType.LEFT,
-              spacing: { before: 70, after: 70 },
+              alignment: docxDiaAlign,
+              spacing: { before: elemSpacingBefore, after: elemSpacingAfter, line: 280 },
               children: parseFormattedRuns(diaText, {
                 font: fontObj,
                 size: fontSizeHalfPt,
+                color: validItemColor,
               }),
             })
           );
@@ -1080,7 +1229,7 @@ export async function generateTamilLeftRightDocx(
         if (item.rightAudioSfx) {
           rightParas.push(
             new Paragraph({
-              spacing: { before: 30, after: 60 },
+              spacing: { before: 40, after: 80 },
               children: parseFormattedRuns(item.rightAudioSfx, {
                 font: fontObj,
                 size: fontSizeHalfPt - 2,
@@ -1102,11 +1251,23 @@ export async function generateTamilLeftRightDocx(
                 width: { size: leftColWidth, type: WidthType.DXA },
                 children: leftParas,
                 borders: NO_CELL_BORDERS,
+                margins: {
+                  top: 40,
+                  bottom: 40,
+                  left: 40,
+                  right: gutterDxa,
+                },
               }),
               new TableCell({
                 width: { size: rightColWidth, type: WidthType.DXA },
                 children: rightParas,
                 borders: NO_CELL_BORDERS,
+                margins: {
+                  top: 40,
+                  bottom: 40,
+                  left: gutterDxa,
+                  right: 40,
+                },
               }),
             ],
           })
@@ -1117,28 +1278,15 @@ export async function generateTamilLeftRightDocx(
     // Push 2-Column Content Table with ZERO borders
     children.push(
       new Table({
-        width: { size: totalWidthDxa, type: WidthType.DXA },
+        width: { size: contentWidthDxa, type: WidthType.DXA },
+        columnWidths: [leftColWidth, rightColWidth],
         borders: NO_TABLE_BORDERS,
         rows: tableRows,
       })
     );
 
-    children.push(new Paragraph({ spacing: { after: 180 }, children: [] }));
+    children.push(new Paragraph({ spacing: { after: 200 }, children: [] }));
   });
-
-  // Calculate margins in DXA (1mm = 56.7 dxa)
-  const marginTop = Math.round((options?.marginTopMm ?? 22) * 56.7);
-  const marginBottom = Math.round((options?.marginBottomMm ?? 22) * 56.7);
-  const marginLeft = Math.round((options?.marginLeftMm ?? 22) * 56.7);
-  const marginRight = Math.round((options?.marginRightMm ?? 22) * 56.7);
-
-  // Paper standard sizes in DXA (twentieths of a point)
-  const PAGE_DIMENSIONS_DXA: Record<string, { width: number; height: number }> = {
-    A4: { width: 11906, height: 16838 },
-    US_Letter: { width: 12240, height: 15840 },
-    Legal: { width: 12240, height: 20160 },
-  };
-  const pageDim = PAGE_DIMENSIONS_DXA[options?.paperStandard || 'A4'] || PAGE_DIMENSIONS_DXA.A4;
 
   const doc = new Document({
     sections: [
