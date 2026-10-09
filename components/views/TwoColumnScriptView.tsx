@@ -32,6 +32,8 @@ import { TwoColumnSceneSidebar } from '../TwoColumnSceneSidebar';
 import { TwoColumnFindReplace } from '../TwoColumnFindReplace';
 import { TwoColumnExportModal } from '../TwoColumnExportModal';
 import { CharacterSuggestionManagerModal } from '../CharacterSuggestionManagerModal';
+import { TwoColumnItemRow } from '../TwoColumnItemRow';
+import { TwoColumnShortcutsModal } from '../TwoColumnShortcutsModal';
 import { printTwoColumnVector } from '../../services/twoColumnExportEngine';
 import confetti from 'canvas-confetti';
 import html2canvas from 'html2canvas';
@@ -71,6 +73,9 @@ import {
   Palette,
   Users,
   GripVertical,
+  Undo2,
+  Redo2,
+  Keyboard,
 } from 'lucide-react';
 
 export interface TwoColumnScriptViewProps {
@@ -165,23 +170,49 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
   const [activeSceneId, setActiveSceneId] = useState<string | null>(null);
   const [isFindReplaceOpen, setIsFindReplaceOpen] = useState<boolean>(false);
   const [showReplaceByDefault, setShowReplaceByDefault] = useState<boolean>(false);
+  const [isShortcutsModalOpen, setIsShortcutsModalOpen] = useState<boolean>(false);
 
-  // Global keyboard shortcuts for Find & Replace (Cmd+F, Cmd+H)
-  useEffect(() => {
-    const handleGlobalKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'f') {
-        e.preventDefault();
-        setIsFindReplaceOpen(true);
-        setShowReplaceByDefault(false);
-      } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'h') {
-        e.preventDefault();
-        setIsFindReplaceOpen(true);
-        setShowReplaceByDefault(true);
-      }
-    };
-    window.addEventListener('keydown', handleGlobalKeyDown);
-    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+  // Undo & Redo History Management (fast & lightweight, capped at 50 states)
+  const undoStackRef = useRef<TamilScreenplayData[]>([]);
+  const redoStackRef = useRef<TamilScreenplayData[]>([]);
+  const [canUndo, setCanUndo] = useState<boolean>(false);
+  const [canRedo, setCanRedo] = useState<boolean>(false);
+
+  // Record snapshot into undo history before applying modifications
+  const pushToUndoHistory = useCallback((snapshot: TamilScreenplayData) => {
+    const stack = undoStackRef.current;
+    if (stack.length >= 50) {
+      stack.shift();
+    }
+    stack.push(JSON.parse(JSON.stringify(snapshot)));
+    redoStackRef.current = [];
+    setCanUndo(true);
+    setCanRedo(false);
   }, []);
+
+  const handleUndo = useCallback(() => {
+    if (undoStackRef.current.length === 0) return;
+    const previous = undoStackRef.current.pop()!;
+    redoStackRef.current.push(JSON.parse(JSON.stringify(screenplayData)));
+    setScreenplayData(previous);
+    setCanUndo(undoStackRef.current.length > 0);
+    setCanRedo(true);
+    setHasUnsavedChanges(true);
+    setToastMessage('↩ Undone last action');
+    setTimeout(() => setToastMessage(null), 2500);
+  }, [screenplayData]);
+
+  const handleRedo = useCallback(() => {
+    if (redoStackRef.current.length === 0) return;
+    const next = redoStackRef.current.pop()!;
+    undoStackRef.current.push(JSON.parse(JSON.stringify(screenplayData)));
+    setScreenplayData(next);
+    setCanUndo(true);
+    setCanRedo(redoStackRef.current.length > 0);
+    setHasUnsavedChanges(true);
+    setToastMessage('↪ Redone');
+    setTimeout(() => setToastMessage(null), 2500);
+  }, [screenplayData]);
 
   useEffect(() => {
     const handleClose = () => setActiveDropdown(null);
@@ -446,6 +477,8 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
     const idsToMove = specificItemId ? new Set([specificItemId]) : selectedItemIds;
     if (idsToMove.size === 0) return;
 
+    pushToUndoHistory(screenplayData);
+
     setScreenplayData((prev) => {
       const nextScenes = prev.scenes.map((scene) => ({
         ...scene,
@@ -494,6 +527,20 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
 
   // Direct in-place text update
   const handleUpdateItemText = (itemId: string, newText: string) => {
+    // Check if text actually changed before pushing undo
+    let hasChanged = false;
+    for (const sc of screenplayData.scenes) {
+      const it = sc.items.find((i) => i.id === itemId);
+      if (it) {
+        const cur = it.column === 'left' ? it.leftAction : it.column === 'right' ? it.rightDialogue : it.rawText;
+        if ((cur || '') !== newText) hasChanged = true;
+        break;
+      }
+    }
+    if (hasChanged) {
+      pushToUndoHistory(screenplayData);
+    }
+
     if (itemId.startsWith('auto-cut-to-')) {
       const sceneId = itemId.replace('auto-cut-to-', '');
       setScreenplayData((prev) => ({
@@ -542,6 +589,18 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
 
   // Direct in-place character update
   const handleUpdateItemCharacter = (itemId: string, newChar: string) => {
+    let hasChanged = false;
+    for (const sc of screenplayData.scenes) {
+      const it = sc.items.find((i) => i.id === itemId);
+      if (it && (it.rightCharacter || '') !== newChar) {
+        hasChanged = true;
+        break;
+      }
+    }
+    if (hasChanged) {
+      pushToUndoHistory(screenplayData);
+    }
+
     setScreenplayData((prev) => ({
       ...prev,
       scenes: prev.scenes.map((sc) => ({
@@ -700,6 +759,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
   // Direct alignment update for selected paragraphs or default layout
   const handleUpdateItemAlignment = (align: 'left' | 'center' | 'right' | 'justify') => {
     if (selectedItemIds.size > 0) {
+      pushToUndoHistory(screenplayData);
       setScreenplayData((prev) => ({
         ...prev,
         scenes: prev.scenes.map((sc) => ({
@@ -731,6 +791,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
     e?: React.MouseEvent
   ) => {
     if (e) e.stopPropagation();
+    pushToUndoHistory(screenplayData);
     setScreenplayData((prev) => ({
       ...prev,
       scenes: prev.scenes.map((sc) => ({
@@ -744,6 +805,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
   // Direct text color update for single or selected paragraphs
   const handleUpdateItemColor = (itemIds: Set<string> | string, color?: string) => {
     const ids = typeof itemIds === 'string' ? new Set([itemIds]) : itemIds;
+    pushToUndoHistory(screenplayData);
     setScreenplayData((prev) => ({
       ...prev,
       scenes: prev.scenes.map((sc) => ({
@@ -757,6 +819,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
 
   // Update scene metadata
   const handleUpdateScene = (sceneId: string, updates: Partial<TamilScene>) => {
+    pushToUndoHistory(screenplayData);
     setScreenplayData((prev) => ({
       ...prev,
       scenes: prev.scenes.map((sc) => (sc.id === sceneId ? { ...sc, ...updates } : sc)),
@@ -765,12 +828,13 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
   };
 
   // Delete item
-  const handleDeleteItem = (itemId: string, e: React.MouseEvent) => {
-    e.stopPropagation();
+  const handleDeleteItem = (itemId: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
     if (itemId.startsWith('auto-cut-to-')) {
       showToast('Tip: You can turn off "Auto CUT TO at End of Scene" in the Style Drawer.');
       return;
     }
+    pushToUndoHistory(screenplayData);
     setScreenplayData((prev) => ({
       ...prev,
       scenes: prev.scenes.map((sc) => ({
@@ -784,12 +848,31 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
       return next;
     });
     setHasUnsavedChanges(true);
+    showToast('✓ Deleted item');
+  };
+
+  // Delete all selected paragraphs
+  const handleDeleteSelected = () => {
+    if (selectedItemIds.size === 0) return;
+    pushToUndoHistory(screenplayData);
+    const idsToDelete = new Set(selectedItemIds);
+    setScreenplayData((prev) => ({
+      ...prev,
+      scenes: prev.scenes.map((sc) => ({
+        ...sc,
+        items: sc.items.filter((it) => !idsToDelete.has(it.id)),
+      })),
+    }));
+    setSelectedItemIds(new Set());
+    setHasUnsavedChanges(true);
+    showToast(`✓ Deleted ${idsToDelete.size} paragraph(s)`);
   };
 
   // Permanently bake CUT TO transition into all scenes that don't have one
   const handleApplyCutToToAllScenes = () => {
     let addedCount = 0;
     const transitionText = layoutOptions.endSceneCutToText || 'CUT TO:';
+    pushToUndoHistory(screenplayData);
     setScreenplayData((prev) => ({
       ...prev,
       scenes: prev.scenes.map((sc, idx) => {
@@ -885,6 +968,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
       rawText: '',
     };
 
+    pushToUndoHistory(screenplayData);
     setSelectedItemIds(new Set());
     setScreenplayData((prev) => {
       let inserted = false;
@@ -926,6 +1010,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
       rawText: '',
     };
 
+    pushToUndoHistory(screenplayData);
     setSelectedItemIds(new Set());
     setScreenplayData((prev) => {
       let inserted = false;
@@ -963,6 +1048,8 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
   // Reorder script items via drag-and-drop
   const handleMoveScriptItem = (sourceId: string, targetId: string, position: 'above' | 'below') => {
     if (!sourceId || !targetId || sourceId === targetId) return;
+
+    pushToUndoHistory(screenplayData);
 
     setScreenplayData((prev) => {
       let movedItem: TamilScriptItem | null = null;
@@ -1014,6 +1101,8 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
     customFullText?: string
   ) => {
     const newItemId = `item-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+
+    pushToUndoHistory(screenplayData);
 
     setScreenplayData((prev) => {
       let itemFound = false;
@@ -1100,34 +1189,446 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
     }, 60);
   };
 
-  // Keyboard navigation shortcuts
+  // Scroll smoothly to item element
+  const scrollToItem = (itemId: string) => {
+    // If in single page mode, ensure the page holding this item is displayed
+    if (pageViewMode === 'single') {
+      const pageIdx = pages.findIndex((p) =>
+        p.elements.some((el) => el.type === 'item' && el.item.id === itemId)
+      );
+      if (pageIdx !== -1 && pageIdx + 1 !== currentSinglePage) {
+        setCurrentSinglePage(pageIdx + 1);
+      }
+    }
+    setTimeout(() => {
+      const el =
+        document.getElementById(`script-row-${itemId}`) ||
+        document.querySelector(`[data-item-row-id="${itemId}"]`);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+    }, 20);
+  };
+
+  // Focus item for keyboard editing
+  const focusScriptItem = (
+    itemId: string,
+    targetField: 'auto' | 'action' | 'dialogue' | 'character' = 'auto',
+    caretPosition: 'start' | 'end' = 'end'
+  ) => {
+    scrollToItem(itemId);
+
+    setTimeout(() => {
+      let targetEl: HTMLElement | null = null;
+      const rowContainer = document.querySelector(`[data-item-row-id="${itemId}"]`);
+      if (!rowContainer) return;
+
+      if (targetField === 'character') {
+        targetEl = rowContainer.querySelector(`[data-char-container="${itemId}"] input`) as HTMLInputElement | null;
+      } else if (targetField === 'dialogue') {
+        targetEl = rowContainer.querySelector(`[data-col="right"] [data-item-id="${itemId}"], [data-item-id="${itemId}"]`) as HTMLElement | null;
+      } else if (targetField === 'action') {
+        targetEl = rowContainer.querySelector(`[data-col="left"] [data-item-id="${itemId}"], [data-item-id="${itemId}"]`) as HTMLElement | null;
+      } else {
+        // Auto: check if right column with filled character
+        const charInput = rowContainer.querySelector(`[data-char-container="${itemId}"] input`) as HTMLInputElement | null;
+        const dialogueEl = rowContainer.querySelector(`[data-col="right"] [data-item-id="${itemId}"]`) as HTMLElement | null;
+        if (dialogueEl && charInput && charInput.value.trim().length > 0) {
+          targetEl = dialogueEl;
+        } else if (charInput) {
+          targetEl = charInput;
+        } else {
+          targetEl = rowContainer.querySelector(`[data-item-id="${itemId}"]`) as HTMLElement | null;
+        }
+      }
+
+      if (targetEl) {
+        targetEl.focus();
+        if (targetEl instanceof HTMLInputElement) {
+          if (caretPosition === 'start') {
+            targetEl.setSelectionRange(0, 0);
+          } else {
+            const len = targetEl.value.length;
+            targetEl.setSelectionRange(len, len);
+          }
+        } else if (targetEl.isContentEditable) {
+          const sel = window.getSelection();
+          if (sel) {
+            const range = document.createRange();
+            range.selectNodeContents(targetEl);
+            range.collapse(caretPosition === 'start');
+            sel.removeAllRanges();
+            sel.addRange(range);
+          }
+        }
+      }
+    }, 40);
+  };
+
+  // Jump focus to next row during keyboard editing
+  const handleFocusNextRow = (
+    currentItemId: string,
+    targetField: 'auto' | 'action' | 'dialogue' | 'character' = 'auto'
+  ) => {
+    const idx = orderedItemIds.indexOf(currentItemId);
+    if (idx !== -1 && idx < orderedItemIds.length - 1) {
+      const nextId = orderedItemIds[idx + 1];
+      setSelectedItemIds(new Set([nextId]));
+      setLastSelectedId(nextId);
+      focusScriptItem(nextId, targetField, 'start');
+    } else if (idx === orderedItemIds.length - 1) {
+      handleAddParagraphBelow(currentItemId, targetField === 'dialogue' ? 'right' : 'left');
+    }
+  };
+
+  // Jump focus to previous row during keyboard editing
+  const handleFocusPrevRow = (
+    currentItemId: string,
+    targetField: 'auto' | 'action' | 'dialogue' | 'character' = 'auto'
+  ) => {
+    const idx = orderedItemIds.indexOf(currentItemId);
+    if (idx > 0) {
+      const prevId = orderedItemIds[idx - 1];
+      setSelectedItemIds(new Set([prevId]));
+      setLastSelectedId(prevId);
+      focusScriptItem(prevId, targetField, 'end');
+    }
+  };
+
+  // Exit text editing and focus card container for browsing
+  const handleEscapeToCard = (itemId: string) => {
+    setSelectedItemIds(new Set([itemId]));
+    setLastSelectedId(itemId);
+    const cardEl = document.getElementById(`script-row-card-${itemId}`);
+    if (cardEl) {
+      cardEl.focus({ preventScroll: true });
+    }
+  };
+
+  // Comprehensive Global Keyboard Navigation, Shortcuts, and Undo/Redo Engine
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement;
-      if (target.isContentEditable || target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      const activeEl = document.activeElement as HTMLElement | null;
+      const isInputFocused =
+        activeEl &&
+        (activeEl.tagName === 'INPUT' ||
+          activeEl.tagName === 'TEXTAREA' ||
+          activeEl.isContentEditable);
+
+      // 1. UNDO: Ctrl+Z / Cmd+Z (without Shift)
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        if (isInputFocused) activeEl.blur();
+        handleUndo();
         return;
       }
 
-      if (selectedItemIds.size > 0) {
+      // 2. REDO: Ctrl+Y / Cmd+Y OR Ctrl+Shift+Z / Cmd+Shift+Z
+      if (
+        ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'y') ||
+        ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'z')
+      ) {
+        e.preventDefault();
+        if (isInputFocused) activeEl.blur();
+        handleRedo();
+        return;
+      }
+
+      // 3. SAVE: Ctrl+S / Cmd+S
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        if (isInputFocused) activeEl.blur();
+        saveToVault(true);
+        return;
+      }
+
+      // 4. FIND: Ctrl+F / Cmd+F
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'f') {
+        e.preventDefault();
+        setIsFindReplaceOpen(true);
+        setShowReplaceByDefault(false);
+        return;
+      }
+
+      // 5. REPLACE: Ctrl+H / Cmd+H
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'h') {
+        e.preventDefault();
+        setIsFindReplaceOpen(true);
+        setShowReplaceByDefault(true);
+        return;
+      }
+
+      // 6. SHORTCUTS MODAL: ? or F1
+      if (!isInputFocused && (e.key === '?' || e.key === 'F1')) {
+        e.preventDefault();
+        setIsShortcutsModalOpen((prev) => !prev);
+        return;
+      }
+
+      // 7. SIDEBAR TOGGLE: Ctrl+B / Cmd+B or [ (when not editing)
+      if (
+        ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'b') ||
+        (!isInputFocused && e.key === '[')
+      ) {
+        e.preventDefault();
+        setIsSceneSidebarOpen((prev) => !prev);
+        return;
+      }
+
+      // 8. INSERT BLOCK BELOW / ABOVE: Ctrl+Enter / Cmd+Enter
+      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+        e.preventDefault();
+        const targetId =
+          lastSelectedId ||
+          (selectedItemIds.size > 0
+            ? Array.from(selectedItemIds)[0]
+            : orderedItemIds[orderedItemIds.length - 1]);
+        if (targetId) {
+          if (e.shiftKey) {
+            handleAddParagraphAbove(targetId, 'left');
+          } else {
+            handleAddParagraphBelow(targetId, 'left');
+          }
+        }
+        return;
+      }
+
+      // 9. DELETE CURRENT BLOCK: Ctrl+D or Alt+Backspace
+      if (
+        ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'd') ||
+        (e.altKey && e.key === 'Backspace')
+      ) {
+        e.preventDefault();
+        const targetId =
+          lastSelectedId ||
+          (selectedItemIds.size > 0 ? Array.from(selectedItemIds)[0] : null);
+        if (targetId) {
+          handleDeleteItem(targetId);
+        }
+        return;
+      }
+
+      // 10. COLUMN CONVERSION: Alt+Left / Alt+Right / Alt+C
+      if (e.altKey && !isInputFocused) {
         if (e.key === 'ArrowLeft') {
           e.preventDefault();
           moveParagraphsToColumn('left');
-        } else if (e.key === 'ArrowRight') {
+          return;
+        }
+        if (e.key === 'ArrowRight') {
           e.preventDefault();
           moveParagraphsToColumn('right');
-        } else if (e.key === 'ArrowUp' || e.key === 'c' || e.key === 'C') {
+          return;
+        }
+        if (e.key === 'c' || e.key === 'C') {
           e.preventDefault();
           moveParagraphsToColumn('center');
-        } else if (e.key === 'Escape') {
+          return;
+        }
+      }
+
+      // 10b. QUICK ROW JUMP WHILE EDITING: Alt + ArrowDown / Alt + ArrowUp
+      if (e.altKey && !e.shiftKey) {
+        if (e.key === 'ArrowDown') {
+          const currentId =
+            lastSelectedId ||
+            (selectedItemIds.size > 0 ? Array.from(selectedItemIds)[0] : null);
+          if (currentId) {
+            e.preventDefault();
+            handleFocusNextRow(currentId, 'auto');
+            return;
+          }
+        }
+        if (e.key === 'ArrowUp') {
+          const currentId =
+            lastSelectedId ||
+            (selectedItemIds.size > 0 ? Array.from(selectedItemIds)[0] : null);
+          if (currentId) {
+            e.preventDefault();
+            handleFocusPrevRow(currentId, 'auto');
+            return;
+          }
+        }
+      }
+
+      // 11. REORDERING BLOCKS UP/DOWN: Alt + Shift + Up / Down
+      if (e.altKey && e.shiftKey) {
+        const targetId =
+          lastSelectedId ||
+          (selectedItemIds.size === 1 ? Array.from(selectedItemIds)[0] : null);
+        if (targetId) {
+          const idx = orderedItemIds.indexOf(targetId);
+          if (e.key === 'ArrowUp' && idx > 0) {
+            e.preventDefault();
+            const prevId = orderedItemIds[idx - 1];
+            handleMoveScriptItem(targetId, prevId, 'above');
+            return;
+          }
+          if (e.key === 'ArrowDown' && idx < orderedItemIds.length - 1) {
+            e.preventDefault();
+            const nextId = orderedItemIds[idx + 1];
+            handleMoveScriptItem(targetId, nextId, 'below');
+            return;
+          }
+        }
+      }
+
+      // 12. NON-INPUT NAVIGATION & SELECTION (ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Enter, Esc, Delete, Home, End)
+      if (!isInputFocused) {
+        if (e.key === 'Escape') {
           e.preventDefault();
           handleClearSelection();
+          return;
+        }
+
+        if (e.key === 'Delete' || e.key === 'Backspace') {
+          if (selectedItemIds.size > 0) {
+            e.preventDefault();
+            handleDeleteSelected();
+            return;
+          }
+        }
+
+        // Navigate Down
+        if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          if (orderedItemIds.length === 0) return;
+          const currentId =
+            lastSelectedId ||
+            (selectedItemIds.size > 0
+              ? Array.from(selectedItemIds)[selectedItemIds.size - 1]
+              : null);
+          const currentIdx = currentId ? orderedItemIds.indexOf(currentId) : -1;
+          const nextIdx = currentIdx === -1 ? 0 : Math.min(orderedItemIds.length - 1, currentIdx + 1);
+          const nextId = orderedItemIds[nextIdx];
+
+          if (e.shiftKey && currentId) {
+            const startIdx = orderedItemIds.indexOf(Array.from(selectedItemIds)[0]);
+            const newRange = orderedItemIds.slice(
+              Math.min(startIdx, nextIdx),
+              Math.max(startIdx, nextIdx) + 1
+            );
+            setSelectedItemIds(new Set(newRange));
+          } else {
+            setSelectedItemIds(new Set([nextId]));
+          }
+          setLastSelectedId(nextId);
+          scrollToItem(nextId);
+
+          const cardEl = document.getElementById(`script-row-card-${nextId}`);
+          if (cardEl) cardEl.focus({ preventScroll: true });
+          return;
+        }
+
+        // Navigate Up
+        if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          if (orderedItemIds.length === 0) return;
+          const currentId =
+            lastSelectedId ||
+            (selectedItemIds.size > 0 ? Array.from(selectedItemIds)[0] : null);
+          const currentIdx = currentId
+            ? orderedItemIds.indexOf(currentId)
+            : orderedItemIds.length;
+          const prevIdx = currentIdx === -1 ? orderedItemIds.length - 1 : Math.max(0, currentIdx - 1);
+          const prevId = orderedItemIds[prevIdx];
+
+          if (e.shiftKey && currentId) {
+            const startIdx = orderedItemIds.indexOf(Array.from(selectedItemIds)[0]);
+            const newRange = orderedItemIds.slice(
+              Math.min(startIdx, prevIdx),
+              Math.max(startIdx, prevIdx) + 1
+            );
+            setSelectedItemIds(new Set(newRange));
+          } else {
+            setSelectedItemIds(new Set([prevId]));
+          }
+          setLastSelectedId(prevId);
+          scrollToItem(prevId);
+
+          const cardEl = document.getElementById(`script-row-card-${prevId}`);
+          if (cardEl) cardEl.focus({ preventScroll: true });
+          return;
+        }
+
+        // Home: jump to first row
+        if (e.key === 'Home') {
+          if (orderedItemIds.length > 0) {
+            e.preventDefault();
+            const firstId = orderedItemIds[0];
+            setSelectedItemIds(new Set([firstId]));
+            setLastSelectedId(firstId);
+            scrollToItem(firstId);
+            const cardEl = document.getElementById(`script-row-card-${firstId}`);
+            if (cardEl) cardEl.focus({ preventScroll: true });
+            return;
+          }
+        }
+
+        // End: jump to last row
+        if (e.key === 'End') {
+          if (orderedItemIds.length > 0) {
+            e.preventDefault();
+            const lastId = orderedItemIds[orderedItemIds.length - 1];
+            setSelectedItemIds(new Set([lastId]));
+            setLastSelectedId(lastId);
+            scrollToItem(lastId);
+            const cardEl = document.getElementById(`script-row-card-${lastId}`);
+            if (cardEl) cardEl.focus({ preventScroll: true });
+            return;
+          }
+        }
+
+        // ArrowRight in card mode: enter editing directly in Right column (Dialogue)
+        if (e.key === 'ArrowRight' && !e.altKey && !e.shiftKey) {
+          const targetId = lastSelectedId || (selectedItemIds.size === 1 ? Array.from(selectedItemIds)[0] : null);
+          if (targetId) {
+            e.preventDefault();
+            focusScriptItem(targetId, 'dialogue', 'end');
+            return;
+          }
+        }
+
+        // ArrowLeft in card mode: enter editing directly in Left column (Action)
+        if (e.key === 'ArrowLeft' && !e.altKey && !e.shiftKey) {
+          const targetId = lastSelectedId || (selectedItemIds.size === 1 ? Array.from(selectedItemIds)[0] : null);
+          if (targetId) {
+            e.preventDefault();
+            focusScriptItem(targetId, 'action', 'end');
+            return;
+          }
+        }
+
+        // Enter to focus selected block into editing
+        if (e.key === 'Enter') {
+          const targetId =
+            lastSelectedId ||
+            (selectedItemIds.size === 1 ? Array.from(selectedItemIds)[0] : null);
+          if (targetId) {
+            e.preventDefault();
+            focusScriptItem(targetId, 'auto', 'end');
+            return;
+          }
         }
       }
     };
 
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedItemIds]);
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+  }, [
+    selectedItemIds,
+    lastSelectedId,
+    orderedItemIds,
+    handleUndo,
+    handleRedo,
+    moveParagraphsToColumn,
+    handleMoveScriptItem,
+    handleDeleteSelected,
+    handleAddParagraphAbove,
+    handleAddParagraphBelow,
+    handleFocusNextRow,
+    handleFocusPrevRow,
+  ]);
 
   // Download Word (.docx) and ensure it is saved to Vault
   const handleDownloadWordDocx = async () => {
@@ -1185,7 +1686,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
     }
   };
 
-  // Save changes to Vault (immediate or debounced auto-save)
+  // Save changes to Vault (immediate or debounced auto-save without UI stutter)
   const saveToVault = useCallback((isManual = false) => {
     if (!activeDoc) return;
     const html = generateTamilLeftRightHtml(screenplayData);
@@ -1197,18 +1698,19 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
       lastModified: new Date().toISOString(),
     };
 
-    const nextList = documents.map((d) => (d.id === updated.id ? updated : d));
-    setDocuments(nextList);
+    const allDocs = getProductionDocuments();
+    const nextList = allDocs.map((d) => (d.id === updated.id ? updated : d));
     saveProductionDocuments(nextList);
     setHasUnsavedChanges(false);
     setIsAutoSaving(false);
     setLastSavedAt(new Date());
 
     if (isManual) {
+      setDocuments(nextList);
       confetti({ particleCount: 25, spread: 50, origin: { y: 0.8 } });
       showToast('✓ Saved 2-Column Screenplay to Vault!');
     }
-  }, [activeDoc, screenplayData, documents]);
+  }, [activeDoc, screenplayData]);
 
   // Automatic Debounced Live-Save (saves in background 1.5s after editing stops)
   useEffect(() => {
@@ -1469,6 +1971,56 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
           </div>
 
           <div className={`w-[1px] h-5 mx-1 hidden sm:block ${isLight ? 'bg-slate-200' : 'bg-zinc-700/60'}`} />
+
+          {/* Undo & Redo History Controls */}
+          <div
+            className={`flex items-center gap-0.5 border rounded-lg p-0.5 ${
+              isLight ? 'bg-slate-100 border-slate-300' : 'bg-zinc-900 border-zinc-800'
+            }`}
+          >
+            <button
+              onClick={handleUndo}
+              disabled={!canUndo}
+              className={`p-1.5 rounded transition-all cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed ${
+                isLight ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-200' : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
+              }`}
+              title="Undo last change (Ctrl+Z / ⌘Z)"
+            >
+              <Undo2 size={13} />
+            </button>
+            <button
+              onClick={handleRedo}
+              disabled={!canRedo}
+              className={`p-1.5 rounded transition-all cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed ${
+                isLight ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-200' : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
+              }`}
+              title="Redo (Ctrl+Y / ⌘Shift+Z)"
+            >
+              <Redo2 size={13} />
+            </button>
+          </div>
+
+          <div className={`w-[1px] h-5 mx-1 hidden sm:block ${isLight ? 'bg-slate-200' : 'bg-zinc-700/60'}`} />
+
+          {/* Keyboard Shortcuts Trigger Button */}
+          <button
+            onClick={() => setIsShortcutsModalOpen(true)}
+            className={`px-2.5 py-1.5 text-xs font-bold rounded-xl border flex items-center gap-1.5 transition-all shadow-xs cursor-pointer ${
+              isLight
+                ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
+                : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border-zinc-700'
+            }`}
+            title="Keyboard Shortcuts Cheatsheet (? / F1)"
+          >
+            <Keyboard size={13} className={isLight ? 'text-emerald-700' : 'text-emerald-400'} />
+            <span className="hidden sm:inline">Shortcuts</span>
+            <span className={`text-[9.5px] font-mono px-1 py-0.2 rounded border ${
+              isLight ? 'bg-white text-slate-600 border-slate-300' : 'bg-black/40 text-zinc-400 border-zinc-700'
+            }`}>?</span>
+          </button>
+
+          <div className={`w-[1px] h-5 mx-1 hidden sm:block ${isLight ? 'bg-slate-200' : 'bg-zinc-700/60'}`} />
+
           {/* Format & Style Drawer Toggle */}
           <button
             onClick={() => setIsStyleDrawerOpen(!isStyleDrawerOpen)}
@@ -1804,6 +2356,8 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
                   fontFamily: layoutOptions.baseFontFamily,
                   fontSize: `${layoutOptions.baseFontSizePx}px`,
                   lineHeight: layoutOptions.baseLineHeight,
+                  contentVisibility: pageViewMode === 'stacked' ? 'auto' : undefined,
+                  containIntrinsicSize: pageViewMode === 'stacked' ? `${page.widthPx}px ${page.heightPx}px` : undefined,
                 }}
                 className={`relative shadow-2xl rounded-xs transition-all border flex flex-col justify-between ${
                   isLight
@@ -1994,25 +2548,71 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
                     const isFirstItemInScene = idx === 0 || (idx > 0 && page.elements[idx - 1].type === 'scene_header');
 
                     return (
-                      <div
+                      <TwoColumnItemRow
                         key={item.id}
-                        id={`script-row-${item.id}`}
-                        data-item-row-id={item.id}
-                        className="relative group/row"
-                        style={{ marginBottom: `${layoutOptions.gapParagraphRowPx}px` }}
-                        onDragOver={(e) => {
-                          if (!draggedItemId || draggedItemId === item.id) return;
+                        item={item}
+                        isSelected={isSelected}
+                        isFirstItemInScene={isFirstItemInScene}
+                        columnSplitPercent={layoutOptions.columnSplitPercent}
+                        columnGutterPx={layoutOptions.columnGutterPx ?? 16}
+                        showDivider={layoutOptions.showDivider}
+                        dividerStyle={layoutOptions.dividerStyle}
+                        actionTextAlign={layoutOptions.actionTextAlign}
+                        dialogueTextAlign={layoutOptions.dialogueTextAlign}
+                        characterNameBold={layoutOptions.characterNameBold}
+                        characterColor={layoutOptions.characterColor}
+                        transitionBold={layoutOptions.transitionBold}
+                        transitionColor={layoutOptions.transitionColor}
+                        transitionStyle={layoutOptions.transitionStyle}
+                        gapParagraphRowPx={layoutOptions.gapParagraphRowPx}
+                        allKnownCharacters={allKnownCharacters}
+                        isLight={isLight}
+                        isDragged={draggedItemId === item.id}
+                        dragOverPosition={dragOverTarget?.itemId === item.id ? dragOverTarget.position : null}
+                        onParagraphClick={handleParagraphClick}
+                        onToggleSelect={(itemId) => {
+                          setSelectedItemIds((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(itemId)) next.delete(itemId);
+                            else next.add(itemId);
+                            return next;
+                          });
+                          setLastSelectedId(itemId);
+                        }}
+                        onUpdateText={handleUpdateItemText}
+                        onUpdateCharacter={handleUpdateItemCharacter}
+                        onSetSingleAlignment={handleSetSingleItemAlignment}
+                        onMoveColumn={moveParagraphsToColumn}
+                        onSetColor={(itemId, color) => {
+                          const targetIds = selectedItemIds.has(itemId) && selectedItemIds.size > 1 ? selectedItemIds : itemId;
+                          handleUpdateItemColor(targetIds, color);
+                        }}
+                        onAddAbove={handleAddParagraphAbove}
+                        onAddBelow={handleAddParagraphBelow}
+                        onSplit={handleSplitParagraph}
+                        onDragStart={(itemId, e) => {
+                          e.stopPropagation();
+                          e.dataTransfer.effectAllowed = 'move';
+                          e.dataTransfer.setData('text/plain', itemId);
+                          setDraggedItemId(itemId);
+                        }}
+                        onDragEnd={() => {
+                          setDraggedItemId(null);
+                          setDragOverTarget(null);
+                        }}
+                        onDragOver={(itemId, e) => {
+                          if (!draggedItemId || draggedItemId === itemId) return;
                           e.preventDefault();
                           e.stopPropagation();
                           e.dataTransfer.dropEffect = 'move';
                           const rect = e.currentTarget.getBoundingClientRect();
                           const midY = rect.top + rect.height / 2;
                           const pos = e.clientY < midY ? 'above' : 'below';
-                          if (dragOverTarget?.itemId !== item.id || dragOverTarget?.position !== pos) {
-                            setDragOverTarget({ itemId: item.id, position: pos });
+                          if (dragOverTarget?.itemId !== itemId || dragOverTarget?.position !== pos) {
+                            setDragOverTarget({ itemId, position: pos });
                           }
                         }}
-                        onDragLeave={(e) => {
+                        onDragLeave={(itemId, e) => {
                           e.stopPropagation();
                           const rect = e.currentTarget.getBoundingClientRect();
                           if (
@@ -2021,768 +2621,27 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
                             e.clientX < rect.left ||
                             e.clientX >= rect.right
                           ) {
-                            if (dragOverTarget?.itemId === item.id) {
+                            if (dragOverTarget?.itemId === itemId) {
                               setDragOverTarget(null);
                             }
                           }
                         }}
-                        onDrop={(e) => {
+                        onDrop={(itemId, e) => {
                           e.preventDefault();
                           e.stopPropagation();
                           const sourceId = draggedItemId || e.dataTransfer.getData('text/plain');
-                          if (sourceId && sourceId !== item.id && dragOverTarget) {
-                            handleMoveScriptItem(sourceId, item.id, dragOverTarget.position);
+                          if (sourceId && sourceId !== itemId && dragOverTarget) {
+                            handleMoveScriptItem(sourceId, itemId, dragOverTarget.position);
                           }
                           setDraggedItemId(null);
                           setDragOverTarget(null);
                         }}
-                      >
-                        {/* Drag landing line indicator above */}
-                        {dragOverTarget?.itemId === item.id && dragOverTarget.position === 'above' && (
-                          <div className="absolute -top-1.5 inset-x-0 h-1 bg-emerald-500 rounded-full shadow-lg shadow-emerald-500/50 z-35 pointer-events-none flex items-center justify-between px-1 animate-pulse">
-                            <span className="w-2.5 h-2.5 rounded-full bg-white ring-2 ring-emerald-500 shadow-sm" />
-                            <span className="w-2.5 h-2.5 rounded-full bg-white ring-2 ring-emerald-500 shadow-sm" />
-                          </div>
-                        )}
-
-                        {/* In-Between Above: Only for the very first item in the scene */}
-                        {isFirstItemInScene && (
-                          <div
-                            className="group/inbetween absolute -top-3 inset-x-0 h-6 z-20 flex items-center justify-between opacity-0 hover:opacity-100 group-hover/row:opacity-100 transition-opacity"
-                          >
-                            <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-0 border-t border-dashed border-slate-300/35 dark:border-zinc-700/35 opacity-0 group-hover/inbetween:opacity-100 transition-opacity pointer-events-none" />
-
-                            {/* Left Half (Action) */}
-                            <div
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleAddParagraphAbove(item.id, 'left');
-                              }}
-                              style={{ width: `${layoutOptions.columnSplitPercent}%` }}
-                              className="h-full flex items-center justify-start pl-2 cursor-pointer relative"
-                              title="Insert Action box (காட்சி) above"
-                            >
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleAddParagraphAbove(item.id, 'left');
-                                }}
-                                className={`absolute -left-9 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full border shadow-sm flex items-center justify-center opacity-0 group-hover/row:opacity-60 group-hover/inbetween:opacity-100 hover:!opacity-100 transition-all cursor-pointer hover:scale-110 active:scale-95 ${
-                                  isLight
-                                    ? 'bg-white hover:bg-emerald-600 hover:text-white text-slate-700 border-slate-300 hover:border-emerald-600 shadow-slate-200'
-                                    : 'bg-zinc-900 hover:bg-emerald-500 hover:text-black text-zinc-300 border-zinc-700 hover:border-emerald-400'
-                                }`}
-                                title="Insert Action box (காட்சி) above"
-                              >
-                                <Plus size={13} className="stroke-[2.5]" />
-                              </button>
-                            </div>
-
-                            {/* Right Half (Dialogue) */}
-                            <div
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleAddParagraphAbove(item.id, 'right');
-                              }}
-                              style={{ width: `${100 - layoutOptions.columnSplitPercent}%` }}
-                              className="h-full flex items-center justify-end pr-2 cursor-pointer relative"
-                              title="Insert Dialogue box (வசனம்) above"
-                            >
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleAddParagraphAbove(item.id, 'right');
-                                }}
-                                className={`absolute -right-9 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full border shadow-sm flex items-center justify-center opacity-0 group-hover/row:opacity-60 group-hover/inbetween:opacity-100 hover:!opacity-100 transition-all cursor-pointer hover:scale-110 active:scale-95 ${
-                                  isLight
-                                    ? 'bg-white hover:bg-sky-600 hover:text-white text-slate-700 border-slate-300 hover:border-sky-600 shadow-slate-200'
-                                    : 'bg-zinc-900 hover:bg-sky-500 hover:text-black text-zinc-300 border-zinc-700 hover:border-sky-400'
-                                }`}
-                                title="Insert Dialogue box (வசனம்) above"
-                              >
-                                <Plus size={13} className="stroke-[2.5]" />
-                              </button>
-                            </div>
-                          </div>
-                        )}
-
-                        {/* The Box Card itself */}
-                        <div
-                          onClick={(e) => handleParagraphClick(item.id, e)}
-                          className={`group relative rounded-lg p-2 transition-all cursor-pointer border ${
-                          draggedItemId === item.id
-                            ? 'opacity-35 scale-[0.99] ring-2 ring-emerald-500/50 shadow-xl border-emerald-500/50'
-                            : isSelected
-                            ? isLight
-                              ? 'bg-amber-500/[0.06] border-amber-400/50 shadow-xs'
-                              : 'bg-amber-500/[0.09] border-amber-500/40 shadow-xs'
-                            : isLight
-                            ? 'hover:bg-slate-50/70 border-transparent hover:border-slate-200'
-                            : 'hover:bg-zinc-800/40 border-transparent hover:border-zinc-800'
-                        }`}
-                      >
-                        {/* Drag Handle (Grip) for reordering up and down */}
-                        <div
-                          draggable={true}
-                          onDragStart={(e) => {
-                            e.stopPropagation();
-                            e.dataTransfer.effectAllowed = 'move';
-                            e.dataTransfer.setData('text/plain', item.id);
-                            setDraggedItemId(item.id);
-                          }}
-                          onDragEnd={() => {
-                            setDraggedItemId(null);
-                            setDragOverTarget(null);
-                          }}
-                          className={`absolute -left-7 top-1/2 -translate-y-1/2 z-25 w-5 h-7 rounded flex items-center justify-center opacity-0 group-hover/row:opacity-100 transition-all cursor-grab active:cursor-grabbing hover:scale-110 ${
-                            isLight
-                              ? 'text-slate-400 hover:text-slate-800 hover:bg-slate-200/70'
-                              : 'text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800'
-                          }`}
-                          title="Click & drag up or down to reorder"
-                        >
-                          <GripVertical size={14} className="stroke-[2.2]" />
-                        </div>
-
-                        {/* Mouse Multi-select Checkbox (Click to toggle selection with mouse!) */}
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setSelectedItemIds((prev) => {
-                              const next = new Set(prev);
-                              if (next.has(item.id)) next.delete(item.id);
-                              else next.add(item.id);
-                              return next;
-                            });
-                            setLastSelectedId(item.id);
-                          }}
-                          className={`absolute -left-2.5 top-2.5 z-10 w-4 h-4 rounded flex items-center justify-center transition-all cursor-pointer ${
-                            isSelected
-                              ? 'bg-amber-500 text-black border border-amber-400 shadow-xs opacity-100 scale-105'
-                              : isLight
-                              ? 'opacity-0 group-hover:opacity-100 bg-white hover:bg-slate-100 text-slate-500 border border-slate-300 shadow-xs'
-                              : 'opacity-0 group-hover:opacity-100 bg-zinc-800/90 hover:bg-zinc-700 text-zinc-400 border border-zinc-600/60'
-                          }`}
-                          title={isSelected ? "Deselect paragraph" : "Click to select paragraph (Cmd+Click to multi-select)"}
-                        >
-                          {isSelected ? <Check size={11} className="stroke-[3]" /> : <span className={`w-1.5 h-1.5 rounded-full ${isLight ? 'bg-slate-400' : 'bg-zinc-400'}`} />}
-                        </button>
-
-                        {/* Hover Quick Action Toolbar (Dead Center in the Middle above Vertical Gutter) */}
-                        <div className={`absolute -top-4 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-all z-30 flex items-center gap-1 border rounded-xl px-1.5 py-0.5 shadow-xl backdrop-blur-xs ${
-                          isLight
-                            ? 'bg-white/95 text-slate-700 border-slate-200/90 shadow-[0_8px_25px_rgba(0,0,0,0.12)]'
-                            : 'bg-zinc-950/95 dark:bg-zinc-900 border-zinc-700/90 text-zinc-100'
-                        }`}>
-                          {/* 1. Alignment */}
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              const current = item.textAlign || (isLeft ? (layoutOptions.actionTextAlign || 'justify') : (layoutOptions.dialogueTextAlign || 'left'));
-                              const next = current === 'left' ? 'center' : current === 'center' ? 'right' : current === 'right' ? 'justify' : 'left';
-                              handleSetSingleItemAlignment(item.id, next, e);
-                              showToast(`✓ Aligned: ${next}`);
-                            }}
-                            className={`p-1 rounded transition-colors cursor-pointer ${
-                              isLight ? 'text-slate-500 hover:text-amber-600 hover:bg-slate-100' : 'text-zinc-400 hover:text-amber-400'
-                            }`}
-                            title={`Alignment: ${item.textAlign || 'default'} (Click to cycle Left -> Center -> Right -> Justify)`}
-                          >
-                            {(item.textAlign || (isLeft ? layoutOptions.actionTextAlign : layoutOptions.dialogueTextAlign)) === 'center' ? (
-                              <AlignCenter size={11} />
-                            ) : (item.textAlign || (isLeft ? layoutOptions.actionTextAlign : layoutOptions.dialogueTextAlign)) === 'right' ? (
-                              <AlignRight size={11} />
-                            ) : (item.textAlign || (isLeft ? layoutOptions.actionTextAlign : layoutOptions.dialogueTextAlign)) === 'left' ? (
-                              <AlignLeft size={11} />
-                            ) : (
-                              <AlignJustify size={11} />
-                            )}
-                          </button>
-
-                          <div className={`w-[1px] h-3 mx-0.5 ${isLight ? 'bg-slate-200' : 'bg-zinc-700/80'}`} />
-
-                          {/* 2. Leftside jumper */}
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              moveParagraphsToColumn('left', item.id);
-                            }}
-                            className={`p-1 rounded text-xs transition-colors cursor-pointer ${
-                              isLeft
-                                ? 'bg-emerald-500 text-white shadow-xs'
-                                : isLight
-                                ? 'text-slate-500 hover:text-emerald-600 hover:bg-slate-100'
-                                : 'text-zinc-400 hover:text-emerald-400'
-                            }`}
-                            title="Move to Left: காட்சி (Visual Action)"
-                          >
-                            <ArrowLeft size={11} className="stroke-[3]" />
-                          </button>
-
-                          {/* 3. Center jumper */}
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              moveParagraphsToColumn('center', item.id);
-                            }}
-                            className={`p-1 rounded text-xs transition-colors cursor-pointer ${
-                              isCenter
-                                ? 'bg-amber-500 text-black shadow-xs'
-                                : isLight
-                                ? 'text-slate-500 hover:text-amber-600 hover:bg-slate-100'
-                                : 'text-zinc-400 hover:text-amber-400'
-                            }`}
-                            title="Move to Center: தலைப்பு / Transition"
-                          >
-                            <Minus size={11} className="stroke-[3]" />
-                          </button>
-
-                          {/* 4. Right side jumper */}
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              moveParagraphsToColumn('right', item.id);
-                            }}
-                            className={`p-1 rounded text-xs transition-colors cursor-pointer ${
-                              isRight
-                                ? 'bg-sky-500 text-white shadow-xs'
-                                : isLight
-                                ? 'text-slate-500 hover:text-sky-600 hover:bg-slate-100'
-                                : 'text-zinc-400 hover:text-sky-400'
-                            }`}
-                            title="Move to Right: வசனம் (Dialogue)"
-                          >
-                            <ArrowRight size={11} className="stroke-[3]" />
-                          </button>
-
-                          <div className={`w-[1px] h-3 mx-0.5 ${isLight ? 'bg-slate-200' : 'bg-zinc-700/80'}`} />
-
-                          {/* 5. Selected paragraph text color changer */}
-                          <div className="relative">
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setColorPickerItemId(colorPickerItemId === item.id ? null : item.id);
-                              }}
-                              className={`p-1 rounded text-xs transition-colors cursor-pointer flex items-center gap-0.5 ${
-                                item.textColor
-                                  ? 'text-amber-500 font-bold'
-                                  : isLight
-                                  ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
-                                  : 'text-zinc-400 hover:text-zinc-200'
-                              }`}
-                              title={item.textColor ? `Text Color: ${item.textColor}` : 'Change text color'}
-                            >
-                              <Palette size={11} />
-                              {item.textColor && (
-                                <span
-                                  className="w-1.5 h-1.5 rounded-full border border-black/40"
-                                  style={{ backgroundColor: item.textColor }}
-                                />
-                              )}
-                            </button>
-
-                            {/* Mini popover for essential colors */}
-                            {colorPickerItemId === item.id && (
-                              <div
-                                onClick={(e) => e.stopPropagation()}
-                                className={`absolute top-full left-1/2 -translate-x-1/2 mt-1.5 p-2 rounded-xl border shadow-2xl z-50 flex flex-col gap-1.5 min-w-[130px] ${
-                                  isLight
-                                    ? 'bg-white border-slate-200 text-slate-800 shadow-[0_12px_36px_rgba(0,0,0,0.15)]'
-                                    : 'bg-zinc-950 border-zinc-700 text-zinc-100'
-                                }`}
-                              >
-                                <div className={`flex items-center justify-between text-[10px] font-mono pb-1 border-b ${
-                                  isLight ? 'text-slate-500 border-slate-200' : 'text-zinc-400 border-zinc-800'
-                                }`}>
-                                  <span>Text Color</span>
-                                  {item.textColor && (
-                                    <button
-                                      onClick={() => {
-                                        const targetIds = selectedItemIds.has(item.id) && selectedItemIds.size > 1 ? selectedItemIds : item.id;
-                                        handleUpdateItemColor(targetIds, undefined);
-                                        setColorPickerItemId(null);
-                                      }}
-                                      className="text-amber-500 hover:text-amber-600 cursor-pointer flex items-center gap-0.5"
-                                      title="Reset to default color"
-                                    >
-                                      <RotateCcw size={9} />
-                                      <span>Reset</span>
-                                    </button>
-                                  )}
-                                </div>
-                                <div className="grid grid-cols-4 gap-1.5">
-                                  {[
-                                    { name: 'Default', hex: '' },
-                                    { name: 'Sky Blue', hex: '#0284c7' },
-                                    { name: 'Emerald', hex: '#16a34a' },
-                                    { name: 'Amber Gold', hex: '#f59e0b' },
-                                    { name: 'Crimson', hex: '#ef4444' },
-                                    { name: 'Purple', hex: '#a855f7' },
-                                    { name: 'Rose', hex: '#f43f5e' },
-                                    { name: 'Slate', hex: '#64748b' },
-                                  ].map((c) => (
-                                    <button
-                                      key={c.name}
-                                      onClick={() => {
-                                        const targetIds = selectedItemIds.has(item.id) && selectedItemIds.size > 1 ? selectedItemIds : item.id;
-                                        handleUpdateItemColor(targetIds, c.hex || undefined);
-                                        setColorPickerItemId(null);
-                                      }}
-                                      style={{ backgroundColor: c.hex || (isLight ? '#0f172a' : '#f8fafc') }}
-                                      className={`w-5 h-5 rounded-full border transition-transform hover:scale-110 cursor-pointer flex items-center justify-center ${
-                                        item.textColor === c.hex || (!item.textColor && !c.hex)
-                                          ? 'border-white ring-2 ring-emerald-500/60 scale-105'
-                                          : isLight
-                                          ? 'border-slate-300'
-                                          : 'border-zinc-700/60'
-                                      }`}
-                                      title={c.name}
-                                    >
-                                      {(!item.textColor && !c.hex) || item.textColor === c.hex ? (
-                                        <Check size={9} className={c.hex ? 'text-white' : isLight ? 'text-white' : 'text-black'} />
-                                      ) : null}
-                                    </button>
-                                  ))}
-                                </div>
-                                <div className={`flex items-center gap-1.5 pt-1 border-t ${
-                                  isLight ? 'border-slate-200 text-slate-500' : 'border-zinc-800 text-zinc-400'
-                                }`}>
-                                  <span className="text-[10px] font-mono">Custom:</span>
-                                  <input
-                                    type="color"
-                                    value={item.textColor || (isLight ? '#0f172a' : '#f8fafc')}
-                                    onChange={(e) => {
-                                      const targetIds = selectedItemIds.has(item.id) && selectedItemIds.size > 1 ? selectedItemIds : item.id;
-                                      handleUpdateItemColor(targetIds, e.target.value);
-                                    }}
-                                    className="w-5 h-5 p-0 rounded border-0 bg-transparent cursor-pointer"
-                                    title="Pick custom color"
-                                  />
-                                </div>
-                              </div>
-                            )}
-                          </div>
-
-                          <div className={`w-[1px] h-3 mx-0.5 ${isLight ? 'bg-slate-200' : 'bg-zinc-700/80'}`} />
-
-                          {/* 6. Delete */}
-                          <button
-                            onClick={(e) => handleDeleteItem(item.id, e)}
-                            className={`p-1 rounded transition-colors cursor-pointer ${
-                              isLight ? 'text-slate-400 hover:text-red-600 hover:bg-red-50' : 'text-zinc-500 hover:text-red-400'
-                            }`}
-                            title="Delete paragraph"
-                          >
-                            <Trash2 size={11} />
-                          </button>
-                        </div>
-
-                        {/* CASE B1: Center Text (Transition / Slugline) */}
-                        {isCenter && (
-                          <div
-                            style={{ color: item.textColor || layoutOptions.transitionColor || '#f59e0b' }}
-                            className="w-full text-center py-2 px-4 rounded font-bold"
-                          >
-                            {layoutOptions.transitionStyle === 'tracking' ? (
-                              <span
-                                contentEditable
-                                suppressContentEditableWarning
-                                onBlur={(e) => handleUpdateItemText(item.id, e.currentTarget.innerText)}
-                                onClick={(e) => {
-                                  if (e.metaKey || e.ctrlKey) {
-                                    e.preventDefault();
-                                    e.stopPropagation();
-                                    handleParagraphClick(item.id, e);
-                                    return;
-                                  }
-                                  e.stopPropagation();
-                                }}
-                                style={{ color: item.textColor || layoutOptions.transitionColor || '#f59e0b' }}
-                                className={`outline-none uppercase tracking-widest text-sm ${
-                                  layoutOptions.transitionBold !== false ? 'font-black' : 'font-medium'
-                                }`}
-                              >
-                                {item.rawText || item.leftAction || item.rightDialogue || 'காட்சி மாற்றம்'}
-                              </span>
-                            ) : layoutOptions.transitionStyle === 'dashed' ? (
-                              <span
-                                contentEditable
-                                suppressContentEditableWarning
-                                onBlur={(e) => handleUpdateItemText(item.id, e.currentTarget.innerText)}
-                                onClick={(e) => {
-                                  if (e.metaKey || e.ctrlKey) {
-                                    e.preventDefault();
-                                    e.stopPropagation();
-                                    handleParagraphClick(item.id, e);
-                                    return;
-                                  }
-                                  e.stopPropagation();
-                                }}
-                                style={{ color: item.textColor || layoutOptions.transitionColor || '#f59e0b' }}
-                                className={`outline-none font-mono text-xs ${
-                                  layoutOptions.transitionBold !== false ? 'font-bold' : 'font-normal'
-                                }`}
-                              >
-                                ---- {item.rawText || item.leftAction || item.rightDialogue || 'காட்சி மாற்றம்'} ----
-                              </span>
-                            ) : layoutOptions.transitionStyle === 'pill' ? (
-                              <span
-                                contentEditable
-                                suppressContentEditableWarning
-                                onBlur={(e) => handleUpdateItemText(item.id, e.currentTarget.innerText)}
-                                onClick={(e) => {
-                                  if (e.metaKey || e.ctrlKey) {
-                                    e.preventDefault();
-                                    e.stopPropagation();
-                                    handleParagraphClick(item.id, e);
-                                    return;
-                                  }
-                                  e.stopPropagation();
-                                }}
-                                style={{
-                                  color: item.textColor || layoutOptions.transitionColor || '#f59e0b',
-                                  borderColor: `${item.textColor || layoutOptions.transitionColor || '#f59e0b'}60`,
-                                  backgroundColor: `${item.textColor || layoutOptions.transitionColor || '#f59e0b'}15`,
-                                }}
-                                className={`outline-none inline-block px-3 py-1 rounded-full border text-xs ${
-                                  layoutOptions.transitionBold !== false ? 'font-bold' : 'font-normal'
-                                }`}
-                              >
-                                {item.rawText || item.leftAction || item.rightDialogue || 'காட்சி மாற்றம்'}
-                              </span>
-                            ) : (
-                              <span
-                                contentEditable
-                                suppressContentEditableWarning
-                                onBlur={(e) => handleUpdateItemText(item.id, e.currentTarget.innerText)}
-                                onClick={(e) => {
-                                  if (e.metaKey || e.ctrlKey) {
-                                    e.preventDefault();
-                                    e.stopPropagation();
-                                    handleParagraphClick(item.id, e);
-                                    return;
-                                  }
-                                  e.stopPropagation();
-                                }}
-                                style={{ color: item.textColor || layoutOptions.transitionColor || '#f59e0b' }}
-                                className={`outline-none italic font-serif text-sm ${
-                                  layoutOptions.transitionBold !== false ? 'font-bold' : 'font-normal'
-                                }`}
-                              >
-                                {item.rawText || item.leftAction || item.rightDialogue || 'காட்சி மாற்றம்'}
-                              </span>
-                            )}
-                          </div>
-                        )}
-
-                        {/* CASE B2: Two-Column Row (Left Action vs Right Dialogue with Ample Gutter Separation) */}
-                        {!isCenter && (
-                          <div
-                            style={{
-                              display: 'grid',
-                              gridTemplateColumns: `${layoutOptions.columnSplitPercent}% ${100 - layoutOptions.columnSplitPercent}%`,
-                              gap: `${layoutOptions.columnGutterPx ?? 16}px`,
-                            }}
-                            className="items-start relative"
-                          >
-                            {/* Optional center hairline divider */}
-                            {layoutOptions.showDivider && (
-                              <div
-                                style={{
-                                  left: `${layoutOptions.columnSplitPercent}%`,
-                                  borderRightStyle: layoutOptions.dividerStyle === 'dashed' ? 'dashed' : 'solid',
-                                }}
-                                className="absolute inset-y-0 w-0 -translate-x-1/2 border-r border-zinc-300/40 dark:border-zinc-800/60 pointer-events-none"
-                              />
-                            )}
-
-                            {/* Left Column: Visual Action OR Right-Aligned Character Name */}
-                            <div
-                              style={{ paddingRight: `${Math.round((layoutOptions.columnGutterPx ?? 16) / 2)}px` }}
-                              className="min-h-[26px] flex flex-col justify-start"
-                            >
-                              {isRight ? (
-                                (() => {
-                                  let char = (item.rightCharacter || '').trim();
-                                  let text = (item.rightDialogue || item.rawText || '').trim();
-                                  if (!char && text) {
-                                    const m = text.match(/^([\u0B80-\u0BFFa-zA-Z0-9\s.]{2,30})\s*:\s*(.*)$/);
-                                    if (m) {
-                                      char = m[1].trim();
-                                    }
-                                  }
-                                  if (char.endsWith(':')) char = char.slice(0, -1).trim();
-
-                                  return (
-                                    /* Dialogue Row: Character Name on Left Side, Right-Aligned ending with ":" */
-                                    <div data-char-container={item.id} className="w-full flex items-start justify-end gap-1 pt-0.5">
-                                      <ScriptCharacterInput
-                                        value={char || ''}
-                                        suggestions={allKnownCharacters}
-                                        onChange={(val) => handleUpdateItemCharacter(item.id, val)}
-                                        onManageCharacters={() => setIsCharacterManagerOpen(true)}
-                                        onNext={() => {
-                                          const diaEl = document.querySelector(`[data-item-id="${item.id}"]`) as HTMLElement;
-                                          if (diaEl) {
-                                            diaEl.focus();
-                                          }
-                                        }}
-                                        placeholder="கதாபாத்திரம்"
-                                        style={{ color: layoutOptions.characterColor || '#0284c7' }}
-                                        className={`text-xs uppercase text-right bg-transparent border-b border-transparent hover:border-zinc-500 focus:border-sky-400 outline-none w-auto min-w-[70px] max-w-[240px] transition-colors ${
-                                          layoutOptions.characterNameBold !== false ? 'font-black' : 'font-medium'
-                                        }`}
-                                      />
-                                      <span
-                                        style={{ color: layoutOptions.characterColor || '#0284c7' }}
-                                        className={`text-xs select-none ${
-                                          layoutOptions.characterNameBold !== false ? 'font-black' : 'font-medium'
-                                        }`}
-                                      >
-                                        :
-                                      </span>
-                                    </div>
-                                  );
-                                })()
-                              ) : isLeft ? (
-                                /* Action Row: Visual Action with dynamic alignment (left/center/right/justify) */
-                                (() => {
-                                  const actionAlign = item.textAlign || layoutOptions.actionTextAlign || 'justify';
-                                  const alignClass =
-                                    actionAlign === 'left' ? 'text-left' :
-                                    actionAlign === 'center' ? 'text-center' :
-                                    actionAlign === 'right' ? 'text-right' : 'text-justify';
-
-                                  return (
-                                    <div
-                                      data-item-id={item.id}
-                                      contentEditable
-                                      suppressContentEditableWarning
-                                      onBlur={(e) => handleUpdateItemText(item.id, e.currentTarget.innerText)}
-                                      onKeyDown={(e) => {
-                                        if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-                                          e.preventDefault();
-                                          if (e.shiftKey) {
-                                            handleAddParagraphAbove(item.id, 'left');
-                                          } else {
-                                            handleAddParagraphBelow(item.id, 'left');
-                                          }
-                                          return;
-                                        }
-                                        if (e.key === 'Enter' && !e.shiftKey) {
-                                          e.preventDefault();
-                                          const sel = window.getSelection();
-                                          let offset = -1;
-                                          if (sel && sel.rangeCount > 0) {
-                                            const range = sel.getRangeAt(0);
-                                            const preCaretRange = range.cloneRange();
-                                            preCaretRange.selectNodeContents(e.currentTarget);
-                                            preCaretRange.setEnd(range.endContainer, range.endOffset);
-                                            offset = preCaretRange.toString().length;
-                                          }
-                                          setSelectedItemIds(new Set());
-                                          handleSplitParagraph(item.id, offset >= 0 ? offset : undefined, e.currentTarget.innerText);
-                                        }
-                                      }}
-                                      onClick={(e) => {
-                                        // 1. Cmd / Ctrl + Click: Multi-select block!
-                                        if (e.metaKey || e.ctrlKey) {
-                                          e.preventDefault();
-                                          e.stopPropagation();
-                                          handleParagraphClick(item.id, e);
-                                          return;
-                                        }
-                                        // 2. Alt / Option + Click: Split into separate shot!
-                                        if (e.altKey) {
-                                          e.preventDefault();
-                                          e.stopPropagation();
-                                          const offset = getCaretOffsetFromPoint(e.nativeEvent, e.currentTarget);
-                                          setSelectedItemIds(new Set());
-                                          handleSplitParagraph(item.id, offset, e.currentTarget.innerText);
-                                          return;
-                                        }
-                                        // 3. Normal typing/editing click: Stop propagation so card is NOT selected!
-                                        e.stopPropagation();
-                                      }}
-                                      style={{ textAlign: actionAlign, color: item.textColor || undefined }}
-                                      className={`min-h-[28px] ${alignClass} leading-relaxed outline-none focus:ring-1 focus:ring-emerald-500/50 rounded p-1 transition-all ${
-                                        !item.leftAction && !item.rawText
-                                          ? 'border border-dashed border-emerald-500/40 bg-emerald-500/[0.04]'
-                                          : ''
-                                      }`}
-                                      title="Type to edit. Press Enter or Alt+Click to split this shot into a new line ending with ' -'"
-                                    >
-                                      {item.leftAction || item.rawText || ''}
-                                    </div>
-                                  );
-                                })()
-                              ) : null}
-                            </div>
-
-                            {/* Right Column: Dialogue starts exactly next to the character name */}
-                            <div
-                              style={{ paddingLeft: `${Math.round((layoutOptions.columnGutterPx ?? 16) / 2)}px` }}
-                              className="min-h-[26px] flex flex-col justify-start"
-                            >
-                              {isRight ? (
-                                (() => {
-                                  let char = (item.rightCharacter || '').trim();
-                                  let text = (item.rightDialogue || item.rawText || '').trim();
-                                  if (!char && text) {
-                                    const m = text.match(/^([\u0B80-\u0BFFa-zA-Z0-9\s.]{2,30})\s*:\s*(.*)$/);
-                                    if (m) {
-                                      text = m[2].trim();
-                                    }
-                                  }
-
-                                  const diaAlign = item.textAlign || layoutOptions.dialogueTextAlign || 'left';
-                                  const alignClass =
-                                    diaAlign === 'left' ? 'text-left' :
-                                    diaAlign === 'center' ? 'text-center' :
-                                    diaAlign === 'right' ? 'text-right' : 'text-justify';
-
-                                  return (
-                                    <div
-                                      data-item-id={item.id}
-                                      contentEditable
-                                      suppressContentEditableWarning
-                                      onBlur={(e) => handleUpdateItemText(item.id, e.currentTarget.innerText)}
-                                      onKeyDown={(e) => {
-                                        if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-                                          e.preventDefault();
-                                          if (e.shiftKey) {
-                                            handleAddParagraphAbove(item.id, 'right');
-                                          } else {
-                                            handleAddParagraphBelow(item.id, 'right');
-                                          }
-                                          return;
-                                        }
-                                        if (e.key === 'Enter' && !e.shiftKey) {
-                                          e.preventDefault();
-                                          const sel = window.getSelection();
-                                          let offset = -1;
-                                          if (sel && sel.rangeCount > 0) {
-                                            const range = sel.getRangeAt(0);
-                                            const preCaretRange = range.cloneRange();
-                                            preCaretRange.selectNodeContents(e.currentTarget);
-                                            preCaretRange.setEnd(range.endContainer, range.endOffset);
-                                            offset = preCaretRange.toString().length;
-                                          }
-                                          setSelectedItemIds(new Set());
-                                          handleSplitParagraph(item.id, offset >= 0 ? offset : undefined, e.currentTarget.innerText);
-                                        }
-                                      }}
-                                      onClick={(e) => {
-                                        // 1. Cmd / Ctrl + Click: Multi-select block!
-                                        if (e.metaKey || e.ctrlKey) {
-                                          e.preventDefault();
-                                          e.stopPropagation();
-                                          handleParagraphClick(item.id, e);
-                                          return;
-                                        }
-                                        // 2. Alt / Option + Click: Split dialogue!
-                                        if (e.altKey) {
-                                          e.preventDefault();
-                                          e.stopPropagation();
-                                          const offset = getCaretOffsetFromPoint(e.nativeEvent, e.currentTarget);
-                                          setSelectedItemIds(new Set());
-                                          handleSplitParagraph(item.id, offset, e.currentTarget.innerText);
-                                          return;
-                                        }
-                                        // 3. Normal typing/editing click: Stop propagation so card is NOT selected!
-                                        e.stopPropagation();
-                                      }}
-                                      style={{ textAlign: diaAlign, color: item.textColor || undefined }}
-                                      className={`min-h-[28px] leading-relaxed outline-none focus:ring-1 focus:ring-sky-500/50 rounded p-1 ${alignClass} transition-all ${
-                                        !text
-                                          ? 'border border-dashed border-sky-500/40 bg-sky-500/[0.04]'
-                                          : ''
-                                      }`}
-                                      title="Type to edit. Press Enter or Alt+Click to split this dialogue"
-                                    >
-                                      {text}
-                                    </div>
-                                  );
-                                })()
-                              ) : null}
-                            </div>
-                          </div>
-                        )}
-
-                        </div>
-
-                        {/* Drag landing line indicator below */}
-                        {dragOverTarget?.itemId === item.id && dragOverTarget.position === 'below' && (
-                          <div className="absolute -bottom-1.5 inset-x-0 h-1 bg-emerald-500 rounded-full shadow-lg shadow-emerald-500/50 z-35 pointer-events-none flex items-center justify-between px-1 animate-pulse">
-                            <span className="w-2.5 h-2.5 rounded-full bg-white ring-2 ring-emerald-500 shadow-sm" />
-                            <span className="w-2.5 h-2.5 rounded-full bg-white ring-2 ring-emerald-500 shadow-sm" />
-                          </div>
-                        )}
-
-                        {/* In-Between Inserter Below: Simple '+' in-between the boxes */}
-                        <div
-                          className="group/inbetween absolute -bottom-3 inset-x-0 h-6 z-20 flex items-center justify-between opacity-0 hover:opacity-100 group-hover/row:opacity-100 transition-opacity"
-                        >
-                          <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-0 border-t border-dashed border-slate-300/35 dark:border-zinc-700/35 opacity-0 group-hover/inbetween:opacity-100 transition-opacity pointer-events-none" />
-
-                          {/* Left Half (Action) */}
-                          <div
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleAddParagraphBelow(item.id, 'left');
-                            }}
-                            style={{ width: `${layoutOptions.columnSplitPercent}%` }}
-                            className="h-full flex items-center justify-start pl-2 cursor-pointer relative"
-                            title="Insert Action box (காட்சி) in-between"
-                          >
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleAddParagraphBelow(item.id, 'left');
-                              }}
-                              className={`absolute -left-9 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full border shadow-sm flex items-center justify-center opacity-0 group-hover/row:opacity-60 group-hover/inbetween:opacity-100 hover:!opacity-100 transition-all cursor-pointer hover:scale-110 active:scale-95 ${
-                                isLight
-                                  ? 'bg-white hover:bg-emerald-600 hover:text-white text-slate-700 border-slate-300 hover:border-emerald-600 shadow-slate-200'
-                                  : 'bg-zinc-900 hover:bg-emerald-500 hover:text-black text-zinc-300 border-zinc-700 hover:border-emerald-400'
-                              }`}
-                              title="Insert Action box (காட்சி) in-between"
-                            >
-                              <Plus size={13} className="stroke-[2.5]" />
-                            </button>
-                          </div>
-
-                          {/* Right Half (Dialogue) */}
-                          <div
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleAddParagraphBelow(item.id, 'right');
-                            }}
-                            style={{ width: `${100 - layoutOptions.columnSplitPercent}%` }}
-                            className="h-full flex items-center justify-end pr-2 cursor-pointer relative"
-                            title="Insert Dialogue box (வசனம்) in-between"
-                          >
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleAddParagraphBelow(item.id, 'right');
-                              }}
-                              className={`absolute -right-9 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full border shadow-sm flex items-center justify-center opacity-0 group-hover/row:opacity-60 group-hover/inbetween:opacity-100 hover:!opacity-100 transition-all cursor-pointer hover:scale-110 active:scale-95 ${
-                                isLight
-                                  ? 'bg-white hover:bg-sky-600 hover:text-white text-slate-700 border-slate-300 hover:border-sky-600 shadow-slate-200'
-                                  : 'bg-zinc-900 hover:bg-sky-500 hover:text-black text-zinc-300 border-zinc-700 hover:border-sky-400'
-                              }`}
-                              title="Insert Dialogue box (வசனம்) in-between"
-                            >
-                              <Plus size={13} className="stroke-[2.5]" />
-                            </button>
-                          </div>
-                        </div>
-                      </div>
+                        onOpenCharacterManager={() => setIsCharacterManagerOpen(true)}
+                        onFocusNextRow={handleFocusNextRow}
+                        onFocusPrevRow={handleFocusPrevRow}
+                        onEscapeToCard={handleEscapeToCard}
+                        showToast={showToast}
+                      />
                     );
                   })}
                 </div>
@@ -3680,6 +3539,13 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
         onAddCharacter={handleAddApprovedCharacter}
         scenes={screenplayData.scenes}
         onJumpToOccurrence={handleJumpToOccurrence}
+        isLight={isLight}
+      />
+
+      {/* Kollywood 2-Column Keyboard Shortcuts Cheatsheet Modal */}
+      <TwoColumnShortcutsModal
+        isOpen={isShortcutsModalOpen}
+        onClose={() => setIsShortcutsModalOpen(false)}
         isLight={isLight}
       />
     </div>

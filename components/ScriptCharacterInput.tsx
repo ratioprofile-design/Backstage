@@ -12,6 +12,9 @@ interface ScriptCharacterInputProps {
   style?: React.CSSProperties;
   align?: 'left' | 'right';
   onNext?: () => void;
+  onPrev?: () => void;
+  onEscape?: () => void;
+  onArrowLeft?: () => void;
   disabled?: boolean;
   onManageCharacters?: () => void;
 }
@@ -29,6 +32,9 @@ export const ScriptCharacterInput: React.FC<ScriptCharacterInputProps> = ({
   style,
   align = 'right',
   onNext,
+  onPrev,
+  onEscape,
+  onArrowLeft,
   disabled = false,
   onManageCharacters,
 }) => {
@@ -116,6 +122,11 @@ export const ScriptCharacterInput: React.FC<ScriptCharacterInputProps> = ({
     if (disabled) return;
 
     if (e.key === 'ArrowDown') {
+      if (e.altKey && onNext) {
+        e.preventDefault();
+        onNext();
+        return;
+      }
       if (!isOpen && filtered.length > 0) {
         setIsOpen(true);
         e.preventDefault();
@@ -126,12 +137,47 @@ export const ScriptCharacterInput: React.FC<ScriptCharacterInputProps> = ({
         setSelectedIndex((prev) => (prev + 1) % filtered.length);
         return;
       }
+      // If dropdown is not open, jump forward to dialogue
+      if (!isOpen && onNext) {
+        e.preventDefault();
+        onNext();
+        return;
+      }
     }
 
     if (e.key === 'ArrowUp') {
+      if (e.altKey && onPrev) {
+        e.preventDefault();
+        onPrev();
+        return;
+      }
       if (isOpen && filtered.length > 0) {
         e.preventDefault();
         setSelectedIndex((prev) => (prev - 1 + filtered.length) % filtered.length);
+        return;
+      }
+      // If dropdown is not open, jump back to previous row
+      if (!isOpen && onPrev) {
+        e.preventDefault();
+        onPrev();
+        return;
+      }
+    }
+
+    if (e.key === 'ArrowRight') {
+      const input = inputRef.current;
+      if (input && input.selectionEnd === input.value.length && onNext) {
+        e.preventDefault();
+        onNext();
+        return;
+      }
+    }
+
+    if (e.key === 'ArrowLeft') {
+      const input = inputRef.current;
+      if (input && input.selectionStart === 0 && onArrowLeft) {
+        e.preventDefault();
+        onArrowLeft();
         return;
       }
     }
@@ -164,6 +210,10 @@ export const ScriptCharacterInput: React.FC<ScriptCharacterInputProps> = ({
         e.preventDefault();
         e.stopPropagation();
         setIsOpen(false);
+      } else if (onEscape) {
+        e.preventDefault();
+        e.stopPropagation();
+        onEscape();
       }
     }
   };
