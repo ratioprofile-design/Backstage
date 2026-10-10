@@ -105,3 +105,141 @@ CREATE POLICY "Project owners or invitees can delete invites"
             AND projects.user_id = auth.uid()
         )
     );
+
+-- ==============================================================================
+-- 3. Create Project Documents & Vault Table
+-- ==============================================================================
+CREATE TABLE IF NOT EXISTS public.project_documents (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
+    user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+    title TEXT NOT NULL,
+    title_ta TEXT,
+    category TEXT NOT NULL DEFAULT 'SCRIPT',
+    file_name TEXT NOT NULL,
+    file_size TEXT,
+    file_type TEXT,
+    page_count INT DEFAULT 1,
+    uploaded_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()),
+    pdf_data_url TEXT,
+    image_data_url TEXT,
+    audio_url TEXT,
+    duration_seconds NUMERIC,
+    html_content TEXT,
+    text_content TEXT,
+    sheet_data JSONB,
+    built_in_type TEXT,
+    annotations JSONB DEFAULT '[]'::jsonb,
+    author TEXT DEFAULT 'Production Member',
+    is_archived BOOLEAN DEFAULT false,
+    archived_at TIMESTAMP WITH TIME ZONE,
+    tags TEXT[] DEFAULT ARRAY[]::TEXT[],
+    status TEXT DEFAULT 'review',
+    original_file_data_url TEXT,
+    original_file_name TEXT,
+    converted_docx_data_url TEXT,
+    is_bamini_converted BOOLEAN DEFAULT false,
+    is_left_right_format BOOLEAN DEFAULT false,
+    left_right_doc_id TEXT,
+    source_doc_id TEXT,
+    storage_path TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_project_documents_project_id ON public.project_documents(project_id);
+CREATE INDEX IF NOT EXISTS idx_project_documents_uploaded_at ON public.project_documents(uploaded_at DESC);
+
+-- Enable RLS on project_documents
+ALTER TABLE public.project_documents ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Users can view documents of own or invited projects" ON public.project_documents;
+CREATE POLICY "Users can view documents of own or invited projects"
+    ON public.project_documents FOR SELECT
+    USING (
+        EXISTS (
+            SELECT 1 FROM public.projects
+            WHERE projects.id = project_documents.project_id
+            AND (
+                projects.user_id = auth.uid()
+                OR EXISTS (
+                    SELECT 1 FROM public.project_invites
+                    WHERE project_invites.project_id = projects.id
+                    AND lower(project_invites.invitee_email) = lower(auth.jwt() ->> 'email')
+                )
+            )
+        )
+    );
+
+DROP POLICY IF EXISTS "Users can insert documents into own or invited projects" ON public.project_documents;
+CREATE POLICY "Users can insert documents into own or invited projects"
+    ON public.project_documents FOR INSERT
+    WITH CHECK (
+        EXISTS (
+            SELECT 1 FROM public.projects
+            WHERE projects.id = project_documents.project_id
+            AND (
+                projects.user_id = auth.uid()
+                OR EXISTS (
+                    SELECT 1 FROM public.project_invites
+                    WHERE project_invites.project_id = projects.id
+                    AND lower(project_invites.invitee_email) = lower(auth.jwt() ->> 'email')
+                )
+            )
+        )
+    );
+
+DROP POLICY IF EXISTS "Users can update documents in own or invited projects" ON public.project_documents;
+CREATE POLICY "Users can update documents in own or invited projects"
+    ON public.project_documents FOR UPDATE
+    USING (
+        EXISTS (
+            SELECT 1 FROM public.projects
+            WHERE projects.id = project_documents.project_id
+            AND (
+                projects.user_id = auth.uid()
+                OR EXISTS (
+                    SELECT 1 FROM public.project_invites
+                    WHERE project_invites.project_id = projects.id
+                    AND lower(project_invites.invitee_email) = lower(auth.jwt() ->> 'email')
+                )
+            )
+        )
+    );
+
+DROP POLICY IF EXISTS "Users can delete documents in own or invited projects" ON public.project_documents;
+CREATE POLICY "Users can delete documents in own or invited projects"
+    ON public.project_documents FOR DELETE
+    USING (
+        EXISTS (
+            SELECT 1 FROM public.projects
+            WHERE projects.id = project_documents.project_id
+            AND (
+                projects.user_id = auth.uid()
+                OR EXISTS (
+                    SELECT 1 FROM public.project_invites
+                    WHERE project_invites.project_id = projects.id
+                    AND lower(project_invites.invitee_email) = lower(auth.jwt() ->> 'email')
+                )
+            )
+        )
+    );
+
+-- ==============================================================================
+-- 4. Storage Bucket Configuration (Optional for large media files)
+-- Run in Supabase SQL editor if using storage bucket 'vault-files'
+-- ==============================================================================
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('vault-files', 'vault-files', true)
+ON CONFLICT (id) DO UPDATE SET public = true;
+
+DROP POLICY IF EXISTS "Authenticated users can upload to vault-files" ON storage.objects;
+CREATE POLICY "Authenticated users can upload to vault-files"
+    ON storage.objects FOR INSERT
+    WITH CHECK (bucket_id = 'vault-files');
+
+DROP POLICY IF EXISTS "Anyone can view files in vault-files" ON storage.objects;
+CREATE POLICY "Anyone can view files in vault-files"
+    ON storage.objects FOR SELECT
+    USING (bucket_id = 'vault-files');
+

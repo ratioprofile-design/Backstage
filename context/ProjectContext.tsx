@@ -12,6 +12,7 @@ import { createAuto5ScenesDataset, createAutoScenesDataset } from '../services/s
 import { isTauri, getTauriFs, getTauriDialog, getTauriWindow } from '../utils/desktop';
 import { addRecentFile } from '../utils/recentFiles';
 import { isCausalityData, parseCausalityProject } from '../services/causalityParser';
+import { getProductionDocuments, saveProductionDocuments } from '../services/documentsStorage';
 
 const ProjectContext = createContext<ProjectContextType | undefined>(undefined);
 
@@ -665,6 +666,9 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       setNavLayoutState(cleanData.navLayout);
       localStorage.setItem('app_nav_layout', cleanData.navLayout);
     }
+    if (Array.isArray(cleanData.documents) && cleanData.documents.length > 0) {
+      saveProductionDocuments(cleanData.documents, currentProjectId || undefined, true);
+    }
     
     // Reset the flag after a timeout to allow state to settle
     setTimeout(() => { 
@@ -963,7 +967,8 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const saveProject = useCallback(async () => {
     if (isRemoteUpdateRef.current) return;
     setIsSaving(true);
-    const projectData: ProjectState & { lastInstanceId?: string } = {
+    const currentDocs = getProductionDocuments(currentProjectId || undefined);
+    const projectData: ProjectState & { lastInstanceId?: string; documents?: any[] } = {
       beats, groups, connections, annotations, characterData, generatedShots, 
       scratchpad, globalNotes, panX, panY, scale, nextId, nextAnnoId, activeBoardId,
       isTamilMode, tamilFontScale, tamilFontFamily, userDictionary,
@@ -975,6 +980,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       characterDesignLocked,
       collaborators,
       themeAnimationStyle,
+      documents: currentDocs,
       lastInstanceId: INSTANCE_ID // Tag the update with this instance ID
     };
     let saved = false;

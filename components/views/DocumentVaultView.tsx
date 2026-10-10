@@ -22,6 +22,7 @@ import {
   harvestProjectArtifacts,
   updateDocumentTags,
   generateBreakdownHtmlTable,
+  syncDocumentsWithCloud,
   SCENE_4_BREAKDOWN_SHEET_DATA
 } from '../../services/documentsStorage';
 import * as XLSX from 'xlsx';
@@ -73,6 +74,7 @@ import {
   Check,
   CheckCircle2,
   Clock,
+  Cloud,
   User,
   Download,
   Share2,
@@ -192,13 +194,45 @@ export interface DocumentVaultViewProps {
 
 export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigateToView }) => {
   const projectContext = useProject();
-  const { appTheme, appAccentColor = '#f5a623', generalAiModel, openrouterKey } = projectContext;
+  const { 
+    appTheme, 
+    appAccentColor = '#f5a623', 
+    generalAiModel, 
+    openrouterKey,
+    currentProjectId,
+    currentUser,
+    supabaseUser
+  } = projectContext;
   const { aiAvailable } = useAiKeyStatus();
   const isLight = appTheme === 'light' || (appTheme === 'system' && typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: light)').matches);
 
   // Core Document State
-  const [documents, setDocuments] = useState<ProductionDocument[]>(() => getProductionDocuments());
+  const [documents, setDocuments] = useState<ProductionDocument[]>(() => getProductionDocuments(currentProjectId || undefined));
   const [selectedDocId, setSelectedDocId] = useState<string>(() => documents[0]?.id || '');
+  const [isCloudSyncing, setIsCloudSyncing] = useState<boolean>(false);
+
+  // Synchronize documents with current project and Supabase Cloud
+  useEffect(() => {
+    const local = getProductionDocuments(currentProjectId || undefined);
+    setDocuments(local);
+    if (!selectedDocId || !local.some(d => d.id === selectedDocId)) {
+      setSelectedDocId(local[0]?.id || '');
+    }
+
+    if (currentProjectId) {
+      setIsCloudSyncing(true);
+      syncDocumentsWithCloud(currentProjectId, supabaseUser?.id)
+        .then((synced) => {
+          if (synced && synced.length > 0) {
+            setDocuments(synced);
+            if (!selectedDocId || !synced.some(d => d.id === selectedDocId)) {
+              setSelectedDocId(synced[0]?.id || '');
+            }
+          }
+        })
+        .finally(() => setIsCloudSyncing(false));
+    }
+  }, [currentProjectId, supabaseUser?.id]);
   
   // Tamil Left-Right (இருபக்க திரைக்கதை வடிவம்) Modal & Conversion State
   const [isTamilLeftRightModalOpen, setIsTamilLeftRightModalOpen] = useState<boolean>(false);
@@ -804,7 +838,7 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
   // Persist documents on change
   const updateDocuments = (docs: ProductionDocument[]) => {
     setDocuments(docs);
-    saveProductionDocuments(docs);
+    saveProductionDocuments(docs, currentProjectId || undefined);
   };
 
   const handleOpenDocInStudio = (docId: string) => {
@@ -1060,6 +1094,7 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
 
       const newDoc: ProductionDocument = {
         id: `doc-${Date.now()}`,
+        projectId: currentProjectId || undefined,
         title: parsed.title,
         category: parsed.category,
         fileName: parsed.fileName,
@@ -1150,14 +1185,130 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
     }
   };
 
-  // Open Tamil Left-Right Screenplay directly in 2-Column mode on the document
-  const handleOpenTamilLeftRightConverter = (docToConvert?: ProductionDocument) => {
+  // Check if a document has a 2-column script created from it or is in 2-column format
+  const isDocumentScriptAndScreenplay = (doc: ProductionDocument, allDocs: ProductionDocument[]) => {
+    if (doc.hasTwoColumnScript) return true;
+    if (doc.isLeftRightFormat) return true;
+    if (doc.leftRightDocId) return true;
+    if (doc.sourceDocId && allDocs.some((d) => d.id === doc.sourceDocId)) return true;
+    if (allDocs.some((d) => d.sourceDocId === doc.id && d.isLeftRightFormat)) return true;
+    const lowerTags = (doc.tags || []).map((t) => t.toLowerCase());
+    return (
+      lowerTags.includes('2-col script') ||
+      lowerTags.includes('tamil left-right') ||
+      lowerTags.includes('kollywood format') ||
+      lowerTags.includes('2-col created')
+    );
+  };
+
+  const isWordModel = (doc: ProductionDocument) => {
+    return (
+      doc.fileType === 'docx' ||
+      !!doc.fileName?.endsWith('.docx') ||
+      !!doc.originalFileName?.endsWith('.docx')
+    );
+  };
+
+  // Convert document to 2-Column Script and open directly in 2-Col Script Page
+  const handleMakeTwoColumnScriptAndOpen = (docToConvert?: ProductionDocument) => {
     const doc = docToConvert || selectedDoc;
     if (!doc) return;
-    setSelectedDocId(doc.id);
-    setStudioViewMode('two-column');
-    setInStudioMode(true);
-    showToast(`✓ Opened "${doc.title}" in 2-Column Left/Right Format`);
+
+    // 1. If document is already in 2-column format:
+    if (doc.isLeftRightFormat) {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('active_two_column_doc_id', doc.id);
+      }
+      if (onNavigateToView) {
+        onNavigateToView('two-column-script');
+        showToast(`✓ Opened "${doc.title}" in 2-Col Script Page!`);
+      } else {
+        setSelectedDocId(doc.id);
+        setStudioViewMode('two-column');
+        setInStudioMode(true);
+      }
+      return;
+    }
+
+    // 2. Check if a 2-column script document was already generated for this document:
+    const existingTwoCol = documents.find(
+      (d) => d.sourceDocId === doc.id || (doc.leftRightDocId && d.id === doc.leftRightDocId)
+    );
+    if (existingTwoCol) {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('active_two_column_doc_id', existingTwoCol.id);
+      }
+      if (onNavigateToView) {
+        onNavigateToView('two-column-script');
+        showToast(`✓ Opened 2-Column Script for "${doc.title}"!`);
+      } else {
+        setSelectedDocId(existingTwoCol.id);
+        setStudioViewMode('two-column');
+        setInStudioMode(true);
+      }
+      return;
+    }
+
+    // 3. Make a new 2-column script out of this screenplay / Word document:
+    const rawText = doc.textContent || (doc.htmlContent ? doc.htmlContent.replace(/<[^>]+>/g, '\n') : '');
+    const parsed = parseScreenplayToTamilLeftRight(rawText, doc.title);
+    const html = generateTamilLeftRightHtml(parsed);
+
+    const twoColDocId = `doc-2col-${Date.now()}`;
+    const twoColDoc: ProductionDocument = {
+      id: twoColDocId,
+      projectId: currentProjectId || doc.projectId,
+      title: `${doc.title} (2-Col Script)`,
+      titleTa: doc.titleTa ? `${doc.titleTa} (இருபக்க திரைக்கதை)` : `${doc.title} (இருபக்க திரைக்கதை)`,
+      category: 'SCRIPT',
+      fileName: `${(doc.title || 'Screenplay').replace(/\s+/g, '_')}_2Col.docx`,
+      fileSize: doc.fileSize || '1.2 MB',
+      fileType: 'docx',
+      pageCount: Math.max(1, parsed.scenes.length),
+      uploadedAt: new Date().toISOString(),
+      htmlContent: html,
+      textContent: rawText,
+      author: doc.author || 'Kollywood Script Engine',
+      status: 'review',
+      tags: Array.from(new Set([...(doc.tags || []), 'Script', 'Screenplay', '2-Col Script', 'Kollywood Format'])),
+      annotations: [],
+      isLeftRightFormat: true,
+      hasTwoColumnScript: true,
+      sourceDocId: doc.id,
+      originalFileDataUrl: doc.originalFileDataUrl,
+      originalFileName: doc.originalFileName,
+    };
+
+    // Give the source document badges indicating both "Script" & "Screenplay"
+    const updatedSourceDoc: ProductionDocument = {
+      ...doc,
+      hasTwoColumnScript: true,
+      leftRightDocId: twoColDocId,
+      tags: Array.from(new Set([...(doc.tags || []), 'Script', 'Screenplay', '2-Col Created'])),
+    };
+
+    const updatedList = [twoColDoc, ...documents.map((d) => (d.id === doc.id ? updatedSourceDoc : d))];
+    updateDocuments(updatedList);
+    setSelectedDocId(twoColDocId);
+
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('active_two_column_doc_id', twoColDocId);
+    }
+
+    if (onNavigateToView) {
+      onNavigateToView('two-column-script');
+      confetti({ particleCount: 40, spread: 60, origin: { y: 0.6 } });
+      showToast(`✓ Created 2-Column Script & Opened in 2-Col Script Page!`);
+    } else {
+      setStudioViewMode('two-column');
+      setInStudioMode(true);
+      showToast(`✓ Created 2-Column Script for "${doc.title}"!`);
+    }
+  };
+
+  // Open Tamil Left-Right Screenplay directly in 2-Column mode on the document
+  const handleOpenTamilLeftRightConverter = (docToConvert?: ProductionDocument) => {
+    handleMakeTwoColumnScriptAndOpen(docToConvert);
   };
 
   // Download Tamil Left-Right as Microsoft Word (.docx)
@@ -1189,6 +1340,7 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
       const html = generateTamilLeftRightHtml(tamilScreenplayData);
       const newDoc: ProductionDocument = {
         id: `doc-tamil-lr-${Date.now()}`,
+        projectId: currentProjectId || selectedDoc?.projectId,
         title: `${tamilScreenplayData.title} (Tamil Left-Right Format)`,
         titleTa: `${tamilScreenplayData.title} (தமிழ் இருபக்க வடிவம்)`,
         category: 'SCRIPT',
@@ -1201,17 +1353,30 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
         textContent: tamilScreenplayData.rawText,
         author: 'Tamil Left-Right Engine',
         status: 'review',
-        tags: ['Script', 'Tamil Left-Right', 'Kollywood Format'],
+        tags: ['Script', 'Screenplay', 'Tamil Left-Right', 'Kollywood Format'],
         annotations: [],
         isLeftRightFormat: true,
+        hasTwoColumnScript: true,
         sourceDocId: selectedDoc?.id,
         originalFileDataUrl: selectedDoc?.originalFileDataUrl,
         originalFileName: selectedDoc?.originalFileName,
       };
 
-      const updated = [newDoc, ...documents];
+      const updatedSourceDoc = selectedDoc ? {
+        ...selectedDoc,
+        hasTwoColumnScript: true,
+        leftRightDocId: newDoc.id,
+        tags: Array.from(new Set([...(selectedDoc.tags || []), 'Script', 'Screenplay', '2-Col Created'])),
+      } : null;
+
+      const updated = [newDoc, ...documents.map((d) => (updatedSourceDoc && d.id === updatedSourceDoc.id ? updatedSourceDoc : d))];
       updateDocuments(updated);
       setSelectedDocId(newDoc.id);
+
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('active_two_column_doc_id', newDoc.id);
+      }
+
       setIsTamilLeftRightModalOpen(false);
       setInStudioMode(true);
       confetti({ particleCount: 40, spread: 60, origin: { y: 0.6 } });
@@ -1658,6 +1823,19 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                   <span className={`px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-widest rounded-md ${isLight ? 'bg-slate-100 text-slate-400 border border-slate-200' : 'bg-zinc-800/60 text-zinc-500 border border-zinc-700/50'}`}>
                     Grand Gallery
                   </span>
+                  {currentProjectId && (
+                    <span 
+                      title={isCloudSyncing ? "Syncing files with Supabase Cloud..." : "Project documents synced with Cloud"}
+                      className={`inline-flex items-center gap-1 px-1.5 py-0.5 text-[9px] font-semibold rounded-md transition-all ${
+                        isCloudSyncing 
+                          ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30 animate-pulse' 
+                          : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                      }`}
+                    >
+                      <Cloud size={10} />
+                      <span>{isCloudSyncing ? 'Syncing...' : 'Cloud Synced'}</span>
+                    </span>
+                  )}
                 </div>
                 <p className={`text-[10px] ${isLight ? 'text-slate-400' : 'text-zinc-600'}`}>
                   {counts.ALL || 0} active • {counts.ARCHIVED || 0} archived
@@ -1895,6 +2073,20 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                   <ChevronRight size={15} />
                 </button>
               </div>
+
+              {/* Open in Dedicated 2-Col Script Page */}
+              <button
+                onClick={() => handleMakeTwoColumnScriptAndOpen(selectedDoc)}
+                className={`px-3 py-1.5 text-xs font-bold rounded-lg border flex items-center gap-1.5 transition-all shadow-sm cursor-pointer ${
+                  isLight
+                    ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-300'
+                    : 'bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40'
+                }`}
+                title="Make / open this document in the dedicated 2-Col Script Page"
+              >
+                <Columns size={13} className="text-emerald-400" />
+                <span>Open in 2-Col Script Page</span>
+              </button>
 
               {/* Toggle 2-Column Left/Right Shooting Script Layout on Document */}
               <button
@@ -2367,24 +2559,42 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                               </div>
                             )}
 
-                            {/* Top Badge: Category Pill */}
-                            <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5">
-                              <span className={`px-2 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider border backdrop-blur-md shadow-sm ${style.badgeBg} ${style.badgeText} ${style.border}`}>
-                                <IconComp size={10} className="inline mr-1" />
-                                {doc.category}
-                              </span>
+                            {/* Top Badge: Category Pill or Dual Script & Screenplay Badges */}
+                            <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5 flex-wrap z-10">
+                              {isDocumentScriptAndScreenplay(doc, documents) ? (
+                                <>
+                                  <span className="px-2 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider border backdrop-blur-md shadow-sm bg-blue-500/20 text-blue-400 border-blue-500/30 flex items-center gap-1">
+                                    <FileText size={10} />
+                                    <span>Script</span>
+                                  </span>
+                                  <span className="px-2 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider border backdrop-blur-md shadow-sm bg-emerald-500/25 text-emerald-300 border-emerald-500/40 flex items-center gap-1">
+                                    <Columns size={10} />
+                                    <span>Screenplay</span>
+                                  </span>
+                                  {isWordModel(doc) && (
+                                    <span className="px-1.5 py-0.5 rounded-md text-[9px] font-bold uppercase tracking-wider border backdrop-blur-md bg-sky-500/15 text-sky-300 border-sky-500/30">
+                                      Word
+                                    </span>
+                                  )}
+                                </>
+                              ) : (
+                                <span className={`px-2 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider border backdrop-blur-md shadow-sm ${style.badgeBg} ${style.badgeText} ${style.border}`}>
+                                  <IconComp size={10} className="inline mr-1" />
+                                  {doc.category}
+                                </span>
+                              )}
                             </div>
 
                             {/* Top Right: Quick Action Triggers */}
-                            <div className="absolute top-2.5 right-2.5 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                              {/* Tamil Left-Right Quick Trigger */}
+                            <div className="absolute top-2.5 right-2.5 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                              {/* 2-Column Script Quick Trigger */}
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  handleOpenTamilLeftRightConverter(doc);
+                                  handleMakeTwoColumnScriptAndOpen(doc);
                                 }}
-                                className="p-1.5 rounded-lg bg-zinc-900/90 text-emerald-400 hover:bg-emerald-500 hover:text-black transition-all shadow-md"
-                                title="Convert to Tamil Left-Right Screenplay"
+                                className="p-1.5 rounded-lg bg-zinc-900/90 text-emerald-400 hover:bg-emerald-500 hover:text-black transition-all shadow-md flex items-center gap-1"
+                                title="Make 2-Column Script & Open in 2-Col Script Page"
                               >
                                 <Columns size={13} />
                               </button>
@@ -2583,9 +2793,22 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                               </td>
 
                               <td className="p-3.5">
-                                <span className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider border ${style.badgeBg} ${style.badgeText} ${style.border}`}>
-                                  {doc.category}
-                                </span>
+                                {isDocumentScriptAndScreenplay(doc, documents) ? (
+                                  <div className="flex items-center gap-1 flex-wrap">
+                                    <span className="px-1.5 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider border bg-blue-500/20 text-blue-400 border-blue-500/30 flex items-center gap-1">
+                                      <FileText size={9} />
+                                      <span>Script</span>
+                                    </span>
+                                    <span className="px-1.5 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider border bg-emerald-500/20 text-emerald-400 border-emerald-500/30 flex items-center gap-1">
+                                      <Columns size={9} />
+                                      <span>Screenplay</span>
+                                    </span>
+                                  </div>
+                                ) : (
+                                  <span className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider border ${style.badgeBg} ${style.badgeText} ${style.border}`}>
+                                    {doc.category}
+                                  </span>
+                                )}
                               </td>
 
                               <td className={`p-3.5 font-mono uppercase ${isLight ? 'text-slate-500' : 'text-zinc-400'}`}>
@@ -2806,9 +3029,22 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                               }`}
                             >
                               <div className="flex items-center justify-between mb-1.5">
-                                <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider border ${style.badgeBg} ${style.badgeText} ${style.border}`}>
-                                  {doc.category}
-                                </span>
+                                {isDocumentScriptAndScreenplay(doc, documents) ? (
+                                  <div className="flex items-center gap-1 flex-wrap">
+                                    <span className="px-1.5 py-0.5 rounded text-[10px] font-black uppercase tracking-wider border bg-blue-500/20 text-blue-400 border-blue-500/30 flex items-center gap-1">
+                                      <FileText size={9} />
+                                      <span>Script</span>
+                                    </span>
+                                    <span className="px-1.5 py-0.5 rounded text-[10px] font-black uppercase tracking-wider border bg-emerald-500/20 text-emerald-400 border-emerald-500/30 flex items-center gap-1">
+                                      <Columns size={9} />
+                                      <span>Screenplay</span>
+                                    </span>
+                                  </div>
+                                ) : (
+                                  <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider border ${style.badgeBg} ${style.badgeText} ${style.border}`}>
+                                    {doc.category}
+                                  </span>
+                                )}
                                 <span className={`text-xs font-mono ${isLight ? 'text-slate-400' : 'text-zinc-500'}`}>
                                   {new Date(doc.uploadedAt).toLocaleString()}
                                 </span>
@@ -4134,7 +4370,18 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                   }`}>
                     <div className={`flex justify-between py-1 border-b ${isLight ? 'border-slate-200' : 'border-zinc-800/60'}`}>
                       <span className={isLight ? 'text-slate-500' : 'text-zinc-500'}>Category</span>
-                      <span className={`font-bold ${isLight ? 'text-slate-900' : 'text-zinc-200'}`}>{selectedDoc.category}</span>
+                      {isDocumentScriptAndScreenplay(selectedDoc, documents) ? (
+                        <div className="flex items-center gap-1">
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-black uppercase tracking-wider border bg-blue-500/20 text-blue-400 border-blue-500/30">
+                            Script
+                          </span>
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-black uppercase tracking-wider border bg-emerald-500/20 text-emerald-400 border-emerald-500/30">
+                            Screenplay
+                          </span>
+                        </div>
+                      ) : (
+                        <span className={`font-bold ${isLight ? 'text-slate-900' : 'text-zinc-200'}`}>{selectedDoc.category}</span>
+                      )}
                     </div>
                     <div className={`flex justify-between py-1 border-b ${isLight ? 'border-slate-200' : 'border-zinc-800/60'}`}>
                       <span className={isLight ? 'text-slate-500' : 'text-zinc-500'}>File Name</span>
@@ -4527,6 +4774,23 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                 >
                   <Download size={13} />
                   <span>{isGeneratingDocx ? 'Generating DOCX...' : 'Download Word (.docx)'}</span>
+                </button>
+
+                {/* Open in 2-Col Script Page Button */}
+                <button
+                  onClick={() => {
+                    handleSaveTamilLeftRightToVault();
+                    if (onNavigateToView) {
+                      setIsTamilLeftRightModalOpen(false);
+                      onNavigateToView('two-column-script');
+                      showToast('✓ Opened in 2-Col Script Page!');
+                    }
+                  }}
+                  className="px-3.5 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-black text-xs flex items-center gap-1.5 transition-all shadow-md cursor-pointer"
+                  title="Save and open directly in dedicated 2-Col Script Studio page"
+                >
+                  <Columns size={13} />
+                  <span>Open in 2-Col Script Page</span>
                 </button>
 
                 {/* Save to Vault Button */}

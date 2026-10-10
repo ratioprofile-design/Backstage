@@ -77,6 +77,7 @@ import {
   Redo2,
   Keyboard,
   Edit2,
+  Folder,
 } from 'lucide-react';
 
 export interface TwoColumnScriptViewProps {
@@ -103,9 +104,27 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
   // Active script document
   const [selectedDocId, setSelectedDocId] = useState<string>(() => {
     if (initialDocumentId) return initialDocumentId;
-    const scriptDoc = documents.find((d) => d.category === 'SCRIPT' || d.isLeftRightFormat || d.id === 'doc-ranga-1');
+    if (typeof localStorage !== 'undefined') {
+      const activeTwoCol = localStorage.getItem('active_two_column_doc_id');
+      if (activeTwoCol && documents.some((d) => d.id === activeTwoCol)) {
+        return activeTwoCol;
+      }
+    }
+    const scriptDoc = documents.find((d) => d.isLeftRightFormat || d.hasTwoColumnScript || d.category === 'SCRIPT' || d.id === 'doc-ranga-1');
     return scriptDoc?.id || documents[0]?.id || 'doc-ranga-1';
   });
+
+  // Keep selectedDocId synchronized with active_two_column_doc_id or initialDocumentId
+  useEffect(() => {
+    if (initialDocumentId && initialDocumentId !== selectedDocId) {
+      setSelectedDocId(initialDocumentId);
+    } else if (typeof localStorage !== 'undefined') {
+      const activeTwoCol = localStorage.getItem('active_two_column_doc_id');
+      if (activeTwoCol && documents.some((d) => d.id === activeTwoCol) && activeTwoCol !== selectedDocId) {
+        setSelectedDocId(activeTwoCol);
+      }
+    }
+  }, [initialDocumentId, documents]);
 
   const activeDoc = useMemo(() => {
     return documents.find((d) => d.id === selectedDocId) || documents[0];
@@ -2237,11 +2256,19 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
               <Columns size={16} />
             </span>
             <div className="min-w-0">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5 flex-wrap">
                 <span className={`text-[11px] font-black uppercase tracking-wider ${
                   isLight ? 'text-emerald-700' : 'text-emerald-400'
                 }`}>
                   Kollywood 2-Column
+                </span>
+                <span className="px-1.5 py-0.2 rounded text-[9.5px] font-black uppercase tracking-wider border bg-blue-500/20 text-blue-400 border-blue-500/30 flex items-center gap-1 shadow-2xs">
+                  <FileText size={9} />
+                  <span>Script</span>
+                </span>
+                <span className="px-1.5 py-0.2 rounded text-[9.5px] font-black uppercase tracking-wider border bg-emerald-500/20 text-emerald-400 border-emerald-500/30 flex items-center gap-1 shadow-2xs">
+                  <Columns size={9} />
+                  <span>Screenplay</span>
                 </span>
                 <span className={`text-[10px] px-1.5 py-0.2 rounded font-mono border ${
                   isLight
@@ -2325,6 +2352,22 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
                 : 'bg-black/40 text-zinc-400 border-zinc-700'
             }`}>⌘F</span>
           </button>
+
+          {/* Back to Vault Button */}
+          {onNavigateToView && (
+            <button
+              onClick={() => onNavigateToView('documents')}
+              className={`px-2.5 py-1.5 text-xs font-semibold rounded-lg border flex items-center gap-1.5 transition-all cursor-pointer ${
+                isLight
+                  ? 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'
+                  : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border-zinc-700/60'
+              }`}
+              title="Return to Document Vault"
+            >
+              <Folder size={13} className="text-amber-400" />
+              <span>Vault</span>
+            </button>
+          )}
         </div>
 
         {/* Right: Zoom controls, Undo/Redo, Shortcuts, Format & Style, Export Actions */}

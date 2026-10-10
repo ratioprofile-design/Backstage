@@ -1,6 +1,22 @@
 import { ProductionDocument, DocumentAnnotation, DocumentCategory, DocumentFormat } from '../types';
+import { 
+  saveProjectDocumentToCloud, 
+  fetchProjectDocumentsFromCloud, 
+  deleteProjectDocumentFromCloud,
+  uploadDocumentBinaryToStorage,
+  isSupabaseConfigured
+} from './supabase';
 
 const STORAGE_KEY = 'backstage_production_documents';
+
+export function getDocumentStorageKey(projectId?: string): string {
+  if (projectId) return `backstage_production_documents_${projectId}`;
+  try {
+    const currentId = typeof localStorage !== 'undefined' ? localStorage.getItem('currentProjectId') : null;
+    if (currentId) return `backstage_production_documents_${currentId}`;
+  } catch {}
+  return STORAGE_KEY;
+}
 
 /**
  * Generate a pure client-side soft WAV audio data URL for voice note testing and starter memos.
@@ -618,16 +634,24 @@ export const INITIAL_DOCUMENTS: ProductionDocument[] = [
   },
 ];
 
-export function getProductionDocuments(): ProductionDocument[] {
+export function getProductionDocuments(projectId?: string): ProductionDocument[] {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const key = getDocumentStorageKey(projectId);
+    let raw = localStorage.getItem(key);
+    // If not found in project key, fallback to generic storage key
+    if (!raw && key !== STORAGE_KEY) {
+      raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) {
+        localStorage.setItem(key, raw);
+      }
+    }
     if (!raw) {
-      saveProductionDocuments(INITIAL_DOCUMENTS);
+      saveProductionDocuments(INITIAL_DOCUMENTS, projectId, true);
       return INITIAL_DOCUMENTS;
     }
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed) || parsed.length === 0) {
-      saveProductionDocuments(INITIAL_DOCUMENTS);
+      saveProductionDocuments(INITIAL_DOCUMENTS, projectId, true);
       return INITIAL_DOCUMENTS;
     }
 
@@ -655,7 +679,7 @@ export function getProductionDocuments(): ProductionDocument[] {
     }
 
     if (hasMigrated) {
-      saveProductionDocuments(migrated);
+      saveProductionDocuments(migrated, projectId, true);
       return migrated;
     }
 
@@ -666,11 +690,22 @@ export function getProductionDocuments(): ProductionDocument[] {
   }
 }
 
-export function saveProductionDocuments(docs: ProductionDocument[]): void {
+export function saveProductionDocuments(docs: ProductionDocument[], projectId?: string, skipCloud = false): void {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(docs));
+    const key = getDocumentStorageKey(projectId);
+    localStorage.setItem(key, JSON.stringify(docs));
     if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('backstage_documents_updated', { detail: docs }));
+      window.dispatchEvent(new CustomEvent('backstage_documents_updated', { detail: { docs, projectId } }));
+    }
+
+    // Background push to Supabase Cloud if online
+    if (!skipCloud && isSupabaseConfigured) {
+      const activeProjId = projectId || (typeof localStorage !== 'undefined' ? localStorage.getItem('currentProjectId') : null);
+      if (activeProjId) {
+        docs.forEach(doc => {
+          saveProjectDocumentToCloud(activeProjId, doc).catch(() => {});
+        });
+      }
     }
   } catch (e) {
     console.error('Failed to save production documents:', e);
@@ -682,12 +717,14 @@ export function addProductionDocument(
     id?: string;
     uploadedAt?: string;
     annotations?: DocumentAnnotation[];
-  }
+  },
+  projectId?: string
 ): ProductionDocument {
-  const currentDocs = getProductionDocuments();
+  const activeProjId = projectId || doc.projectId || (typeof localStorage !== 'undefined' ? localStorage.getItem('currentProjectId') || undefined : undefined);
+  const currentDocs = getProductionDocuments(activeProjId);
   const newDoc: ProductionDocument = {
     id: doc.id || `doc-${Date.now()}`,
-    projectId: doc.projectId,
+    projectId: activeProjId,
     title: doc.title,
     titleTa: doc.titleTa,
     category: doc.category,
@@ -712,6 +749,8 @@ export function addProductionDocument(
     status: doc.status || 'review',
     originalFileDataUrl: doc.originalFileDataUrl,
     originalFileName: doc.originalFileName,
+    convertedDocxDataUrl: doc.convertedDocxDataUrl,
+    isBaminiConverted: doc.isBaminiConverted,
     isLeftRightFormat: doc.isLeftRightFormat,
     leftRightDocId: doc.leftRightDocId,
     sourceDocId: doc.sourceDocId,
@@ -720,32 +759,89 @@ export function addProductionDocument(
   // Prevent duplicate titles if exact same ID exists
   const filtered = currentDocs.filter((d) => d.id !== newDoc.id);
   const updated = [newDoc, ...filtered];
-  saveProductionDocuments(updated);
+  saveProductionDocuments(updated, activeProjId);
+
+  // Cloud upload immediately
+  if (activeProjId && isSupabaseConfigured) {
+    saveProjectDocumentToCloud(activeProjId, newDoc).catch(e => console.warn("Cloud save failed:", e));
+  }
+
   return newDoc;
+}
+
+/**
+ * Synchronize local documents with Supabase Cloud for a given project.
+ * Merges cloud documents with local documents and saves the updated list.
+ */
+export async function syncDocumentsWithCloud(
+  projectId: string,
+  userId?: string
+): Promise<ProductionDocument[]> {
+  const localDocs = getProductionDocuments(projectId);
+  if (!isSupabaseConfigured || !projectId) {
+    return localDocs;
+  }
+
+  try {
+    const cloudDocs = await fetchProjectDocumentsFromCloud(projectId);
+    if (!cloudDocs) {
+      // If table doesn't exist yet, return localDocs safely
+      return localDocs;
+    }
+
+    const map = new Map<string, ProductionDocument>();
+
+    // Add cloud docs as authoritative source for team
+    cloudDocs.forEach((d: any) => map.set(d.id, d));
+
+    // Also include any local docs that may not have synced to cloud yet
+    localDocs.forEach((d) => {
+      if (!map.has(d.id)) {
+        map.set(d.id, d);
+        saveProjectDocumentToCloud(projectId, d, userId).catch(() => {});
+      }
+    });
+
+    const merged = Array.from(map.values()).sort((a, b) => 
+      new Date(b.uploadedAt || 0).getTime() - new Date(a.uploadedAt || 0).getTime()
+    );
+
+    saveProductionDocuments(merged, projectId, true);
+    return merged;
+  } catch (err) {
+    console.warn("syncDocumentsWithCloud failed:", err);
+    return localDocs;
+  }
 }
 
 /**
  * Archive a document (NO DELETION GUARANTEE)
  * Sets isArchived: true, archivedAt, status: 'archived'
  */
-export function archiveProductionDocument(id: string): boolean {
-  const docs = getProductionDocuments();
+export function archiveProductionDocument(id: string, projectId?: string): boolean {
+  const activeProjId = projectId || (typeof localStorage !== 'undefined' ? localStorage.getItem('currentProjectId') || undefined : undefined);
+  const docs = getProductionDocuments(activeProjId);
   let found = false;
+  let targetDoc: ProductionDocument | null = null;
   const updated = docs.map((d) => {
     if (d.id === id) {
       found = true;
-      return {
+      targetDoc = {
         ...d,
         isArchived: true,
         archivedAt: new Date().toISOString(),
         status: 'archived' as const,
       };
+      return targetDoc;
     }
     return d;
   });
 
   if (found) {
-    saveProductionDocuments(updated);
+    saveProductionDocuments(updated, activeProjId);
+    if (targetDoc && activeProjId && isSupabaseConfigured) {
+      saveProjectDocumentToCloud(activeProjId, targetDoc).catch(() => {});
+    }
   }
   return found;
 }
@@ -753,26 +849,43 @@ export function archiveProductionDocument(id: string): boolean {
 /**
  * Restore an archived document back to the active Vault
  */
-export function unarchiveProductionDocument(id: string): boolean {
-  const docs = getProductionDocuments();
+export function unarchiveProductionDocument(id: string, projectId?: string): boolean {
+  const activeProjId = projectId || (typeof localStorage !== 'undefined' ? localStorage.getItem('currentProjectId') || undefined : undefined);
+  const docs = getProductionDocuments(activeProjId);
   let found = false;
+  let targetDoc: ProductionDocument | null = null;
   const updated = docs.map((d) => {
     if (d.id === id) {
       found = true;
-      return {
+      targetDoc = {
         ...d,
         isArchived: false,
         archivedAt: undefined,
         status: 'approved' as const,
       };
+      return targetDoc;
     }
     return d;
   });
 
   if (found) {
-    saveProductionDocuments(updated);
+    saveProductionDocuments(updated, activeProjId);
+    if (targetDoc && activeProjId && isSupabaseConfigured) {
+      saveProjectDocumentToCloud(activeProjId, targetDoc).catch(() => {});
+    }
   }
   return found;
+}
+
+export function deleteProductionDocument(id: string, projectId?: string): boolean {
+  const activeProjId = projectId || (typeof localStorage !== 'undefined' ? localStorage.getItem('currentProjectId') || undefined : undefined);
+  const docs = getProductionDocuments(activeProjId);
+  const updated = docs.filter(d => d.id !== id);
+  saveProductionDocuments(updated, activeProjId);
+  if (activeProjId && isSupabaseConfigured) {
+    deleteProjectDocumentFromCloud(activeProjId, id).catch(() => {});
+  }
+  return true;
 }
 
 /**
@@ -811,8 +924,9 @@ export function saveVoiceNoteToVault(
 /**
  * Add or update tags for a specific document
  */
-export function updateDocumentTags(id: string, tags: string[]): ProductionDocument | null {
-  const docs = getProductionDocuments();
+export function updateDocumentTags(id: string, tags: string[], projectId?: string): ProductionDocument | null {
+  const activeProjId = projectId || (typeof localStorage !== 'undefined' ? localStorage.getItem('currentProjectId') || undefined : undefined);
+  const docs = getProductionDocuments(activeProjId);
   let updatedDoc: ProductionDocument | null = null;
   const cleaned = Array.from(new Set(tags.map((t) => t.replace(/^#/, '').trim()).filter(Boolean)));
 
@@ -825,7 +939,10 @@ export function updateDocumentTags(id: string, tags: string[]): ProductionDocume
   });
 
   if (updatedDoc) {
-    saveProductionDocuments(updatedDocs);
+    saveProductionDocuments(updatedDocs, activeProjId);
+    if (activeProjId && isSupabaseConfigured) {
+      saveProjectDocumentToCloud(activeProjId, updatedDoc).catch(() => {});
+    }
   }
   return updatedDoc;
 }

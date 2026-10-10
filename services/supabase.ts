@@ -215,3 +215,181 @@ export const fetchInvitedProjects = async (email: string) => {
       invitedBy: inv.invited_by || 'Collaborator'
     }));
 };
+
+/**
+ * Upload binary file to Supabase Storage bucket 'vault-files' if available.
+ * Returns public URL on success, or null to fall back to inline storage.
+ */
+export const uploadDocumentBinaryToStorage = async (
+  projectId: string,
+  fileName: string,
+  dataUrl?: string
+): Promise<string | null> => {
+  if (!isSupabaseConfigured || !dataUrl || !dataUrl.startsWith('data:')) return null;
+  try {
+    const commaIndex = dataUrl.indexOf(',');
+    if (commaIndex === -1) return null;
+    const mimeMatch = dataUrl.substring(0, commaIndex).match(/:(.*?);/);
+    const mime = mimeMatch ? mimeMatch[1] : 'application/octet-stream';
+    const base64Data = dataUrl.substring(commaIndex + 1);
+    const binary = atob(base64Data);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    const blob = new Blob([bytes], { type: mime });
+
+    const cleanName = (fileName || 'file').replace(/[^a-zA-Z0-9._-]/g, '_');
+    const storagePath = `${projectId}/${Date.now()}_${cleanName}`;
+
+    const { error } = await supabase.storage
+      .from('vault-files')
+      .upload(storagePath, blob, { upsert: true, contentType: mime });
+
+    if (!error) {
+      const { data } = supabase.storage.from('vault-files').getPublicUrl(storagePath);
+      return data?.publicUrl || null;
+    }
+  } catch (e) {
+    // Graceful fallback to inline data URL
+  }
+  return null;
+};
+
+/**
+ * Save or update an individual document in Supabase Cloud
+ */
+export const saveProjectDocumentToCloud = async (
+  projectId: string,
+  doc: any,
+  userId?: string
+): Promise<boolean> => {
+  if (!isSupabaseConfigured || !projectId) return false;
+
+  try {
+    const row = {
+      id: doc.id,
+      project_id: projectId,
+      user_id: userId || null,
+      title: doc.title || 'Untitled Document',
+      title_ta: doc.titleTa || null,
+      category: doc.category || 'SCRIPT',
+      file_name: doc.fileName || 'document.pdf',
+      file_size: doc.fileSize || null,
+      file_type: doc.fileType || 'pdf',
+      page_count: doc.pageCount || 1,
+      uploaded_at: doc.uploadedAt || new Date().toISOString(),
+      pdf_data_url: doc.pdfDataUrl || null,
+      image_data_url: doc.imageDataUrl || null,
+      audio_url: doc.audioUrl || null,
+      duration_seconds: doc.durationSeconds || null,
+      html_content: doc.htmlContent || null,
+      text_content: doc.textContent || null,
+      sheet_data: doc.sheetData || null,
+      built_in_type: doc.builtInType || null,
+      annotations: doc.annotations || [],
+      author: doc.author || 'Production Member',
+      is_archived: !!doc.isArchived,
+      archived_at: doc.archivedAt || null,
+      tags: doc.tags || [],
+      status: doc.status || 'review',
+      original_file_data_url: doc.originalFileDataUrl || null,
+      original_file_name: doc.originalFileName || null,
+      converted_docx_data_url: doc.convertedDocxDataUrl || null,
+      is_bamini_converted: !!doc.isBaminiConverted,
+      is_left_right_format: !!doc.isLeftRightFormat,
+      left_right_doc_id: doc.leftRightDocId || null,
+      source_doc_id: doc.sourceDocId || null,
+      updated_at: new Date().toISOString()
+    };
+
+    const { error } = await supabase
+      .from('project_documents')
+      .upsert(row, { onConflict: 'id' });
+
+    if (error) {
+      console.warn("Failed to upsert to project_documents table (it may not be created yet):", error.message);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.warn("Error saving document to Supabase:", err);
+    return false;
+  }
+};
+
+/**
+ * Fetch all documents for a project from Supabase Cloud
+ */
+export const fetchProjectDocumentsFromCloud = async (projectId: string): Promise<any[] | null> => {
+  if (!isSupabaseConfigured || !projectId) return null;
+
+  try {
+    const { data, error } = await supabase
+      .from('project_documents')
+      .select('*')
+      .eq('project_id', projectId)
+      .order('uploaded_at', { ascending: false });
+
+    if (error) {
+      // Table might not exist yet; return null to fall back
+      return null;
+    }
+
+    if (!data) return [];
+
+    return data.map((row: any) => ({
+      id: row.id,
+      projectId: row.project_id,
+      title: row.title,
+      titleTa: row.title_ta,
+      category: row.category,
+      fileName: row.file_name,
+      fileSize: row.file_size,
+      fileType: row.file_type,
+      pageCount: row.page_count,
+      uploadedAt: row.uploaded_at,
+      pdfDataUrl: row.pdf_data_url,
+      imageDataUrl: row.image_data_url,
+      audioUrl: row.audio_url,
+      durationSeconds: row.duration_seconds,
+      htmlContent: row.html_content,
+      textContent: row.text_content,
+      sheetData: row.sheet_data,
+      builtInType: row.built_in_type,
+      annotations: row.annotations || [],
+      author: row.author,
+      isArchived: !!row.is_archived,
+      archivedAt: row.archived_at,
+      tags: row.tags || [],
+      status: row.status,
+      originalFileDataUrl: row.original_file_data_url,
+      originalFileName: row.original_file_name,
+      convertedDocxDataUrl: row.converted_docx_data_url,
+      isBaminiConverted: !!row.is_bamini_converted,
+      isLeftRightFormat: !!row.is_left_right_format,
+      leftRightDocId: row.left_right_doc_id,
+      sourceDocId: row.source_doc_id
+    }));
+  } catch (err) {
+    return null;
+  }
+};
+
+/**
+ * Delete a document from Supabase Cloud
+ */
+export const deleteProjectDocumentFromCloud = async (projectId: string, docId: string): Promise<boolean> => {
+  if (!isSupabaseConfigured || !projectId || !docId) return false;
+  try {
+    const { error } = await supabase
+      .from('project_documents')
+      .delete()
+      .eq('project_id', projectId)
+      .eq('id', docId);
+    return !error;
+  } catch (err) {
+    return false;
+  }
+};
+
