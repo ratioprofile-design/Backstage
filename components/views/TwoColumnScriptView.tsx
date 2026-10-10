@@ -1681,11 +1681,8 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
         return;
       }
 
-      // 7. SIDEBAR TOGGLE: Ctrl+B / Cmd+B or [ (when not editing)
-      if (
-        ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'b') ||
-        (!isInputFocused && e.key === '[')
-      ) {
+      // 7. SIDEBAR TOGGLE: Ctrl+B / Cmd+B
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'b') {
         e.preventDefault();
         setIsSceneSidebarOpen((prev) => !prev);
         return;
@@ -1724,23 +1721,48 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
         return;
       }
 
-      // 10. COLUMN CONVERSION: Alt+Left / Alt+Right / Alt+C
-      if (e.altKey && !isInputFocused) {
-        if (e.key === 'ArrowLeft') {
-          e.preventDefault();
-          moveParagraphsToColumn('left');
-          return;
-        }
-        if (e.key === 'ArrowRight') {
-          e.preventDefault();
-          moveParagraphsToColumn('right');
-          return;
-        }
-        if (e.key === 'c' || e.key === 'C') {
-          e.preventDefault();
-          moveParagraphsToColumn('center');
-          return;
-        }
+      // 10. COLUMN CONVERSION SHORTCUTS:
+      // Left Column:   Alt + ArrowLeft  OR  [ (when not typing)  OR  Alt + [
+      // Right Column:  Alt + ArrowRight OR  ] (when not typing)  OR  Alt + ]
+      // Center Column: \ (when not typing) OR  Alt + \  OR  Alt + C (Transition / Title)
+      const isAltLeft = e.altKey && (e.key === 'ArrowLeft' || e.key === '[');
+      const isAltRight = e.altKey && (e.key === 'ArrowRight' || e.key === ']');
+      const isAltCenter = e.altKey && (e.key === '\\' || e.key.toLowerCase() === 'c');
+      const isPlainLeft = !isInputFocused && e.key === '[';
+      const isPlainRight = !isInputFocused && e.key === ']';
+      const isPlainCenter = !isInputFocused && e.key === '\\';
+
+      if (isAltLeft || isPlainLeft) {
+        e.preventDefault();
+        const targetId = isInputFocused
+          ? (activeEl?.closest('[data-item-row-id]')?.getAttribute('data-item-row-id') ||
+             activeEl?.closest('[data-item-id]')?.getAttribute('data-item-id') ||
+             lastSelectedId)
+          : (lastSelectedId || (selectedItemIds.size > 0 ? Array.from(selectedItemIds)[0] : undefined));
+        moveParagraphsToColumn('left', targetId || undefined);
+        return;
+      }
+
+      if (isAltRight || isPlainRight) {
+        e.preventDefault();
+        const targetId = isInputFocused
+          ? (activeEl?.closest('[data-item-row-id]')?.getAttribute('data-item-row-id') ||
+             activeEl?.closest('[data-item-id]')?.getAttribute('data-item-id') ||
+             lastSelectedId)
+          : (lastSelectedId || (selectedItemIds.size > 0 ? Array.from(selectedItemIds)[0] : undefined));
+        moveParagraphsToColumn('right', targetId || undefined);
+        return;
+      }
+
+      if (isAltCenter || isPlainCenter) {
+        e.preventDefault();
+        const targetId = isInputFocused
+          ? (activeEl?.closest('[data-item-row-id]')?.getAttribute('data-item-row-id') ||
+             activeEl?.closest('[data-item-id]')?.getAttribute('data-item-id') ||
+             lastSelectedId)
+          : (lastSelectedId || (selectedItemIds.size > 0 ? Array.from(selectedItemIds)[0] : undefined));
+        moveParagraphsToColumn('center', targetId || undefined);
+        return;
       }
 
       // 10b. QUICK ROW JUMP WHILE EDITING: Alt + ArrowDown / Alt + ArrowUp

@@ -35,6 +35,114 @@ export interface TwoColumnSceneSidebarProps {
   className?: string;
 }
 
+export interface SceneMetadataInfo {
+  setting: 'INT' | 'EXT' | 'I/E';
+  rawTime: string;
+  displayTime: string;
+  isNight: boolean;
+  isDay: boolean;
+  isEvening: boolean;
+  isMorning: boolean;
+}
+
+/**
+ * Universal metadata extractor for Kollywood / Tamil / Hollywood screenplays:
+ * Detects INT / EXT / I/E from script text, scene headers, and timeOfDay.
+ * Strips technical noise to yield clean time strings like "மாலை&இரவு", "DAY", "NIGHT".
+ */
+export function parseSceneMetadata(scene: TamilScene): SceneMetadataInfo {
+  const timeRaw = (scene.timeOfDay || '').trim();
+  const locRaw = (scene.location || '').trim();
+  const realLocRaw = (scene.realLocation || '').trim();
+  const slugRaw = (scene.sluglineText || '').trim();
+  const combined = `${timeRaw} ${locRaw} ${realLocRaw} ${slugRaw}`;
+
+  // 1. Setting: I/E, EXT, INT
+  let setting: 'INT' | 'EXT' | 'I/E' = 'INT';
+  const ieRegex = /\b(?:I\/E|INT[\s\/\\]*EXT|INT\.?[\s\/\\]*EXT\.?|I\s*[\/\\]\s*E|IE|உள்\s*[\/\\]\s*வெளி|உள்ளகம்\s*[\/\\]\s*வெளியகம்)\b/i;
+  const extRegex = /\b(?:EXT|EXTERIOR|வெளி|வெளியகம்)\b|[\/\-_]EXT\b|\bEXT[\/\-_]/i;
+  const intRegex = /\b(?:INT|INTERIOR|உள்|உள்ளகம்)\b|[\/\-_]INT\b|\bINT[\/\-_]/i;
+
+  if (ieRegex.test(combined)) {
+    setting = 'I/E';
+  } else if (extRegex.test(combined)) {
+    setting = 'EXT';
+  } else if (intRegex.test(combined)) {
+    setting = 'INT';
+  } else {
+    // Contextual clues from location when not explicitly marked
+    const extClues = /(?:காடு|ரோடு|தெரு|சாலை|பாலம்|கடற்கரை|கடல்|மலை|தோட்டம்|மைதானம்|forest|road|street|beach|outside|ground|exterior)/i;
+    const intClues = /(?:வீடு|அறை|அலுவலகம்|ஆபீஸ்|ஹால்|சமையலறை|பள்ளி|கல்லூரி|மருத்துவமனை|house|room|office|hall|hospital|home|kitchen|interior)/i;
+    if (extClues.test(combined)) {
+      setting = 'EXT';
+    } else if (intClues.test(combined)) {
+      setting = 'INT';
+    } else {
+      setting = 'INT';
+    }
+  }
+
+  // 2. Clean display time (strip INT / EXT / IE / etc. while preserving compound times like மாலை&இரவு)
+  let displayTime = timeRaw
+    .replace(/\s*[\/\-–]\s*(?:INT|EXT|I\/E|IE|INTERIOR|EXTERIOR|உள்|வெளி|உள்ளகம்|வெளியகம்)\b/gi, '')
+    .replace(/\b(?:INT|EXT|I\/E|IE|INTERIOR|EXTERIOR|உள்|வெளி|உள்ளகம்|வெளியகம்)\s*[\/\-–]\s*/gi, '')
+    .replace(/\b(?:INT|EXT|I\/E|IE)\b/gi, '')
+    .replace(/^[\/\-–|:]+|[\/\-–|:]+$/g, '')
+    .trim();
+
+  if (!displayTime) {
+    if (/\b(?:NIG|NIGHT)\b/i.test(timeRaw)) displayTime = 'NIGHT';
+    else if (/\bDAY\b/i.test(timeRaw)) displayTime = 'DAY';
+    else displayTime = 'DAY';
+  }
+
+  const checkStr = `${timeRaw} ${displayTime}`.toLowerCase();
+  const isNight =
+    checkStr.includes('night') ||
+    checkStr.includes('nig') ||
+    checkStr.includes('dusk') ||
+    checkStr.includes('midnight') ||
+    checkStr.includes('இரவு') ||
+    checkStr.includes('நள்ளிரவு') ||
+    checkStr.includes('அந்தி');
+
+  const isEvening =
+    checkStr.includes('evening') ||
+    checkStr.includes('eve') ||
+    checkStr.includes('dusk') ||
+    checkStr.includes('sunset') ||
+    checkStr.includes('twilight') ||
+    checkStr.includes('மாலை') ||
+    checkStr.includes('அந்தி');
+
+  const isMorning =
+    checkStr.includes('morning') ||
+    checkStr.includes('morn') ||
+    checkStr.includes('dawn') ||
+    checkStr.includes('sunrise') ||
+    checkStr.includes('காலை') ||
+    checkStr.includes('விடியல்');
+
+  const isDay =
+    checkStr.includes('day') ||
+    checkStr.includes('noon') ||
+    checkStr.includes('afternoon') ||
+    checkStr.includes('பகல்') ||
+    checkStr.includes('நண்பகல்') ||
+    checkStr.includes('மதியம்') ||
+    isMorning;
+
+  return {
+    setting,
+    rawTime: timeRaw,
+    displayTime,
+    isNight,
+    isDay,
+    isEvening,
+    isMorning,
+  };
+}
+
 export const TwoColumnSceneSidebar: React.FC<TwoColumnSceneSidebarProps> = ({
   screenplayData,
   isLight = false,
@@ -49,23 +157,63 @@ export const TwoColumnSceneSidebar: React.FC<TwoColumnSceneSidebarProps> = ({
   className = '',
 }) => {
   const [filterQuery, setFilterQuery] = useState('');
-  const [timeFilter, setTimeFilter] = useState<'all' | 'day' | 'night'>('all');
+  const [settingFilter, setSettingFilter] = useState<'all' | 'INT' | 'EXT' | 'I/E'>('all');
+  const [timeFilter, setTimeFilter] = useState<'all' | 'day' | 'night' | 'evening' | 'morning'>('all');
 
-  // Filter scenes based on search query and time filter
+  // Pre-parse metadata for all scenes
+  const sceneMetadataMap = useMemo(() => {
+    const map = new Map<string, SceneMetadataInfo>();
+    for (const sc of screenplayData.scenes) {
+      map.set(sc.id, parseSceneMetadata(sc));
+    }
+    return map;
+  }, [screenplayData.scenes]);
+
+  // Precompute dynamic counts for filter chips
+  const counts = useMemo(() => {
+    let intCount = 0;
+    let extCount = 0;
+    let ieCount = 0;
+    let dayCount = 0;
+    let nightCount = 0;
+    let eveningCount = 0;
+    let morningCount = 0;
+
+    for (const sc of screenplayData.scenes) {
+      const meta = sceneMetadataMap.get(sc.id);
+      if (!meta) continue;
+      if (meta.setting === 'INT') intCount++;
+      else if (meta.setting === 'EXT') extCount++;
+      else if (meta.setting === 'I/E') ieCount++;
+
+      if (meta.isDay) dayCount++;
+      if (meta.isNight) nightCount++;
+      if (meta.isEvening) eveningCount++;
+      if (meta.isMorning) morningCount++;
+    }
+
+    return { intCount, extCount, ieCount, dayCount, nightCount, eveningCount, morningCount };
+  }, [screenplayData.scenes, sceneMetadataMap]);
+
+  // Filter scenes based on search query, setting filter, and time filter
   const filteredScenes = useMemo(() => {
     return screenplayData.scenes.filter((scene) => {
-      // 1. Time Filter
-      if (timeFilter !== 'all') {
-        const timeLower = (scene.timeOfDay || '').toLowerCase();
-        if (timeFilter === 'day' && !timeLower.includes('day') && !timeLower.includes('morning')) {
-          return false;
-        }
-        if (timeFilter === 'night' && !timeLower.includes('night') && !timeLower.includes('evening') && !timeLower.includes('dusk')) {
-          return false;
-        }
+      const meta = sceneMetadataMap.get(scene.id) || parseSceneMetadata(scene);
+
+      // 1. Setting Filter (INT / EXT / I/E)
+      if (settingFilter !== 'all' && meta.setting !== settingFilter) {
+        return false;
       }
 
-      // 2. Text Search
+      // 2. Time Filter (Day / Night / Evening / Morning)
+      if (timeFilter !== 'all') {
+        if (timeFilter === 'day' && !meta.isDay) return false;
+        if (timeFilter === 'night' && !meta.isNight) return false;
+        if (timeFilter === 'evening' && !meta.isEvening) return false;
+        if (timeFilter === 'morning' && !meta.isMorning) return false;
+      }
+
+      // 3. Text Search Query
       if (!filterQuery.trim()) return true;
       const q = filterQuery.toLowerCase().trim();
 
@@ -76,8 +224,10 @@ export const TwoColumnSceneSidebar: React.FC<TwoColumnSceneSidebarProps> = ({
       if (scene.location.toLowerCase().includes(q)) return true;
       if (scene.realLocation && scene.realLocation.toLowerCase().includes(q)) return true;
 
-      // Check time
+      // Check time & setting
       if (scene.timeOfDay.toLowerCase().includes(q)) return true;
+      if (meta.displayTime.toLowerCase().includes(q)) return true;
+      if (meta.setting.toLowerCase().includes(q)) return true;
 
       // Check characters
       if (scene.characters?.some((c) => c.toLowerCase().includes(q))) return true;
@@ -94,7 +244,7 @@ export const TwoColumnSceneSidebar: React.FC<TwoColumnSceneSidebarProps> = ({
 
       return hasMatchingItem;
     });
-  }, [screenplayData.scenes, filterQuery, timeFilter]);
+  }, [screenplayData.scenes, sceneMetadataMap, settingFilter, timeFilter, filterQuery]);
 
   if (!isOpen) {
     return (
@@ -222,44 +372,138 @@ export const TwoColumnSceneSidebar: React.FC<TwoColumnSceneSidebarProps> = ({
           )}
         </div>
 
-        {/* Day / Night Filter Chips */}
-        <div className="flex items-center gap-1.5 text-[10px] font-mono">
-          <button
-            onClick={() => setTimeFilter('all')}
-            className={`px-2 py-0.5 rounded-md font-bold transition-all ${
-              timeFilter === 'all'
-                ? 'bg-emerald-500 text-white shadow-xs'
-                : isLight
-                ? 'bg-slate-200/80 text-slate-600 hover:bg-slate-300'
-                : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200'
-            }`}
-          >
-            All ({screenplayData.scenes.length})
-          </button>
-          <button
-            onClick={() => setTimeFilter('day')}
-            className={`px-2 py-0.5 rounded-md font-bold transition-all ${
-              timeFilter === 'day'
-                ? 'bg-amber-500 text-black shadow-xs'
-                : isLight
-                ? 'bg-slate-200/80 text-slate-600 hover:bg-slate-300'
-                : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200'
-            }`}
-          >
-            Day
-          </button>
-          <button
-            onClick={() => setTimeFilter('night')}
-            className={`px-2 py-0.5 rounded-md font-bold transition-all ${
-              timeFilter === 'night'
-                ? 'bg-indigo-600 text-white shadow-xs'
-                : isLight
-                ? 'bg-slate-200/80 text-slate-600 hover:bg-slate-300'
-                : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200'
-            }`}
-          >
-            Night
-          </button>
+        {/* Setting (INT / EXT / I/E) & Time Filter Controls */}
+        <div className="space-y-1.5 pt-0.5">
+          {/* Row 1: Setting Chips */}
+          <div className="flex items-center gap-1 text-[10px] font-mono overflow-x-auto no-scrollbar">
+            <span className="text-[9px] uppercase font-bold text-zinc-500 mr-0.5 shrink-0">SET:</span>
+            <button
+              onClick={() => setSettingFilter('all')}
+              className={`px-1.5 py-0.5 rounded font-bold transition-all shrink-0 ${
+                settingFilter === 'all'
+                  ? 'bg-emerald-500 text-white shadow-xs'
+                  : isLight
+                  ? 'bg-slate-200/80 text-slate-600 hover:bg-slate-300'
+                  : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200'
+              }`}
+            >
+              All ({screenplayData.scenes.length})
+            </button>
+            <button
+              onClick={() => setSettingFilter(settingFilter === 'INT' ? 'all' : 'INT')}
+              className={`px-1.5 py-0.5 rounded font-bold transition-all shrink-0 ${
+                settingFilter === 'INT'
+                  ? 'bg-sky-500 text-white shadow-xs'
+                  : isLight
+                  ? 'bg-slate-200/80 text-slate-600 hover:bg-slate-300'
+                  : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200'
+              }`}
+              title="Filter Interior (உள் / INT) scenes"
+            >
+              INT ({counts.intCount})
+            </button>
+            <button
+              onClick={() => setSettingFilter(settingFilter === 'EXT' ? 'all' : 'EXT')}
+              className={`px-1.5 py-0.5 rounded font-bold transition-all shrink-0 ${
+                settingFilter === 'EXT'
+                  ? 'bg-emerald-600 text-white shadow-xs'
+                  : isLight
+                  ? 'bg-slate-200/80 text-slate-600 hover:bg-slate-300'
+                  : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200'
+              }`}
+              title="Filter Exterior (வெளி / EXT) scenes"
+            >
+              EXT ({counts.extCount})
+            </button>
+            {counts.ieCount > 0 && (
+              <button
+                onClick={() => setSettingFilter(settingFilter === 'I/E' ? 'all' : 'I/E')}
+                className={`px-1.5 py-0.5 rounded font-bold transition-all shrink-0 ${
+                  settingFilter === 'I/E'
+                    ? 'bg-purple-600 text-white shadow-xs'
+                    : isLight
+                    ? 'bg-slate-200/80 text-slate-600 hover:bg-slate-300'
+                    : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200'
+                }`}
+                title="Filter Interior/Exterior (உள்/வெளி / I/E) scenes"
+              >
+                I/E ({counts.ieCount})
+              </button>
+            )}
+          </div>
+
+          {/* Row 2: Time of Day Chips */}
+          <div className="flex items-center gap-1 text-[10px] font-mono overflow-x-auto no-scrollbar">
+            <span className="text-[9px] uppercase font-bold text-zinc-500 mr-0.5 shrink-0">TIME:</span>
+            <button
+              onClick={() => setTimeFilter('all')}
+              className={`px-1.5 py-0.5 rounded font-bold transition-all shrink-0 ${
+                timeFilter === 'all'
+                  ? 'bg-emerald-500 text-white shadow-xs'
+                  : isLight
+                  ? 'bg-slate-200/80 text-slate-600 hover:bg-slate-300'
+                  : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200'
+              }`}
+            >
+              All
+            </button>
+            <button
+              onClick={() => setTimeFilter(timeFilter === 'day' ? 'all' : 'day')}
+              className={`px-1.5 py-0.5 rounded font-bold transition-all shrink-0 ${
+                timeFilter === 'day'
+                  ? 'bg-amber-500 text-black shadow-xs'
+                  : isLight
+                  ? 'bg-slate-200/80 text-slate-600 hover:bg-slate-300'
+                  : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200'
+              }`}
+              title="Filter Day (பகல் / DAY) scenes"
+            >
+              Day ({counts.dayCount})
+            </button>
+            <button
+              onClick={() => setTimeFilter(timeFilter === 'night' ? 'all' : 'night')}
+              className={`px-1.5 py-0.5 rounded font-bold transition-all shrink-0 ${
+                timeFilter === 'night'
+                  ? 'bg-indigo-600 text-white shadow-xs'
+                  : isLight
+                  ? 'bg-slate-200/80 text-slate-600 hover:bg-slate-300'
+                  : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200'
+              }`}
+              title="Filter Night (இரவு / NIGHT) scenes"
+            >
+              Night ({counts.nightCount})
+            </button>
+            {counts.eveningCount > 0 && (
+              <button
+                onClick={() => setTimeFilter(timeFilter === 'evening' ? 'all' : 'evening')}
+                className={`px-1.5 py-0.5 rounded font-bold transition-all shrink-0 ${
+                  timeFilter === 'evening'
+                    ? 'bg-orange-500 text-white shadow-xs'
+                    : isLight
+                    ? 'bg-slate-200/80 text-slate-600 hover:bg-slate-300'
+                    : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200'
+                }`}
+                title="Filter Evening / Dusk (மாலை / அந்தி) scenes"
+              >
+                Eve / மாலை ({counts.eveningCount})
+              </button>
+            )}
+            {counts.morningCount > 0 && (
+              <button
+                onClick={() => setTimeFilter(timeFilter === 'morning' ? 'all' : 'morning')}
+                className={`px-1.5 py-0.5 rounded font-bold transition-all shrink-0 ${
+                  timeFilter === 'morning'
+                    ? 'bg-yellow-500 text-black shadow-xs'
+                    : isLight
+                    ? 'bg-slate-200/80 text-slate-600 hover:bg-slate-300'
+                    : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200'
+                }`}
+                title="Filter Morning / Dawn (காலை / விடியல்) scenes"
+              >
+                Morn / காலை ({counts.morningCount})
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
@@ -272,6 +516,7 @@ export const TwoColumnSceneSidebar: React.FC<TwoColumnSceneSidebarProps> = ({
             <button
               onClick={() => {
                 setFilterQuery('');
+                setSettingFilter('all');
                 setTimeFilter('all');
               }}
               className="text-emerald-500 hover:underline text-[11px] font-bold"
@@ -291,7 +536,7 @@ export const TwoColumnSceneSidebar: React.FC<TwoColumnSceneSidebarProps> = ({
               (it) => it.rightDialogue || it.rightCharacter || (it.column === 'right' && it.rawText)
             );
 
-            const isNight = (scene.timeOfDay || '').toLowerCase().includes('night');
+            const meta = sceneMetadataMap.get(scene.id) || parseSceneMetadata(scene);
 
             return (
               <div
@@ -307,7 +552,7 @@ export const TwoColumnSceneSidebar: React.FC<TwoColumnSceneSidebarProps> = ({
                     : 'bg-zinc-900/60 hover:bg-zinc-800/80 border-zinc-800 hover:border-zinc-700 shadow-xs'
                 }`}
               >
-                {/* Top Row: Scene Number Badge + Page # + Time Pill + Hover Actions */}
+                {/* Top Row: Scene Number Badge + Page # + Setting & Time Pills + Hover Actions */}
                 <div className="flex items-center justify-between gap-1.5 mb-1.5">
                   <div className="flex items-center gap-1.5 min-w-0">
                     <span
@@ -329,9 +574,9 @@ export const TwoColumnSceneSidebar: React.FC<TwoColumnSceneSidebarProps> = ({
                     )}
                   </div>
 
-                  <div className="flex items-center gap-1">
+                  <div className="flex items-center gap-1 min-w-0">
                     {/* Hover scene card quick actions */}
-                    <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5 mr-0.5">
+                    <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5 mr-0.5 shrink-0">
                       {onAddScene && (
                         <button
                           type="button"
@@ -369,15 +614,48 @@ export const TwoColumnSceneSidebar: React.FC<TwoColumnSceneSidebarProps> = ({
                       )}
                     </div>
 
-                    <span
-                      className={`text-[9.5px] font-mono px-1.5 py-0.5 rounded font-bold uppercase tracking-wider shrink-0 ${
-                        isNight
-                          ? 'bg-indigo-950/70 text-indigo-300 border border-indigo-800/40'
-                          : 'bg-amber-950/50 text-amber-300 border border-amber-800/40'
-                      }`}
-                    >
-                      {scene.timeOfDay || 'Day / INT'}
-                    </span>
+                    {/* Setting & Time Metadata Badges */}
+                    <div className="flex items-center gap-1 shrink-0">
+                      {/* Setting Badge: INT / EXT / I/E */}
+                      <span
+                        className={`text-[9px] font-mono px-1.5 py-0.5 rounded font-black uppercase tracking-wider shrink-0 ${
+                          meta.setting === 'INT'
+                            ? isLight
+                              ? 'bg-sky-100 text-sky-800 border border-sky-300'
+                              : 'bg-sky-950/70 text-sky-300 border border-sky-800/60'
+                            : meta.setting === 'EXT'
+                            ? isLight
+                              ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                              : 'bg-emerald-950/70 text-emerald-300 border border-emerald-800/60'
+                            : isLight
+                            ? 'bg-purple-100 text-purple-800 border border-purple-300'
+                            : 'bg-purple-950/70 text-purple-300 border border-purple-800/60'
+                        }`}
+                        title={`Setting: ${meta.setting}`}
+                      >
+                        {meta.setting}
+                      </span>
+
+                      {/* Time Metadata Badge (exact script time e.g. மாலை&இரவு / NIGHT / DAY) */}
+                      <span
+                        className={`text-[9px] font-mono px-1.5 py-0.5 rounded font-bold uppercase tracking-wider shrink-0 truncate max-w-[85px] ${
+                          meta.isNight
+                            ? isLight
+                              ? 'bg-indigo-100 text-indigo-800 border border-indigo-300'
+                              : 'bg-indigo-950/70 text-indigo-300 border border-indigo-800/50'
+                            : meta.isEvening
+                            ? isLight
+                              ? 'bg-orange-100 text-orange-800 border border-orange-300'
+                              : 'bg-orange-950/60 text-orange-300 border border-orange-800/50'
+                            : isLight
+                            ? 'bg-amber-100 text-amber-800 border border-amber-300'
+                            : 'bg-amber-950/50 text-amber-300 border border-amber-800/50'
+                        }`}
+                        title={`Time: ${meta.displayTime}`}
+                      >
+                        {meta.displayTime}
+                      </span>
+                    </div>
                   </div>
                 </div>
 

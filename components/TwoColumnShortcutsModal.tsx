@@ -112,12 +112,12 @@ export const TwoColumnShortcutsModal: React.FC<TwoColumnShortcutsModalProps> = (
       title: 'Column Conversion & Reordering',
       icon: <ArrowRight size={16} className="text-purple-500" />,
       items: [
-        { keys: ['Alt', '←'], description: 'Move highlighted block to Left: காட்சி (Visual Action)' },
-        { keys: ['Alt', '→'], description: 'Move highlighted block to Right: வசனம் (Dialogue)' },
-        { keys: ['Alt', 'C'], description: 'Move to Center: தலைப்பு / Transition', badge: 'Alt+↑' },
+        { keys: ['Alt', '←', '/', '['], description: 'Move to Left Column: காட்சி (Visual Action)', badge: '[ or Alt+←' },
+        { keys: ['Alt', '→', '/', ']'], description: 'Move to Right Column: வசனம் (Dialogue)', badge: '] or Alt+→' },
+        { keys: ['\\', '/', 'Alt', 'C'], description: 'Move to Center: Transition / Title (காட்சி மாற்றம்)', badge: '\\ or Alt+\\' },
         { keys: ['Alt', 'Shift', '↑'], description: 'Move current block UP above previous row' },
         { keys: ['Alt', 'Shift', '↓'], description: 'Move current block DOWN below next row' },
-        { keys: ['['], description: 'Toggle Left Scenes Navigator sidebar', badge: 'Sidebar Icon' },
+        { keys: ['Ctrl', 'B'], description: 'Toggle Left Scenes Navigator sidebar', badge: '⌘B' },
       ],
     },
   ];
