@@ -311,7 +311,8 @@ export const INITIAL_STATE: ProjectState = {
   // Drawings -> Text -> Connections -> Groups -> Beats
   boardLayerOrder: ['annotations', 'text', 'connections', 'groups', 'beats'],
   characterDesignLocked: false,
-  collaborators: []
+  collaborators: [],
+  talentPool: []
 };
 
 export const SCRIPT_FORMATS = [

@@ -15,6 +15,10 @@ import {
 } from 'lucide-react';
 import DualViewToggle from '../DualViewToggle';
 import { useAiKeyStatus } from '../../context/AiKeyStatusContext';
+import { MassTalentImportModal } from '../MassTalentImportModal';
+import { TalentDirectoryView } from '../TalentDirectoryView';
+import { CastingSwipeDeck } from '../CastingSwipeDeck';
+import { IgGrabberModal } from '../IgGrabberModal';
 
 const BILLING_TIERS = [
   { id: 'lead', label: 'Lead Role', badge: 'bg-amber-500/20 text-amber-400 border-amber-500/40', badgeLight: 'bg-amber-100 text-amber-800 border-amber-300' },
@@ -136,13 +140,16 @@ const SettingsSection: React.FC<{ title: string; children: React.ReactNode }> = 
 );
 
 export const CastingView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'casting') => void }> = ({ onNavigateToView }) => {
-  const { characterData, setCharacterData, beats, appTheme, projectList, currentProjectId, characterDesignLocked, userRole } = useProject();
+  const { characterData, setCharacterData, beats, appTheme, projectList, currentProjectId, characterDesignLocked, userRole, talentPool } = useProject();
   const { aiAvailable } = useAiKeyStatus();
   const isLight = appTheme === 'light' || (appTheme === 'system' && typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: light)').matches);
   const isLocked = !!characterDesignLocked;
 
+  const [isMassImportOpen, setIsMassImportOpen] = useState(false);
+  const [isIgGrabberOpen, setIsIgGrabberOpen] = useState(false);
+
   // Default View: Pipeline (Hero operational view)
-  const [activeViewMode, setActiveViewMode] = useState<'pipeline' | 'matrix' | 'comparison' | 'dossier'>('pipeline');
+  const [activeViewMode, setActiveViewMode] = useState<'pipeline' | 'matrix' | 'comparison' | 'dossier' | 'talent_pool' | 'swipe'>('pipeline');
 
   const isCastingRestricted = false;
 
@@ -1094,6 +1101,13 @@ export const CastingView: React.FC<{ onNavigateToView?: (view: 'characterdesign'
             <span className="text-emerald-500 uppercase text-[9.5px]">CONFIRMED CAST:</span>
             <span className="font-bold text-emerald-400">{stats.confirmedCast}</span>
           </div>
+
+          <div className={`px-3 py-1.5 border flex items-center gap-2 ${
+            isLight ? 'bg-amber-50 border-amber-200' : 'bg-amber-950/30 border-amber-900/40'
+          }`}>
+            <span className="text-amber-500 uppercase text-[9.5px]">TALENT POOL:</span>
+            <span className="font-bold text-amber-400">{talentPool?.length || 0}</span>
+          </div>
         </div>
 
         {/* Primary View Switcher & Action Button */}
@@ -1147,8 +1161,41 @@ export const CastingView: React.FC<{ onNavigateToView?: (view: 'characterdesign'
                 <Folder size={13} />
                 <span>Dossier</span>
               </button>
+
+              <button
+                onClick={() => setActiveViewMode('talent_pool')}
+                className={`px-2.5 py-1 text-[11px] font-medium transition-colors flex items-center gap-1.5 ${
+                  activeViewMode === 'talent_pool'
+                    ? (isLight ? 'bg-white text-slate-900 shadow-xs font-bold' : 'bg-[#262a36] text-white font-bold')
+                    : (isLight ? 'text-slate-600 hover:text-slate-900' : 'text-slate-400 hover:text-white')
+                }`}
+              >
+                <Users size={13} />
+                <span>Talent Vault</span>
+              </button>
+
+              <button
+                onClick={() => setActiveViewMode('swipe')}
+                className={`px-2.5 py-1 text-[11px] font-medium transition-colors flex items-center gap-1.5 ${
+                  activeViewMode === 'swipe'
+                    ? 'bg-gradient-to-r from-pink-500 to-amber-500 text-slate-950 font-bold shadow-xs'
+                    : 'text-pink-400 hover:text-white font-semibold'
+                }`}
+              >
+                <Heart size={13} />
+                <span>Swipe Deck 🔥</span>
+              </button>
             </div>
           )}
+
+          <button
+            onClick={() => setIsMassImportOpen(true)}
+            className="px-3 py-1.5 border border-amber-500/50 bg-amber-500/10 hover:bg-amber-500 hover:text-slate-950 text-amber-400 text-xs flex items-center gap-1.5 shadow-xs transition-colors font-bold"
+            title="Mass Import from WhatsApp & Spreadsheets"
+          >
+            <Upload size={14} />
+            <span>Mass Import</span>
+          </button>
 
           <button
             onClick={() => window.print()}
@@ -1517,10 +1564,12 @@ export const CastingView: React.FC<{ onNavigateToView?: (view: 'characterdesign'
         </div>
       </header>
 
-      {/* =========================================================================
-          SCRIPT & BREAKDOWN CHARACTERS ROSTER SECTION (HERO CHARACTER CAROUSEL)
-      ========================================================================= */}
-      <div className={`px-5 py-3 border-b flex flex-col gap-2 shrink-0 ${
+      {activeViewMode !== 'talent_pool' && activeViewMode !== 'swipe' && (
+        <>
+          {/* =========================================================================
+              SCRIPT & BREAKDOWN CHARACTERS ROSTER SECTION (HERO CHARACTER CAROUSEL)
+          ========================================================================= */}
+          <div className={`px-5 py-3 border-b flex flex-col gap-2 shrink-0 ${
         isLight ? 'bg-slate-200/70 border-slate-300' : 'bg-[#151722] border-slate-800'
       }`}>
         <div className="flex items-center justify-between">
@@ -1749,6 +1798,8 @@ export const CastingView: React.FC<{ onNavigateToView?: (view: 'characterdesign'
           <span className="font-bold text-emerald-500">{stats.percentCast}%</span>
         </div>
       </div>
+      </>
+      )}
 
       {/* =========================================================================
           VIEW MODE 1: PRIORITY HERO - DATA-DENSE PIPELINE KANBAN BOARD
@@ -2725,6 +2776,29 @@ export const CastingView: React.FC<{ onNavigateToView?: (view: 'characterdesign'
             </div>
           )}
         </div>
+      )}
+
+      {/* =========================================================================
+          VIEW MODE 5: MASTER TALENT VAULT / DIRECTORY
+      ========================================================================= */}
+      {activeViewMode === 'talent_pool' && (
+        <TalentDirectoryView
+          onOpenMassImport={() => setIsMassImportOpen(true)}
+          onOpenIgGrabber={() => setIsIgGrabberOpen(true)}
+          onOpenSwipeDeck={() => setActiveViewMode('swipe')}
+          roleNames={roleNames}
+        />
+      )}
+
+      {/* =========================================================================
+          VIEW MODE 6: CASTING SWIPE DECK (TINDER MODE)
+      ========================================================================= */}
+      {activeViewMode === 'swipe' && (
+        <CastingSwipeDeck
+          onBackToDirectory={() => setActiveViewMode('talent_pool')}
+          onOpenIgGrabber={() => setIsIgGrabberOpen(true)}
+          roleNames={roleNames}
+        />
       )}
 
       {/* =========================================================================
@@ -3742,6 +3816,22 @@ export const CastingView: React.FC<{ onNavigateToView?: (view: 'characterdesign'
           })()}
         </div>,
         document.body
+      )}
+
+      {/* MASS TALENT IMPORTER MODAL */}
+      {isMassImportOpen && (
+        <MassTalentImportModal
+          isOpen={isMassImportOpen}
+          onClose={() => setIsMassImportOpen(false)}
+        />
+      )}
+
+      {/* INSTAGRAM GRABBER BOOKMARKLET MODAL */}
+      {isIgGrabberOpen && (
+        <IgGrabberModal
+          isOpen={isIgGrabberOpen}
+          onClose={() => setIsIgGrabberOpen(false)}
+        />
       )}
 
     </div>

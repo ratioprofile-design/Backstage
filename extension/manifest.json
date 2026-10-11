@@ -1,0 +1,36 @@
+{
+  "manifest_version": 3,
+  "name": "Backstage Casting Companion",
+  "version": "1.0.0",
+  "description": "1-click sync Instagram actor photos, bios, and handles directly into Backstage Casting Suite.",
+  "icons": {
+    "48": "icon.png",
+    "128": "icon.png"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Backstage Casting Companion"
+  },
+  "permissions": [
+    "activeTab",
+    "storage",
+    "scripting"
+  ],
+  "host_permissions": [
+    "*://*.instagram.com/*",
+    "*://instagram.com/*",
+    "http://localhost:3000/*",
+    "http://127.0.0.1:3000/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "*://*.instagram.com/*",
+        "*://instagram.com/*"
+      ],
+      "js": ["content.js"],
+      "css": ["content.css"],
+      "run_at": "document_idle"
+    }
+  ]
+}

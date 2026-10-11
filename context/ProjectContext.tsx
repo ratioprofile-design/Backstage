@@ -4,7 +4,7 @@ import {
   ProjectState, ProjectContextType, Beat, Group, Connection, Annotation, 
   CharacterData, Shot, Note, ScriptConfig, ScratchpadConfig, StoryboardConfig, 
   WritingGoal, ProjectMetadata, BeatStatus, BeatVersion,
-  BoardLayer, TimelineTrack, ThemeAnimationStyle
+  BoardLayer, TimelineTrack, ThemeAnimationStyle, ArtistOption, CloudSyncStatus
 } from '../types';
 import { INITIAL_STATE } from '../constants';
 import { supabase, upsertProject, fetchProjectData, fetchUserProjects, fetchInvitedProjects, isSupabaseConfigured } from '../services/supabase';
@@ -13,6 +13,8 @@ import { isTauri, getTauriFs, getTauriDialog, getTauriWindow } from '../utils/de
 import { addRecentFile } from '../utils/recentFiles';
 import { isCausalityData, parseCausalityProject } from '../services/causalityParser';
 import { getProductionDocuments, saveProductionDocuments } from '../services/documentsStorage';
+import { saveLargeProject, loadLargeProject } from '../services/largeStorage';
+import { optimizeTalentForCloud } from '../services/imageOptimizer';
 
 const ProjectContext = createContext<ProjectContextType | undefined>(undefined);
 
@@ -36,6 +38,13 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [schemaError, setSchemaError] = useState<string | null>(null);
   const [cloudOffline, setCloudOffline] = useState(false);
+  const [cloudSyncStatus, setCloudSyncStatus] = useState<CloudSyncStatus>({
+    isUploading: false,
+    progress: 100,
+    status: 'idle',
+    message: 'Synced',
+    lastSyncedAt: null,
+  });
   const [userRole, setUserRole] = useState<('writer' | 'director' | 'producer' | 'ad' | 'cinematographer')[] | null>(() => {
     const raw = localStorage.getItem('user_role');
     if (!raw) return ['writer'];
@@ -159,6 +168,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [boardLayerOrder, setBoardLayerOrder] = useState<BoardLayer[]>(INITIAL_STATE.boardLayerOrder);
   const [characterDesignLocked, setCharacterDesignLocked] = useState(INITIAL_STATE.characterDesignLocked);
   const [collaborators, setCollaborators] = useState<any[]>(INITIAL_STATE.collaborators || []);
+  const [talentPool, setTalentPool] = useState<ArtistOption[]>(INITIAL_STATE.talentPool || []);
 
   // App Appearance & Customization State
   const [appTheme, setAppThemeState] = useState<'dark' | 'light' | 'system'>(() => {
@@ -655,6 +665,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setDailyStats(cleanData.dailyStats || INITIAL_STATE.dailyStats);
     setCharacterDesignLocked(cleanData.characterDesignLocked ?? INITIAL_STATE.characterDesignLocked);
     setCollaborators(cleanData.collaborators || INITIAL_STATE.collaborators || []);
+    setTalentPool(Array.isArray(cleanData.talentPool) ? cleanData.talentPool : INITIAL_STATE.talentPool || []);
     if (cleanData.appTheme) setAppThemeState(cleanData.appTheme);
     if (cleanData.appAccentColor) setAppAccentColorState(cleanData.appAccentColor);
     if (cleanData.appLanguage) setAppLanguageState(cleanData.appLanguage);
@@ -967,6 +978,16 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const saveProject = useCallback(async () => {
     if (isRemoteUpdateRef.current) return;
     setIsSaving(true);
+    setCloudSyncStatus(prev => ({
+      isUploading: true,
+      progress: 30,
+      status: 'uploading',
+      message: supabaseUser 
+        ? `Syncing ${(talentPool || []).length} actors & photos to Cloud...` 
+        : 'Saving locally on this computer...',
+      lastSyncedAt: prev.lastSyncedAt
+    }));
+
     const currentDocs = getProductionDocuments(currentProjectId || undefined);
     const projectData: ProjectState & { lastInstanceId?: string; documents?: any[] } = {
       beats, groups, connections, annotations, characterData, generatedShots, 
@@ -979,6 +1000,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       dailyStats, sessionStartCount, lastSessionDate, boardLayerOrder,
       characterDesignLocked,
       collaborators,
+      talentPool,
       themeAnimationStyle,
       documents: currentDocs,
       lastInstanceId: INSTANCE_ID // Tag the update with this instance ID
@@ -986,62 +1008,105 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     let saved = false;
     let cloudFailed = false;
 
-    // 1. Cloud (only when signed in) — if the network drops, fall through to local
+    // 1. Unlimited Local Database (IndexedDB) & Disk Backup
+    // Always persist to local IndexedDB and disk first so nothing is EVER lost regardless of cloud status
+    const idbSaved = await saveLargeProject(currentProjectId || 'empty-project', projectData);
+    if (idbSaved) saved = true;
+
+    try {
+      fetch('/api/talent/backup-disk', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(projectData)
+      }).catch(() => {});
+    } catch (e) {}
+
+    // 2. Cloud (when signed in to Supabase)
+    let cloudErrorDetail: string | null = null;
     if (supabaseUser) {
       try {
+        setCloudSyncStatus(prev => ({
+          ...prev,
+          progress: 55,
+          message: 'Optimizing headshots for Supabase...'
+        }));
+        const optimizedTalent = await optimizeTalentForCloud(talentPool || []);
+        const cloudPayload = {
+          ...projectData,
+          talentPool: optimizedTalent
+        };
+        setCloudSyncStatus(prev => ({
+          ...prev,
+          progress: 80,
+          message: 'Uploading to Supabase Cloud...'
+        }));
         const project = projectList.find(p => p.id === currentProjectId);
-        await upsertProject(currentProjectId, supabaseUser.id, project?.name || 'Untitled', projectData);
+        await upsertProject(currentProjectId, supabaseUser.id, project?.name || 'Untitled', cloudPayload);
         saved = true;
-      } catch (err) {
+      } catch (err: any) {
         cloudFailed = true;
-        console.error("Cloud save failed — falling back to local storage", err);
+        cloudErrorDetail = err?.message || 'Gateway Timeout / Restarting';
+        console.error("Cloud save failed (Supabase may be restarting or unreachable):", err);
       }
     }
 
-    // 2. Local fallback (offline cloud, or no cloud user) — the opened .bst file
-    //    and the localStorage mirror keep the work safe when Supabase is unreachable.
-    if (!saved) {
-      if (isTauri() && filePath) {
-        try {
-          const fs = await getTauriFs();
-          if (fs) {
-            await fs.writeTextFile(filePath, JSON.stringify(projectData, null, 2));
-            saved = true;
-          }
-        } catch (err) {
-          console.error("Tauri save error", err);
-        }
-      }
-      if (!saved && fileHandle) {
-        try {
-          const writable = await fileHandle.createWritable();
-          await writable.write(JSON.stringify(projectData, null, 2));
-          await writable.close();
+    // 3. Fallback for Desktop/File handles or small localStorage mirrors
+    if (isTauri() && filePath) {
+      try {
+        const fs = await getTauriFs();
+        if (fs) {
+          await fs.writeTextFile(filePath, JSON.stringify(projectData, null, 2));
           saved = true;
-        } catch (err) {
-          console.error("File System Access save error", err);
         }
-      }
-      if (!saved && currentProjectId) {
-        try {
-          localStorage.setItem(`project_data_${currentProjectId}`, JSON.stringify(projectData));
-          saved = true;
-        } catch (err) {
-          console.error("Local project storage save error", err);
-        }
-      }
+      } catch (err) {}
     }
-
-    // 3. Always keep a crash-safe mirror so nothing is ever lost,
-    //    even when both cloud and file writes fail.
-    try {
-      localStorage.setItem('backstage_last_session', JSON.stringify(projectData));
-    } catch (err) {
-      console.error("localStorage mirror save error", err);
+    if (fileHandle) {
+      try {
+        const writable = await fileHandle.createWritable();
+        await writable.write(JSON.stringify(projectData, null, 2));
+        await writable.close();
+        saved = true;
+      } catch (err) {}
+    }
+    if (currentProjectId) {
+      try {
+        localStorage.setItem(`project_data_${currentProjectId}`, JSON.stringify(projectData));
+      } catch (err) {
+        // Expected to throw if over 5MB; IndexedDB above has already safely stored it
+      }
     }
 
     setCloudOffline(cloudFailed);
-    if (saved) setHasUnsavedChanges(false);
+    if (saved) {
+      setHasUnsavedChanges(false);
+      if (cloudFailed) {
+        setCloudSyncStatus({
+          isUploading: false,
+          progress: 100,
+          status: 'error',
+          message: '⚠️ All actors saved locally to disk. Supabase project is paused (521) — restore at supabase.com',
+          lastSyncedAt: new Date()
+        });
+      } else {
+        setCloudSyncStatus({
+          isUploading: false,
+          progress: 100,
+          status: supabaseUser ? 'synced' : 'local_only',
+          message: supabaseUser 
+            ? `Reached Supabase Cloud (${(talentPool || []).length} actors live)` 
+            : 'Saved locally on this device (Sign in to sync with Cloud)',
+          lastSyncedAt: new Date()
+        });
+      }
+    } else {
+      setCloudSyncStatus(prev => ({
+        isUploading: false,
+        progress: 100,
+        status: 'error',
+        message: 'Save failed. Check local disk space.',
+        lastSyncedAt: prev.lastSyncedAt
+      }));
+    }
     setTimeout(() => setIsSaving(false), 200);
   }, [
     currentProjectId, projectList, beats, groups, connections, annotations, characterData, 
@@ -1049,8 +1114,13 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     isTamilMode, tamilFontScale, tamilFontFamily, userDictionary, isOsInputMode, osInputShortcut,
     scriptConfig, scriptViewMode, scratchpadConfig, storyboardConfig, isStoryboardFeatureEnabled,
     breakdownLanguage, breakdownLockedOnly, isPdfDropEnabled, isRedoEnabled, writingGoal, openrouterKey, generalAiModel,
-    dailyStats, sessionStartCount, lastSessionDate, boardLayerOrder, characterDesignLocked, supabaseUser, fileHandle, filePath
+    dailyStats, sessionStartCount, lastSessionDate, boardLayerOrder, characterDesignLocked, supabaseUser, fileHandle, filePath,
+    talentPool, collaborators
   ]);
+
+  const triggerCloudSync = useCallback(async () => {
+    await saveProject();
+  }, [saveProject]);
 
   // When connectivity returns after an offline fallback save, re-push the latest
   // project to the cloud automatically.
@@ -1313,12 +1383,233 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setHasUnsavedChanges(true);
   }, []);
 
+  const setTalentPoolWrapped = useCallback((val: React.SetStateAction<ArtistOption[]>) => {
+    if (isRemoteUpdateRef.current) return;
+    setTalentPool(val);
+    setHasUnsavedChanges(true);
+  }, []);
+
+  const addTalentToPool = useCallback((talent: ArtistOption | ArtistOption[]) => {
+    const list = Array.isArray(talent) ? talent : [talent];
+    if (list.length === 0) return;
+    setTalentPool(prev => {
+      const normalizeHandle = (h?: string) => (h || '').trim().toLowerCase().replace(/^@/, '');
+      const normalizePhone = (p?: string) => (p || '').replace(/\D/g, '');
+      const existingHandles = new Set(prev.map(p => normalizeHandle(p.instagramHandle)).filter(Boolean));
+      const existingPhones = new Set(prev.map(p => normalizePhone(p.phone || p.contact?.phone)).filter(Boolean));
+      const existingIds = new Set(prev.map(p => p.id));
+
+      const deduped: ArtistOption[] = [];
+      for (const item of list) {
+        const h = normalizeHandle(item.instagramHandle);
+        const p = normalizePhone(item.phone || item.contact?.phone);
+        if ((h && existingHandles.has(h)) || (p && p.length >= 7 && existingPhones.has(p)) || existingIds.has(item.id)) {
+          continue;
+        }
+        if (h) existingHandles.add(h);
+        if (p && p.length >= 7) existingPhones.add(p);
+        existingIds.add(item.id);
+        deduped.push(item);
+      }
+      return [...prev, ...deduped];
+    });
+    setHasUnsavedChanges(true);
+  }, []);
+
+  const updateTalentInPool = useCallback((id: string, updates: Partial<ArtistOption>) => {
+    setTalentPool(prev => prev.map(t => t.id === id ? { ...t, ...updates } : t));
+    setHasUnsavedChanges(true);
+  }, []);
+
+  const removeTalentFromPool = useCallback((id: string) => {
+    setTalentPool(prev => prev.filter(t => t.id !== id));
+    setHasUnsavedChanges(true);
+  }, []);
+
+  const shortlistTalentForCharacter = useCallback((talentId: string, characterName: string, status: ArtistOption['status'] = 'idea') => {
+    let targetArtist: ArtistOption | undefined;
+    setTalentPool(prev => prev.map(t => {
+      if (t.id === talentId) {
+        const existingShortlisted = t.shortlistedForRoles || [];
+        const passed = (t.passedForRoles || []).filter(r => r !== characterName);
+        const updated = {
+          ...t,
+          status,
+          passedForRoles: passed,
+          shortlistedForRoles: existingShortlisted.includes(characterName) ? existingShortlisted : [...existingShortlisted, characterName]
+        };
+        targetArtist = updated;
+        return updated;
+      }
+      return t;
+    }));
+
+    setCharacterData(prev => {
+      const char = prev[characterName];
+      if (!char) return prev;
+      const existingArtists = char.artists || [];
+      const exists = existingArtists.some(a => a.id === talentId || (targetArtist?.instagramHandle && a.instagramHandle?.toLowerCase() === targetArtist.instagramHandle.toLowerCase()));
+      if (exists) {
+        return {
+          ...prev,
+          [characterName]: {
+            ...char,
+            artists: existingArtists.map(a => a.id === talentId ? { ...a, ...targetArtist, status } : a)
+          }
+        };
+      }
+      if (!targetArtist) return prev;
+      const newArtistOption: ArtistOption = {
+        ...targetArtist,
+        rank: existingArtists.length + 1,
+        status
+      };
+      return {
+        ...prev,
+        [characterName]: {
+          ...char,
+          artists: [...existingArtists, newArtistOption]
+        }
+      };
+    });
+    setHasUnsavedChanges(true);
+  }, []);
+
+  const passTalentForCharacter = useCallback((talentId: string, characterName: string) => {
+    setTalentPool(prev => prev.map(t => {
+      if (t.id === talentId) {
+        const existingPassed = t.passedForRoles || [];
+        const shortlisted = (t.shortlistedForRoles || []).filter(r => r !== characterName);
+        return {
+          ...t,
+          shortlistedForRoles: shortlisted,
+          passedForRoles: existingPassed.includes(characterName) ? existingPassed : [...existingPassed, characterName]
+        };
+      }
+      return t;
+    }));
+
+    setCharacterData(prev => {
+      const char = prev[characterName];
+      if (!char || !char.artists) return prev;
+      return {
+        ...prev,
+        [characterName]: {
+          ...char,
+          artists: char.artists.map(a => a.id === talentId ? { ...a, status: 'passed' } : a)
+        }
+      };
+    });
+    setHasUnsavedChanges(true);
+  }, []);
+
+  const starTalentForCharacter = useCallback((talentId: string, characterName: string) => {
+    shortlistTalentForCharacter(talentId, characterName, 'callback');
+    setTalentPool(prev => prev.map(t => {
+      if (t.id === talentId) {
+        const existingStarred = t.starredForRoles || [];
+        return {
+          ...t,
+          rating: 5,
+          starredForRoles: existingStarred.includes(characterName) ? existingStarred : [...existingStarred, characterName]
+        };
+      }
+      return t;
+    }));
+    setHasUnsavedChanges(true);
+  }, [shortlistTalentForCharacter]);
+
+  // Real-time synchronization from Chrome Extension (/api/talent/sync)
+  useEffect(() => {
+    let isMounted = true;
+
+    const pollSyncQueue = async () => {
+      try {
+        const res = await fetch('/api/talent/sync');
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.items && Array.isArray(data.items) && data.items.length > 0 && isMounted) {
+          for (const item of data.items) {
+            setTalentPool(prev => {
+              const normHandle = (item.handle || '').toLowerCase().replace(/^@/, '');
+              const normName = (item.name || '').toLowerCase().trim();
+              
+              const existingIdx = prev.findIndex(t => {
+                const tHandle = (t.instagramHandle || '').toLowerCase().replace(/^@/, '');
+                const tName = (t.name || '').toLowerCase().trim();
+                return (normHandle && tHandle === normHandle) || (normName && tName === normName);
+              });
+
+              if (existingIdx !== -1) {
+                const updated = [...prev];
+                const existing = updated[existingIdx];
+
+                // Merge and deduplicate all headshots / photos
+                const existingPhotos = Array.isArray(existing.photos) && existing.photos.length > 0 
+                  ? existing.photos 
+                  : (existing.photoUrl ? [existing.photoUrl] : []);
+                const incomingPhotos = Array.isArray(item.photos) && item.photos.length > 0 
+                  ? item.photos 
+                  : (item.photoUrl ? [item.photoUrl] : []);
+                const mergedPhotos = Array.from(new Set([...existingPhotos, ...incomingPhotos].filter(Boolean)));
+
+                updated[existingIdx] = {
+                  ...existing,
+                  photoUrl: item.photoUrl || existing.photoUrl,
+                  photos: mergedPhotos,
+                  instagramHandle: item.handle || existing.instagramHandle,
+                  instagramUrl: item.url || existing.instagramUrl,
+                  notes: item.bio && !existing.notes?.includes(item.bio)
+                    ? `${existing.notes || ''}\n\n${item.bio}`.trim()
+                    : (existing.notes || item.bio),
+                };
+                return updated;
+              } else {
+                const initialPhotos = Array.isArray(item.photos) && item.photos.length > 0
+                  ? item.photos
+                  : (item.photoUrl ? [item.photoUrl] : []);
+
+                const newTalent: ArtistOption = {
+                  id: `talent_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+                  name: item.name || normHandle || 'Instagram Actor',
+                  rank: 1,
+                  status: 'idea',
+                  photoUrl: item.photoUrl,
+                  photos: initialPhotos,
+                  instagramHandle: item.handle,
+                  instagramUrl: item.url,
+                  notes: item.bio,
+                  source: 'instagram',
+                };
+                return [newTalent, ...prev];
+              }
+            });
+            setHasUnsavedChanges(true);
+          }
+        }
+      } catch (e) {}
+    };
+
+    const interval = setInterval(pollSyncQueue, 2000);
+    window.addEventListener('focus', pollSyncQueue);
+
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+      window.removeEventListener('focus', pollSyncQueue);
+    };
+  }, []);
+
   const value: ProjectContextType = {
     beats, groups, connections, annotations, characterData, generatedShots, scratchpad, globalNotes, panX, panY, scale, nextId, nextAnnoId, activeBoardId, isTamilMode, tamilFontScale, tamilFontFamily, userDictionary, isOsInputMode, osInputShortcut, scriptConfig, scriptViewMode, scratchpadConfig, storyboardConfig, isStoryboardFeatureEnabled,     breakdownLanguage, breakdownLockedOnly, isPdfDropEnabled, isRedoEnabled, writingGoal, geminiApiKey: '', openrouterKey, setOpenrouterKey, generalAiModel, setGeneralAiModel, dailyStats, sessionStartCount, lastSessionDate, boardLayerOrder, characterDesignLocked, setCharacterDesignLocked: setCharacterDesignLockedWrapped, appTheme, appAccentColor, appLanguage, currentUser, currentProjectId, projectList, hasUnsavedChanges, schemaError, isSaving, fileHandle, filePath, setFilePath,   isInitialLoading, isCloudMode: !!supabaseUser, supabaseUser, cloudOffline, login, logout, selectProject, createProject, deleteProject, closeProject, clearSchemaError: () => { setSchemaError(null); if (supabaseUser) refreshProjectList(supabaseUser.id); }, setBeats: setBeatsWrapped, setGroups: setGroupsWrapped, setConnections: setConnectionsWrapped, setAnnotations: setAnnotationsWrapped, setCharacterData: setCharacterDataWrapped, setGeneratedShots, setScratchpad: setScratchpadWrapped, setGlobalNotes: setGlobalNotesWrapped, updateGeneratedShot: (id, u) => { setGeneratedShots(p => p.map(s => s.id === id ? { ...s, ...u } : s)); setHasUnsavedChanges(true); }, addGeneratedShot: (i) => { const n = { id: `shot-${Date.now()}`, shotSize: 'WIDE', angle: 'EYE LEVEL', description: '', subject: '', scene: '?', imageHistory: [] }; const s = [...generatedShots]; s.splice(i + 1, 0, n); setGeneratedShots(s); captureSnapshot(); }, removeGeneratedShot: (id) => { setGeneratedShots(p => p.filter(s => s.id !== id)); captureSnapshot(); }, moveGeneratedShot: (f, t) => { const s = [...generatedShots]; const [m] = s.splice(f, 1); s.splice(t, 0, m); setGeneratedShots(s); captureSnapshot(); }, setPan: (x, y) => { setPanX(x); setPanY(y); }, setScale, updateBeat, addBeat, reorderBeats, addGroup: (g) => { const id = nextId; setNextId(p => p + 1); setGroups(p => [...p, { ...g, id, boardId: activeBoardId }]); captureSnapshot(); }, updateGroup: (id, u) => { setGroups(p => p.map(g => g.id === id ? { ...g, ...u } : g)); setHasUnsavedChanges(true); }, removeGroup: (id) => { setGroups(p => p.filter(g => g.id !== id)); captureSnapshot(); }, loadProject: applyProjectState, saveProject, saveProjectAs, setActiveBoardId, setTamilMode, setTamilFontScale, setTamilFontFamily, learnTamilWord: (e, t) => { setUserDictionary(p => { const c = p[e.toLowerCase()] || []; if (!c.includes(t)) return { ...p, [e.toLowerCase()]: [t, ...c] }; return p; }); }, setOsInputMode, setOsInputShortcut, setScriptConfig, setScriptViewMode, setScratchpadConfig, setStoryboardConfig, setStoryboardFeatureEnabled, setAppTheme, setAppAccentColor, setAppLanguage, setBreakdownLanguage, setBreakdownLockedOnly, setPdfDropEnabled, setRedoEnabled, setWritingGoal, setGeminiApiKey: () => {}, setBoardLayerOrder, setNextId, undo, redo, canUndo: historyIndexRef.current > 0, canRedo: historyIndexRef.current < historyRef.current.length - 1, captureSnapshot, downloadProject, autoGenerate5Scenes, autoGenerateScenes,
     userRole, updateUserRole, grokKey, setGrokKey,
     collaborators, setCollaborators: setCollaboratorsWrapped,
+    talentPool, setTalentPool: setTalentPoolWrapped,
+    addTalentToPool, updateTalentInPool, removeTalentFromPool,
+    shortlistTalentForCharacter, passTalentForCharacter, starTalentForCharacter,
     navLayout, setNavLayout,
-    themeAnimationStyle, setThemeAnimationStyle
+    themeAnimationStyle, setThemeAnimationStyle,
+    cloudSyncStatus, triggerCloudSync
   };
 
   return <ProjectContext.Provider value={value}>{children}</ProjectContext.Provider>;

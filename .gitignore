@@ -27,3 +27,7 @@ dist-ssr
 .env
 .env.*
 !.env.example
+
+# Talent image cache & local backups
+public/talent_cache/*
+!public/talent_cache/.gitkeep

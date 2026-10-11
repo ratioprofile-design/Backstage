@@ -211,6 +211,24 @@ export interface ArtistOption {
   rating?: number; // 1 to 5 star rating
   notes?: string;
   offerDate?: string;
+  // Instagram & Talent Directory extensions
+  instagramUrl?: string;
+  instagramHandle?: string;
+  phone?: string;
+  age?: number | string;
+  playingAge?: string;
+  gender?: string;
+  height?: string;
+  skills?: string[];
+  tags?: string[];
+  source?: 'whatsapp' | 'spreadsheet' | 'manual' | 'instagram';
+  sourceRawText?: string;
+  followerCount?: string;
+  location?: string;
+  // Role triage & shortlisting state for Tinder-style swipe deck
+  shortlistedForRoles?: string[]; // character names/IDs
+  passedForRoles?: string[];
+  starredForRoles?: string[];
 }
 
 // Fix: Defined the missing CharacterData interface to resolve errors in multiple files.
@@ -349,6 +367,17 @@ export interface ProjectState {
   // Writer's Page Lock: prevents crew from editing the Character Design page
   characterDesignLocked?: boolean;
   collaborators?: any[];
+
+  // Master Talent Pool (Casting Repository)
+  talentPool?: ArtistOption[];
+}
+
+export interface CloudSyncStatus {
+  isUploading: boolean;
+  progress: number;
+  status: 'idle' | 'uploading' | 'synced' | 'local_only' | 'error';
+  message: string;
+  lastSyncedAt: Date | null;
 }
 
 export interface ProjectContextType extends ProjectState {
@@ -481,6 +510,20 @@ export interface ProjectContextType extends ProjectState {
   // Auto Scenes Generator
   autoGenerate5Scenes: () => void;
   autoGenerateScenes: (count: 5 | 20 | 50) => void;
+
+  // Master Talent Pool (Casting Repository & Tinder-style Triage)
+  talentPool: ArtistOption[];
+  setTalentPool: (pool: ArtistOption[] | ((prev: ArtistOption[]) => ArtistOption[])) => void;
+  addTalentToPool: (talent: ArtistOption | ArtistOption[]) => void;
+  updateTalentInPool: (id: string, updates: Partial<ArtistOption>) => void;
+  removeTalentFromPool: (id: string) => void;
+  shortlistTalentForCharacter: (talentId: string, characterName: string, status?: ArtistOption['status']) => void;
+  passTalentForCharacter: (talentId: string, characterName: string) => void;
+  starTalentForCharacter: (talentId: string, characterName: string) => void;
+
+  // Cloud Synchronization Status & Manual Trigger
+  cloudSyncStatus: CloudSyncStatus;
+  triggerCloudSync: () => Promise<void>;
 }
 
 export interface TextStyleConfig {
