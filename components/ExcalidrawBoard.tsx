@@ -112,7 +112,7 @@ const loadSceneData = async (key: string, legacyKey?: string): Promise<any> => {
 };
 
 export const ExcalidrawBoard: React.FC<ExcalidrawBoardProps> = ({ isLight = false }) => {
-  const { currentProjectId } = useProject();
+  const { currentProjectId, currentUser, isCloudMode, saveProject, setHasUnsavedChanges } = useProject();
   
   const [excalidrawAPI, setExcalidrawAPI] = useState<any>(null);
   const [showExportMenu, setShowExportMenu] = useState<boolean>(false);
@@ -303,17 +303,26 @@ export const ExcalidrawBoard: React.FC<ExcalidrawBoardProps> = ({ isLight = fals
     }
   };
 
-  // Save Snapshot directly into Document Vault
+  // Save Snapshot directly into Document Vault and sync across collaborators
   const handleSaveToVault = async () => {
-    if (!excalidrawAPI) return;
+    if (!excalidrawAPI) {
+      showToast('Canvas is initializing...');
+      return;
+    }
     setIsExporting(true);
     setShowExportMenu(false);
     try {
       const elements = excalidrawAPI.getSceneElements();
+      const nonDeleted = elements ? elements.filter((el: any) => !el.isDeleted) : [];
+      if (nonDeleted.length === 0) {
+        showToast('Whiteboard is empty! Draw or add images before saving to Vault.');
+        setIsExporting(false);
+        return;
+      }
       const appState = excalidrawAPI.getAppState();
       const files = excalidrawAPI.getFiles();
       const blob = await exportToBlob({
-        elements,
+        elements: nonDeleted,
         appState: {
           ...appState,
           exportWithDarkMode: false,
@@ -329,21 +338,58 @@ export const ExcalidrawBoard: React.FC<ExcalidrawBoardProps> = ({ isLight = fals
         addProductionDocument({
           title: `Whiteboard Visual Blocking & Diagram (${new Date().toLocaleDateString()})`,
           titleTa: 'வெண்பலகை வரைபடம் (Excalidraw)',
-          category: 'LOOKBOOK',
+          category: 'SNAPSHOT',
           fileName: `Whiteboard_Canvas_${Date.now()}.png`,
           fileSize: `${(blob.size / 1024).toFixed(0)} KB`,
           pageCount: 1,
           imageDataUrl: dataUrl,
           builtInType: 'excalidraw',
-          author: 'Writer / Director',
-        });
+          author: currentUser || 'Writer / Director',
+          tags: ['Whiteboard', 'Excalidraw', 'Spatial Blocking', 'Snapshot'],
+        }, currentProjectId || undefined);
+
+        setHasUnsavedChanges?.(true);
+        if (isCloudMode && saveProject) {
+          saveProject();
+        }
+
         confetti({ particleCount: 35, spread: 50, origin: { y: 0.7 } });
         showToast('✓ Saved Whiteboard snapshot directly to Document Vault!');
       };
       reader.readAsDataURL(blob);
     } catch (e) {
-      console.error(e);
-      showToast('Failed to save to Document Vault.');
+      console.error('Error saving whiteboard to vault, attempting SVG fallback:', e);
+      try {
+        const elements = excalidrawAPI.getSceneElements().filter((el: any) => !el.isDeleted);
+        const appState = excalidrawAPI.getAppState();
+        const files = excalidrawAPI.getFiles();
+        const svg = await exportToSvg({ elements, appState, files });
+        const svgString = new XMLSerializer().serializeToString(svg);
+        const dataUrl = `data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(svgString)))}`;
+        addProductionDocument({
+          title: `Whiteboard Visual Blocking & Diagram (${new Date().toLocaleDateString()})`,
+          titleTa: 'வெண்பலகை வரைபடம் (Excalidraw)',
+          category: 'SNAPSHOT',
+          fileName: `Whiteboard_Canvas_${Date.now()}.svg`,
+          fileSize: '50 KB',
+          pageCount: 1,
+          imageDataUrl: dataUrl,
+          builtInType: 'excalidraw',
+          author: currentUser || 'Writer / Director',
+          tags: ['Whiteboard', 'Excalidraw', 'Spatial Blocking', 'Snapshot'],
+        }, currentProjectId || undefined);
+
+        setHasUnsavedChanges?.(true);
+        if (isCloudMode && saveProject) {
+          saveProject();
+        }
+
+        confetti({ particleCount: 35, spread: 50, origin: { y: 0.7 } });
+        showToast('✓ Saved Whiteboard snapshot directly to Document Vault!');
+      } catch (fallbackErr) {
+        console.error('Failed to export to vault:', fallbackErr);
+        showToast('Failed to save to Document Vault.');
+      }
     } finally {
       setIsExporting(false);
     }

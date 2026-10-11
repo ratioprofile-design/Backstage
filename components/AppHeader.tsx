@@ -5,7 +5,7 @@ import { useProject } from '../context/ProjectContext';
 import {
     Target, Zap, Clock, Film, RotateCcw, RotateCw, CheckCircle2, 
     TrendingUp, Save, Cloud, CloudOff, Wifi, WifiOff, CloudUpload,
-    Loader2, Check, FileCode, Inbox, Sun, Moon, LogIn, LogOut, ChevronDown, Sparkles, User, Settings
+    Loader2, Check, FileCode, Inbox, Sun, Moon, LogIn, LogOut, ChevronDown, Sparkles, User, Settings, Folder
 } from 'lucide-react';
 import { isSupabaseConfigured } from '../services/supabase';
 import { useAiKeyStatus } from '../context/AiKeyStatusContext';
@@ -46,7 +46,9 @@ const AppHeader: React.FC<AppHeaderProps> = ({
       saveProject, saveProjectAs, hasUnsavedChanges, currentUser, isCloudMode, isSaving, fileHandle,
       autoGenerate5Scenes, appTheme, setAppTheme, logout, cloudOffline, supabaseUser, userRole, appAccentColor,
       appLanguage,
-      collaborators = []
+      collaborators = [],
+      currentProjectName,
+      isCurrentProjectShared
   } = useProject();
 
   const { aiAvailable, router, gemini, testing } = useAiKeyStatus();
@@ -75,8 +77,15 @@ const AppHeader: React.FC<AppHeaderProps> = ({
 
   const activeProjectName = useMemo(() => {
       const proj = projectList.find(p => p.id === currentProjectId);
-      return proj ? proj.name : 'SEQUENCER';
-  }, [projectList, currentProjectId]);
+      if (proj && proj.name && proj.name !== 'SEQUENCER') return proj.name;
+      if (currentProjectName) return currentProjectName;
+      return 'Untitled Project';
+  }, [projectList, currentProjectId, currentProjectName]);
+
+  const isShared = useMemo(() => {
+      const proj = projectList.find(p => p.id === currentProjectId);
+      return Boolean(proj?.isInvited || isCurrentProjectShared);
+  }, [projectList, currentProjectId, isCurrentProjectShared]);
 
   const isCloudActive = isCloudMode;
 
@@ -190,14 +199,24 @@ const AppHeader: React.FC<AppHeaderProps> = ({
                       <span className="text-[13px] font-black tracking-tight text-white uppercase leading-none">
                           {translateUi('Backstage', appLanguage)}
                       </span>
-                      <span 
-                          className="text-[7px] font-bold tracking-[0.2em] uppercase leading-none mt-0.5 ml-[1px] truncate max-w-[120px]"
-                          style={{ color: appAccentColor || '#f5a623' }}
-                      >
-                          {fileHandle ? fileHandle.name : activeProjectName}
-                      </span>
                   </div>
               </div>
+          </div>
+
+          {/* Prominent Active Project Display with Shared Project Badge */}
+          <div 
+              className="flex items-center gap-2 px-2.5 py-1 bg-[#191922] border border-[#383844] hover:border-amber-500/50 rounded-lg shadow-sm max-w-[260px] transition-all"
+              title={isShared ? `Shared Project: ${fileHandle ? fileHandle.name : activeProjectName}` : (fileHandle ? fileHandle.name : activeProjectName)}
+          >
+              <Folder size={13} className="text-amber-400 shrink-0" />
+              <span className="text-xs font-bold text-white tracking-wide truncate">
+                  {fileHandle ? fileHandle.name : activeProjectName}
+              </span>
+              {isShared && (
+                  <span className="px-1.5 py-0.2 text-[8px] font-black uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/40 rounded-full shrink-0">
+                      Shared
+                  </span>
+              )}
           </div>
 
           {/* INBOX ICON (Next to Backstage Logo) - Dedicated Page Switcher */}

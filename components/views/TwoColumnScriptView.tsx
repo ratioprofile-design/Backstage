@@ -99,7 +99,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
       window.matchMedia('(prefers-color-scheme: light)').matches);
 
   // All documents from Vault
-  const [documents, setDocuments] = useState<ProductionDocument[]>(() => getProductionDocuments());
+  const [documents, setDocuments] = useState<ProductionDocument[]>(() => getProductionDocuments(projectContext.currentProjectId || undefined));
 
   // Active script document
   const [selectedDocId, setSelectedDocId] = useState<string>(() => {
@@ -110,8 +110,8 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
         return activeTwoCol;
       }
     }
-    const scriptDoc = documents.find((d) => d.isLeftRightFormat || d.hasTwoColumnScript || d.category === 'SCRIPT' || d.id === 'doc-ranga-1');
-    return scriptDoc?.id || documents[0]?.id || 'doc-ranga-1';
+    const scriptDoc = documents.find((d) => d.isLeftRightFormat || d.hasTwoColumnScript || d.category === 'SCRIPT');
+    return scriptDoc?.id || documents[0]?.id || '';
   });
 
   // Keep selectedDocId synchronized with active_two_column_doc_id or initialDocumentId
@@ -132,8 +132,15 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
 
   // Screenplay Data
   const [screenplayData, setScreenplayData] = useState<TamilScreenplayData>(() => {
+    if (!activeDoc) {
+      return {
+        title: 'Untitled Screenplay',
+        author: projectContext.currentUser || 'Writer',
+        scenes: []
+      };
+    }
     const raw = activeDoc?.textContent || (activeDoc?.htmlContent ? activeDoc.htmlContent.replace(/<[^>]+>/g, '\n') : '');
-    return parseScreenplayToTamilLeftRight(raw, activeDoc?.title || 'பைலட் ரங்கா');
+    return parseScreenplayToTamilLeftRight(raw, activeDoc?.title || 'Untitled Screenplay');
   });
 
   // Inline Title Rename State
@@ -173,10 +180,14 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
     }
   }, [activeDoc?.id]);
 
-  // Pagination & Layout Configuration
-  const [layoutOptions, setLayoutOptions] = useState<TwoColumnPaginationOptions>(
-    DEFAULT_TWO_COLUMN_PAGINATION_OPTIONS
-  );
+  // Pagination & Layout Configuration (Preserve individual font choice)
+  const [layoutOptions, setLayoutOptions] = useState<TwoColumnPaginationOptions>(() => {
+    const userFont = typeof localStorage !== 'undefined' ? localStorage.getItem('user_pref_two_col_font') : null;
+    return {
+      ...DEFAULT_TWO_COLUMN_PAGINATION_OPTIONS,
+      ...(userFont ? { baseFontFamily: userFont } : {})
+    };
+  });
 
   // Highlighting & Selection State
   const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set());
@@ -2043,42 +2054,103 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
     }
   };
 
-  // Save changes to Vault (immediate or debounced auto-save without UI stutter)
+  // Save changes to Vault and sync across all collaborators
   const saveToVault = useCallback((isManual = false) => {
-    if (!activeDoc) return;
+    const projId = projectContext.currentProjectId || undefined;
     const html = generateTamilLeftRightHtml(screenplayData);
-    const updated: ProductionDocument = {
-      ...activeDoc,
-      title: screenplayData.title || activeDoc.title,
-      htmlContent: html,
-      isLeftRightFormat: true,
-      lastModified: new Date().toISOString(),
-    };
+    let targetDoc = activeDoc;
+    let nextList: ProductionDocument[] = [];
 
-    const allDocs = getProductionDocuments();
-    const nextList = allDocs.map((d) => (d.id === updated.id ? updated : d));
-    saveProductionDocuments(nextList);
+    const allDocs = getProductionDocuments(projId);
+
+    if (!targetDoc) {
+      targetDoc = {
+        id: `doc-twocol-${Date.now()}`,
+        projectId: projId,
+        title: screenplayData.title || 'Untitled Screenplay',
+        category: 'SCRIPT',
+        fileName: `${(screenplayData.title || 'Screenplay').replace(/\s+/g, '_')}.pdf`,
+        fileSize: '120 KB',
+        fileType: 'script',
+        pageCount: 1,
+        uploadedAt: new Date().toISOString(),
+        htmlContent: html,
+        isLeftRightFormat: true,
+        author: projectContext.currentUser || 'Collaborator',
+        status: 'draft',
+        tags: ['2-Column Script', 'Screenplay'],
+        annotations: [],
+        lastModified: new Date().toISOString()
+      };
+      nextList = [targetDoc, ...allDocs];
+      setSelectedDocId(targetDoc.id);
+    } else {
+      const updated: ProductionDocument = {
+        ...targetDoc,
+        title: screenplayData.title || targetDoc.title,
+        htmlContent: html,
+        isLeftRightFormat: true,
+        lastModified: new Date().toISOString(),
+      };
+      nextList = allDocs.some(d => d.id === updated.id) 
+        ? allDocs.map(d => d.id === updated.id ? updated : d)
+        : [updated, ...allDocs];
+    }
+
+    saveProductionDocuments(nextList, projId);
+    setDocuments(nextList);
     setHasUnsavedChanges(false);
     setIsAutoSaving(false);
     setLastSavedAt(new Date());
 
-    if (isManual) {
-      setDocuments(nextList);
-      confetti({ particleCount: 25, spread: 50, origin: { y: 0.8 } });
-      showToast('✓ Saved 2-Column Screenplay to Vault!');
+    // Trigger Cloud Project Sync so all collaborators receive the 2-column script!
+    projectContext.setHasUnsavedChanges?.(true);
+    if (projectContext.isCloudMode) {
+      projectContext.saveProject?.();
     }
-  }, [activeDoc, screenplayData]);
+
+    if (isManual) {
+      confetti({ particleCount: 25, spread: 50, origin: { y: 0.8 } });
+      showToast('✓ Saved 2-Column Screenplay & Synced with Collaborators!');
+    }
+  }, [activeDoc, screenplayData, projectContext]);
+
+  // Real-time synchronization from remote collaborators
+  useEffect(() => {
+    const handleDocsUpdated = (e: any) => {
+      const incoming = Array.isArray(e.detail) 
+        ? e.detail 
+        : (e.detail?.docs && Array.isArray(e.detail.docs) ? e.detail.docs : null);
+      if (!incoming) return;
+      
+      setDocuments(incoming);
+      
+      // If we do not have local unsaved work, sync active screenplay data from remote collaborator
+      if (!hasUnsavedChanges) {
+        const curId = selectedDocId;
+        const remoteDoc = incoming.find((d: any) => d.id === curId || d.isLeftRightFormat);
+        if (remoteDoc) {
+          if (!selectedDocId) setSelectedDocId(remoteDoc.id);
+          const raw = remoteDoc.textContent || (remoteDoc.htmlContent ? remoteDoc.htmlContent.replace(/<[^>]+>/g, '\n') : '');
+          const parsed = parseScreenplayToTamilLeftRight(raw, remoteDoc.title);
+          setScreenplayData(parsed);
+        }
+      }
+    };
+    window.addEventListener('backstage_documents_updated', handleDocsUpdated);
+    return () => window.removeEventListener('backstage_documents_updated', handleDocsUpdated);
+  }, [selectedDocId, hasUnsavedChanges]);
 
   // Automatic Debounced Live-Save (saves in background 1.5s after editing stops)
   useEffect(() => {
-    if (!hasUnsavedChanges || !activeDoc) return;
+    if (!hasUnsavedChanges) return;
     setIsAutoSaving(true);
     const timer = setTimeout(() => {
       saveToVault(false);
     }, 1500);
 
     return () => clearTimeout(timer);
-  }, [hasUnsavedChanges, saveToVault, activeDoc]);
+  }, [hasUnsavedChanges, saveToVault]);
 
   // Flush unsaved changes immediately on page reload / close
   useEffect(() => {
@@ -2789,6 +2861,26 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
             style={{ transform: `scale(${zoomLevel / 100})`, transformOrigin: 'top center' }}
             className={`flex ${pageViewMode === 'spread' ? 'flex-row flex-wrap justify-center gap-8' : 'flex-col gap-10'} items-center pb-24 transition-transform`}
           >
+            {pages.length === 0 && (
+              <div className={`w-[720px] p-12 rounded-2xl border flex flex-col items-center justify-center text-center shadow-xl my-10 ${
+                isLight ? 'bg-white border-slate-200 text-slate-800' : 'bg-[#181820] border-zinc-800 text-zinc-200'
+              }`}>
+                <div className="w-16 h-16 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center mb-4 text-amber-400">
+                  <Columns size={32} />
+                </div>
+                <h3 className="text-lg font-bold mb-2">Clean Screenplay Ready</h3>
+                <p className="text-xs text-zinc-400 max-w-md mb-6">
+                  No scenes yet in this project. Start writing your 2-column Kollywood / Hollywood split script, or import from Document Vault.
+                </p>
+                <button
+                  onClick={() => handleInsertScene(undefined, 'end')}
+                  className="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-bold text-xs flex items-center gap-2 shadow-lg transition-all cursor-pointer"
+                >
+                  <Plus size={16} />
+                  <span>Add First Scene</span>
+                </button>
+              </div>
+            )}
             {(pageViewMode === 'single'
               ? [pages[currentSinglePage - 1] || pages[0]]
               : pages
@@ -3397,7 +3489,13 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
                 <span className={`text-[11px] font-mono ${isLight ? 'text-slate-600' : 'text-zinc-400'}`}>Font Family:</span>
                 <select
                   value={layoutOptions.baseFontFamily}
-                  onChange={(e) => setLayoutOptions((prev) => ({ ...prev, baseFontFamily: e.target.value }))}
+                  onChange={(e) => {
+                    const newFont = e.target.value;
+                    try {
+                      localStorage.setItem('user_pref_two_col_font', newFont);
+                    } catch (err) {}
+                    setLayoutOptions((prev) => ({ ...prev, baseFontFamily: newFont }));
+                  }}
                   className={`w-full text-xs rounded-lg p-2 outline-none border transition-colors ${
                     isLight ? 'bg-slate-50 border-slate-300 text-slate-800 focus:border-amber-500' : 'bg-zinc-900 border-zinc-700 text-zinc-200'
                   }`}

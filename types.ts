@@ -384,6 +384,8 @@ export interface ProjectContextType extends ProjectState {
   // Auth & Project Management
   currentUser: string | null;
   currentProjectId: string | null;
+  currentProjectName?: string;
+  isCurrentProjectShared?: boolean;
   projectList: ProjectMetadata[];
   schemaError: string | null;
   isCloudMode: boolean;
@@ -411,6 +413,7 @@ export interface ProjectContextType extends ProjectState {
 
   // Change Tracking
   hasUnsavedChanges: boolean;
+  setHasUnsavedChanges?: (hasChanges: boolean) => void;
 
   setActiveBoardId: (id: number) => void;
 

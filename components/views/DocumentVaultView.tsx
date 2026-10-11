@@ -201,7 +201,10 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
     openrouterKey,
     currentProjectId,
     currentUser,
-    supabaseUser
+    supabaseUser,
+    isCloudMode,
+    setHasUnsavedChanges: setProjectHasUnsavedChanges,
+    saveProject
   } = projectContext;
   const { aiAvailable } = useAiKeyStatus();
   const isLight = appTheme === 'light' || (appTheme === 'system' && typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: light)').matches);
@@ -348,13 +351,16 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
   const fileInputRef = useRef<HTMLInputElement>(null);
   const documentSheetRef = useRef<HTMLDivElement>(null);
 
-  // Listen to live document updates across the workspace
+  // Listen to live document updates across the workspace and collaborators
   useEffect(() => {
     const handleDocsUpdated = (e: any) => {
-      if (e.detail && Array.isArray(e.detail)) {
-        setDocuments(e.detail);
-        if (!selectedDocId && e.detail[0]) {
-          setSelectedDocId(e.detail[0].id);
+      const incoming = Array.isArray(e.detail) 
+        ? e.detail 
+        : (e.detail?.docs && Array.isArray(e.detail.docs) ? e.detail.docs : null);
+      if (incoming) {
+        setDocuments(incoming);
+        if (!selectedDocId && incoming[0]) {
+          setSelectedDocId(incoming[0].id);
         }
       }
     };
@@ -617,8 +623,7 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
     };
 
     const updatedList = documents.map((d) => (d.id === selectedDoc.id ? updatedDoc : d));
-    setDocuments(updatedList);
-    saveProductionDocuments(updatedList);
+    updateDocuments(updatedList);
 
     setNewElemName('');
     setNewElemDept('');
@@ -651,8 +656,7 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
     };
 
     const updatedList = documents.map((d) => (d.id === selectedDoc.id ? updatedDoc : d));
-    setDocuments(updatedList);
-    saveProductionDocuments(updatedList);
+    updateDocuments(updatedList);
     showToast('Removed element from breakdown table.');
   };
 
@@ -835,10 +839,14 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
     }
   }, [selectedDocId]);
 
-  // Persist documents on change
+  // Persist documents on change and sync with all collaborators
   const updateDocuments = (docs: ProductionDocument[]) => {
     setDocuments(docs);
     saveProductionDocuments(docs, currentProjectId || undefined);
+    if (setProjectHasUnsavedChanges) setProjectHasUnsavedChanges(true);
+    if (isCloudMode && saveProject) {
+      saveProject();
+    }
   };
 
   const handleOpenDocInStudio = (docId: string) => {
@@ -3829,9 +3837,8 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                     document={selectedDoc}
                     onSave={(updatedDoc) => {
                       const updatedList = documents.map((d) => (d.id === updatedDoc.id ? updatedDoc : d));
-                      setDocuments(updatedList);
-                      saveProductionDocuments(updatedList);
-                      showToast('✓ Saved 2-Column Screenplay to Vault!');
+                      updateDocuments(updatedList);
+                      showToast('✓ Saved 2-Column Screenplay to Vault & Synced with Collaborators!');
                     }}
                     onClose={() => setStudioViewMode('page')}
                     isLight={isLight}

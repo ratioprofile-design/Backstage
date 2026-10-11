@@ -140,14 +140,20 @@ export const fetchProjectData = async (id: string) => {
   
   const { data, error } = await supabase
     .from('projects')
-    .select('data')
+    .select('id, name, user_id, data')
     .eq('id', id)
     .single();
 
   if (error) {
     throw error;
   }
-  return data ? data.data : null;
+  if (!data) return null;
+  return {
+    ...(data.data || {}),
+    _projectName: data.name,
+    _ownerId: data.user_id,
+    _projectId: data.id
+  };
 };
 
 export const inviteUserToProject = async (projectId: string, projectName: string, email: string, invitedBy?: string) => {

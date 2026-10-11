@@ -32,6 +32,10 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [currentUser, setCurrentUser] = useState<string | null>(() => localStorage.getItem('currentUser') || 'Default User');
   const [supabaseUser, setSupabaseUser] = useState<any>(null);
   const [currentProjectId, setCurrentProjectId] = useState<string | null>(() => localStorage.getItem('currentProjectId') || 'empty-project');
+  const [currentProjectName, setCurrentProjectName] = useState<string>(() => {
+    const curId = typeof localStorage !== 'undefined' ? (localStorage.getItem('currentProjectId') || 'empty-project') : 'empty-project';
+    return typeof localStorage !== 'undefined' ? (localStorage.getItem(`project_name_${curId}`) || '') : '';
+  });
   const [projectList, setProjectList] = useState<ProjectMetadata[]>([]);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -143,11 +147,27 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [activeBoardId, setActiveBoardId] = useState(INITIAL_STATE.activeBoardId);
   const [isTamilMode, setTamilMode] = useState(INITIAL_STATE.isTamilMode);
   const [tamilFontScale, setTamilFontScale] = useState(INITIAL_STATE.tamilFontScale);
-  const [tamilFontFamily, setTamilFontFamily] = useState(INITIAL_STATE.tamilFontFamily);
+  const [tamilFontFamily, setTamilFontFamily] = useState<string>(() => {
+    if (typeof localStorage === 'undefined') return INITIAL_STATE.tamilFontFamily;
+    return localStorage.getItem('user_pref_tamil_font') || INITIAL_STATE.tamilFontFamily;
+  });
   const [userDictionary, setUserDictionary] = useState(INITIAL_STATE.userDictionary);
   const [isOsInputMode, setOsInputMode] = useState(INITIAL_STATE.isOsInputMode);
   const [osInputShortcut, setOsInputShortcut] = useState(INITIAL_STATE.osInputShortcut);
-  const [scriptConfig, setScriptConfig] = useState<ScriptConfig>(INITIAL_STATE.scriptConfig);
+  const [scriptConfig, setScriptConfig] = useState<ScriptConfig>(() => {
+    const base = INITIAL_STATE.scriptConfig;
+    if (typeof localStorage === 'undefined') return base;
+    const userGlobalFont = localStorage.getItem('user_pref_script_font');
+    const elements = ['action', 'dialogue', 'character', 'parenthetical', 'transition', 'shot', 'lyrics', 'slugline'] as const;
+    const res = { ...base };
+    elements.forEach(elm => {
+      const pref = localStorage.getItem(`user_pref_font_${elm}`) || userGlobalFont;
+      if (pref && (res as any)[elm]) {
+        (res as any)[elm] = { ...(res as any)[elm], fontFamily: pref };
+      }
+    });
+    return res;
+  });
   const [scriptViewMode, setScriptViewMode] = useState<'continuous' | 'page'>(INITIAL_STATE.scriptViewMode);
   const [scratchpadConfig, setScratchpadConfig] = useState<ScratchpadConfig>(INITIAL_STATE.scratchpadConfig);
   const [storyboardConfig, setStoryboardConfig] = useState<StoryboardConfig>(INITIAL_STATE.storyboardConfig);
@@ -650,7 +670,24 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setScratchpad(typeof cleanData.scratchpad === 'string' ? cleanData.scratchpad : INITIAL_STATE.scratchpad);
     setGlobalNotes(Array.isArray(cleanData.globalNotes) ? cleanData.globalNotes : INITIAL_STATE.globalNotes);
     setActiveBoardId(cleanData.activeBoardId ?? INITIAL_STATE.activeBoardId);
-    setScriptConfig(cleanData.scriptConfig || INITIAL_STATE.scriptConfig);
+    
+    // Preserve local user's individual font selections when collaborator sync arrives
+    const incomingScriptConfig = cleanData.scriptConfig || INITIAL_STATE.scriptConfig;
+    const preservedScriptConfig = { ...incomingScriptConfig };
+    if (typeof localStorage !== 'undefined') {
+      const userGlobalFont = localStorage.getItem('user_pref_script_font');
+      const elements = ['action', 'dialogue', 'character', 'parenthetical', 'transition', 'shot', 'lyrics', 'slugline'] as const;
+      elements.forEach(elm => {
+        const userFont = localStorage.getItem(`user_pref_font_${elm}`) || userGlobalFont;
+        if (userFont && preservedScriptConfig[elm]) {
+          preservedScriptConfig[elm] = {
+            ...preservedScriptConfig[elm],
+            fontFamily: userFont
+          };
+        }
+      });
+    }
+    setScriptConfig(preservedScriptConfig);
     setScriptViewMode(cleanData.scriptViewMode || INITIAL_STATE.scriptViewMode);
     setScratchpadConfig(cleanData.scratchpadConfig || INITIAL_STATE.scratchpadConfig);
     setStoryboardConfig(cleanData.storyboardConfig || INITIAL_STATE.storyboardConfig);
@@ -658,6 +695,8 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setWritingGoal(cleanData.writingGoal || INITIAL_STATE.writingGoal);
     setBoardLayerOrder(cleanData.boardLayerOrder || INITIAL_STATE.boardLayerOrder);
     setTamilMode(cleanData.isTamilMode ?? INITIAL_STATE.isTamilMode);
+    const userTamilFont = typeof localStorage !== 'undefined' ? localStorage.getItem('user_pref_tamil_font') : null;
+    setTamilFontFamily(userTamilFont || cleanData.tamilFontFamily || INITIAL_STATE.tamilFontFamily);
     setPdfDropEnabled(cleanData.isPdfDropEnabled ?? INITIAL_STATE.isPdfDropEnabled);
     setRedoEnabled(cleanData.isRedoEnabled ?? INITIAL_STATE.isRedoEnabled);
     setNextId(cleanData.nextId ?? INITIAL_STATE.nextId);
@@ -677,7 +716,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       setNavLayoutState(cleanData.navLayout);
       localStorage.setItem('app_nav_layout', cleanData.navLayout);
     }
-    if (Array.isArray(cleanData.documents) && cleanData.documents.length > 0) {
+    if (Array.isArray(cleanData.documents)) {
       saveProductionDocuments(cleanData.documents, currentProjectId || undefined, true);
     }
     
@@ -886,14 +925,32 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const createProject = async (name: string) => {
     const id = `proj_${Date.now()}`;
+    // Zero-template clean state for brand new project
+    const emptyState: ProjectState & { documents: any[] } = {
+      ...INITIAL_STATE,
+      beats: [],
+      groups: [],
+      connections: [],
+      annotations: [],
+      characterData: {},
+      generatedShots: [],
+      globalNotes: [],
+      scratchpad: '',
+      talentPool: [],
+      documents: []
+    };
+    saveProductionDocuments([], id, true);
+    setCurrentProjectName(name);
+    localStorage.setItem(`project_name_${id}`, name);
+
     if (supabaseUser) {
       try {
-          await upsertProject(id, supabaseUser.id, name, INITIAL_STATE);
-          await refreshProjectList(supabaseUser.id);
+        await upsertProject(id, supabaseUser.id, name, emptyState);
+        await refreshProjectList(supabaseUser.id);
       } catch (err: any) {
-          if (err.code === '42P01') setSchemaError("TABLE_MISSING");
-          else if (err.code === '42703' || err.message?.includes('data')) setSchemaError("COLUMN_MISSING");
-          return;
+        if (err.code === '42P01') setSchemaError("TABLE_MISSING");
+        else if (err.code === '42703' || err.message?.includes('data')) setSchemaError("COLUMN_MISSING");
+        return;
       }
     } else {
       const newProject: ProjectMetadata = { id, name, created: Date.now(), lastModified: Date.now() };
@@ -902,17 +959,24 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
         localStorage.setItem('projectList', JSON.stringify(updated));
         return updated;
       });
-      localStorage.setItem(`project_data_${id}`, JSON.stringify(INITIAL_STATE));
+      localStorage.setItem(`project_data_${id}`, JSON.stringify(emptyState));
     }
     selectProject(id);
   };
 
   const selectProject = async (id: string, opts?: { silent?: boolean }) => {
     setFileHandle(null);
+    let resolvedName = '';
+    let isInvitedProj = false;
+
     if (supabaseUser) {
       try {
         const data = await fetchProjectData(id);
         const cleanData = data || INITIAL_STATE;
+        
+        resolvedName = data?._projectName || data?.projectName || data?.name || '';
+        isInvitedProj = Boolean(data?._ownerId && data._ownerId !== supabaseUser.id);
+
         applyProjectState(cleanData);
 
         // Auto-register current user as an active collaborator inside project metadata
@@ -940,8 +1004,33 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const dataStr = localStorage.getItem(`project_data_${id}`);
       applyProjectState(dataStr ? JSON.parse(dataStr) : INITIAL_STATE);
     }
+
+    if (!resolvedName) {
+      const existingInList = projectList.find(p => p.id === id);
+      resolvedName = existingInList?.name || localStorage.getItem(`project_name_${id}`) || 'Project';
+      isInvitedProj = Boolean(existingInList?.isInvited);
+    }
+
     setCurrentProjectId(id);
+    setCurrentProjectName(resolvedName);
     localStorage.setItem('currentProjectId', id);
+    if (resolvedName) {
+      localStorage.setItem(`project_name_${id}`, resolvedName);
+      setProjectList(prev => {
+        const existing = prev.find(p => p.id === id);
+        if (existing) {
+          return prev.map(p => p.id === id ? { ...p, name: resolvedName, isInvited: p.isInvited ?? isInvitedProj } : p);
+        } else {
+          return [...prev, {
+            id,
+            name: resolvedName,
+            lastModified: Date.now(),
+            created: Date.now(),
+            isInvited: isInvitedProj
+          }];
+        }
+      });
+    }
   };
 
   // Sync on window focus (cloud mode only — the local window is the sole writer otherwise,
@@ -1389,6 +1478,34 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setHasUnsavedChanges(true);
   }, []);
 
+  const setScriptConfigWrapped = useCallback((action: React.SetStateAction<ScriptConfig>) => {
+    setScriptConfig(prev => {
+      const next = typeof action === 'function' ? action(prev) : action;
+      try {
+        const elements = ['action', 'dialogue', 'character', 'parenthetical', 'transition', 'shot', 'lyrics', 'slugline'] as const;
+        elements.forEach(elm => {
+          if (next[elm]?.fontFamily) {
+            localStorage.setItem(`user_pref_font_${elm}`, next[elm].fontFamily);
+            localStorage.setItem('user_pref_script_font', next[elm].fontFamily);
+          }
+        });
+      } catch (e) {}
+      return next;
+    });
+    setHasUnsavedChanges(true);
+  }, []);
+
+  const setTamilFontFamilyWrapped = useCallback((action: React.SetStateAction<string>) => {
+    setTamilFontFamily(prev => {
+      const next = typeof action === 'function' ? action(prev) : action;
+      try {
+        localStorage.setItem('user_pref_tamil_font', next);
+      } catch (e) {}
+      return next;
+    });
+    setHasUnsavedChanges(true);
+  }, []);
+
   const addTalentToPool = useCallback((talent: ArtistOption | ArtistOption[]) => {
     const list = Array.isArray(talent) ? talent : [talent];
     if (list.length === 0) return;
@@ -1601,7 +1718,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   }, []);
 
   const value: ProjectContextType = {
-    beats, groups, connections, annotations, characterData, generatedShots, scratchpad, globalNotes, panX, panY, scale, nextId, nextAnnoId, activeBoardId, isTamilMode, tamilFontScale, tamilFontFamily, userDictionary, isOsInputMode, osInputShortcut, scriptConfig, scriptViewMode, scratchpadConfig, storyboardConfig, isStoryboardFeatureEnabled,     breakdownLanguage, breakdownLockedOnly, isPdfDropEnabled, isRedoEnabled, writingGoal, geminiApiKey: '', openrouterKey, setOpenrouterKey, generalAiModel, setGeneralAiModel, dailyStats, sessionStartCount, lastSessionDate, boardLayerOrder, characterDesignLocked, setCharacterDesignLocked: setCharacterDesignLockedWrapped, appTheme, appAccentColor, appLanguage, currentUser, currentProjectId, projectList, hasUnsavedChanges, schemaError, isSaving, fileHandle, filePath, setFilePath,   isInitialLoading, isCloudMode: !!supabaseUser, supabaseUser, cloudOffline, login, logout, selectProject, createProject, deleteProject, closeProject, clearSchemaError: () => { setSchemaError(null); if (supabaseUser) refreshProjectList(supabaseUser.id); }, setBeats: setBeatsWrapped, setGroups: setGroupsWrapped, setConnections: setConnectionsWrapped, setAnnotations: setAnnotationsWrapped, setCharacterData: setCharacterDataWrapped, setGeneratedShots, setScratchpad: setScratchpadWrapped, setGlobalNotes: setGlobalNotesWrapped, updateGeneratedShot: (id, u) => { setGeneratedShots(p => p.map(s => s.id === id ? { ...s, ...u } : s)); setHasUnsavedChanges(true); }, addGeneratedShot: (i) => { const n = { id: `shot-${Date.now()}`, shotSize: 'WIDE', angle: 'EYE LEVEL', description: '', subject: '', scene: '?', imageHistory: [] }; const s = [...generatedShots]; s.splice(i + 1, 0, n); setGeneratedShots(s); captureSnapshot(); }, removeGeneratedShot: (id) => { setGeneratedShots(p => p.filter(s => s.id !== id)); captureSnapshot(); }, moveGeneratedShot: (f, t) => { const s = [...generatedShots]; const [m] = s.splice(f, 1); s.splice(t, 0, m); setGeneratedShots(s); captureSnapshot(); }, setPan: (x, y) => { setPanX(x); setPanY(y); }, setScale, updateBeat, addBeat, reorderBeats, addGroup: (g) => { const id = nextId; setNextId(p => p + 1); setGroups(p => [...p, { ...g, id, boardId: activeBoardId }]); captureSnapshot(); }, updateGroup: (id, u) => { setGroups(p => p.map(g => g.id === id ? { ...g, ...u } : g)); setHasUnsavedChanges(true); }, removeGroup: (id) => { setGroups(p => p.filter(g => g.id !== id)); captureSnapshot(); }, loadProject: applyProjectState, saveProject, saveProjectAs, setActiveBoardId, setTamilMode, setTamilFontScale, setTamilFontFamily, learnTamilWord: (e, t) => { setUserDictionary(p => { const c = p[e.toLowerCase()] || []; if (!c.includes(t)) return { ...p, [e.toLowerCase()]: [t, ...c] }; return p; }); }, setOsInputMode, setOsInputShortcut, setScriptConfig, setScriptViewMode, setScratchpadConfig, setStoryboardConfig, setStoryboardFeatureEnabled, setAppTheme, setAppAccentColor, setAppLanguage, setBreakdownLanguage, setBreakdownLockedOnly, setPdfDropEnabled, setRedoEnabled, setWritingGoal, setGeminiApiKey: () => {}, setBoardLayerOrder, setNextId, undo, redo, canUndo: historyIndexRef.current > 0, canRedo: historyIndexRef.current < historyRef.current.length - 1, captureSnapshot, downloadProject, autoGenerate5Scenes, autoGenerateScenes,
+    beats, groups, connections, annotations, characterData, generatedShots, scratchpad, globalNotes, panX, panY, scale, nextId, nextAnnoId, activeBoardId, isTamilMode, tamilFontScale, tamilFontFamily, userDictionary, isOsInputMode, osInputShortcut, scriptConfig, scriptViewMode, scratchpadConfig, storyboardConfig, isStoryboardFeatureEnabled,     breakdownLanguage, breakdownLockedOnly, isPdfDropEnabled, isRedoEnabled, writingGoal, geminiApiKey: '', openrouterKey, setOpenrouterKey, generalAiModel, setGeneralAiModel, dailyStats, sessionStartCount, lastSessionDate, boardLayerOrder, characterDesignLocked, setCharacterDesignLocked: setCharacterDesignLockedWrapped, appTheme, appAccentColor, appLanguage, currentUser, currentProjectId, projectList, hasUnsavedChanges, schemaError, isSaving, fileHandle, filePath, setFilePath,   isInitialLoading, isCloudMode: !!supabaseUser, supabaseUser, cloudOffline, login, logout, selectProject, createProject, deleteProject, closeProject, clearSchemaError: () => { setSchemaError(null); if (supabaseUser) refreshProjectList(supabaseUser.id); }, setBeats: setBeatsWrapped, setGroups: setGroupsWrapped, setConnections: setConnectionsWrapped, setAnnotations: setAnnotationsWrapped, setCharacterData: setCharacterDataWrapped, setGeneratedShots, setScratchpad: setScratchpadWrapped, setGlobalNotes: setGlobalNotesWrapped, updateGeneratedShot: (id, u) => { setGeneratedShots(p => p.map(s => s.id === id ? { ...s, ...u } : s)); setHasUnsavedChanges(true); }, addGeneratedShot: (i) => { const n = { id: `shot-${Date.now()}`, shotSize: 'WIDE', angle: 'EYE LEVEL', description: '', subject: '', scene: '?', imageHistory: [] }; const s = [...generatedShots]; s.splice(i + 1, 0, n); setGeneratedShots(s); captureSnapshot(); }, removeGeneratedShot: (id) => { setGeneratedShots(p => p.filter(s => s.id !== id)); captureSnapshot(); }, moveGeneratedShot: (f, t) => { const s = [...generatedShots]; const [m] = s.splice(f, 1); s.splice(t, 0, m); setGeneratedShots(s); captureSnapshot(); }, setPan: (x, y) => { setPanX(x); setPanY(y); }, setScale, updateBeat, addBeat, reorderBeats, addGroup: (g) => { const id = nextId; setNextId(p => p + 1); setGroups(p => [...p, { ...g, id, boardId: activeBoardId }]); captureSnapshot(); }, updateGroup: (id, u) => { setGroups(p => p.map(g => g.id === id ? { ...g, ...u } : g)); setHasUnsavedChanges(true); }, removeGroup: (id) => { setGroups(p => p.filter(g => g.id !== id)); captureSnapshot(); }, loadProject: applyProjectState, saveProject, saveProjectAs, setActiveBoardId, setTamilMode, setTamilFontScale, setTamilFontFamily: setTamilFontFamilyWrapped, learnTamilWord: (e, t) => { setUserDictionary(p => { const c = p[e.toLowerCase()] || []; if (!c.includes(t)) return { ...p, [e.toLowerCase()]: [t, ...c] }; return p; }); }, setOsInputMode, setOsInputShortcut, setScriptConfig: setScriptConfigWrapped, setScriptViewMode, setScratchpadConfig, setStoryboardConfig, setStoryboardFeatureEnabled, setAppTheme, setAppAccentColor, setAppLanguage, setBreakdownLanguage, setBreakdownLockedOnly, setPdfDropEnabled, setRedoEnabled, setWritingGoal, setGeminiApiKey: () => {}, setBoardLayerOrder, setNextId, undo, redo, canUndo: historyIndexRef.current > 0, canRedo: historyIndexRef.current < historyRef.current.length - 1, captureSnapshot, downloadProject, autoGenerate5Scenes, autoGenerateScenes,
     userRole, updateUserRole, grokKey, setGrokKey,
     collaborators, setCollaborators: setCollaboratorsWrapped,
     talentPool, setTalentPool: setTalentPoolWrapped,
@@ -1609,7 +1726,10 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     shortlistTalentForCharacter, passTalentForCharacter, starTalentForCharacter,
     navLayout, setNavLayout,
     themeAnimationStyle, setThemeAnimationStyle,
-    cloudSyncStatus, triggerCloudSync
+    cloudSyncStatus, triggerCloudSync,
+    currentProjectName,
+    isCurrentProjectShared: Boolean(projectList.find(p => p.id === currentProjectId)?.isInvited),
+    setHasUnsavedChanges
   };
 
   return <ProjectContext.Provider value={value}>{children}</ProjectContext.Provider>;

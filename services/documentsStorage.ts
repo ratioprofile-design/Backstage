@@ -638,24 +638,16 @@ export function getProductionDocuments(projectId?: string): ProductionDocument[]
   try {
     const key = getDocumentStorageKey(projectId);
     let raw = localStorage.getItem(key);
-    // If not found in project key, fallback to generic storage key
-    if (!raw && key !== STORAGE_KEY) {
-      raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        localStorage.setItem(key, raw);
-      }
-    }
     if (!raw) {
-      saveProductionDocuments(INITIAL_DOCUMENTS, projectId, true);
-      return INITIAL_DOCUMENTS;
+      // New or uninitialized projects start clean without forced template scripts
+      return [];
     }
     const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed) || parsed.length === 0) {
-      saveProductionDocuments(INITIAL_DOCUMENTS, projectId, true);
-      return INITIAL_DOCUMENTS;
+    if (!Array.isArray(parsed)) {
+      return [];
     }
 
-    // Auto-migration: ensure doc-bd-1 and any BREAKDOWN document has sheetData & htmlContent table
+    // Auto-migration: ensure doc-bd-1 breakdown document has sheetData if present
     let hasMigrated = false;
     const migrated = parsed.map((doc: ProductionDocument) => {
       if (doc.id === 'doc-bd-1') {
@@ -672,12 +664,6 @@ export function getProductionDocuments(projectId?: string): ProductionDocument[]
       return doc;
     });
 
-    // Check if doc-ranga-1 is present; if not, prepend it
-    if (!migrated.some((doc: ProductionDocument) => doc.id === 'doc-ranga-1')) {
-      hasMigrated = true;
-      migrated.unshift(PILOT_RANGA_SCRIPT_DOC);
-    }
-
     if (hasMigrated) {
       saveProductionDocuments(migrated, projectId, true);
       return migrated;
@@ -686,7 +672,7 @@ export function getProductionDocuments(projectId?: string): ProductionDocument[]
     return parsed;
   } catch (e) {
     console.error('Failed to load production documents:', e);
-    return INITIAL_DOCUMENTS;
+    return [];
   }
 }
 
