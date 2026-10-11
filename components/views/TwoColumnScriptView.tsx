@@ -1628,7 +1628,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
           column: currentItem.column,
           leftAction: currentItem.column === 'left' ? formattedAfter : undefined,
           rightDialogue: currentItem.column === 'right' ? formattedAfter : undefined,
-          rightCharacter: currentItem.column === 'right' ? currentItem.rightCharacter : undefined,
+          rightCharacter: '',
           rawText: formattedAfter,
         };
 
@@ -2841,7 +2841,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
             }`}
           >
             {/* Subtle Count Badge */}
-            <span className="text-[10.5px] font-mono font-medium px-1.5 py-0.5 rounded text-amber-600/90 dark:text-amber-400/90 bg-amber-500/10 whitespace-nowrap">
+            <span className="text-[10.5px] font-mono font-medium px-1.5 py-0.5 rounded text-slate-600 dark:text-zinc-400 bg-slate-100 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700/60 whitespace-nowrap">
               {selectedCount} sel
             </span>
 

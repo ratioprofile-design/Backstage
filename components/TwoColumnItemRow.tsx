@@ -403,17 +403,13 @@ export const TwoColumnItemRow: React.FC<TwoColumnItemRowProps> = React.memo(
               ? 'opacity-35 scale-[0.99] ring-2 ring-emerald-500/50 shadow-xl border-emerald-500/50'
               : isSelected
               ? isLight
-                ? 'bg-amber-500/[0.04] border-amber-400/50 shadow-xs'
-                : 'bg-amber-400/[0.05] border-amber-400/35 shadow-xs'
+                ? 'bg-slate-100/70 border-slate-300/90 shadow-xs'
+                : 'bg-zinc-800/40 border-zinc-700/70 shadow-xs'
               : isLight
               ? 'hover:bg-slate-50/70 border-transparent hover:border-slate-200'
               : 'hover:bg-zinc-800/40 border-transparent hover:border-zinc-800'
           }`}
         >
-          {/* Subtle active selection indicator on left edge */}
-          {isSelected && (
-            <div className="absolute -left-0.5 top-2.5 bottom-2.5 w-1 bg-amber-500/70 dark:bg-amber-400/70 rounded-full pointer-events-none" />
-          )}
           {/* Drag Handle (Grip) for reordering up and down */}
           <div
             draggable={true}
@@ -428,28 +424,6 @@ export const TwoColumnItemRow: React.FC<TwoColumnItemRowProps> = React.memo(
           >
             <GripVertical size={14} className="stroke-[2.2]" />
           </div>
-
-          {/* Mouse Multi-select Checkbox */}
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onToggleSelect(item.id);
-            }}
-            className={`absolute -left-2.5 top-2.5 z-10 w-4 h-4 rounded flex items-center justify-center transition-all cursor-pointer ${
-              isSelected
-                ? 'bg-amber-500/80 text-black border border-amber-400/60 shadow-xs opacity-100'
-                : isLight
-                ? 'opacity-0 group-hover:opacity-100 bg-white hover:bg-slate-100 text-slate-500 border border-slate-300 shadow-xs'
-                : 'opacity-0 group-hover:opacity-100 bg-zinc-800/90 hover:bg-zinc-700 text-zinc-400 border border-zinc-600/60'
-            }`}
-            title={isSelected ? 'Deselect paragraph' : 'Click to select paragraph (Cmd+Click to multi-select)'}
-          >
-            {isSelected ? (
-              <Check size={11} className="stroke-[3]" />
-            ) : (
-              <span className={`w-1.5 h-1.5 rounded-full ${isLight ? 'bg-slate-400' : 'bg-zinc-400'}`} />
-            )}
-          </button>
 
           {/* Hover Quick Action Toolbar */}
           <div
