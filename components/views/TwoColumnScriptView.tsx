@@ -2540,14 +2540,6 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
                 }`}>
                   Kollywood 2-Column
                 </span>
-                <span className="px-1.5 py-0.2 rounded text-[9.5px] font-black uppercase tracking-wider border bg-blue-500/20 text-blue-400 border-blue-500/30 flex items-center gap-1 shadow-2xs">
-                  <FileText size={9} />
-                  <span>Script</span>
-                </span>
-                <span className="px-1.5 py-0.2 rounded text-[9.5px] font-black uppercase tracking-wider border bg-emerald-500/20 text-emerald-400 border-emerald-500/30 flex items-center gap-1 shadow-2xs">
-                  <Columns size={9} />
-                  <span>Screenplay</span>
-                </span>
                 <span className={`text-[10px] px-1.5 py-0.2 rounded font-mono border ${
                   isLight
                     ? 'bg-slate-100 text-slate-600 border-slate-200'
@@ -2837,155 +2829,146 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
       </header>
 
       {/* =========================================================================
-          FLOATING SELECTION TOOLBAR (Appears whenever paragraphs are selected)
+          FLOATING SELECTION TOOLBAR (Subtle & compact)
          ========================================================================= */}
       {selectedCount > 0 && (
-        <div className="sticky top-3 z-40 mx-auto w-fit max-w-[95vw] px-2 animate-in fade-in slide-in-from-top-2 duration-200">
+        <div className="sticky top-2 z-40 mx-auto w-fit max-w-[90vw] px-2 animate-in fade-in slide-in-from-top-1 duration-150">
           <div
-            className={`flex items-center gap-2 px-3 py-1.5 rounded-full border shadow-xl backdrop-blur-xl transition-all ${
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border shadow-md backdrop-blur-md transition-all text-xs ${
               isLight
-                ? 'bg-white/95 border-slate-200/90 text-slate-800 shadow-[0_8px_30px_rgba(0,0,0,0.12)]'
-                : 'bg-zinc-900/95 border-zinc-700/80 text-zinc-100 shadow-[0_12px_36px_rgba(0,0,0,0.6)]'
+                ? 'bg-white/90 border-slate-200/90 text-slate-700 shadow-[0_4px_16px_rgba(0,0,0,0.06)]'
+                : 'bg-zinc-900/90 border-zinc-800/90 text-zinc-200 shadow-[0_6px_20px_rgba(0,0,0,0.4)]'
             }`}
           >
-            {/* Count Badge */}
-            <div
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ${
-                isLight
-                  ? 'bg-amber-500/10 text-amber-700 border border-amber-500/20'
-                  : 'bg-amber-500/15 text-amber-400 border border-amber-500/25'
-              }`}
-            >
-              <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
-              <span>{selectedCount} Selected</span>
-            </div>
+            {/* Subtle Count Badge */}
+            <span className="text-[10.5px] font-mono font-medium px-1.5 py-0.5 rounded text-amber-600/90 dark:text-amber-400/90 bg-amber-500/10 whitespace-nowrap">
+              {selectedCount} sel
+            </span>
 
-            <div className={`w-[1px] h-4 ${isLight ? 'bg-slate-200' : 'bg-zinc-700/70'}`} />
+            <div className={`w-[1px] h-3.5 ${isLight ? 'bg-slate-200' : 'bg-zinc-800'}`} />
 
-            {/* Direct Column Controls */}
-            <div className={`flex items-center gap-0.5 p-0.5 rounded-lg border ${
-              isLight ? 'bg-slate-100/70 border-slate-200' : 'bg-zinc-950/60 border-zinc-800'
+            {/* Compact Column Controls */}
+            <div className={`flex items-center gap-0.5 p-0.5 rounded-md border ${
+              isLight ? 'bg-slate-50/80 border-slate-200/70' : 'bg-zinc-950/40 border-zinc-800/60'
             }`}>
               <button
                 onClick={() => moveParagraphsToColumn('left')}
-                className={`px-2.5 py-1 rounded-md text-xs font-medium flex items-center gap-1.5 transition-all cursor-pointer ${
+                className={`px-2 py-0.5 rounded text-[11px] font-medium flex items-center gap-1 transition-colors cursor-pointer ${
                   isLight
-                    ? 'hover:bg-white text-slate-700 hover:text-emerald-700 hover:shadow-xs'
+                    ? 'hover:bg-white text-slate-600 hover:text-emerald-700'
                     : 'hover:bg-zinc-800 text-zinc-300 hover:text-emerald-400'
                 }`}
-                title="Send highlighted to Left: காட்சி (Visual/Action) [ArrowLeft]"
+                title="Move highlighted to Left: காட்சி (Visual/Action) [ArrowLeft / Alt+Left]"
               >
-                <ArrowLeft size={12} className="stroke-[2.5] text-emerald-500" />
-                <span>Left: காட்சி</span>
+                <ArrowLeft size={10} className="text-emerald-500" />
+                <span>Left</span>
               </button>
 
               <button
                 onClick={() => moveParagraphsToColumn('center')}
-                className={`px-2 py-1 rounded-md text-xs font-medium flex items-center gap-1 transition-all cursor-pointer ${
+                className={`px-1.5 py-0.5 rounded text-[11px] font-medium flex items-center gap-1 transition-colors cursor-pointer ${
                   isLight
-                    ? 'hover:bg-white text-slate-700 hover:text-amber-700 hover:shadow-xs'
+                    ? 'hover:bg-white text-slate-600 hover:text-amber-700'
                     : 'hover:bg-zinc-800 text-zinc-300 hover:text-amber-400'
                 }`}
-                title="Send highlighted to Center: தலைப்பு (Heading/Transition) [ArrowUp / C]"
+                title="Move highlighted to Center: தலைப்பு (Heading/Transition) [ArrowUp / Alt+C]"
               >
-                <Minus size={12} className="stroke-[2.5] text-amber-500" />
                 <span>Center</span>
               </button>
 
               <button
                 onClick={() => moveParagraphsToColumn('right')}
-                className={`px-2.5 py-1 rounded-md text-xs font-medium flex items-center gap-1.5 transition-all cursor-pointer ${
+                className={`px-2 py-0.5 rounded text-[11px] font-medium flex items-center gap-1 transition-colors cursor-pointer ${
                   isLight
-                    ? 'hover:bg-white text-slate-700 hover:text-sky-700 hover:shadow-xs'
+                    ? 'hover:bg-white text-slate-600 hover:text-sky-700'
                     : 'hover:bg-zinc-800 text-zinc-300 hover:text-sky-400'
                 }`}
-                title="Send highlighted to Right: வசனம் (Dialogue) [ArrowRight]"
+                title="Move highlighted to Right: வசனம் (Dialogue) [ArrowRight / Alt+Right]"
               >
-                <span>Right: வசனம்</span>
-                <ArrowRight size={12} className="stroke-[2.5] text-sky-500" />
+                <span>Right</span>
+                <ArrowRight size={10} className="text-sky-500" />
               </button>
             </div>
 
-            <div className={`w-[1px] h-4 ${isLight ? 'bg-slate-200' : 'bg-zinc-700/70'}`} />
+            <div className={`w-[1px] h-3.5 ${isLight ? 'bg-slate-200' : 'bg-zinc-800'}`} />
 
-            {/* Direct Alignment for Highlighted Paragraphs */}
-            <div className={`flex items-center gap-0.5 p-0.5 rounded-lg border ${
-              isLight ? 'bg-slate-100/70 border-slate-200' : 'bg-zinc-950/60 border-zinc-800'
+            {/* Compact Alignment Controls */}
+            <div className={`flex items-center gap-0.5 p-0.5 rounded-md border ${
+              isLight ? 'bg-slate-50/80 border-slate-200/70' : 'bg-zinc-950/40 border-zinc-800/60'
             }`}>
               <button
                 onClick={() => handleUpdateItemAlignment('left')}
                 className={`p-1 rounded transition-colors cursor-pointer ${
-                  isLight ? 'text-slate-600 hover:text-slate-900 hover:bg-white hover:shadow-xs' : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
+                  isLight ? 'text-slate-500 hover:text-slate-900 hover:bg-white' : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
                 }`}
-                title="Align Left for highlighted paragraphs"
+                title="Align Left"
               >
-                <AlignLeft size={12} />
+                <AlignLeft size={11} />
               </button>
               <button
                 onClick={() => handleUpdateItemAlignment('center')}
                 className={`p-1 rounded transition-colors cursor-pointer ${
-                  isLight ? 'text-slate-600 hover:text-slate-900 hover:bg-white hover:shadow-xs' : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
+                  isLight ? 'text-slate-500 hover:text-slate-900 hover:bg-white' : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
                 }`}
-                title="Align Center for highlighted paragraphs"
+                title="Align Center"
               >
-                <AlignCenter size={12} />
+                <AlignCenter size={11} />
               </button>
               <button
                 onClick={() => handleUpdateItemAlignment('right')}
                 className={`p-1 rounded transition-colors cursor-pointer ${
-                  isLight ? 'text-slate-600 hover:text-slate-900 hover:bg-white hover:shadow-xs' : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
+                  isLight ? 'text-slate-500 hover:text-slate-900 hover:bg-white' : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
                 }`}
-                title="Align Right for highlighted paragraphs"
+                title="Align Right"
               >
-                <AlignRight size={12} />
+                <AlignRight size={11} />
               </button>
               <button
                 onClick={() => handleUpdateItemAlignment('justify')}
                 className={`p-1 rounded transition-colors cursor-pointer ${
-                  isLight ? 'text-slate-600 hover:text-slate-900 hover:bg-white hover:shadow-xs' : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
+                  isLight ? 'text-slate-500 hover:text-slate-900 hover:bg-white' : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
                 }`}
-                title="Justify highlighted paragraphs"
+                title="Justify"
               >
-                <AlignJustify size={12} />
+                <AlignJustify size={11} />
               </button>
             </div>
 
-            {/* Bulk Text Color for Highlighted Paragraphs */}
+            {/* Compact Color Control */}
             <div className="relative">
               <button
                 onClick={() => setBulkColorPickerOpen(!bulkColorPickerOpen)}
-                className={`px-2 py-1 rounded-lg text-xs font-medium flex items-center gap-1 transition-colors cursor-pointer border ${
+                className={`p-1 rounded-md transition-colors cursor-pointer border ${
                   isLight
-                    ? 'bg-slate-100/70 hover:bg-white text-slate-700 border-slate-200'
-                    : 'bg-zinc-950/60 hover:bg-zinc-800 text-zinc-300 border-zinc-800'
+                    ? 'bg-slate-50/80 hover:bg-white text-slate-600 border-slate-200/70'
+                    : 'bg-zinc-950/40 hover:bg-zinc-800 text-zinc-300 border-zinc-800/60'
                 }`}
-                title="Change text color for highlighted paragraphs"
+                title="Text Color"
               >
-                <Palette size={12} className={isLight ? 'text-amber-600' : 'text-amber-400'} />
-                <span className="text-[11px]">Color</span>
+                <Palette size={11} className={isLight ? 'text-amber-600' : 'text-amber-400'} />
               </button>
 
               {bulkColorPickerOpen && (
                 <div
                   onClick={(e) => e.stopPropagation()}
-                  className={`absolute top-full right-0 mt-2 p-2.5 rounded-xl border shadow-2xl z-50 flex flex-col gap-2 min-w-[150px] ${
+                  className={`absolute top-full right-0 mt-1.5 p-2 rounded-xl border shadow-xl z-50 flex flex-col gap-1.5 min-w-[140px] ${
                     isLight
-                      ? 'bg-white border-slate-200 text-slate-800 shadow-[0_12px_36px_rgba(0,0,0,0.15)]'
+                      ? 'bg-white border-slate-200 text-slate-800 shadow-[0_8px_24px_rgba(0,0,0,0.12)]'
                       : 'bg-zinc-950 border-zinc-700 text-zinc-100'
                   }`}
                 >
-                  <div className={`flex items-center justify-between text-[11px] font-mono pb-1 border-b ${
+                  <div className={`flex items-center justify-between text-[10px] font-mono pb-1 border-b ${
                     isLight ? 'text-slate-500 border-slate-200' : 'text-zinc-400 border-zinc-800'
                   }`}>
-                    <span>Selected Text Color</span>
+                    <span>Color</span>
                     <button
                       onClick={() => {
                         handleUpdateItemColor(selectedItemIds, undefined);
                         setBulkColorPickerOpen(false);
                       }}
-                      className="text-amber-500 hover:text-amber-600 cursor-pointer flex items-center gap-1 text-[10px]"
+                      className="text-amber-500 hover:text-amber-600 cursor-pointer flex items-center gap-0.5 text-[9.5px]"
                     >
-                      <RotateCcw size={9} />
+                      <RotateCcw size={8} />
                       <span>Reset</span>
                     </button>
                   </div>
@@ -3007,7 +2990,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
                           setBulkColorPickerOpen(false);
                         }}
                         style={{ backgroundColor: c.hex || (isLight ? '#0f172a' : '#f8fafc') }}
-                        className={`w-5 h-5 rounded-full border hover:scale-110 cursor-pointer transition-transform ${
+                        className={`w-4.5 h-4.5 rounded-full border hover:scale-110 cursor-pointer transition-transform ${
                           isLight ? 'border-slate-300' : 'border-zinc-700'
                         }`}
                         title={c.name}
@@ -3018,7 +3001,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
               )}
             </div>
 
-            <div className={`w-[1px] h-4 ${isLight ? 'bg-slate-200' : 'bg-zinc-700/70'}`} />
+            <div className={`w-[1px] h-3.5 ${isLight ? 'bg-slate-200' : 'bg-zinc-800'}`} />
 
             {/* Clear Selection Button */}
             <button
@@ -3030,7 +3013,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
               }`}
               title="Clear selection (Esc)"
             >
-              <X size={13} />
+              <X size={11} />
             </button>
           </div>
         </div>

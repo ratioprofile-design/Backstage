@@ -403,16 +403,16 @@ export const TwoColumnItemRow: React.FC<TwoColumnItemRowProps> = React.memo(
               ? 'opacity-35 scale-[0.99] ring-2 ring-emerald-500/50 shadow-xl border-emerald-500/50'
               : isSelected
               ? isLight
-                ? 'bg-amber-500/10 border-amber-500 ring-2 ring-amber-500/75 shadow-md shadow-amber-500/10'
-                : 'bg-amber-500/15 border-amber-400 ring-2 ring-amber-400/80 shadow-lg shadow-amber-500/20'
+                ? 'bg-amber-500/[0.04] border-amber-400/50 shadow-xs'
+                : 'bg-amber-400/[0.05] border-amber-400/35 shadow-xs'
               : isLight
               ? 'hover:bg-slate-50/70 border-transparent hover:border-slate-200'
               : 'hover:bg-zinc-800/40 border-transparent hover:border-zinc-800'
           }`}
         >
-          {/* Active selection bar indicator on left edge */}
+          {/* Subtle active selection indicator on left edge */}
           {isSelected && (
-            <div className="absolute -left-1 top-2 bottom-2 w-1.5 bg-amber-500 dark:bg-amber-400 rounded-full shadow-sm shadow-amber-500/60 pointer-events-none" />
+            <div className="absolute -left-0.5 top-2.5 bottom-2.5 w-1 bg-amber-500/70 dark:bg-amber-400/70 rounded-full pointer-events-none" />
           )}
           {/* Drag Handle (Grip) for reordering up and down */}
           <div
@@ -437,7 +437,7 @@ export const TwoColumnItemRow: React.FC<TwoColumnItemRowProps> = React.memo(
             }}
             className={`absolute -left-2.5 top-2.5 z-10 w-4 h-4 rounded flex items-center justify-center transition-all cursor-pointer ${
               isSelected
-                ? 'bg-amber-500 text-black border border-amber-400 shadow-xs opacity-100 scale-105'
+                ? 'bg-amber-500/80 text-black border border-amber-400/60 shadow-xs opacity-100'
                 : isLight
                 ? 'opacity-0 group-hover:opacity-100 bg-white hover:bg-slate-100 text-slate-500 border border-slate-300 shadow-xs'
                 : 'opacity-0 group-hover:opacity-100 bg-zinc-800/90 hover:bg-zinc-700 text-zinc-400 border border-zinc-600/60'
