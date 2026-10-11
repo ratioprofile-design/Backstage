@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { 
   FilePlus2, FolderOpen, Clock, Film, Cloud, Trash2, ChevronRight, 
   Mail, LogOut, Search, Sparkles, PenTool, ArrowRight, User, 
-  Layers, CheckCircle2, Play, BookOpen, X, Command, AlertTriangle
+  Layers, CheckCircle2, Play, BookOpen, X, Command, AlertTriangle, Pencil
 } from 'lucide-react';
 import { RecentFile } from '../utils/recentFiles';
 import { ProjectMetadata } from '../types';
@@ -38,7 +38,8 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
 }) => {
   const { 
     userRole, logout, schemaError, projectList, selectProject, 
-    autoGenerate5Scenes, setActiveBoardId, appAccentColor = '#f5a623' 
+    autoGenerate5Scenes, setActiveBoardId, appAccentColor = '#f5a623',
+    renameProject
   } = useProject();
 
   const [activeTab, setActiveTab] = useState<'recents' | 'cloud' | 'invites'>('recents');
@@ -490,7 +491,23 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
                             Open
                           </button>
 
-                          {onDeleteCloudProject && (
+                          {!proj.isInvited && (
+                            <button
+                              onClick={async (e) => {
+                                e.stopPropagation();
+                                const newName = window.prompt(`Rename project:`, proj.name);
+                                if (newName && newName.trim() && newName.trim() !== proj.name) {
+                                  await renameProject(proj.id, newName.trim());
+                                }
+                              }}
+                              className="p-1.5 rounded-lg text-gray-500 hover:text-amber-400 hover:bg-amber-500/10 transition-colors"
+                              title="Rename project (Owner only)"
+                            >
+                              <Pencil size={13} />
+                            </button>
+                          )}
+
+                          {onDeleteCloudProject && !proj.isInvited && (
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();

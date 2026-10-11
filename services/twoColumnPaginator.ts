@@ -37,7 +37,7 @@ export interface TwoColumnPaginationOptions {
   transitionBold?: boolean; // Bold transitions/titles (default true)
   columnGutterPx?: number; // Space/gutter between left and right columns (default 16px)
   showColumnGuides?: boolean; // Guide header banner (default false, removed everywhere)
-  autoEndSceneCutTo?: boolean; // Auto append CUT TO: at the end of scenes if not present (default true)
+  autoEndSceneCutTo?: boolean; // Auto append CUT TO: at the end of scenes if not present (default false)
   endSceneCutToText?: string; // Text for the end transition (default 'CUT TO:')
   transitionColor?: string; // Center / Transition text color (default #f59e0b)
   scriptEdition?: string; // Running footer edition/version name (default '1st Edition')
@@ -52,7 +52,7 @@ export const DEFAULT_TWO_COLUMN_PAGINATION_OPTIONS: TwoColumnPaginationOptions =
   marginRightMm: 20,
   gapSceneHeaderPx: 16,
   gapParagraphRowPx: 8,
-  baseFontSizePx: 13,
+  baseFontSizePx: 17,
   baseLineHeight: 1.5,
   baseFontFamily: "'Vijaya', 'Latha', 'Mukta Malar', 'Noto Sans Tamil', system-ui, sans-serif",
   columnSplitPercent: 48,
@@ -71,7 +71,7 @@ export const DEFAULT_TWO_COLUMN_PAGINATION_OPTIONS: TwoColumnPaginationOptions =
   transitionBold: true,
   columnGutterPx: 16,
   showColumnGuides: false,
-  autoEndSceneCutTo: true,
+  autoEndSceneCutTo: false,
   endSceneCutToText: 'CUT TO:',
   scriptEdition: '1st Edition',
   scriptEditionDate: '',
@@ -306,7 +306,7 @@ export function paginateTwoColumnScript(
 
     // 2. Scene Items (with auto end-of-scene CUT TO if enabled and not already ending with a transition)
     const effectiveItems: TamilScriptItem[] = [...scene.items];
-    if (options.autoEndSceneCutTo !== false && !hasEndSceneTransition(scene.items)) {
+    if (options.autoEndSceneCutTo === true && !hasEndSceneTransition(scene.items)) {
       effectiveItems.push({
         id: `auto-cut-to-${scene.id}`,
         type: 'transition',

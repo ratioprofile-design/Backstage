@@ -7,7 +7,7 @@ import {
   BoardLayer, TimelineTrack, ThemeAnimationStyle, ArtistOption, CloudSyncStatus
 } from '../types';
 import { INITIAL_STATE } from '../constants';
-import { supabase, upsertProject, fetchProjectData, fetchUserProjects, fetchInvitedProjects, isSupabaseConfigured } from '../services/supabase';
+import { supabase, upsertProject, fetchProjectData, fetchUserProjects, fetchInvitedProjects, isSupabaseConfigured, renameCloudProject } from '../services/supabase';
 import { createAuto5ScenesDataset, createAutoScenesDataset } from '../services/sampleGenerator';
 import { isTauri, getTauriFs, getTauriDialog, getTauriWindow } from '../utils/desktop';
 import { addRecentFile } from '../utils/recentFiles';
@@ -950,6 +950,9 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setPanY(INITIAL_STATE.panY);
     setScale(INITIAL_STATE.scale);
     setHasUnsavedChanges(false);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('backstage:show-welcome'));
+    }
   }, [applyProjectState]);
 
   const createProject = async (name: string) => {
@@ -1093,6 +1096,35 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   };
 
+  const renameProject = async (id: string, newName: string): Promise<boolean> => {
+    const trimmed = newName.trim();
+    if (!trimmed) return false;
+    const target = projectList.find(p => p.id === id);
+    if (target?.isInvited) {
+      alert("Only the project owner can rename this project.");
+      return false;
+    }
+
+    if (supabaseUser) {
+      const ok = await renameCloudProject(id, supabaseUser.id, trimmed);
+      if (!ok) return false;
+      await refreshProjectList(supabaseUser.id);
+    } else {
+      setProjectList(prev => {
+        const updated = prev.map(p => p.id === id ? { ...p, name: trimmed, lastModified: Date.now() } : p);
+        localStorage.setItem('projectList', JSON.stringify(updated));
+        return updated;
+      });
+      localStorage.setItem(`project_name_${id}`, trimmed);
+    }
+
+    if (currentProjectId === id) {
+      setCurrentProjectName(trimmed);
+      localStorage.setItem(`project_name_${id}`, trimmed);
+    }
+    return true;
+  };
+
   const saveProject = useCallback(async () => {
     if (isRemoteUpdateRef.current) return;
     setIsSaving(true);
@@ -1153,16 +1185,8 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
           ...projectData,
           talentPool: optimizedTalent
         };
-        setCloudSyncStatus(prev => ({
-          ...prev,
-          progress: 80,
-          message: 'Uploading to Supabase Cloud...'
-        }));
-        const project = projectList.find(p => p.id === currentProjectId);
-        await upsertProject(currentProjectId, supabaseUser.id, project?.name || 'Untitled', cloudPayload);
-        saved = true;
 
-        // Broadcast immediately to active collaborators on the project channel
+        // Broadcast IMMEDIATELY to active collaborators on the project channel
         if (realtimeChannelRef.current) {
           try {
             realtimeChannelRef.current.send({
@@ -1175,6 +1199,15 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
             });
           } catch (e) {}
         }
+
+        setCloudSyncStatus(prev => ({
+          ...prev,
+          progress: 80,
+          message: 'Uploading to Supabase Cloud...'
+        }));
+        const project = projectList.find(p => p.id === currentProjectId);
+        await upsertProject(currentProjectId, supabaseUser.id, project?.name || 'Untitled', cloudPayload);
+        saved = true;
       } catch (err: any) {
         cloudFailed = true;
         cloudErrorDetail = err?.message || 'Gateway Timeout / Restarting';
@@ -1761,7 +1794,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   }, []);
 
   const value: ProjectContextType = {
-    beats, groups, connections, annotations, characterData, generatedShots, scratchpad, globalNotes, panX, panY, scale, nextId, nextAnnoId, activeBoardId, isTamilMode, tamilFontScale, tamilFontFamily, userDictionary, isOsInputMode, osInputShortcut, scriptConfig, scriptViewMode, scratchpadConfig, storyboardConfig, isStoryboardFeatureEnabled,     breakdownLanguage, breakdownLockedOnly, isPdfDropEnabled, isRedoEnabled, writingGoal, geminiApiKey: '', openrouterKey, setOpenrouterKey, generalAiModel, setGeneralAiModel, dailyStats, sessionStartCount, lastSessionDate, boardLayerOrder, characterDesignLocked, setCharacterDesignLocked: setCharacterDesignLockedWrapped, appTheme, appAccentColor, appLanguage, currentUser, currentProjectId, projectList, hasUnsavedChanges, schemaError, isSaving, fileHandle, filePath, setFilePath,   isInitialLoading, isCloudMode: !!supabaseUser, supabaseUser, cloudOffline, login, logout, selectProject, createProject, deleteProject, closeProject, clearSchemaError: () => { setSchemaError(null); if (supabaseUser) refreshProjectList(supabaseUser.id); }, setBeats: setBeatsWrapped, setGroups: setGroupsWrapped, setConnections: setConnectionsWrapped, setAnnotations: setAnnotationsWrapped, setCharacterData: setCharacterDataWrapped, setGeneratedShots, setScratchpad: setScratchpadWrapped, setGlobalNotes: setGlobalNotesWrapped, updateGeneratedShot: (id, u) => { setGeneratedShots(p => p.map(s => s.id === id ? { ...s, ...u } : s)); setHasUnsavedChanges(true); }, addGeneratedShot: (i) => { const n = { id: `shot-${Date.now()}`, shotSize: 'WIDE', angle: 'EYE LEVEL', description: '', subject: '', scene: '?', imageHistory: [] }; const s = [...generatedShots]; s.splice(i + 1, 0, n); setGeneratedShots(s); captureSnapshot(); }, removeGeneratedShot: (id) => { setGeneratedShots(p => p.filter(s => s.id !== id)); captureSnapshot(); }, moveGeneratedShot: (f, t) => { const s = [...generatedShots]; const [m] = s.splice(f, 1); s.splice(t, 0, m); setGeneratedShots(s); captureSnapshot(); }, setPan: (x, y) => { setPanX(x); setPanY(y); }, setScale, updateBeat, addBeat, reorderBeats, addGroup: (g) => { const id = nextId; setNextId(p => p + 1); setGroups(p => [...p, { ...g, id, boardId: activeBoardId }]); captureSnapshot(); }, updateGroup: (id, u) => { setGroups(p => p.map(g => g.id === id ? { ...g, ...u } : g)); setHasUnsavedChanges(true); }, removeGroup: (id) => { setGroups(p => p.filter(g => g.id !== id)); captureSnapshot(); }, loadProject: applyProjectState, saveProject, saveProjectAs, setActiveBoardId, setTamilMode, setTamilFontScale, setTamilFontFamily: setTamilFontFamilyWrapped, learnTamilWord: (e, t) => { setUserDictionary(p => { const c = p[e.toLowerCase()] || []; if (!c.includes(t)) return { ...p, [e.toLowerCase()]: [t, ...c] }; return p; }); }, setOsInputMode, setOsInputShortcut, setScriptConfig: setScriptConfigWrapped, setScriptViewMode, setScratchpadConfig, setStoryboardConfig, setStoryboardFeatureEnabled, setAppTheme, setAppAccentColor, setAppLanguage, setBreakdownLanguage, setBreakdownLockedOnly, setPdfDropEnabled, setRedoEnabled, setWritingGoal, setGeminiApiKey: () => {}, setBoardLayerOrder, setNextId, undo, redo, canUndo: historyIndexRef.current > 0, canRedo: historyIndexRef.current < historyRef.current.length - 1, captureSnapshot, downloadProject, autoGenerate5Scenes, autoGenerateScenes,
+    beats, groups, connections, annotations, characterData, generatedShots, scratchpad, globalNotes, panX, panY, scale, nextId, nextAnnoId, activeBoardId, isTamilMode, tamilFontScale, tamilFontFamily, userDictionary, isOsInputMode, osInputShortcut, scriptConfig, scriptViewMode, scratchpadConfig, storyboardConfig, isStoryboardFeatureEnabled,     breakdownLanguage, breakdownLockedOnly, isPdfDropEnabled, isRedoEnabled, writingGoal, geminiApiKey: '', openrouterKey, setOpenrouterKey, generalAiModel, setGeneralAiModel, dailyStats, sessionStartCount, lastSessionDate, boardLayerOrder, characterDesignLocked, setCharacterDesignLocked: setCharacterDesignLockedWrapped, appTheme, appAccentColor, appLanguage, currentUser, currentProjectId, projectList, hasUnsavedChanges, schemaError, isSaving, fileHandle, filePath, setFilePath, isInitialLoading, isCloudMode: !!supabaseUser, supabaseUser, cloudOffline, login, logout, selectProject, createProject, deleteProject, renameProject, closeProject, clearSchemaError: () => { setSchemaError(null); if (supabaseUser) refreshProjectList(supabaseUser.id); }, setBeats: setBeatsWrapped, setGroups: setGroupsWrapped, setConnections: setConnectionsWrapped, setAnnotations: setAnnotationsWrapped, setCharacterData: setCharacterDataWrapped, setGeneratedShots, setScratchpad: setScratchpadWrapped, setGlobalNotes: setGlobalNotesWrapped, updateGeneratedShot: (id, u) => { setGeneratedShots(p => p.map(s => s.id === id ? { ...s, ...u } : s)); setHasUnsavedChanges(true); }, addGeneratedShot: (i) => { const n = { id: `shot-${Date.now()}`, shotSize: 'WIDE', angle: 'EYE LEVEL', description: '', subject: '', scene: '?', imageHistory: [] }; const s = [...generatedShots]; s.splice(i + 1, 0, n); setGeneratedShots(s); captureSnapshot(); }, removeGeneratedShot: (id) => { setGeneratedShots(p => p.filter(s => s.id !== id)); captureSnapshot(); }, moveGeneratedShot: (f, t) => { const s = [...generatedShots]; const [m] = s.splice(f, 1); s.splice(t, 0, m); setGeneratedShots(s); captureSnapshot(); }, setPan: (x, y) => { setPanX(x); setPanY(y); }, setScale, updateBeat, addBeat, reorderBeats, addGroup: (g) => { const id = nextId; setNextId(p => p + 1); setGroups(p => [...p, { ...g, id, boardId: activeBoardId }]); captureSnapshot(); }, updateGroup: (id, u) => { setGroups(p => p.map(g => g.id === id ? { ...g, ...u } : g)); setHasUnsavedChanges(true); }, removeGroup: (id) => { setGroups(p => p.filter(g => g.id !== id)); captureSnapshot(); }, loadProject: applyProjectState, saveProject, saveProjectAs, setActiveBoardId, setTamilMode, setTamilFontScale, setTamilFontFamily: setTamilFontFamilyWrapped, learnTamilWord: (e, t) => { setUserDictionary(p => { const c = p[e.toLowerCase()] || []; if (!c.includes(t)) return { ...p, [e.toLowerCase()]: [t, ...c] }; return p; }); }, setOsInputMode, setOsInputShortcut, setScriptConfig: setScriptConfigWrapped, setScriptViewMode, setScratchpadConfig, setStoryboardConfig, setStoryboardFeatureEnabled, setAppTheme, setAppAccentColor, setAppLanguage, setBreakdownLanguage, setBreakdownLockedOnly, setPdfDropEnabled, setRedoEnabled, setWritingGoal, setGeminiApiKey: () => {}, setBoardLayerOrder, setNextId, undo, redo, canUndo: historyIndexRef.current > 0, canRedo: historyIndexRef.current < historyRef.current.length - 1, captureSnapshot, downloadProject, autoGenerate5Scenes, autoGenerateScenes,
     userRole, updateUserRole, grokKey, setGrokKey,
     collaborators, setCollaborators: setCollaboratorsWrapped,
     talentPool, setTalentPool: setTalentPoolWrapped,

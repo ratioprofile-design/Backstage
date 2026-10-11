@@ -408,6 +408,7 @@ export interface ProjectContextType extends ProjectState {
   selectProject: (id: string, opts?: { silent?: boolean }) => void;
   createProject: (name: string) => void;
   deleteProject: (id: string) => void;
+  renameProject: (id: string, newName: string) => Promise<boolean>;
   closeProject: () => void;
   clearSchemaError: () => void;
 

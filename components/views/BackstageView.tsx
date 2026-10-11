@@ -747,7 +747,10 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard, onClos
                 </button>
               )}
               <button 
-                  onClick={closeProject}
+                  onClick={() => {
+                    closeProject();
+                    if (onClose) onClose();
+                  }}
                   className="w-full py-2.5 rounded-sm border border-red-900/30 bg-red-900/5 text-red-500 hover:bg-red-900/20 hover:text-red-400 text-[10px] font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 group cursor-pointer"
               >
                   <LogOut size={12} className="group-hover:-translate-x-1 transition-transform"/> {translateUi('Exit Project', appLanguage)}

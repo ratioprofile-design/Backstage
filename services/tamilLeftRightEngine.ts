@@ -1110,7 +1110,7 @@ export async function generateTamilLeftRightDocx(
 
     // Content rows (with auto end-of-scene CUT TO if enabled)
     const effectiveItems: TamilScriptItem[] = [...scene.items];
-    if (options?.autoEndSceneCutTo !== false && !hasEndSceneTransition(scene.items)) {
+    if (options?.autoEndSceneCutTo === true && !hasEndSceneTransition(scene.items)) {
       effectiveItems.push({
         id: `auto-cut-to-${scene.id}`,
         type: 'transition',

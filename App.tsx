@@ -262,7 +262,7 @@ const AppContent: React.FC = () => {
   const [loadingTimedOut, setLoadingTimedOut] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
 
-  // When user signs out (transitions from logged in to null), redirect to welcome screen
+  // When user signs out or exits a project, redirect to welcome screen to pick another project
   const prevUserRef = useRef(currentUser);
   useEffect(() => {
     if (prevUserRef.current && !currentUser) {
@@ -270,6 +270,14 @@ const AppContent: React.FC = () => {
     }
     prevUserRef.current = currentUser;
   }, [currentUser]);
+
+  useEffect(() => {
+    const handleShowWelcome = () => {
+      setShowWelcome(true);
+    };
+    window.addEventListener('backstage:show-welcome', handleShowWelcome);
+    return () => window.removeEventListener('backstage:show-welcome', handleShowWelcome);
+  }, []);
 
   // Auto-close auth modal if user successfully signs in
   useEffect(() => {

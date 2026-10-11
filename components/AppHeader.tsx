@@ -5,7 +5,7 @@ import { useProject } from '../context/ProjectContext';
 import {
     Target, Zap, Clock, Film, RotateCcw, RotateCw, CheckCircle2, 
     TrendingUp, Save, Cloud, CloudOff, Wifi, WifiOff, CloudUpload,
-    Loader2, Check, FileCode, Inbox, Sun, Moon, LogIn, LogOut, ChevronDown, Sparkles, User, Settings, Folder
+    Loader2, Check, FileCode, Inbox, Sun, Moon, LogIn, LogOut, ChevronDown, Sparkles, User, Settings, Folder, Pencil
 } from 'lucide-react';
 import { isSupabaseConfigured } from '../services/supabase';
 import { useAiKeyStatus } from '../context/AiKeyStatusContext';
@@ -48,8 +48,13 @@ const AppHeader: React.FC<AppHeaderProps> = ({
       appLanguage,
       collaborators = [],
       currentProjectName,
-      isCurrentProjectShared
+      isCurrentProjectShared,
+      renameProject,
+      closeProject
   } = useProject();
+
+  const [isRenamingProject, setIsRenamingProject] = useState(false);
+  const [newProjectNameInput, setNewProjectNameInput] = useState('');
 
   const { aiAvailable, router, gemini, testing } = useAiKeyStatus();
   const aiStatusTitle = testing
@@ -203,21 +208,77 @@ const AppHeader: React.FC<AppHeaderProps> = ({
               </div>
           </div>
 
-          {/* Prominent Active Project Display with Shared Project Badge */}
+          {/* Prominent Active Project Display with Owner-Only Rename and Shared Project Badge */}
           <div 
-              className="flex items-center gap-2 px-2.5 py-1 bg-[#191922] border border-[#383844] hover:border-amber-500/50 rounded-lg shadow-sm max-w-[260px] transition-all"
-              title={isShared ? `Shared Project: ${fileHandle ? fileHandle.name : activeProjectName}` : (fileHandle ? fileHandle.name : activeProjectName)}
+              className="flex items-center gap-2 px-2.5 py-1 bg-[#191922] border border-[#383844] hover:border-amber-500/50 rounded-lg shadow-sm max-w-[280px] transition-all"
+              title={isShared ? `Shared Project: ${fileHandle ? fileHandle.name : activeProjectName} (Only owner can rename)` : (fileHandle ? fileHandle.name : `${activeProjectName} (Click pencil to rename)`)}
           >
               <Folder size={13} className="text-amber-400 shrink-0" />
-              <span className="text-xs font-bold text-white tracking-wide truncate">
-                  {fileHandle ? fileHandle.name : activeProjectName}
-              </span>
-              {isShared && (
-                  <span className="px-1.5 py-0.2 text-[8px] font-black uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/40 rounded-full shrink-0">
-                      Shared
+              {isRenamingProject ? (
+                  <input
+                      type="text"
+                      autoFocus
+                      value={newProjectNameInput}
+                      onChange={(e) => setNewProjectNameInput(e.target.value)}
+                      onBlur={async () => {
+                          setIsRenamingProject(false);
+                          const trimmed = newProjectNameInput.trim();
+                          if (trimmed && trimmed !== activeProjectName && currentProjectId) {
+                              await renameProject(currentProjectId, trimmed);
+                          }
+                      }}
+                      onKeyDown={async (e) => {
+                          if (e.key === 'Enter') {
+                              setIsRenamingProject(false);
+                              const trimmed = newProjectNameInput.trim();
+                              if (trimmed && trimmed !== activeProjectName && currentProjectId) {
+                                  await renameProject(currentProjectId, trimmed);
+                              }
+                          } else if (e.key === 'Escape') {
+                              setIsRenamingProject(false);
+                          }
+                      }}
+                      className="bg-black/80 border border-amber-500 text-xs font-bold text-white px-1.5 py-0.5 rounded outline-none w-28 truncate"
+                  />
+              ) : (
+                  <span className="text-xs font-bold text-white tracking-wide truncate">
+                      {fileHandle ? fileHandle.name : activeProjectName}
                   </span>
               )}
+              {isShared ? (
+                  <span className="px-1.5 py-0.2 text-[8px] font-black uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/40 rounded-full shrink-0" title="Collaborator View: Only the project owner can rename this project">
+                      Shared
+                  </span>
+              ) : (
+                  !isRenamingProject && (
+                      <button
+                          type="button"
+                          onClick={(e) => {
+                              e.stopPropagation();
+                              setNewProjectNameInput(fileHandle ? fileHandle.name : activeProjectName);
+                              setIsRenamingProject(true);
+                          }}
+                          className="opacity-40 hover:opacity-100 hover:text-amber-400 p-0.5 rounded transition-all cursor-pointer"
+                          title="Rename Cloud Project (Owner only)"
+                      >
+                          <Pencil size={11} />
+                      </button>
+                  )
+              )}
           </div>
+
+          {/* Exit Project Button - Takes user directly to Welcome Screen to pick another project */}
+          <button
+              onClick={() => {
+                  closeProject();
+                  window.dispatchEvent(new CustomEvent('backstage:show-welcome'));
+              }}
+              className="flex items-center gap-1.5 px-2.5 py-1 bg-[#18181c] hover:bg-red-950/30 border border-[#333] hover:border-red-500/50 text-gray-400 hover:text-red-400 rounded-lg text-xs font-bold transition-all cursor-pointer shadow-sm group"
+              title="Exit Project & Go to Studio Hub (Pick Another Project)"
+          >
+              <LogOut size={13} className="group-hover:-translate-x-0.5 transition-transform" />
+              <span className="text-[11px] font-bold">Exit</span>
+          </button>
 
           {/* INBOX ICON (Next to Backstage Logo) - Dedicated Page Switcher */}
           <button

@@ -38,6 +38,7 @@ import { printTwoColumnVector } from '../../services/twoColumnExportEngine';
 import confetti from 'canvas-confetti';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
+import { supabase, isSupabaseConfigured } from '../../services/supabase';
 import {
   Columns,
   ArrowLeft,
@@ -208,11 +209,20 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
     }
   }, [activeDoc?.id]);
 
-  // Pagination & Layout Configuration (Preserve individual font choice)
+  // Live Mutable Ref to prevent stale React closures when inserting scenes or syncing
+  const screenplayDataRef = useRef<TamilScreenplayData>(screenplayData);
+  useEffect(() => {
+    screenplayDataRef.current = screenplayData;
+  }, [screenplayData]);
+
+  // Pagination & Layout Configuration (Default 17px font size & auto CUT TO off)
   const [layoutOptions, setLayoutOptions] = useState<TwoColumnPaginationOptions>(() => {
     const userFont = typeof localStorage !== 'undefined' ? localStorage.getItem('user_pref_two_col_font') : null;
+    const userFontSize = typeof localStorage !== 'undefined' ? localStorage.getItem('user_pref_two_col_font_size') : null;
     return {
       ...DEFAULT_TWO_COLUMN_PAGINATION_OPTIONS,
+      baseFontSizePx: userFontSize ? Number(userFontSize) : 17,
+      autoEndSceneCutTo: false,
       ...(userFont ? { baseFontFamily: userFont } : {})
     };
   });
@@ -1049,6 +1059,18 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
       return `${prevNum}A`;
     } else {
       // position === 'after'
+      // If inserting after the last scene in script, produce next sequential integer (e.g. Scene 2, 3...)
+      if (targetIdx === scenes.length - 1) {
+        let maxNum = 0;
+        for (const sc of scenes) {
+          const parsed = parseInt(sc.sceneNumber, 10);
+          if (!isNaN(parsed) && parsed > maxNum) {
+            maxNum = parsed;
+          }
+        }
+        return `${(maxNum || scenes.length) + 1}`;
+      }
+
       const targetScene = scenes[targetIdx];
       const targetNum = (targetScene.sceneNumber || '').trim();
       const letterMatch = targetNum.match(/^(\d+)([A-Za-z]+)?$/);
@@ -1117,6 +1139,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
       scenes: nextScenes,
     };
 
+    screenplayDataRef.current = nextScreenplay;
     setScreenplayData(nextScreenplay);
     setActiveSceneId(newSceneId);
     setHasUnsavedChanges(true);
@@ -1129,10 +1152,8 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
       }
     }
 
-    // Immediately save and sync with cloud collaborators
-    setTimeout(() => {
-      saveToVault(false);
-    }, 50);
+    // Immediately save to vault and broadcast to cloud collaborators
+    saveToVault(false, nextScreenplay);
 
     // Scroll directly to the newly created scene heading and focus location
     setTimeout(() => {
@@ -2140,10 +2161,11 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
   };
 
   // Save changes to Vault and sync across all collaborators
-  const saveToVault = useCallback((isManual = false) => {
+  const saveToVault = useCallback((isManual = false, overrideData?: TamilScreenplayData) => {
     const projId = projectContext.currentProjectId || undefined;
-    const html = generateTamilLeftRightHtml(screenplayData);
-    const plainText = (screenplayData.scenes || []).map((sc) => {
+    const currentData = overrideData || screenplayDataRef.current;
+    const html = generateTamilLeftRightHtml(currentData);
+    const plainText = (currentData.scenes || []).map((sc) => {
       const heading = sc.sluglineText || `Scene ${sc.sceneNumber}${sc.location ? ` - ${sc.location}` : ''}`;
       const itemsText = (sc.items || []).map((it) => {
         if (it.type === 'dialogue') return `${it.rightCharacter || 'Character'}: ${it.rightDialogue || ''}`;
@@ -2162,14 +2184,14 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
       targetDoc = {
         id: `doc-twocol-${Date.now()}`,
         projectId: projId,
-        title: screenplayData.title || 'Untitled Screenplay',
+        title: currentData.title || 'Untitled Screenplay',
         category: 'SCRIPT',
-        fileName: `${(screenplayData.title || 'Screenplay').replace(/\s+/g, '_')}.pdf`,
+        fileName: `${(currentData.title || 'Screenplay').replace(/\s+/g, '_')}.pdf`,
         fileSize: '120 KB',
         fileType: 'script',
         pageCount: 1,
         uploadedAt: new Date().toISOString(),
-        twoColumnData: screenplayData,
+        twoColumnData: currentData,
         textContent: plainText,
         htmlContent: html,
         isLeftRightFormat: true,
@@ -2185,8 +2207,8 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
     } else {
       const updated: ProductionDocument = {
         ...targetDoc,
-        title: screenplayData.title || targetDoc.title,
-        twoColumnData: screenplayData,
+        title: currentData.title || targetDoc.title,
+        twoColumnData: currentData,
         textContent: plainText,
         htmlContent: html,
         isLeftRightFormat: true,
@@ -2204,6 +2226,23 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
     setIsAutoSaving(false);
     setLastSavedAt(new Date());
 
+    // Instant Supabase Broadcast across active collaborators
+    if (isSupabaseConfigured && projId) {
+      try {
+        const chan = supabase.channel(`project_changes_${projId}`);
+        chan.send({
+          type: 'broadcast',
+          event: 'two_column_script_synced',
+          payload: {
+            projectId: projId,
+            docId: targetDoc.id,
+            twoColumnData: currentData,
+            senderId: projectContext.currentUser || 'user'
+          }
+        }).catch(() => {});
+      } catch (e) {}
+    }
+
     // Trigger Cloud Project Sync so all collaborators receive the 2-column script!
     projectContext.setHasUnsavedChanges?.(true);
     if (projectContext.isCloudMode) {
@@ -2214,7 +2253,40 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
       confetti({ particleCount: 25, spread: 50, origin: { y: 0.8 } });
       showToast('✓ Saved 2-Column Screenplay & Synced with Collaborators!');
     }
-  }, [activeDoc, screenplayData, projectContext]);
+  }, [activeDoc, projectContext]);
+
+  // Instant real-time collaborative sync across Supabase channels
+  useEffect(() => {
+    const projId = projectContext.currentProjectId;
+    if (!isSupabaseConfigured || !projId) return;
+
+    const channel = supabase.channel(`project_changes_${projId}`)
+      .on(
+        'broadcast',
+        { event: 'two_column_script_synced' },
+        (msg: any) => {
+          const payload = msg.payload;
+          if (!payload || !payload.twoColumnData) return;
+          if (payload.senderId && payload.senderId === projectContext.currentUser) return;
+
+          console.log('[TwoColumn] Live update received from collaborator:', payload.senderId);
+          screenplayDataRef.current = payload.twoColumnData;
+          setScreenplayData(payload.twoColumnData);
+
+          // Update local documents cache
+          const allDocs = getProductionDocuments(projId);
+          const nextDocs = allDocs.map((d) => d.id === payload.docId ? { ...d, twoColumnData: payload.twoColumnData } : d);
+          setDocuments(nextDocs);
+          saveProductionDocuments(nextDocs, projId, true);
+          showToast('✓ Received live script updates from collaborator');
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [projectContext.currentProjectId, projectContext.currentUser]);
 
   // Real-time synchronization from remote collaborators
   useEffect(() => {
@@ -2236,11 +2308,14 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
             setSelectedDocId(remoteDoc.id);
           }
           if (remoteDoc.twoColumnData && Array.isArray(remoteDoc.twoColumnData.scenes)) {
+            screenplayDataRef.current = remoteDoc.twoColumnData;
             setScreenplayData(remoteDoc.twoColumnData);
           } else {
             const raw = remoteDoc.textContent || '';
             if (raw.trim()) {
-              setScreenplayData(parseScreenplayToTamilLeftRight(raw, remoteDoc.title));
+              const parsed = parseScreenplayToTamilLeftRight(raw, remoteDoc.title);
+              screenplayDataRef.current = parsed;
+              setScreenplayData(parsed);
             }
           }
         }
@@ -3691,13 +3766,18 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
                 </div>
                 <input
                   type="range"
-                  min="11"
-                  max="17"
+                  min="12"
+                  max="24"
                   step="0.5"
-                  value={layoutOptions.baseFontSizePx}
-                  onChange={(e) =>
-                    setLayoutOptions((prev) => ({ ...prev, baseFontSizePx: Number(e.target.value) }))
-                  }
+                  value={layoutOptions.baseFontSizePx || 17}
+                  onChange={(e) => {
+                    const val = Number(e.target.value);
+                    setLayoutOptions((prev) => ({ ...prev, baseFontSizePx: val }));
+                    if (typeof localStorage !== 'undefined') {
+                      localStorage.setItem('user_pref_two_col_font_size', String(val));
+                    }
+                    setHasUnsavedChanges(true);
+                  }}
                   className="w-full accent-[#f5a623]"
                 />
               </div>
@@ -4093,7 +4173,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
                 </div>
                 <input
                   type="checkbox"
-                  checked={layoutOptions.autoEndSceneCutTo !== false}
+                  checked={layoutOptions.autoEndSceneCutTo === true}
                   onChange={(e) => {
                     setLayoutOptions((prev) => ({ ...prev, autoEndSceneCutTo: e.target.checked }));
                     setHasUnsavedChanges(true);
@@ -4103,7 +4183,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
               </div>
 
               {/* Custom Transition Text Input */}
-              {layoutOptions.autoEndSceneCutTo !== false && (
+              {layoutOptions.autoEndSceneCutTo === true && (
                 <div className="space-y-2 pt-1">
                   <div className={`flex justify-between text-[11px] font-mono ${isLight ? 'text-slate-600' : 'text-zinc-400'}`}>
                     <span>Transition Text:</span>

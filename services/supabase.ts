@@ -90,19 +90,24 @@ export const upsertProject = async (id: string, userId: string, name: string, da
   // Check if project already exists
   const { data: existing, error: checkError } = await supabase
     .from('projects')
-    .select('id, user_id')
+    .select('id, user_id, name')
     .eq('id', id)
     .maybeSingle();
 
   if (existing && !checkError) {
-    // Already exists: update data and name only. Keep the original owner user_id untouched.
+    const isOwner = existing.user_id === userId;
+    // Collaborator saving MUST NOT rename the cloud project!
+    // Only the project owner can update the project name.
+    const updatePayload: any = {
+      data,
+      updated_at: new Date().toISOString()
+    };
+    if (isOwner && name && !name.includes('(Invited by')) {
+      updatePayload.name = name;
+    }
     const { error } = await supabase
       .from('projects')
-      .update({
-        name,
-        data,
-        updated_at: new Date().toISOString()
-      })
+      .update(updatePayload)
       .eq('id', id);
     if (error) throw error;
   } else {
@@ -117,6 +122,38 @@ export const upsertProject = async (id: string, userId: string, name: string, da
         updated_at: new Date().toISOString()
       });
     if (error) throw error;
+  }
+};
+
+/**
+ * Rename a cloud project (Owner only)
+ */
+export const renameCloudProject = async (id: string, userId: string, newName: string): Promise<boolean> => {
+  if (!isSupabaseConfigured || !id || !userId || !newName.trim()) return false;
+  try {
+    const { data: existing, error: checkError } = await supabase
+      .from('projects')
+      .select('id, user_id')
+      .eq('id', id)
+      .maybeSingle();
+
+    if (!existing || checkError || existing.user_id !== userId) {
+      console.warn("Only project owner can rename this project.");
+      return false;
+    }
+
+    const { error } = await supabase
+      .from('projects')
+      .update({
+        name: newName.trim(),
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', id);
+
+    return !error;
+  } catch (e) {
+    console.error("Failed to rename cloud project:", e);
+    return false;
   }
 };
 
