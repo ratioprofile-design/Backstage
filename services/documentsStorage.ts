@@ -647,9 +647,16 @@ export function getProductionDocuments(projectId?: string): ProductionDocument[]
       return [];
     }
 
+    const filtered = parsed.filter(
+      (doc: ProductionDocument) =>
+        doc.id !== 'doc-ranga-1' &&
+        doc.fileName !== 'Pilot_Ranga_Screenplay.docx' &&
+        !(doc.title && doc.title.includes('பைலட் ரங்கா'))
+    );
+
     // Auto-migration: ensure doc-bd-1 breakdown document has sheetData if present
-    let hasMigrated = false;
-    const migrated = parsed.map((doc: ProductionDocument) => {
+    let hasMigrated = filtered.length !== parsed.length;
+    const migrated = filtered.map((doc: ProductionDocument) => {
       if (doc.id === 'doc-bd-1') {
         if (!doc.sheetData || doc.sheetData.length <= 1 || !doc.htmlContent || !doc.htmlContent.includes('doc-delete-row-btn')) {
           hasMigrated = true;

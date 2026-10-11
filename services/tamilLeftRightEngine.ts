@@ -60,6 +60,15 @@ export function parseScreenplayToTamilLeftRight(text: string, defaultTitle = '�
     .replace(/\r/g, '\n')
     .trim();
 
+  if (!clean) {
+    return {
+      title: defaultTitle,
+      scenes: [],
+      rawText: '',
+      hasDialogue: false,
+    };
+  }
+
   const lines = clean.split('\n').map(l => l.trim());
 
   let docTitle = defaultTitle;
@@ -90,8 +99,8 @@ export function parseScreenplayToTamilLeftRight(text: string, defaultTitle = '�
       const scNum = tamilSceneMatch[1] || `${scenes.length + 1}`;
       const rest = tamilSceneMatch[2] || '';
 
-      let location = 'xyz';
-      let realLocation = 'xyz';
+      let location = '';
+      let realLocation = '';
       let timeOfDay = 'Day / INT';
       let effects = 'None';
       let explicitChars: string[] | undefined = undefined;
@@ -135,17 +144,17 @@ export function parseScreenplayToTamilLeftRight(text: string, defaultTitle = '�
         }
       }
 
-      if (location === 'xyz' && !locMatch && rest.trim()) {
+      if (!location && !locMatch && rest.trim()) {
         const cleanedRest = rest.replace(/^[|:\s]+/, '').trim();
         if (cleanedRest) location = cleanedRest;
       }
 
-      const sluglineText = `sc no: ${scNum}     Script Location: ${location}     Time: ${timeOfDay}`;
+      const sluglineText = `sc no: ${scNum}${location ? `     Script Location: ${location}` : ''}${timeOfDay ? `     Time: ${timeOfDay}` : ''}`;
       currentScene = {
         id: `scene-${Date.now()}-${scenes.length + 1}`,
         sceneNumber: scNum,
         location,
-        realLocation: realLocation !== 'xyz' ? realLocation : location,
+        realLocation: realLocation || location,
         timeOfDay,
         sluglineText,
         effects,
@@ -178,17 +187,21 @@ export function parseScreenplayToTamilLeftRight(text: string, defaultTitle = '�
       continue;
     }
 
-    // If no scene has been created yet, detect title or create initial scene
+    // If no scene has been created yet, detect document title or subtitle
     if (!currentScene) {
-      if (line.includes('பைலட்') || line.includes('ரங்கா') || (line.length < 35 && !line.includes('இடம்') && !line.includes('.'))) {
-        docTitle = line;
+      if (!docTitle || docTitle === defaultTitle) {
+        if (line.length < 50 && !line.includes('இடம்') && !line.includes('.')) {
+          docTitle = line;
+          lineIdx++;
+          continue;
+        }
       }
       currentScene = {
         id: `scene-${Date.now()}-1`,
         sceneNumber: '1',
-        location: 'காட்சி அமைப்பு',
-        timeOfDay: 'Nig/Ext',
-        sluglineText: `காட்சி : 1     இடம் : காட்சி அமைப்பு     நேரம் : Nig/Ext`,
+        location: '',
+        timeOfDay: 'Day / INT',
+        sluglineText: `காட்சி : 1`,
         items: []
       };
       scenes.push(currentScene);
@@ -206,8 +219,8 @@ export function parseScreenplayToTamilLeftRight(text: string, defaultTitle = '�
       continue;
     }
 
-    // Check for prominent title card indicators (e.g., "பைலட் ரங்கா", "டைட்டல் வருவது", "2011...")
-    if (line.includes('டைட்டல்') || line.includes('Title') || (line.length < 28 && /^[A-Z\u0B80-\u0BFF\s]+$/.test(line) && (line.includes('ரங்கா') || line.includes('PILOT')))) {
+    // Check for prominent title card indicators
+    if (line.includes('டைட்டல்') || line.includes('Title') || (line.length < 28 && /^[A-Z\u0B80-\u0BFF\s]+$/.test(line))) {
       currentScene.items.push({
         id: `item-${Date.now()}-${lineIdx}`,
         type: 'title',

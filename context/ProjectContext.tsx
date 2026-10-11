@@ -124,6 +124,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const isRemoteUpdateRef = useRef(false); // Flag to prevent remote data from triggering "unsaved changes"
   const isImportingRef = useRef(false); // Flag to prevent window focus from wiping freshly imported projects
   const cloudOfflineRef = useRef(false);
+  const realtimeChannelRef = useRef<any>(null);
 
   // Update refs when state changes
   useEffect(() => { isSavingRef.current = isSaving; }, [isSaving]);
@@ -758,9 +759,37 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
           }
         }
       )
+      .on(
+        'broadcast',
+        { event: 'project_updated' },
+        (payload: any) => {
+          const broadcastData = payload.payload?.data || payload.data;
+          const remoteInstance = payload.payload?.lastInstanceId || payload.lastInstanceId;
+          if (!broadcastData || remoteInstance === INSTANCE_ID) return;
+          if (!hasUnsavedChangesRef.current && !isSavingRef.current) {
+            console.log("Realtime broadcast: Updating local state from collaborator.");
+            applyProjectState(broadcastData);
+          }
+        }
+      )
       .subscribe();
 
+    realtimeChannelRef.current = channel;
+
+    // Periodic fallback polling to guarantee sync between collaborators (every 8s)
+    const pollInterval = setInterval(async () => {
+      if (hasUnsavedChangesRef.current || isSavingRef.current) return;
+      try {
+        const remote = await fetchProjectData(currentProjectId);
+        if (remote && remote.lastInstanceId && remote.lastInstanceId !== INSTANCE_ID) {
+          applyProjectState(remote);
+        }
+      } catch (e) {}
+    }, 8000);
+
     return () => {
+      clearInterval(pollInterval);
+      realtimeChannelRef.current = null;
       supabase.removeChannel(channel);
     };
   }, [currentProjectId, supabaseUser, applyProjectState]);
@@ -1132,6 +1161,20 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
         const project = projectList.find(p => p.id === currentProjectId);
         await upsertProject(currentProjectId, supabaseUser.id, project?.name || 'Untitled', cloudPayload);
         saved = true;
+
+        // Broadcast immediately to active collaborators on the project channel
+        if (realtimeChannelRef.current) {
+          try {
+            realtimeChannelRef.current.send({
+              type: 'broadcast',
+              event: 'project_updated',
+              payload: {
+                lastInstanceId: INSTANCE_ID,
+                data: cloudPayload
+              }
+            });
+          } catch (e) {}
+        }
       } catch (err: any) {
         cloudFailed = true;
         cloudErrorDetail = err?.message || 'Gateway Timeout / Restarting';

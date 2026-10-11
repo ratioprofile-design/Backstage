@@ -326,14 +326,14 @@ export const TwoColumnExportModal: React.FC<TwoColumnExportModalProps> = ({
                         <div className="flex items-center justify-between gap-3 text-xs mb-1.5">
                           <div className="flex-1 text-left min-w-0 truncate">
                             <span className="font-bold mr-1">Script Location: </span>
-                            <span className="text-slate-700">{elem.location || 'xyz'}</span>
+                            <span className="text-slate-700">{elem.location || '-'}</span>
                           </div>
                           <div className="shrink-0 px-3 py-0.5 rounded-lg border border-slate-900 font-bold text-[11px] bg-slate-50 text-center shadow-2xs">
                             Pages: {elem.scenePageNumber || 1}/{elem.sceneTotalPages || 1}
                           </div>
                           <div className="flex-1 text-right min-w-0 truncate">
                             <span className="font-bold mr-1">Real Location: </span>
-                            <span className="text-slate-700">{elem.realLocation || elem.location || 'xyz'}</span>
+                            <span className="text-slate-700">{elem.realLocation || elem.location || '-'}</span>
                           </div>
                         </div>
 

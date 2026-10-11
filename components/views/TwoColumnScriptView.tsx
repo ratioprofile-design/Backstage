@@ -111,7 +111,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
       }
     }
     const scriptDoc = documents.find((d) => d.isLeftRightFormat || d.hasTwoColumnScript || d.category === 'SCRIPT');
-    return scriptDoc?.id || documents[0]?.id || '';
+    return scriptDoc?.id || '';
   });
 
   // Keep selectedDocId synchronized with active_two_column_doc_id or initialDocumentId
@@ -127,7 +127,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
   }, [initialDocumentId, documents]);
 
   const activeDoc = useMemo(() => {
-    return documents.find((d) => d.id === selectedDocId) || documents[0];
+    return documents.find((d) => d.id === selectedDocId) || documents.find((d) => d.isLeftRightFormat || d.hasTwoColumnScript || d.category === 'SCRIPT');
   }, [documents, selectedDocId]);
 
   // Screenplay Data
@@ -136,11 +136,25 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
       return {
         title: 'Untitled Screenplay',
         author: projectContext.currentUser || 'Writer',
-        scenes: []
+        scenes: [],
+        rawText: '',
+        hasDialogue: false,
       };
     }
-    const raw = activeDoc?.textContent || (activeDoc?.htmlContent ? activeDoc.htmlContent.replace(/<[^>]+>/g, '\n') : '');
-    return parseScreenplayToTamilLeftRight(raw, activeDoc?.title || 'Untitled Screenplay');
+    if (activeDoc.twoColumnData && Array.isArray(activeDoc.twoColumnData.scenes)) {
+      return activeDoc.twoColumnData;
+    }
+    const raw = activeDoc.textContent || '';
+    if (!raw.trim()) {
+      return {
+        title: activeDoc.title || 'Untitled Screenplay',
+        author: activeDoc.author || projectContext.currentUser || 'Writer',
+        scenes: [],
+        rawText: '',
+        hasDialogue: false,
+      };
+    }
+    return parseScreenplayToTamilLeftRight(raw, activeDoc.title || 'Untitled Screenplay');
   });
 
   // Inline Title Rename State
@@ -161,20 +175,34 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
         title: trimmed,
         lastModified: new Date().toISOString(),
       };
-      const allDocs = getProductionDocuments();
+      const allDocs = getProductionDocuments(projectContext.currentProjectId || undefined);
       const nextList = allDocs.map((d) => (d.id === updated.id ? updated : d));
-      saveProductionDocuments(nextList);
+      saveProductionDocuments(nextList, projectContext.currentProjectId || undefined);
       setDocuments(nextList);
     }
     setHasUnsavedChanges(true);
     showToast('✓ Document Renamed');
   };
 
-  // Re-parse when switching documents
+  // Switch or reload active document
   useEffect(() => {
     if (activeDoc) {
-      const raw = activeDoc.textContent || (activeDoc.htmlContent ? activeDoc.htmlContent.replace(/<[^>]+>/g, '\n') : '');
-      setScreenplayData(parseScreenplayToTamilLeftRight(raw, activeDoc.title));
+      if (activeDoc.twoColumnData && Array.isArray(activeDoc.twoColumnData.scenes)) {
+        setScreenplayData(activeDoc.twoColumnData);
+      } else {
+        const raw = activeDoc.textContent || '';
+        if (raw.trim()) {
+          setScreenplayData(parseScreenplayToTamilLeftRight(raw, activeDoc.title));
+        } else {
+          setScreenplayData({
+            title: activeDoc.title || 'Untitled Screenplay',
+            author: activeDoc.author || projectContext.currentUser || 'Writer',
+            scenes: [],
+            rawText: '',
+            hasDialogue: false,
+          });
+        }
+      }
       setSelectedItemIds(new Set());
       setHasUnsavedChanges(false);
     }
@@ -2058,6 +2086,16 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
   const saveToVault = useCallback((isManual = false) => {
     const projId = projectContext.currentProjectId || undefined;
     const html = generateTamilLeftRightHtml(screenplayData);
+    const plainText = (screenplayData.scenes || []).map((sc) => {
+      const heading = sc.sluglineText || `Scene ${sc.sceneNumber}${sc.location ? ` - ${sc.location}` : ''}`;
+      const itemsText = (sc.items || []).map((it) => {
+        if (it.type === 'dialogue') return `${it.rightCharacter || 'Character'}: ${it.rightDialogue || ''}`;
+        if (it.type === 'transition') return `> ${it.rawText || ''} <`;
+        return it.leftAction || it.rawText || '';
+      }).filter(Boolean).join('\n\n');
+      return `${heading}\n\n${itemsText}`;
+    }).join('\n\n---\n\n');
+
     let targetDoc = activeDoc;
     let nextList: ProductionDocument[] = [];
 
@@ -2074,8 +2112,11 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
         fileType: 'script',
         pageCount: 1,
         uploadedAt: new Date().toISOString(),
+        twoColumnData: screenplayData,
+        textContent: plainText,
         htmlContent: html,
         isLeftRightFormat: true,
+        hasTwoColumnScript: true,
         author: projectContext.currentUser || 'Collaborator',
         status: 'draft',
         tags: ['2-Column Script', 'Screenplay'],
@@ -2088,8 +2129,11 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
       const updated: ProductionDocument = {
         ...targetDoc,
         title: screenplayData.title || targetDoc.title,
+        twoColumnData: screenplayData,
+        textContent: plainText,
         htmlContent: html,
         isLeftRightFormat: true,
+        hasTwoColumnScript: true,
         lastModified: new Date().toISOString(),
       };
       nextList = allDocs.some(d => d.id === updated.id) 
@@ -2128,12 +2172,20 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
       // If we do not have local unsaved work, sync active screenplay data from remote collaborator
       if (!hasUnsavedChanges) {
         const curId = selectedDocId;
-        const remoteDoc = incoming.find((d: any) => d.id === curId || d.isLeftRightFormat);
+        const remoteDoc = incoming.find((d: any) => d.id === curId)
+          || incoming.find((d: any) => d.isLeftRightFormat || d.hasTwoColumnScript || d.category === 'SCRIPT');
         if (remoteDoc) {
-          if (!selectedDocId) setSelectedDocId(remoteDoc.id);
-          const raw = remoteDoc.textContent || (remoteDoc.htmlContent ? remoteDoc.htmlContent.replace(/<[^>]+>/g, '\n') : '');
-          const parsed = parseScreenplayToTamilLeftRight(raw, remoteDoc.title);
-          setScreenplayData(parsed);
+          if (!selectedDocId || selectedDocId !== remoteDoc.id) {
+            setSelectedDocId(remoteDoc.id);
+          }
+          if (remoteDoc.twoColumnData && Array.isArray(remoteDoc.twoColumnData.scenes)) {
+            setScreenplayData(remoteDoc.twoColumnData);
+          } else {
+            const raw = remoteDoc.textContent || '';
+            if (raw.trim()) {
+              setScreenplayData(parseScreenplayToTamilLeftRight(raw, remoteDoc.title));
+            }
+          }
         }
       }
     };
@@ -2156,16 +2208,30 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
   useEffect(() => {
     const handleBeforeUnload = () => {
       if (hasUnsavedChanges && activeDoc) {
+        const projId = projectContext.currentProjectId || undefined;
         const html = generateTamilLeftRightHtml(screenplayData);
+        const plainText = (screenplayData.scenes || []).map((sc) => {
+          const heading = sc.sluglineText || `Scene ${sc.sceneNumber}${sc.location ? ` - ${sc.location}` : ''}`;
+          const itemsText = (sc.items || []).map((it) => {
+            if (it.type === 'dialogue') return `${it.rightCharacter || 'Character'}: ${it.rightDialogue || ''}`;
+            if (it.type === 'transition') return `> ${it.rawText || ''} <`;
+            return it.leftAction || it.rawText || '';
+          }).filter(Boolean).join('\n\n');
+          return `${heading}\n\n${itemsText}`;
+        }).join('\n\n---\n\n');
+
         const updated: ProductionDocument = {
           ...activeDoc,
           title: screenplayData.title || activeDoc.title,
+          twoColumnData: screenplayData,
+          textContent: plainText,
           htmlContent: html,
           isLeftRightFormat: true,
+          hasTwoColumnScript: true,
           lastModified: new Date().toISOString(),
         };
         const nextList = documents.map((d) => (d.id === updated.id ? updated : d));
-        saveProductionDocuments(nextList);
+        saveProductionDocuments(nextList, projId);
       }
     };
     window.addEventListener('beforeunload', handleBeforeUnload);
@@ -3037,7 +3103,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
                                         className="outline-none hover:bg-emerald-500/10 px-0.5 rounded font-medium break-words inline"
                                         title="Click to edit script location"
                                       >
-                                        {elem.location || 'xyz'}
+                                        {elem.location || 'Location'}
                                       </span>
                                     </div>
 
@@ -3056,7 +3122,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
                                         className="outline-none hover:bg-emerald-500/10 px-0.5 rounded font-medium break-words inline"
                                         title="Click to edit real shooting location"
                                       >
-                                        {elem.realLocation || elem.location || 'xyz'}
+                                        {elem.realLocation || elem.location || 'Real Location'}
                                       </span>
                                     </div>
                                   </div>

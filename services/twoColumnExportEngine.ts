@@ -74,13 +74,13 @@ export function generateTwoColumnPrintHtml(
             <!-- ROW 2: Script Location (Left) | Pages: X/Y (Center Box) | Real Location (Right) -->
             <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 11px; margin-bottom: 4px;">
               <div style="flex: 1; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                <span style="font-weight: bold;">Script Location: </span><span style="color: #334155;">${elem.location || 'xyz'}</span>
+                <span style="font-weight: bold;">Script Location: </span><span style="color: #334155;">${elem.location || '-'}</span>
               </div>
               <div style="flex-shrink: 0; padding: 1.5px 8px; border: 1px solid #1e293b; border-radius: 4px; font-weight: bold; font-size: 10px; background-color: #f8fafc; color: #0f172a; text-align: center; white-space: nowrap;">
                 Pages: ${elem.scenePageNumber || 1}/${elem.sceneTotalPages || 1}
               </div>
               <div style="flex: 1; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                <span style="font-weight: bold;">Real Location: </span><span style="color: #334155;">${elem.realLocation || elem.location || 'xyz'}</span>
+                <span style="font-weight: bold;">Real Location: </span><span style="color: #334155;">${elem.realLocation || elem.location || '-'}</span>
               </div>
             </div>
 

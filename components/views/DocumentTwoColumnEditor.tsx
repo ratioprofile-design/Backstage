@@ -1253,7 +1253,7 @@ export const DocumentTwoColumnEditor: React.FC<DocumentTwoColumnEditorProps> = (
                             className="outline-none hover:bg-emerald-500/10 px-0.5 rounded font-medium break-words inline"
                             title="Click to edit script location"
                           >
-                            {scene.location || 'xyz'}
+                            {scene.location || 'Location'}
                           </span>
                         </div>
 
@@ -1272,7 +1272,7 @@ export const DocumentTwoColumnEditor: React.FC<DocumentTwoColumnEditorProps> = (
                             className="outline-none hover:bg-emerald-500/10 px-0.5 rounded font-medium break-words inline"
                             title="Click to edit real shooting location"
                           >
-                            {scene.realLocation || scene.location || 'xyz'}
+                            {scene.realLocation || scene.location || 'Real Location'}
                           </span>
                         </div>
                       </div>

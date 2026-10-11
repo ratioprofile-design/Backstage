@@ -1226,6 +1226,7 @@ export interface ProductionDocument {
   isBaminiConverted?: boolean;
   isLeftRightFormat?: boolean;
   hasTwoColumnScript?: boolean;
+  twoColumnData?: any;
   leftRightDocId?: string;
   sourceDocId?: string;
 }
