@@ -46,7 +46,7 @@ export interface TwoColumnItemRowProps {
   onUpdateText: (itemId: string, newText: string) => void;
   onUpdateCharacter: (itemId: string, newChar: string) => void;
   onSetSingleAlignment: (itemId: string, align: 'left' | 'center' | 'right' | 'justify', e?: React.MouseEvent) => void;
-  onMoveColumn: (targetColumn: 'left' | 'right' | 'center', itemId: string) => void;
+  onMoveColumn: (targetColumn: 'left' | 'right' | 'center', itemId: string, liveText?: string) => void;
   onSetColor: (itemId: string, color?: string) => void;
   onToggleBold?: (itemId: string) => void;
   onToggleItalic?: (itemId: string) => void;
@@ -383,7 +383,13 @@ export const TwoColumnItemRow: React.FC<TwoColumnItemRowProps> = React.memo(
             <button
               onClick={(e) => {
                 e.stopPropagation();
-                onMoveColumn?.('left', item.id);
+                const rowEl = e.currentTarget.closest('[data-item-row-id]') as HTMLElement;
+                const editEl = rowEl?.querySelector('[contenteditable="true"]') as HTMLElement;
+                const currentLiveText = editEl ? editEl.innerText : undefined;
+                if (currentLiveText !== undefined) {
+                  onUpdateText(item.id, currentLiveText);
+                }
+                onMoveColumn?.('left', item.id, currentLiveText);
               }}
               className={`p-1 rounded text-xs transition-colors cursor-pointer ${
                 isLeft
@@ -401,7 +407,13 @@ export const TwoColumnItemRow: React.FC<TwoColumnItemRowProps> = React.memo(
             <button
               onClick={(e) => {
                 e.stopPropagation();
-                onMoveColumn?.('center', item.id);
+                const rowEl = e.currentTarget.closest('[data-item-row-id]') as HTMLElement;
+                const editEl = rowEl?.querySelector('[contenteditable="true"]') as HTMLElement;
+                const currentLiveText = editEl ? editEl.innerText : undefined;
+                if (currentLiveText !== undefined) {
+                  onUpdateText(item.id, currentLiveText);
+                }
+                onMoveColumn?.('center', item.id, currentLiveText);
               }}
               className={`p-1 rounded text-xs transition-colors cursor-pointer ${
                 isCenter
@@ -419,7 +431,13 @@ export const TwoColumnItemRow: React.FC<TwoColumnItemRowProps> = React.memo(
             <button
               onClick={(e) => {
                 e.stopPropagation();
-                onMoveColumn?.('right', item.id);
+                const rowEl = e.currentTarget.closest('[data-item-row-id]') as HTMLElement;
+                const editEl = rowEl?.querySelector('[contenteditable="true"]') as HTMLElement;
+                const currentLiveText = editEl ? editEl.innerText : undefined;
+                if (currentLiveText !== undefined) {
+                  onUpdateText(item.id, currentLiveText);
+                }
+                onMoveColumn?.('right', item.id, currentLiveText);
               }}
               className={`p-1 rounded text-xs transition-colors cursor-pointer ${
                 isRight
@@ -588,22 +606,26 @@ export const TwoColumnItemRow: React.FC<TwoColumnItemRowProps> = React.memo(
                     data-item-id={item.id}
                     contentEditable
                     suppressContentEditableWarning
+                    onInput={(e) => onUpdateText(item.id, e.currentTarget.innerText)}
                     onBlur={(e) => onUpdateText(item.id, e.currentTarget.innerText)}
                     onKeyDown={(e) => {
                       // Column Conversion shortcuts
                       if (e.altKey && (e.key === 'ArrowLeft' || e.key === '[')) {
                         e.preventDefault();
-                        onMoveColumn?.('left', item.id);
+                        onUpdateText(item.id, e.currentTarget.innerText);
+                        onMoveColumn?.('left', item.id, e.currentTarget.innerText);
                         return;
                       }
                       if (e.altKey && (e.key === 'ArrowRight' || e.key === ']')) {
                         e.preventDefault();
-                        onMoveColumn?.('right', item.id);
+                        onUpdateText(item.id, e.currentTarget.innerText);
+                        onMoveColumn?.('right', item.id, e.currentTarget.innerText);
                         return;
                       }
                       if (e.altKey && (e.key === '\\' || e.key.toLowerCase() === 'c')) {
                         e.preventDefault();
-                        onMoveColumn?.('center', item.id);
+                        onUpdateText(item.id, e.currentTarget.innerText);
+                        onMoveColumn?.('center', item.id, e.currentTarget.innerText);
                         return;
                       }
 
@@ -660,22 +682,26 @@ export const TwoColumnItemRow: React.FC<TwoColumnItemRowProps> = React.memo(
                     data-item-id={item.id}
                     contentEditable
                     suppressContentEditableWarning
+                    onInput={(e) => onUpdateText(item.id, e.currentTarget.innerText)}
                     onBlur={(e) => onUpdateText(item.id, e.currentTarget.innerText)}
                     onKeyDown={(e) => {
                       // Column Conversion shortcuts
                       if (e.altKey && (e.key === 'ArrowLeft' || e.key === '[')) {
                         e.preventDefault();
-                        onMoveColumn?.('left', item.id);
+                        onUpdateText(item.id, e.currentTarget.innerText);
+                        onMoveColumn?.('left', item.id, e.currentTarget.innerText);
                         return;
                       }
                       if (e.altKey && (e.key === 'ArrowRight' || e.key === ']')) {
                         e.preventDefault();
-                        onMoveColumn?.('right', item.id);
+                        onUpdateText(item.id, e.currentTarget.innerText);
+                        onMoveColumn?.('right', item.id, e.currentTarget.innerText);
                         return;
                       }
                       if (e.altKey && (e.key === '\\' || e.key.toLowerCase() === 'c')) {
                         e.preventDefault();
-                        onMoveColumn?.('center', item.id);
+                        onUpdateText(item.id, e.currentTarget.innerText);
+                        onMoveColumn?.('center', item.id, e.currentTarget.innerText);
                         return;
                       }
 
@@ -731,22 +757,26 @@ export const TwoColumnItemRow: React.FC<TwoColumnItemRowProps> = React.memo(
                     data-item-id={item.id}
                     contentEditable
                     suppressContentEditableWarning
+                    onInput={(e) => onUpdateText(item.id, e.currentTarget.innerText)}
                     onBlur={(e) => onUpdateText(item.id, e.currentTarget.innerText)}
                     onKeyDown={(e) => {
                       // Column Conversion shortcuts
                       if (e.altKey && (e.key === 'ArrowLeft' || e.key === '[')) {
                         e.preventDefault();
-                        onMoveColumn?.('left', item.id);
+                        onUpdateText(item.id, e.currentTarget.innerText);
+                        onMoveColumn?.('left', item.id, e.currentTarget.innerText);
                         return;
                       }
                       if (e.altKey && (e.key === 'ArrowRight' || e.key === ']')) {
                         e.preventDefault();
-                        onMoveColumn?.('right', item.id);
+                        onUpdateText(item.id, e.currentTarget.innerText);
+                        onMoveColumn?.('right', item.id, e.currentTarget.innerText);
                         return;
                       }
                       if (e.altKey && (e.key === '\\' || e.key.toLowerCase() === 'c')) {
                         e.preventDefault();
-                        onMoveColumn?.('center', item.id);
+                        onUpdateText(item.id, e.currentTarget.innerText);
+                        onMoveColumn?.('center', item.id, e.currentTarget.innerText);
                         return;
                       }
 
@@ -892,22 +922,26 @@ export const TwoColumnItemRow: React.FC<TwoColumnItemRowProps> = React.memo(
                         data-item-id={item.id}
                         contentEditable
                         suppressContentEditableWarning
+                        onInput={(e) => onUpdateText(item.id, e.currentTarget.innerText)}
                         onBlur={(e) => onUpdateText(item.id, e.currentTarget.innerText)}
                         onKeyDown={(e) => {
                           // Column Conversion shortcuts
                           if (e.altKey && (e.key === 'ArrowLeft' || e.key === '[')) {
                             e.preventDefault();
-                            onMoveColumn?.('left', item.id);
+                            onUpdateText(item.id, e.currentTarget.innerText);
+                            onMoveColumn?.('left', item.id, e.currentTarget.innerText);
                             return;
                           }
                           if (e.altKey && (e.key === 'ArrowRight' || e.key === ']')) {
                             e.preventDefault();
-                            onMoveColumn?.('right', item.id);
+                            onUpdateText(item.id, e.currentTarget.innerText);
+                            onMoveColumn?.('right', item.id, e.currentTarget.innerText);
                             return;
                           }
                           if (e.altKey && (e.key === '\\' || e.key.toLowerCase() === 'c')) {
                             e.preventDefault();
-                            onMoveColumn?.('center', item.id);
+                            onUpdateText(item.id, e.currentTarget.innerText);
+                            onMoveColumn?.('center', item.id, e.currentTarget.innerText);
                             return;
                           }
 
@@ -1039,22 +1073,26 @@ export const TwoColumnItemRow: React.FC<TwoColumnItemRowProps> = React.memo(
                         data-item-id={item.id}
                         contentEditable
                         suppressContentEditableWarning
+                        onInput={(e) => onUpdateText(item.id, e.currentTarget.innerText)}
                         onBlur={(e) => onUpdateText(item.id, e.currentTarget.innerText)}
                         onKeyDown={(e) => {
                           // Column Conversion shortcuts
                           if (e.altKey && (e.key === 'ArrowLeft' || e.key === '[')) {
                             e.preventDefault();
-                            onMoveColumn?.('left', item.id);
+                            onUpdateText(item.id, e.currentTarget.innerText);
+                            onMoveColumn?.('left', item.id, e.currentTarget.innerText);
                             return;
                           }
                           if (e.altKey && (e.key === 'ArrowRight' || e.key === ']')) {
                             e.preventDefault();
-                            onMoveColumn?.('right', item.id);
+                            onUpdateText(item.id, e.currentTarget.innerText);
+                            onMoveColumn?.('right', item.id, e.currentTarget.innerText);
                             return;
                           }
                           if (e.altKey && (e.key === '\\' || e.key.toLowerCase() === 'c')) {
                             e.preventDefault();
-                            onMoveColumn?.('center', item.id);
+                            onUpdateText(item.id, e.currentTarget.innerText);
+                            onMoveColumn?.('center', item.id, e.currentTarget.innerText);
                             return;
                           }
 

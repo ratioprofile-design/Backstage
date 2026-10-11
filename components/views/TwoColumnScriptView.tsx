@@ -559,7 +559,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
   };
 
   // Move paragraphs to column
-  const moveParagraphsToColumn = useCallback((targetColumn: 'left' | 'right' | 'center', specificItemId?: string) => {
+  const moveParagraphsToColumn = useCallback((targetColumn: 'left' | 'right' | 'center', specificItemId?: string, liveText?: string) => {
     const idsToMove = specificItemId ? new Set([specificItemId]) : selectedItemIds;
     if (idsToMove.size === 0) return;
 
@@ -570,24 +570,61 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
         ...scene,
         items: scene.items.map((item) => {
           if (idsToMove.has(item.id)) {
-            let text = item.rawText || item.leftAction || item.rightDialogue || '';
-            let char = item.rightCharacter || '';
-
-            if (targetColumn === 'right' && !char && typeof text === 'string') {
-              const colonMatch = text.match(/^([\u0B80-\u0BFFa-zA-Z0-9\s.]{2,30})\s*:\s*(.*)$/);
-              if (colonMatch) {
-                char = colonMatch[1].trim();
-                text = colonMatch[2].trim();
-              }
+            // Determine active text: prefer passed liveText, then DOM lookup, then item state
+            let domText: string | undefined = undefined;
+            if (specificItemId === item.id && liveText !== undefined) {
+              domText = liveText;
+            } else if (typeof document !== 'undefined') {
+              const el = document.querySelector(`[data-item-row-id="${item.id}"] [contenteditable="true"]`) as HTMLElement;
+              if (el && el.innerText.trim()) domText = el.innerText;
             }
 
+            let text = domText !== undefined ? domText : (item.rawText || item.leftAction || item.rightDialogue || '');
+            let char = item.rightCharacter || '';
+
+            // 1. Moving to Right (Dialogue Column)
+            if (targetColumn === 'right') {
+              if (!char && typeof text === 'string') {
+                const colonMatch = text.match(/^([\u0B80-\u0BFFa-zA-Z0-9\s.]{2,30})\s*:\s*(.*)$/);
+                if (colonMatch) {
+                  char = colonMatch[1].trim();
+                  text = colonMatch[2].trim();
+                }
+              }
+              return {
+                ...item,
+                column: 'right',
+                type: 'dialogue',
+                leftAction: undefined,
+                rightDialogue: text,
+                rightCharacter: char,
+                rawText: char ? `${char} : ${text}` : text,
+              };
+            }
+
+            // 2. Moving to Left (Action Column)
+            if (targetColumn === 'left') {
+              // Preserve character name if present so nothing vanishes
+              const fullText = char && text && !text.startsWith(char) ? `${char} : ${text}` : text;
+              return {
+                ...item,
+                column: 'left',
+                type: 'action',
+                leftAction: fullText,
+                rightDialogue: undefined,
+                rightCharacter: undefined,
+                rawText: fullText,
+              };
+            }
+
+            // 3. Moving to Center (Transition / Title)
             return {
               ...item,
-              column: targetColumn,
-              type: targetColumn === 'center' ? 'title' : targetColumn === 'right' ? 'dialogue' : 'action',
-              leftAction: targetColumn === 'left' ? text : undefined,
-              rightDialogue: targetColumn === 'right' ? text : undefined,
-              rightCharacter: targetColumn === 'right' ? char : undefined,
+              column: 'center',
+              type: 'transition',
+              leftAction: undefined,
+              rightDialogue: undefined,
+              rightCharacter: undefined,
               rawText: text,
             };
           }
@@ -1044,10 +1081,10 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
     const newScene: TamilScene = {
       id: newSceneId,
       sceneNumber: nextNum,
-      location: 'காட்சி இடம் (LOCATION)',
+      location: '',
       realLocation: '',
       timeOfDay: 'Day / INT',
-      sluglineText: `காட்சி எண்: ${nextNum} - Day / INT`,
+      sluglineText: `காட்சி எண்: ${nextNum}`,
       characters: [],
       effects: 'None',
       items: [
@@ -1075,19 +1112,39 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
       }
     }
 
-    setScreenplayData((prev) => ({
-      ...prev,
+    const nextScreenplay: TamilScreenplayData = {
+      ...screenplayData,
       scenes: nextScenes,
-    }));
+    };
+
+    setScreenplayData(nextScreenplay);
     setActiveSceneId(newSceneId);
     setHasUnsavedChanges(true);
 
-    setTimeout(() => {
-      const el = document.getElementById(`scene-${newSceneId}`) || document.getElementById(`hdr-sc-${newSceneId}`);
-      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }, 120);
+    // If viewing in single-page mode, advance currentSinglePage to the newly added scene's page
+    if (pageViewMode === 'single') {
+      const paginated = paginateTwoColumnScript(nextScreenplay, layoutOptions);
+      if (paginated.pages.length > 0) {
+        setCurrentSinglePage(paginated.pages.length);
+      }
+    }
 
-    showToast(`✓ Added Scene ${nextNum}`);
+    // Immediately save and sync with cloud collaborators
+    setTimeout(() => {
+      saveToVault(false);
+    }, 50);
+
+    // Scroll directly to the newly created scene heading and focus location
+    setTimeout(() => {
+      const el = document.getElementById(`scene-header-${newSceneId}`) || document.getElementById(`hdr-sc-${newSceneId}`);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        const locInput = el.querySelector('[contenteditable="true"]') as HTMLElement;
+        if (locInput) locInput.focus();
+      }
+    }, 150);
+
+    showToast(`✓ Added Scene ${nextNum} on new page`);
   };
 
   // Delete scene
@@ -2586,6 +2643,16 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
             }`}>?</span>
           </button>
 
+          {/* Add Scene Button */}
+          <button
+            onClick={() => handleInsertScene(undefined, 'end')}
+            className="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-black font-extrabold text-xs flex items-center gap-1.5 shadow-sm transition-all cursor-pointer hover:scale-105 active:scale-95"
+            title="Add a new scene on a fresh page"
+          >
+            <Plus size={14} className="stroke-[3]" />
+            <span>Add Scene</span>
+          </button>
+
           {/* Format & Style Drawer Toggle */}
           <button
             onClick={() => setIsStyleDrawerOpen(!isStyleDrawerOpen)}
@@ -3299,6 +3366,20 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
                 </div>
               </div>
             ))}
+
+            {/* "+ Add Next Scene (New Page)" Floating Bottom Action Bar */}
+            {pages.length > 0 && (
+              <div className="w-[794px] max-w-full flex items-center justify-center pt-6 pb-12">
+                <button
+                  type="button"
+                  onClick={() => handleInsertScene(undefined, 'end')}
+                  className="px-6 py-3 rounded-2xl bg-amber-500 hover:bg-amber-400 text-black font-extrabold text-xs sm:text-sm flex items-center gap-2.5 shadow-xl shadow-amber-500/25 hover:scale-105 active:scale-95 transition-all cursor-pointer border border-amber-600"
+                >
+                  <Plus size={18} className="stroke-[3]" />
+                  <span>Add Scene {screenplayData.scenes.length + 1} (New Page)</span>
+                </button>
+              </div>
+            )}
           </div>
         </div>
 
