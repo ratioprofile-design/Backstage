@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
 import { TamilScriptItem } from '../services/tamilLeftRightEngine';
 import { ScriptCharacterInput } from './ScriptCharacterInput';
 import {
@@ -118,6 +118,122 @@ const isCaretOnLastLine = (el: HTMLElement): boolean => {
   const rect = range.getBoundingClientRect();
   const elRect = el.getBoundingClientRect();
   return elRect.bottom - rect.bottom < 24 || isCaretAtEnd(el);
+};
+
+interface EditableBlockProps {
+  as?: 'div' | 'span';
+  value: string;
+  onUpdateText: (newText: string) => void;
+  onKeyDown?: React.KeyboardEventHandler<HTMLElement>;
+  onClick?: React.MouseEventHandler<HTMLElement>;
+  onFocus?: React.FocusEventHandler<HTMLElement>;
+  onBlur?: React.FocusEventHandler<HTMLElement>;
+  className?: string;
+  style?: React.CSSProperties;
+  title?: string;
+  dataItemId?: string;
+}
+
+export const EditableBlock: React.FC<EditableBlockProps> = ({
+  as: Component = 'div',
+  value,
+  onUpdateText,
+  onKeyDown,
+  onClick,
+  onFocus,
+  onBlur,
+  className,
+  style,
+  title,
+  dataItemId,
+}) => {
+  const elRef = useRef<HTMLElement | null>(null);
+  const isFocusedRef = useRef(false);
+  const lastEmittedValueRef = useRef(value || '');
+
+  // Synchronize value from outside ONLY when NOT focused or if external value changed (e.g. Undo/Redo)
+  useEffect(() => {
+    const el = elRef.current;
+    if (!el) return;
+
+    const isFocused = isFocusedRef.current || document.activeElement === el;
+    const targetVal = value || '';
+
+    // If not currently focused by the user, always sync DOM text to match prop value
+    if (!isFocused) {
+      if (el.innerText !== targetVal) {
+        el.innerText = targetVal;
+        lastEmittedValueRef.current = targetVal;
+      }
+      return;
+    }
+
+    // If focused, only overwrite DOM text if the change came from outside (like Undo, Redo, or collab sync)
+    // rather than the user's live keystrokes in this element
+    if (targetVal !== lastEmittedValueRef.current) {
+      el.innerText = targetVal;
+      lastEmittedValueRef.current = targetVal;
+      try {
+        const range = document.createRange();
+        const sel = window.getSelection();
+        range.selectNodeContents(el);
+        range.collapse(false);
+        if (sel) {
+          sel.removeAllRanges();
+          sel.addRange(range);
+        }
+      } catch (err) {}
+    }
+  }, [value]);
+
+  // Initial layout sync on mount
+  useLayoutEffect(() => {
+    const el = elRef.current;
+    if (el) {
+      const targetVal = value || '';
+      if (el.innerText !== targetVal) {
+        el.innerText = targetVal;
+        lastEmittedValueRef.current = targetVal;
+      }
+    }
+  }, []);
+
+  const handleInput = (e: React.FormEvent<HTMLElement>) => {
+    const currentVal = e.currentTarget.innerText;
+    lastEmittedValueRef.current = currentVal;
+    onUpdateText(currentVal);
+  };
+
+  const handleFocus = (e: React.FocusEvent<HTMLElement>) => {
+    isFocusedRef.current = true;
+    onFocus?.(e);
+  };
+
+  const handleBlur = (e: React.FocusEvent<HTMLElement>) => {
+    isFocusedRef.current = false;
+    const finalVal = e.currentTarget.innerText;
+    if (finalVal !== (value || '')) {
+      onUpdateText(finalVal);
+    }
+    onBlur?.(e);
+  };
+
+  return (
+    <Component
+      ref={elRef as any}
+      data-item-id={dataItemId}
+      contentEditable
+      suppressContentEditableWarning
+      onInput={handleInput}
+      onFocus={handleFocus}
+      onBlur={handleBlur}
+      onKeyDown={onKeyDown}
+      onClick={onClick}
+      className={className}
+      style={style}
+      title={title}
+    />
+  );
 };
 
 export const TwoColumnItemRow: React.FC<TwoColumnItemRowProps> = React.memo(
@@ -603,87 +719,88 @@ export const TwoColumnItemRow: React.FC<TwoColumnItemRowProps> = React.memo(
               <div className="w-full text-center py-1 flex items-center justify-center">
                 {isMontage ? (
                   <span
-                    data-item-id={item.id}
-                    contentEditable
-                    suppressContentEditableWarning
-                    onInput={(e) => onUpdateText(item.id, e.currentTarget.innerText)}
-                    onBlur={(e) => onUpdateText(item.id, e.currentTarget.innerText)}
-                    onKeyDown={(e) => {
-                      // Column Conversion shortcuts
-                      if (e.altKey && (e.key === 'ArrowLeft' || e.key === '[')) {
-                        e.preventDefault();
-                        onUpdateText(item.id, e.currentTarget.innerText);
-                        onMoveColumn?.('left', item.id, e.currentTarget.innerText);
-                        return;
-                      }
-                      if (e.altKey && (e.key === 'ArrowRight' || e.key === ']')) {
-                        e.preventDefault();
-                        onUpdateText(item.id, e.currentTarget.innerText);
-                        onMoveColumn?.('right', item.id, e.currentTarget.innerText);
-                        return;
-                      }
-                      if (e.altKey && (e.key === '\\' || e.key.toLowerCase() === 'c')) {
-                        e.preventDefault();
-                        onUpdateText(item.id, e.currentTarget.innerText);
-                        onMoveColumn?.('center', item.id, e.currentTarget.innerText);
-                        return;
-                      }
-
-                      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'b') {
-                        e.preventDefault();
-                        onToggleBold?.(item.id);
-                        return;
-                      }
-                      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'i') {
-                        e.preventDefault();
-                        onToggleItalic?.(item.id);
-                        return;
-                      }
-                      if (e.key === 'ArrowDown' && (e.altKey || isCaretOnLastLine(e.currentTarget))) {
-                        e.preventDefault();
-                        onFocusNextRow?.(item.id, 'auto');
-                        return;
-                      }
-                      if (e.key === 'ArrowUp' && (e.altKey || isCaretOnFirstLine(e.currentTarget))) {
-                        e.preventDefault();
-                        onFocusPrevRow?.(item.id, 'auto');
-                        return;
-                      }
-                      if (e.key === 'Escape') {
-                        e.preventDefault();
-                        e.currentTarget.blur();
-                        onEscapeToCard?.(item.id);
-                        return;
-                      }
-                    }}
-                    onClick={(e) => {
-                      if (e.metaKey || e.ctrlKey) {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        onParagraphClick(item.id, e);
-                        return;
-                      }
-                      e.stopPropagation();
-                    }}
                     style={{
                       backgroundColor: isLight ? '#fef3c7' : '#78350f35',
                       color: item.textColor || '#d97706',
                       borderColor: isLight ? '#f59e0b' : '#b45309',
                     }}
-                    className={`outline-none inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full border text-xs tracking-wider uppercase shadow-xs focus:ring-1 focus:ring-amber-500 ${
+                    className={`inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full border text-xs tracking-wider uppercase shadow-xs ${
                       item.isBold !== false ? 'font-black' : 'font-semibold'
                     } ${item.isItalic ? 'italic' : ''}`}
                   >
-                    <Zap size={11} className="shrink-0 text-amber-500" />
-                    <span>{raw}</span>
+                    <Zap size={11} className="shrink-0 text-amber-500 select-none" />
+                    <EditableBlock
+                      as="span"
+                      dataItemId={item.id}
+                      value={raw}
+                      onUpdateText={(newText) => onUpdateText(item.id, newText)}
+                      onKeyDown={(e) => {
+                        // Column Conversion shortcuts
+                        if (e.altKey && (e.key === 'ArrowLeft' || e.key === '[')) {
+                          e.preventDefault();
+                          onUpdateText(item.id, e.currentTarget.innerText);
+                          onMoveColumn?.('left', item.id, e.currentTarget.innerText);
+                          return;
+                        }
+                        if (e.altKey && (e.key === 'ArrowRight' || e.key === ']')) {
+                          e.preventDefault();
+                          onUpdateText(item.id, e.currentTarget.innerText);
+                          onMoveColumn?.('right', item.id, e.currentTarget.innerText);
+                          return;
+                        }
+                        if (e.altKey && (e.key === '\\' || e.key.toLowerCase() === 'c')) {
+                          e.preventDefault();
+                          onUpdateText(item.id, e.currentTarget.innerText);
+                          onMoveColumn?.('center', item.id, e.currentTarget.innerText);
+                          return;
+                        }
+
+                        if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'b') {
+                          e.preventDefault();
+                          onToggleBold?.(item.id);
+                          return;
+                        }
+                        if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'i') {
+                          e.preventDefault();
+                          onToggleItalic?.(item.id);
+                          return;
+                        }
+                        if (e.key === 'ArrowDown' && (e.altKey || isCaretOnLastLine(e.currentTarget))) {
+                          e.preventDefault();
+                          onFocusNextRow?.(item.id, 'auto');
+                          return;
+                        }
+                        if (e.key === 'ArrowUp' && (e.altKey || isCaretOnFirstLine(e.currentTarget))) {
+                          e.preventDefault();
+                          onFocusPrevRow?.(item.id, 'auto');
+                          return;
+                        }
+                        if (e.key === 'Escape') {
+                          e.preventDefault();
+                          e.currentTarget.blur();
+                          onEscapeToCard?.(item.id);
+                          return;
+                        }
+                      }}
+                      onClick={(e) => {
+                        if (e.metaKey || e.ctrlKey) {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          onParagraphClick(item.id, e);
+                          return;
+                        }
+                        e.stopPropagation();
+                      }}
+                      className="outline-none focus:ring-1 focus:ring-amber-500 rounded px-1"
+                      title="Type to edit montage title"
+                    />
                   </span>
                 ) : transitionStyle === 'pill' ? (
-                  <span
-                    data-item-id={item.id}
-                    contentEditable
-                    suppressContentEditableWarning
-                    onInput={(e) => onUpdateText(item.id, e.currentTarget.innerText)}
-                    onBlur={(e) => onUpdateText(item.id, e.currentTarget.innerText)}
+                  <EditableBlock
+                    as="span"
+                    dataItemId={item.id}
+                    value={raw}
+                    onUpdateText={(newText) => onUpdateText(item.id, newText)}
                     onKeyDown={(e) => {
                       // Column Conversion shortcuts
                       if (e.altKey && (e.key === 'ArrowLeft' || e.key === '[')) {
@@ -749,16 +866,14 @@ export const TwoColumnItemRow: React.FC<TwoColumnItemRowProps> = React.memo(
                     className={`outline-none inline-block px-3 py-1 rounded-full border text-xs focus:ring-1 focus:ring-amber-500 ${
                       item.isBold !== undefined ? (item.isBold ? 'font-bold' : 'font-normal') : (transitionBold !== false ? 'font-bold' : 'font-normal')
                     } ${item.isItalic ? 'italic' : ''}`}
-                  >
-                    {raw}
-                  </span>
+                    title="Type transition name. Alt+Left/Right to convert column."
+                  />
                 ) : (
-                  <span
-                    data-item-id={item.id}
-                    contentEditable
-                    suppressContentEditableWarning
-                    onInput={(e) => onUpdateText(item.id, e.currentTarget.innerText)}
-                    onBlur={(e) => onUpdateText(item.id, e.currentTarget.innerText)}
+                  <EditableBlock
+                    as="span"
+                    dataItemId={item.id}
+                    value={raw}
+                    onUpdateText={(newText) => onUpdateText(item.id, newText)}
                     onKeyDown={(e) => {
                       // Column Conversion shortcuts
                       if (e.altKey && (e.key === 'ArrowLeft' || e.key === '[')) {
@@ -820,9 +935,8 @@ export const TwoColumnItemRow: React.FC<TwoColumnItemRowProps> = React.memo(
                     className={`outline-none font-serif text-sm focus:ring-1 focus:ring-amber-500 rounded px-1 ${
                       item.isBold !== undefined ? (item.isBold ? 'font-bold' : 'font-normal') : (transitionBold !== false ? 'font-bold' : 'font-normal')
                     } ${item.isItalic !== undefined ? (item.isItalic ? 'italic' : '') : 'italic'}`}
-                  >
-                    {raw}
-                  </span>
+                    title="Type transition name. Alt+Left/Right to convert column."
+                  />
                 )}
               </div>
             );
@@ -918,12 +1032,11 @@ export const TwoColumnItemRow: React.FC<TwoColumnItemRowProps> = React.memo(
                         : 'text-justify';
 
                     return (
-                      <div
-                        data-item-id={item.id}
-                        contentEditable
-                        suppressContentEditableWarning
-                        onInput={(e) => onUpdateText(item.id, e.currentTarget.innerText)}
-                        onBlur={(e) => onUpdateText(item.id, e.currentTarget.innerText)}
+                      <EditableBlock
+                        as="div"
+                        dataItemId={item.id}
+                        value={item.leftAction || item.rawText || ''}
+                        onUpdateText={(newText) => onUpdateText(item.id, newText)}
                         onKeyDown={(e) => {
                           // Column Conversion shortcuts
                           if (e.altKey && (e.key === 'ArrowLeft' || e.key === '[')) {
@@ -1038,9 +1151,7 @@ export const TwoColumnItemRow: React.FC<TwoColumnItemRowProps> = React.memo(
                             : ''
                         }`}
                         title="Type to edit. Press Enter to split shot into next line ending with ' -'. Tab / ArrowRight to jump to Dialogue. Alt+Down/Up to jump rows."
-                      >
-                        {item.leftAction || item.rawText || ''}
-                      </div>
+                      />
                     );
                   })()
                 ) : null}
@@ -1069,12 +1180,11 @@ export const TwoColumnItemRow: React.FC<TwoColumnItemRowProps> = React.memo(
                         : 'text-justify';
 
                     return (
-                      <div
-                        data-item-id={item.id}
-                        contentEditable
-                        suppressContentEditableWarning
-                        onInput={(e) => onUpdateText(item.id, e.currentTarget.innerText)}
-                        onBlur={(e) => onUpdateText(item.id, e.currentTarget.innerText)}
+                      <EditableBlock
+                        as="div"
+                        dataItemId={item.id}
+                        value={text}
+                        onUpdateText={(newText) => onUpdateText(item.id, newText)}
                         onKeyDown={(e) => {
                           // Column Conversion shortcuts
                           if (e.altKey && (e.key === 'ArrowLeft' || e.key === '[')) {
@@ -1206,9 +1316,7 @@ export const TwoColumnItemRow: React.FC<TwoColumnItemRowProps> = React.memo(
                             : ''
                         }`}
                         title="Type to edit. Press Enter or Alt+Click to split this dialogue. Tab to jump to next row."
-                      >
-                        {text}
-                      </div>
+                      />
                     );
                   })()
                 ) : null}

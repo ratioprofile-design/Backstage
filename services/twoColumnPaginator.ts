@@ -414,8 +414,28 @@ export function paginateTwoColumnScript(
   // Consolidate orphan transition pages (where a page consists ONLY of a continued header and transitions)
   for (let i = pages.length - 1; i >= 1; i--) {
     const p = pages[i];
+
+    // NEVER delete or collapse a page that contains a primary scene header (a new scene start)!
+    // Every scene (Scene 1, Scene 2, Scene n) must always have its own dedicated paper.
+    const hasPrimarySceneHeader = p.elements.some(
+      (elem) => elem.type === 'scene_header' && !elem.isContinued
+    );
+    if (hasPrimarySceneHeader) {
+      continue;
+    }
+
+    // Only continuation pages of an existing scene can be candidates for orphan consolidation
+    const isContinuedPage = p.elements.some(
+      (elem) => elem.type === 'scene_header' && elem.isContinued
+    );
+    if (!isContinuedPage) {
+      continue;
+    }
+
     const hasStoryItems = p.elements.some((elem) => {
       if (elem.type === 'script_item') {
+        const raw = (elem.item.rawText || elem.item.leftAction || elem.item.rightDialogue || '').trim();
+        if (!raw) return false;
         return !isTransitionOrCenterItem(elem.item);
       }
       return false;
@@ -423,14 +443,21 @@ export function paginateTwoColumnScript(
 
     if (!hasStoryItems) {
       // This entire page has no action and no dialogue!
-      // Move any transition items back to the previous page and remove this redundant page
+      // Move any transition items back to the previous page ONLY if it belongs to the same scene
       const prevPage = pages[i - 1];
-      const transitionsToMove = p.elements.filter((elem) => elem.type === 'script_item');
-      if (transitionsToMove.length > 0) {
-        prevPage.elements.push(...transitionsToMove);
+      const currentSceneId = p.elements[0]?.sceneId;
+      const prevPageHasSameScene = prevPage.elements.some(
+        (elem) => elem.sceneId === currentSceneId
+      );
+
+      if (prevPageHasSameScene) {
+        const transitionsToMove = p.elements.filter((elem) => elem.type === 'script_item');
+        if (transitionsToMove.length > 0) {
+          prevPage.elements.push(...transitionsToMove);
+        }
+        prevPage.continuesToNextPage = false;
+        pages.splice(i, 1);
       }
-      prevPage.continuesToNextPage = false;
-      pages.splice(i, 1);
     }
   }
 

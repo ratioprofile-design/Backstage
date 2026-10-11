@@ -273,6 +273,8 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
   const redoStackRef = useRef<TamilScreenplayData[]>([]);
   const [canUndo, setCanUndo] = useState<boolean>(false);
   const [canRedo, setCanRedo] = useState<boolean>(false);
+  const lastTypingUndoTimeRef = useRef<number>(0);
+  const activeTypingItemIdRef = useRef<string | null>(null);
 
   // Record snapshot into undo history before applying modifications
   const pushToUndoHistory = useCallback((snapshot: TamilScreenplayData) => {
@@ -660,6 +662,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
 
   // Direct in-place text update
   const handleUpdateItemText = (itemId: string, newText: string) => {
+    const now = Date.now();
     // Check if text actually changed before pushing undo
     let hasChanged = false;
     for (const sc of screenplayData.scenes) {
@@ -671,7 +674,12 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
       }
     }
     if (hasChanged) {
-      pushToUndoHistory(screenplayData);
+      // Record undo checkpoint at start of typing burst or after 1.5s pause
+      if (activeTypingItemIdRef.current !== itemId || now - lastTypingUndoTimeRef.current > 1500) {
+        pushToUndoHistory(screenplayData);
+        activeTypingItemIdRef.current = itemId;
+        lastTypingUndoTimeRef.current = now;
+      }
     }
 
     if (itemId.startsWith('auto-cut-to-')) {
