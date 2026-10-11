@@ -26,6 +26,7 @@ export interface TamilScriptItem {
   textColor?: string;
   isBold?: boolean;
   isItalic?: boolean;
+  updatedAt?: number;
 }
 
 export interface TamilScene {

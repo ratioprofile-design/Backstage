@@ -151,7 +151,7 @@ export const EditableBlock: React.FC<EditableBlockProps> = ({
   const isFocusedRef = useRef(false);
   const lastEmittedValueRef = useRef(value || '');
 
-  // Synchronize value from outside ONLY when NOT focused or if external value changed (e.g. Undo/Redo)
+  // Synchronize value from outside ONLY when NOT focused
   useEffect(() => {
     const el = elRef.current;
     if (!el) return;
@@ -159,30 +159,16 @@ export const EditableBlock: React.FC<EditableBlockProps> = ({
     const isFocused = isFocusedRef.current || document.activeElement === el;
     const targetVal = value || '';
 
-    // If not currently focused by the user, always sync DOM text to match prop value
-    if (!isFocused) {
-      if (el.innerText !== targetVal) {
-        el.innerText = targetVal;
-        lastEmittedValueRef.current = targetVal;
-      }
+    // If focused by user, the DOM is the active editor source of truth.
+    // NEVER overwrite the element's DOM text while the user is actively typing in it!
+    if (isFocused) {
       return;
     }
 
-    // If focused, only overwrite DOM text if the change came from outside (like Undo, Redo, or collab sync)
-    // rather than the user's live keystrokes in this element
-    if (targetVal !== lastEmittedValueRef.current) {
+    // If not currently focused by the user, always sync DOM text to match prop value
+    if (el.innerText !== targetVal) {
       el.innerText = targetVal;
       lastEmittedValueRef.current = targetVal;
-      try {
-        const range = document.createRange();
-        const sel = window.getSelection();
-        range.selectNodeContents(el);
-        range.collapse(false);
-        if (sel) {
-          sel.removeAllRanges();
-          sel.addRange(range);
-        }
-      } catch (err) {}
     }
   }, [value]);
 

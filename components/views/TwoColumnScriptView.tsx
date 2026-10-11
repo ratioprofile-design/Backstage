@@ -86,6 +86,125 @@ export interface TwoColumnScriptViewProps {
   onNavigateToView?: (view: ViewMode) => void;
 }
 
+/**
+ * Real-time Collaborative Non-Destructive Merger
+ * Merges incoming remote screenplay state with local state:
+ * - Preserves items currently being edited or focused by the local user
+ * - Uses Last-Write-Wins timestamps (updatedAt) for non-active items
+ * - Preserves newly added scenes and items from both local and remote
+ * - Honors local deletions so deleted items are not resurrected
+ */
+function mergeTwoColumnData(
+  local: TamilScreenplayData,
+  incoming: TamilScreenplayData,
+  activeItemId: string | null,
+  localDirtyItemIds: Map<string, number>,
+  localDeletedItemIds: Set<string>,
+  localDeletedSceneIds: Set<string>
+): TamilScreenplayData {
+  if (!incoming || !incoming.scenes || incoming.scenes.length === 0) {
+    return local;
+  }
+  if (!local || !local.scenes || local.scenes.length === 0) {
+    return incoming;
+  }
+
+  const incomingScenes = incoming.scenes;
+  const localScenes = local.scenes;
+  const incomingSceneMap = new Map(incomingScenes.map((s) => [s.id, s]));
+  const localSceneMap = new Map(localScenes.map((s) => [s.id, s]));
+
+  const mergedScenes: TamilScene[] = [];
+
+  // 1. Process incoming scenes and merge items
+  for (const inScene of incomingScenes) {
+    if (localDeletedSceneIds.has(inScene.id)) {
+      // Local user deleted this scene; do not restore
+      continue;
+    }
+
+    const locScene = localSceneMap.get(inScene.id);
+    if (!locScene) {
+      // New scene added by collaborator
+      mergedScenes.push(inScene);
+      continue;
+    }
+
+    const locItemMap = new Map((locScene.items || []).map((i) => [i.id, i]));
+    const mergedItems: TamilScriptItem[] = [];
+    const processedItemIds = new Set<string>();
+
+    for (const inItem of inScene.items || []) {
+      if (localDeletedItemIds.has(inItem.id)) {
+        // Local user deleted this item; do not restore
+        continue;
+      }
+      processedItemIds.add(inItem.id);
+
+      const locItem = locItemMap.get(inItem.id);
+      if (!locItem) {
+        // New item added by collaborator
+        mergedItems.push(inItem);
+        continue;
+      }
+
+      // Check if local user is actively focused on this item in the DOM
+      const isCurrentlyActive =
+        (activeItemId && activeItemId === inItem.id) ||
+        (typeof document !== 'undefined' &&
+          (document.activeElement?.getAttribute('data-item-id') === inItem.id ||
+            document.activeElement?.closest(`[data-item-id="${inItem.id}"]`) !== null));
+
+      const localTimestamp = locItem.updatedAt || localDirtyItemIds.get(inItem.id) || 0;
+      const incomingTimestamp = inItem.updatedAt || 0;
+
+      if (isCurrentlyActive) {
+        // Local user is actively typing in this box: keep local!
+        mergedItems.push(locItem);
+      } else if (localTimestamp > 0 && localTimestamp >= incomingTimestamp) {
+        // Local user's recent edit is newer: keep local!
+        mergedItems.push(locItem);
+      } else {
+        // Collaborator's edit is newer or local never modified it: accept incoming!
+        mergedItems.push(inItem);
+      }
+    }
+
+    // Preserve any local items in this scene that incoming hasn't received yet
+    for (const locItem of locScene.items || []) {
+      if (processedItemIds.has(locItem.id) || localDeletedItemIds.has(locItem.id)) {
+        continue;
+      }
+      mergedItems.push(locItem);
+    }
+
+    mergedScenes.push({
+      ...inScene,
+      sceneNumber: locScene.sceneNumber || inScene.sceneNumber,
+      location: locScene.location || inScene.location,
+      realLocation: locScene.realLocation || inScene.realLocation,
+      timeOfDay: locScene.timeOfDay || inScene.timeOfDay,
+      sluglineText: locScene.sluglineText || inScene.sluglineText,
+      items: mergedItems,
+    });
+  }
+
+  // 2. Preserve any local scenes that collaborator hasn't received yet
+  for (const locScene of localScenes) {
+    if (incomingSceneMap.has(locScene.id) || localDeletedSceneIds.has(locScene.id)) {
+      continue;
+    }
+    mergedScenes.push(locScene);
+  }
+
+  return {
+    ...incoming,
+    title: local.title || incoming.title,
+    scenes: mergedScenes,
+    hasDialogue: mergedScenes.some((s) => s.items?.some((i) => i.type === 'dialogue')),
+  };
+}
+
 export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
   initialDocumentId,
   onNavigateToView,
@@ -275,6 +394,14 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
   const [canRedo, setCanRedo] = useState<boolean>(false);
   const lastTypingUndoTimeRef = useRef<number>(0);
   const activeTypingItemIdRef = useRef<string | null>(null);
+
+  // Collaboration & Concurrency Control (prevents typing collision & data loss)
+  const clientInstanceIdRef = useRef<string>(
+    `client-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`
+  );
+  const localDirtyItemIdsRef = useRef<Map<string, number>>(new Map());
+  const localDeletedItemIdsRef = useRef<Set<string>>(new Set());
+  const localDeletedSceneIdsRef = useRef<Set<string>>(new Set());
 
   // Record snapshot into undo history before applying modifications
   const pushToUndoHistory = useCallback((snapshot: TamilScreenplayData) => {
@@ -663,6 +790,9 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
   // Direct in-place text update
   const handleUpdateItemText = (itemId: string, newText: string) => {
     const now = Date.now();
+    localDirtyItemIdsRef.current.set(itemId, now);
+    localDeletedItemIdsRef.current.delete(itemId);
+
     // Check if text actually changed before pushing undo
     let hasChanged = false;
     for (const sc of screenplayData.scenes) {
@@ -684,52 +814,66 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
 
     if (itemId.startsWith('auto-cut-to-')) {
       const sceneId = itemId.replace('auto-cut-to-', '');
-      setScreenplayData((prev) => ({
-        ...prev,
-        scenes: prev.scenes.map((sc) => {
-          if (sc.id === sceneId) {
-            return {
-              ...sc,
-              items: [
-                ...sc.items,
-                {
-                  id: `cut-to-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-                  type: 'transition',
-                  column: 'center',
-                  rawText: newText,
-                },
-              ],
-            };
-          }
-          return sc;
-        }),
-      }));
+      setScreenplayData((prev) => {
+        const next = {
+          ...prev,
+          scenes: prev.scenes.map((sc) => {
+            if (sc.id === sceneId) {
+              return {
+                ...sc,
+                items: [
+                  ...sc.items,
+                  {
+                    id: `cut-to-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+                    type: 'transition' as const,
+                    column: 'center' as const,
+                    rawText: newText,
+                    updatedAt: now,
+                  },
+                ],
+              };
+            }
+            return sc;
+          }),
+        };
+        screenplayDataRef.current = next;
+        return next;
+      });
       setHasUnsavedChanges(true);
       return;
     }
 
-    setScreenplayData((prev) => ({
-      ...prev,
-      scenes: prev.scenes.map((sc) => ({
-        ...sc,
-        items: sc.items.map((it) => {
-          if (it.id === itemId) {
-            return {
-              ...it,
-              rawText: newText,
-              leftAction: it.column === 'left' ? newText : it.leftAction,
-              rightDialogue: it.column === 'right' ? newText : it.rightDialogue,
-            };
-          }
-          return it;
-        }),
-      })),
-    }));
+    setScreenplayData((prev) => {
+      const next = {
+        ...prev,
+        scenes: prev.scenes.map((sc) => ({
+          ...sc,
+          items: sc.items.map((it) => {
+            if (it.id === itemId) {
+              return {
+                ...it,
+                updatedAt: now,
+                rawText: newText,
+                leftAction: it.column === 'left' ? newText : it.leftAction,
+                rightDialogue: it.column === 'right' ? newText : it.rightDialogue,
+              };
+            }
+            return it;
+          }),
+        })),
+      };
+      screenplayDataRef.current = next;
+      return next;
+    });
     setHasUnsavedChanges(true);
   };
 
   // Direct in-place character update
   const handleUpdateItemCharacter = (itemId: string, newChar: string) => {
+    const now = Date.now();
+    localDirtyItemIdsRef.current.set(itemId, now);
+    localDeletedItemIdsRef.current.delete(itemId);
+
     let hasChanged = false;
     for (const sc of screenplayData.scenes) {
       const it = sc.items.find((i) => i.id === itemId);
@@ -742,13 +886,17 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
       pushToUndoHistory(screenplayData);
     }
 
-    setScreenplayData((prev) => ({
-      ...prev,
-      scenes: prev.scenes.map((sc) => ({
-        ...sc,
-        items: sc.items.map((it) => (it.id === itemId ? { ...it, rightCharacter: newChar } : it)),
-      })),
-    }));
+    setScreenplayData((prev) => {
+      const next = {
+        ...prev,
+        scenes: prev.scenes.map((sc) => ({
+          ...sc,
+          items: sc.items.map((it) => (it.id === itemId ? { ...it, rightCharacter: newChar, updatedAt: now } : it)),
+        })),
+      };
+      screenplayDataRef.current = next;
+      return next;
+    });
     setHasUnsavedChanges(true);
   };
 
@@ -1184,11 +1332,16 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
       showToast('Cannot delete the only scene in the document');
       return;
     }
+    localDeletedSceneIdsRef.current.add(sceneId);
     pushToUndoHistory(screenplayData);
-    setScreenplayData((prev) => ({
-      ...prev,
-      scenes: prev.scenes.filter((s) => s.id !== sceneId),
-    }));
+    setScreenplayData((prev) => {
+      const next = {
+        ...prev,
+        scenes: prev.scenes.filter((s) => s.id !== sceneId),
+      };
+      screenplayDataRef.current = next;
+      return next;
+    });
     setHasUnsavedChanges(true);
     showToast(`✓ Deleted Scene ${sc.sceneNumber}`);
   };
@@ -1196,13 +1349,17 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
   // Renumber all scenes sequentially (1, 2, 3...)
   const handleRenumberAllScenes = () => {
     pushToUndoHistory(screenplayData);
-    setScreenplayData((prev) => ({
-      ...prev,
-      scenes: prev.scenes.map((sc, idx) => ({
-        ...sc,
-        sceneNumber: `${idx + 1}`,
-      })),
-    }));
+    setScreenplayData((prev) => {
+      const next = {
+        ...prev,
+        scenes: prev.scenes.map((sc, idx) => ({
+          ...sc,
+          sceneNumber: `${idx + 1}`,
+        })),
+      };
+      screenplayDataRef.current = next;
+      return next;
+    });
     setHasUnsavedChanges(true);
     showToast(`✓ Renumbered all ${screenplayData.scenes.length} scenes sequentially (1 to ${screenplayData.scenes.length})`);
   };
@@ -1210,10 +1367,14 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
   // Update scene metadata
   const handleUpdateScene = (sceneId: string, updates: Partial<TamilScene>) => {
     pushToUndoHistory(screenplayData);
-    setScreenplayData((prev) => ({
-      ...prev,
-      scenes: prev.scenes.map((sc) => (sc.id === sceneId ? { ...sc, ...updates } : sc)),
-    }));
+    setScreenplayData((prev) => {
+      const next = {
+        ...prev,
+        scenes: prev.scenes.map((sc) => (sc.id === sceneId ? { ...sc, ...updates } : sc)),
+      };
+      screenplayDataRef.current = next;
+      return next;
+    });
     setHasUnsavedChanges(true);
   };
 
@@ -1251,6 +1412,9 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
       return;
     }
 
+    localDeletedItemIdsRef.current.add(itemId);
+    localDirtyItemIdsRef.current.delete(itemId);
+
     // Determine the next adjacent item BEFORE deleting
     const curIdx = orderedItemIds.indexOf(itemId);
     let nextCandidateId: string | null = null;
@@ -1263,13 +1427,17 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
     }
 
     pushToUndoHistory(screenplayData);
-    setScreenplayData((prev) => ({
-      ...prev,
-      scenes: prev.scenes.map((sc) => ({
-        ...sc,
-        items: sc.items.filter((it) => it.id !== itemId),
-      })),
-    }));
+    setScreenplayData((prev) => {
+      const next = {
+        ...prev,
+        scenes: prev.scenes.map((sc) => ({
+          ...sc,
+          items: sc.items.filter((it) => it.id !== itemId),
+        })),
+      };
+      screenplayDataRef.current = next;
+      return next;
+    });
 
     if (nextCandidateId) {
       setSelectedItemIds(new Set([nextCandidateId]));
@@ -1293,6 +1461,10 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
     if (selectedItemIds.size === 0) return;
     pushToUndoHistory(screenplayData);
     const idsToDelete = new Set(selectedItemIds);
+    idsToDelete.forEach((id) => {
+      localDeletedItemIdsRef.current.add(id);
+      localDirtyItemIdsRef.current.delete(id);
+    });
 
     const sortedSelectedIndices = Array.from(selectedItemIds)
       .map((id) => orderedItemIds.indexOf(id))
@@ -1324,13 +1496,17 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
       }
     }
 
-    setScreenplayData((prev) => ({
-      ...prev,
-      scenes: prev.scenes.map((sc) => ({
-        ...sc,
-        items: sc.items.filter((it) => !idsToDelete.has(it.id)),
-      })),
-    }));
+    setScreenplayData((prev) => {
+      const next = {
+        ...prev,
+        scenes: prev.scenes.map((sc) => ({
+          ...sc,
+          items: sc.items.filter((it) => !idsToDelete.has(it.id)),
+        })),
+      };
+      screenplayDataRef.current = next;
+      return next;
+    });
 
     if (nextCandidateId) {
       setSelectedItemIds(new Set([nextCandidateId]));
@@ -1438,7 +1614,11 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
 
   // Add a new paragraph above
   const handleAddParagraphAbove = (beforeItemId: string, column: 'left' | 'right' | 'center' = 'left') => {
-    const newItemId = `item-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+    const now = Date.now();
+    const newItemId = `item-${now}-${Math.random().toString(36).substring(2, 7)}`;
+    localDirtyItemIdsRef.current.set(newItemId, now);
+    localDeletedItemIdsRef.current.delete(newItemId);
+
     const newItem: TamilScriptItem = {
       id: newItemId,
       type: column === 'center' ? 'title' : column === 'right' ? 'dialogue' : 'action',
@@ -1447,6 +1627,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
       rightDialogue: column === 'right' ? '' : undefined,
       rightCharacter: column === 'right' ? '' : undefined,
       rawText: '',
+      updatedAt: now,
     };
 
     pushToUndoHistory(screenplayData);
@@ -1468,10 +1649,12 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
         return scene;
       });
 
-      return {
+      const next = {
         ...prev,
         scenes: nextScenes,
       };
+      screenplayDataRef.current = next;
+      return next;
     });
 
     setHasUnsavedChanges(true);
@@ -1480,7 +1663,11 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
 
   // Add a new paragraph below
   const handleAddParagraphBelow = (afterItemId?: string, column: 'left' | 'right' | 'center' = 'left') => {
-    const newItemId = `item-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+    const now = Date.now();
+    const newItemId = `item-${now}-${Math.random().toString(36).substring(2, 7)}`;
+    localDirtyItemIdsRef.current.set(newItemId, now);
+    localDeletedItemIdsRef.current.delete(newItemId);
+
     const newItem: TamilScriptItem = {
       id: newItemId,
       type: column === 'center' ? 'title' : column === 'right' ? 'dialogue' : 'action',
@@ -1489,6 +1676,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
       rightDialogue: column === 'right' ? '' : undefined,
       rightCharacter: column === 'right' ? '' : undefined,
       rawText: '',
+      updatedAt: now,
     };
 
     pushToUndoHistory(screenplayData);
@@ -1516,10 +1704,12 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
         return scene;
       });
 
-      return {
+      const next = {
         ...prev,
         scenes: nextScenes,
       };
+      screenplayDataRef.current = next;
+      return next;
     });
 
     setHasUnsavedChanges(true);
@@ -1565,10 +1755,12 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
         return sc;
       });
 
-      return {
+      const next = {
         ...prev,
         scenes: finalScenes,
       };
+      screenplayDataRef.current = next;
+      return next;
     });
 
     setHasUnsavedChanges(true);
@@ -1581,7 +1773,11 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
     splitOffset?: number,
     customFullText?: string
   ) => {
-    const newItemId = `item-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+    const now = Date.now();
+    const newItemId = `item-${now}-${Math.random().toString(36).substring(2, 7)}`;
+    localDirtyItemIdsRef.current.set(itemId, now);
+    localDirtyItemIdsRef.current.set(newItemId, now);
+    localDeletedItemIdsRef.current.delete(newItemId);
 
     pushToUndoHistory(screenplayData);
 
@@ -1620,6 +1816,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
           leftAction: currentItem.column === 'left' ? formattedBefore : currentItem.leftAction,
           rightDialogue: currentItem.column === 'right' ? formattedBefore : currentItem.rightDialogue,
           rawText: formattedBefore,
+          updatedAt: now,
         };
 
         const newItem: TamilScriptItem = {
@@ -1630,6 +1827,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
           rightDialogue: currentItem.column === 'right' ? formattedAfter : undefined,
           rightCharacter: '',
           rawText: formattedAfter,
+          updatedAt: now,
         };
 
         const newItems = [...scene.items];
@@ -1643,10 +1841,12 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
 
       if (!itemFound) return prev;
 
-      return {
+      const next = {
         ...prev,
         scenes: nextScenes,
       };
+      screenplayDataRef.current = next;
+      return next;
     });
 
     setSelectedItemIds(new Set());
@@ -2245,7 +2445,8 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
             projectId: projId,
             docId: targetDoc.id,
             twoColumnData: currentData,
-            senderId: projectContext.currentUser || 'user'
+            senderId: projectContext.currentUser || 'user',
+            senderInstanceId: clientInstanceIdRef.current,
           }
         }).catch(() => {});
       } catch (e) {}
@@ -2275,18 +2476,29 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
         (msg: any) => {
           const payload = msg.payload;
           if (!payload || !payload.twoColumnData) return;
-          if (payload.senderId && payload.senderId === projectContext.currentUser) return;
+          // Ignore own broadcast
+          if (payload.senderInstanceId && payload.senderInstanceId === clientInstanceIdRef.current) return;
+          if (payload.senderId && payload.senderId === projectContext.currentUser && !payload.senderInstanceId) return;
 
           console.log('[TwoColumn] Live update received from collaborator:', payload.senderId);
-          screenplayDataRef.current = payload.twoColumnData;
-          setScreenplayData(payload.twoColumnData);
+          const currentLocal = screenplayDataRef.current;
+          const merged = mergeTwoColumnData(
+            currentLocal,
+            payload.twoColumnData,
+            activeTypingItemIdRef.current,
+            localDirtyItemIdsRef.current,
+            localDeletedItemIdsRef.current,
+            localDeletedSceneIdsRef.current
+          );
+
+          screenplayDataRef.current = merged;
+          setScreenplayData(merged);
 
           // Update local documents cache
           const allDocs = getProductionDocuments(projId);
-          const nextDocs = allDocs.map((d) => d.id === payload.docId ? { ...d, twoColumnData: payload.twoColumnData } : d);
+          const nextDocs = allDocs.map((d) => d.id === payload.docId ? { ...d, twoColumnData: merged } : d);
           setDocuments(nextDocs);
           saveProductionDocuments(nextDocs, projId, true);
-          showToast('✓ Received live script updates from collaborator');
         }
       )
       .subscribe();
@@ -2306,25 +2518,38 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
       
       setDocuments(incoming);
       
-      // If we do not have local unsaved work, sync active screenplay data from remote collaborator
-      if (!hasUnsavedChanges) {
-        const curId = selectedDocId;
-        const remoteDoc = incoming.find((d: any) => d.id === curId)
-          || incoming.find((d: any) => d.isLeftRightFormat || d.hasTwoColumnScript || d.category === 'SCRIPT');
-        if (remoteDoc) {
-          if (!selectedDocId || selectedDocId !== remoteDoc.id) {
-            setSelectedDocId(remoteDoc.id);
-          }
-          if (remoteDoc.twoColumnData && Array.isArray(remoteDoc.twoColumnData.scenes)) {
-            screenplayDataRef.current = remoteDoc.twoColumnData;
-            setScreenplayData(remoteDoc.twoColumnData);
-          } else {
-            const raw = remoteDoc.textContent || '';
-            if (raw.trim()) {
-              const parsed = parseScreenplayToTamilLeftRight(raw, remoteDoc.title);
-              screenplayDataRef.current = parsed;
-              setScreenplayData(parsed);
-            }
+      const curId = selectedDocId;
+      const remoteDoc = incoming.find((d: any) => d.id === curId)
+        || incoming.find((d: any) => d.isLeftRightFormat || d.hasTwoColumnScript || d.category === 'SCRIPT');
+      if (remoteDoc) {
+        if (!selectedDocId || selectedDocId !== remoteDoc.id) {
+          setSelectedDocId(remoteDoc.id);
+        }
+        if (remoteDoc.twoColumnData && Array.isArray(remoteDoc.twoColumnData.scenes)) {
+          const merged = mergeTwoColumnData(
+            screenplayDataRef.current,
+            remoteDoc.twoColumnData,
+            activeTypingItemIdRef.current,
+            localDirtyItemIdsRef.current,
+            localDeletedItemIdsRef.current,
+            localDeletedSceneIdsRef.current
+          );
+          screenplayDataRef.current = merged;
+          setScreenplayData(merged);
+        } else if (!hasUnsavedChanges) {
+          const raw = remoteDoc.textContent || '';
+          if (raw.trim()) {
+            const parsed = parseScreenplayToTamilLeftRight(raw, remoteDoc.title);
+            const merged = mergeTwoColumnData(
+              screenplayDataRef.current,
+              parsed,
+              activeTypingItemIdRef.current,
+              localDirtyItemIdsRef.current,
+              localDeletedItemIdsRef.current,
+              localDeletedSceneIdsRef.current
+            );
+            screenplayDataRef.current = merged;
+            setScreenplayData(parsed);
           }
         }
       }
