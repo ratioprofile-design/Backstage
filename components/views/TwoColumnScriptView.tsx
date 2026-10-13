@@ -95,6 +95,7 @@ import {
   Camera,
   ListChecks,
   RefreshCw,
+  ChevronDown,
 } from 'lucide-react';
 import {
   BreakdownCategory,
@@ -383,13 +384,51 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
     showToast('✓ Document Renamed');
   };
 
+  // Script documents available in Vault for switching
+  const [isDocSwitcherOpen, setIsDocSwitcherOpen] = useState<boolean>(false);
+  const docSwitcherRef = useRef<HTMLDivElement>(null);
+
+  const scriptVaultDocs = useMemo(() => {
+    return documents.filter((d) =>
+      d.category === 'SCRIPT' ||
+      d.isLeftRightFormat ||
+      d.hasTwoColumnScript ||
+      d.fileName?.endsWith('.docx') ||
+      d.fileName?.endsWith('.fountain') ||
+      (d.textContent && d.textContent.trim().length > 30) ||
+      (d.htmlContent && d.htmlContent.trim().length > 30)
+    );
+  }, [documents]);
+
+  // Close switcher on outside click
+  useEffect(() => {
+    const handleOutsideClick = (e: MouseEvent) => {
+      if (docSwitcherRef.current && !docSwitcherRef.current.contains(e.target as Node)) {
+        setIsDocSwitcherOpen(false);
+      }
+    };
+    if (isDocSwitcherOpen) {
+      document.addEventListener('mousedown', handleOutsideClick);
+    }
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, [isDocSwitcherOpen]);
+
+  const handleSelectScriptDoc = (docId: string) => {
+    setSelectedDocId(docId);
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('active_two_column_doc_id', docId);
+    }
+    setIsDocSwitcherOpen(false);
+    showToast('✓ Switched script document');
+  };
+
   // Switch or reload active document
   useEffect(() => {
     if (activeDoc) {
       if (activeDoc.twoColumnData && Array.isArray(activeDoc.twoColumnData.scenes)) {
         setScreenplayData(activeDoc.twoColumnData);
       } else {
-        const raw = activeDoc.textContent || '';
+        const raw = activeDoc.textContent || (activeDoc.htmlContent ? activeDoc.htmlContent.replace(/<[^>]+>/g, '\n') : '');
         if (raw.trim()) {
           setScreenplayData(parseScreenplayToTamilLeftRight(raw, activeDoc.title));
         } else {
@@ -2812,11 +2851,12 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
       
       setDocuments(incoming);
       
-      const curId = selectedDocId;
+      const activeStorageId = typeof localStorage !== 'undefined' ? localStorage.getItem('active_two_column_doc_id') : null;
+      const curId = activeStorageId || selectedDocId;
       const remoteDoc = incoming.find((d: any) => d.id === curId)
         || incoming.find((d: any) => d.isLeftRightFormat || d.hasTwoColumnScript || d.category === 'SCRIPT');
       if (remoteDoc) {
-        if (!selectedDocId || selectedDocId !== remoteDoc.id) {
+        if (selectedDocId !== remoteDoc.id) {
           setSelectedDocId(remoteDoc.id);
         }
         if (remoteDoc.twoColumnData && Array.isArray(remoteDoc.twoColumnData.scenes)) {
@@ -3052,7 +3092,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
             }`}>
               <Columns size={16} />
             </span>
-            <div className="min-w-0">
+            <div className="min-w-0 relative" ref={docSwitcherRef}>
               <div className="flex items-center gap-1.5 flex-wrap">
                 <span className={`text-[11px] font-black uppercase tracking-wider ${
                   isLight ? 'text-emerald-700' : 'text-emerald-400'
@@ -3066,6 +3106,25 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
                 }`}>
                   {totalPages} {totalPages === 1 ? 'Page' : 'Pages'}
                 </span>
+
+                {/* Script Switcher Dropdown Button */}
+                {scriptVaultDocs.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setIsDocSwitcherOpen(!isDocSwitcherOpen)}
+                    className={`px-1.5 py-0.2 rounded text-[10px] font-semibold flex items-center gap-1 border transition-all cursor-pointer ${
+                      isDocSwitcherOpen
+                        ? 'bg-emerald-500 text-black border-emerald-400'
+                        : isLight
+                        ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
+                        : 'bg-zinc-800/80 hover:bg-zinc-700 text-zinc-300 border-zinc-700/60'
+                    }`}
+                    title="Switch active script from Vault"
+                  >
+                    <span>{scriptVaultDocs.length} {scriptVaultDocs.length === 1 ? 'Script' : 'Scripts'}</span>
+                    <ChevronDown size={11} className={`transition-transform ${isDocSwitcherOpen ? 'rotate-180' : ''}`} />
+                  </button>
+                )}
               </div>
 
               {/* Directly Editable Document Title */}
@@ -3090,6 +3149,83 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
                 />
                 <Edit2 size={11} className="opacity-0 group-hover/title:opacity-60 transition-opacity pointer-events-none text-slate-400 dark:text-zinc-500 shrink-0" />
               </div>
+
+              {/* Document Switcher Dropdown Menu */}
+              {isDocSwitcherOpen && (
+                <div className={`absolute top-full left-0 mt-1.5 w-72 sm:w-80 rounded-xl border shadow-2xl py-1.5 z-50 animate-in fade-in zoom-in-95 duration-100 backdrop-blur-md ${
+                  isLight ? 'bg-white/95 border-slate-200 text-slate-900' : 'bg-[#18181c]/95 border-zinc-700/80 text-zinc-100'
+                }`}>
+                  <div className={`px-3 py-1.5 border-b text-[10px] font-black uppercase tracking-wider flex items-center justify-between ${
+                    isLight ? 'border-slate-100 text-slate-500' : 'border-zinc-800 text-zinc-400'
+                  }`}>
+                    <span>Scripts in Vault ({scriptVaultDocs.length})</span>
+                    <button
+                      onClick={() => {
+                        setIsDocSwitcherOpen(false);
+                        fileInputRef.current?.click();
+                      }}
+                      className="text-emerald-500 hover:underline flex items-center gap-1 font-bold lowercase first-letter:uppercase"
+                    >
+                      <Plus size={10} /> Import script
+                    </button>
+                  </div>
+
+                  <div className="max-h-64 overflow-y-auto py-1 divide-y divide-transparent">
+                    {scriptVaultDocs.map((doc) => {
+                      const isCurrent = doc.id === activeDoc?.id || doc.id === selectedDocId;
+                      return (
+                        <div
+                          key={doc.id}
+                          onClick={() => handleSelectScriptDoc(doc.id)}
+                          className={`px-3 py-2 flex items-center justify-between gap-2.5 cursor-pointer transition-colors ${
+                            isCurrent
+                              ? isLight
+                                ? 'bg-emerald-50 text-emerald-900 font-bold'
+                                : 'bg-emerald-500/15 text-emerald-300 font-bold'
+                              : isLight
+                              ? 'hover:bg-slate-100 text-slate-800'
+                              : 'hover:bg-zinc-800/70 text-zinc-200'
+                          }`}
+                        >
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-1.5">
+                              <FileText size={12} className={isCurrent ? 'text-emerald-500 shrink-0' : 'text-zinc-400 shrink-0'} />
+                              <span className="text-xs truncate">{doc.title}</span>
+                            </div>
+                            <div className="flex items-center gap-2 mt-0.5 text-[10px] opacity-60 font-mono">
+                              <span>{doc.pageCount || 1} {doc.pageCount === 1 ? 'pg' : 'pgs'}</span>
+                              <span>•</span>
+                              <span>{doc.fileSize || 'Doc'}</span>
+                              {doc.isLeftRightFormat && <span className="text-emerald-500">• 2-Col</span>}
+                            </div>
+                          </div>
+
+                          {isCurrent && (
+                            <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {onNavigateToView && (
+                    <div className={`pt-1.5 px-3 border-t flex items-center justify-between text-[11px] ${
+                      isLight ? 'border-slate-100 text-slate-600' : 'border-zinc-800 text-zinc-400'
+                    }`}>
+                      <button
+                        onClick={() => {
+                          setIsDocSwitcherOpen(false);
+                          onNavigateToView('documents');
+                        }}
+                        className="hover:text-amber-500 transition-colors flex items-center gap-1 py-1"
+                      >
+                        <Folder size={11} />
+                        <span>Manage in Document Vault</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
 

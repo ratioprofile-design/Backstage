@@ -1226,6 +1226,7 @@ export interface ProductionDocument {
   originalFileName?: string;
   convertedDocxDataUrl?: string; // Word (.docx) file with Bamini transcoded to Unicode, preserving 100% original styles, formatting, sizes & colors
   isBaminiConverted?: boolean;
+  isBaminiDetected?: boolean;
   isLeftRightFormat?: boolean;
   hasTwoColumnScript?: boolean;
   twoColumnData?: any;

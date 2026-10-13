@@ -271,6 +271,17 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
   const [zoomLevel, setZoomLevel] = useState<number>(100);
   const [readerViewMode, setReaderViewMode] = useState<'stacked' | 'single' | 'spread'>('stacked');
   const [isBaminiDetected, setIsBaminiDetected] = useState<boolean>(false);
+  const [uploadState, setUploadState] = useState<{
+    isUploading: boolean;
+    fileName: string;
+    fileSize: string;
+    progress: number;
+    statusText: string;
+    isComplete?: boolean;
+    docId?: string;
+    isScript?: boolean;
+    error?: string;
+  } | null>(null);
 
   // Document In-Place Editing & Typography
   const [isEditMode, setIsEditMode] = useState<boolean>(false);
@@ -811,33 +822,64 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
 
   const totalPages = Math.max(1, paginatedDoc.totalPages || selectedDoc?.pageCount || 1);
 
-  // Auto-transcode legacy Bamini Tamil fonts on document open
+  // Detect legacy Bamini Tamil fonts on document open (conversion is strictly performed ON USER REQUEST)
   useEffect(() => {
-    if (!selectedDoc) return;
+    if (!selectedDoc) {
+      setIsBaminiDetected(false);
+      return;
+    }
+    if (selectedDoc.isBaminiConverted) {
+      setIsBaminiDetected(false);
+      return;
+    }
     const rawText = selectedDoc.textContent || '';
     const rawHtml = selectedDoc.htmlContent || '';
-    const hasBamini = isLegacyBamini(rawText) || isLegacyBamini(rawHtml);
-    setIsBaminiDetected(hasBamini);
+    const hasBamini = selectedDoc.isBaminiDetected || isLegacyBamini(rawText) || isLegacyBamini(rawHtml);
+    setIsBaminiDetected(!!hasBamini);
+  }, [selectedDocId, selectedDoc]);
 
-    if (hasBamini) {
-      const convertedText = transcodeBaminiToUnicode(rawText);
-      const convertedHtml = rawHtml ? transcodeHtmlBaminiToUnicode(rawHtml) : undefined;
+  // Convert Bamini to Unicode strictly ON REQUEST
+  const handleConvertBaminiToUnicode = async (docToConvert?: ProductionDocument) => {
+    const doc = docToConvert || selectedDoc;
+    if (!doc) return;
 
-      const updatedDocs = documents.map((d) => {
-        if (d.id === selectedDoc.id) {
-          return {
-            ...d,
-            textContent: convertedText,
-            htmlContent: convertedHtml || d.htmlContent,
-          };
+    const rawText = doc.textContent || '';
+    const rawHtml = doc.htmlContent || '';
+
+    let convertedDocxDataUrl = doc.convertedDocxDataUrl;
+    if (!convertedDocxDataUrl && doc.originalFileDataUrl && (doc.fileName?.endsWith('.docx') || doc.fileType === 'docx')) {
+      try {
+        const res = await transcodeDocxBinaryBaminiToUnicode(doc.originalFileDataUrl);
+        if (res.isConverted) {
+          convertedDocxDataUrl = res.convertedDataUrl;
         }
-        return d;
-      });
-
-      updateDocuments(updatedDocs);
-      showToast('Bamini typewriter font auto-transcoded to Tamil Unicode!');
+      } catch (err) {
+        console.warn('Docx binary Bamini conversion notice:', err);
+      }
     }
-  }, [selectedDocId]);
+
+    const convertedText = transcodeBaminiToUnicode(rawText);
+    const convertedHtml = rawHtml ? transcodeHtmlBaminiToUnicode(rawHtml) : undefined;
+
+    const updatedDocs = documents.map((d) => {
+      if (d.id === doc.id) {
+        return {
+          ...d,
+          textContent: convertedText,
+          htmlContent: convertedHtml || d.htmlContent,
+          convertedDocxDataUrl: convertedDocxDataUrl || d.convertedDocxDataUrl,
+          isBaminiConverted: true,
+          isBaminiDetected: false,
+        };
+      }
+      return d;
+    });
+
+    updateDocuments(updatedDocs);
+    setIsBaminiDetected(false);
+    confetti({ particleCount: 35, spread: 60, origin: { y: 0.7 } });
+    showToast('✓ Converted Bamini typewriter text to Tamil Unicode on request!');
+  };
 
   // Persist documents on change and sync with all collaborators
   const updateDocuments = (docs: ProductionDocument[]) => {
@@ -1089,50 +1131,134 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
     }
   };
 
-  // Universal File Upload Handler
+  // Universal File Upload Handler with Real-Time Uploading Bar & Script Integration
   const handleUniversalUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    // Clear input so selecting the same file again triggers change
+    e.target.value = '';
+
+    const sizeMb = (file.size / (1024 * 1024)).toFixed(1);
+    const sizeStr = file.size < 1024 * 1024 ? `${(file.size / 1024).toFixed(0)} KB` : `${sizeMb} MB`;
+
+    // 1. Initial Upload State (Progress Bar Active)
+    setUploadState({
+      isUploading: true,
+      fileName: file.name,
+      fileSize: sizeStr,
+      progress: 15,
+      statusText: 'Reading document bytes...',
+    });
+
     try {
+      await new Promise((resolve) => setTimeout(resolve, 80));
+      setUploadState((prev) => prev ? { ...prev, progress: 40, statusText: 'Parsing document structure & pages...' } : null);
+
       const parsed = await parseUniversalFile(
         file,
         (selectedCategory === 'ALL' || selectedCategory === 'ARCHIVED' ? 'OTHER' : selectedCategory) as any
       );
 
+      setUploadState((prev) => prev ? { ...prev, progress: 70, statusText: 'Analyzing script format & metadata...' } : null);
+      await new Promise((resolve) => setTimeout(resolve, 80));
+
+      const rawScriptText = parsed.textContent || (parsed.htmlContent ? parsed.htmlContent.replace(/<[^>]+>/g, '\n') : '');
+      const isScriptFile =
+        parsed.category === 'SCRIPT' ||
+        file.name.toLowerCase().endsWith('.docx') ||
+        file.name.toLowerCase().endsWith('.doc') ||
+        file.name.toLowerCase().endsWith('.fountain') ||
+        file.name.toLowerCase().endsWith('.txt');
+
+      let twoColData: TamilScreenplayData | undefined;
+      let leftRightHtml = parsed.htmlContent;
+
+      if (isScriptFile && rawScriptText.trim()) {
+        try {
+          twoColData = parseScreenplayToTamilLeftRight(rawScriptText, parsed.title);
+          if (!leftRightHtml || leftRightHtml.length < 50) {
+            leftRightHtml = generateTamilLeftRightHtml(twoColData);
+          }
+        } catch (scriptErr) {
+          console.warn('Script parsing for 2-column view notice:', scriptErr);
+        }
+      }
+
+      setUploadState((prev) => prev ? { ...prev, progress: 90, statusText: 'Indexing into Production Vault...' } : null);
+
+      const docId = `doc-${Date.now()}`;
       const newDoc: ProductionDocument = {
-        id: `doc-${Date.now()}`,
+        id: docId,
         projectId: currentProjectId || undefined,
         title: parsed.title,
-        category: parsed.category,
+        category: isScriptFile ? 'SCRIPT' : parsed.category,
         fileName: parsed.fileName,
         fileSize: parsed.fileSize,
         fileType: parsed.fileType,
-        pageCount: parsed.pageCount,
+        pageCount: Math.max(1, twoColData ? twoColData.scenes.length : parsed.pageCount),
         uploadedAt: new Date().toISOString(),
         pdfDataUrl: parsed.pdfDataUrl,
         imageDataUrl: parsed.imageDataUrl,
-        htmlContent: parsed.htmlContent,
+        htmlContent: leftRightHtml,
         textContent: parsed.textContent,
         sheetData: parsed.sheetData,
-        author: 'Uploaded by User',
+        author: projectContext.currentUser || 'Uploaded by User',
         status: 'review',
-        tags: ['Import', parsed.category],
+        tags: Array.from(new Set(['Import', parsed.category, ...(isScriptFile ? ['Script', 'Screenplay', '2-Col Script'] : [])])),
         annotations: [],
         originalFileDataUrl: parsed.originalFileDataUrl,
         originalFileName: parsed.fileName,
         convertedDocxDataUrl: parsed.convertedDocxDataUrl,
-        isBaminiConverted: parsed.isBaminiConverted,
+        isBaminiConverted: false,
+        isBaminiDetected: parsed.isBaminiDetected,
+        isLeftRightFormat: isScriptFile,
+        hasTwoColumnScript: isScriptFile,
+        twoColumnData: twoColData,
       };
 
       const updated = [newDoc, ...documents];
       updateDocuments(updated);
       setSelectedDocId(newDoc.id);
-      setInStudioMode(true);
+
+      // If it is a script, set it as the active 2-column doc id so the Script page opens it!
+      if (isScriptFile && typeof localStorage !== 'undefined') {
+        localStorage.setItem('active_two_column_doc_id', newDoc.id);
+      }
+
+      // Notify other views and listeners
+      window.dispatchEvent(new CustomEvent('backstage_documents_updated', { detail: updated }));
+
+      // Complete Upload State
+      setUploadState({
+        isUploading: false,
+        isComplete: true,
+        fileName: file.name,
+        fileSize: sizeStr,
+        progress: 100,
+        statusText: isScriptFile ? '✓ Script uploaded & ready for 2-Column Script page!' : '✓ Document uploaded into Vault!',
+        docId: newDoc.id,
+        isScript: isScriptFile,
+      });
+
       confetti({ particleCount: 35, spread: 50, origin: { y: 0.6 } });
-      showToast(`✓ Imported "${parsed.fileName}" into Vault (Original formatting & Unicode preserved)!`);
+      showToast(isScriptFile ? `✓ Imported script "${parsed.fileName}" into Vault & ready for 2-Column Script!` : `✓ Imported "${parsed.fileName}" into Vault!`);
+
+      // Auto dismiss complete banner after 4.5 seconds
+      setTimeout(() => {
+        setUploadState((cur) => (cur?.isComplete ? null : cur));
+      }, 4500);
     } catch (err) {
       console.error(err);
+      setUploadState({
+        isUploading: false,
+        isComplete: false,
+        fileName: file.name,
+        fileSize: sizeStr,
+        progress: 0,
+        statusText: 'Upload failed',
+        error: 'Failed to parse uploaded document.',
+      });
       showToast('Failed to parse uploaded document.');
     }
   };
@@ -1224,9 +1350,19 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
 
     // 1. If document is already in 2-column format:
     if (doc.isLeftRightFormat) {
+      if (!doc.twoColumnData) {
+        const rawText = doc.textContent || (doc.htmlContent ? doc.htmlContent.replace(/<[^>]+>/g, '\n') : '');
+        if (rawText.trim()) {
+          try {
+            doc.twoColumnData = parseScreenplayToTamilLeftRight(rawText, doc.title);
+            updateDocuments(documents.map((d) => (d.id === doc.id ? { ...d, twoColumnData: doc.twoColumnData } : d)));
+          } catch (e) {}
+        }
+      }
       if (typeof localStorage !== 'undefined') {
         localStorage.setItem('active_two_column_doc_id', doc.id);
       }
+      window.dispatchEvent(new CustomEvent('backstage_documents_updated', { detail: documents }));
       if (onNavigateToView) {
         onNavigateToView('two-column-script');
         showToast(`✓ Opened "${doc.title}" in Script Page!`);
@@ -1243,9 +1379,19 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
       (d) => d.sourceDocId === doc.id || (doc.leftRightDocId && d.id === doc.leftRightDocId)
     );
     if (existingTwoCol) {
+      if (!existingTwoCol.twoColumnData) {
+        const rawText = existingTwoCol.textContent || (existingTwoCol.htmlContent ? existingTwoCol.htmlContent.replace(/<[^>]+>/g, '\n') : '');
+        if (rawText.trim()) {
+          try {
+            existingTwoCol.twoColumnData = parseScreenplayToTamilLeftRight(rawText, existingTwoCol.title);
+            updateDocuments(documents.map((d) => (d.id === existingTwoCol.id ? { ...d, twoColumnData: existingTwoCol.twoColumnData } : d)));
+          } catch (e) {}
+        }
+      }
       if (typeof localStorage !== 'undefined') {
         localStorage.setItem('active_two_column_doc_id', existingTwoCol.id);
       }
+      window.dispatchEvent(new CustomEvent('backstage_documents_updated', { detail: documents }));
       if (onNavigateToView) {
         onNavigateToView('two-column-script');
         showToast(`✓ Opened 2-Column Script for "${doc.title}"!`);
@@ -1282,6 +1428,7 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
       annotations: [],
       isLeftRightFormat: true,
       hasTwoColumnScript: true,
+      twoColumnData: parsed,
       sourceDocId: doc.id,
       originalFileDataUrl: doc.originalFileDataUrl,
       originalFileName: doc.originalFileName,
@@ -1302,6 +1449,7 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
     if (typeof localStorage !== 'undefined') {
       localStorage.setItem('active_two_column_doc_id', twoColDocId);
     }
+    window.dispatchEvent(new CustomEvent('backstage_documents_updated', { detail: updatedList }));
 
     if (onNavigateToView) {
       onNavigateToView('two-column-script');
@@ -2218,6 +2366,98 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
       </header>
 
       {/* =========================================================================
+          UNIVERSAL DOCUMENT UPLOADING PROGRESS BAR BANNER
+         ========================================================================= */}
+      {uploadState && (
+        <div className={`px-6 py-3 border-b shrink-0 transition-all shadow-md z-30 animate-in fade-in slide-in-from-top-2 ${
+          uploadState.error
+            ? isLight ? 'bg-red-50 border-red-200 text-red-900' : 'bg-red-950/40 border-red-800/60 text-red-200'
+            : uploadState.isComplete
+            ? isLight ? 'bg-emerald-50 border-emerald-200 text-emerald-900' : 'bg-emerald-950/40 border-emerald-800/60 text-emerald-200'
+            : isLight ? 'bg-amber-50 border-amber-200 text-amber-950' : 'bg-[#15151c] border-[#f5a623]/30 text-zinc-100'
+        }`}>
+          <div className="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-3">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 shadow-sm ${
+                uploadState.error
+                  ? 'bg-red-500 text-white'
+                  : uploadState.isComplete
+                  ? 'bg-emerald-500 text-black'
+                  : 'bg-[#f5a623] text-black animate-pulse'
+              }`}>
+                {uploadState.error ? (
+                  <AlertTriangle size={18} />
+                ) : uploadState.isComplete ? (
+                  <Check size={18} />
+                ) : (
+                  <Upload size={18} className="animate-bounce" />
+                )}
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="font-bold text-xs truncate max-w-[200px] sm:max-w-md">
+                    {uploadState.fileName}
+                  </span>
+                  <span className="text-[10px] font-mono opacity-60">
+                    ({uploadState.fileSize})
+                  </span>
+                </div>
+                <p className="text-[11px] opacity-80 flex items-center gap-1.5 mt-0.5">
+                  {uploadState.statusText}
+                </p>
+              </div>
+            </div>
+
+            {/* Progress Bar & Percentage */}
+            <div className="flex items-center gap-3 md:w-96">
+              <div className="flex-1">
+                <div className="w-full bg-black/20 dark:bg-black/60 rounded-full h-2.5 overflow-hidden border border-white/10 relative">
+                  <div
+                    className={`h-full transition-all duration-300 rounded-full ${
+                      uploadState.error
+                        ? 'bg-red-500'
+                        : uploadState.isComplete
+                        ? 'bg-emerald-500'
+                        : 'bg-gradient-to-r from-amber-500 via-[#f5a623] to-emerald-400'
+                    }`}
+                    style={{ width: `${uploadState.progress}%` }}
+                  />
+                </div>
+              </div>
+              <span className="text-xs font-mono font-black w-10 text-right shrink-0">
+                {uploadState.progress}%
+              </span>
+
+              {uploadState.isComplete && uploadState.isScript && (
+                <button
+                  onClick={() => {
+                    if (uploadState.docId) {
+                      localStorage.setItem('active_two_column_doc_id', uploadState.docId);
+                    }
+                    if (onNavigateToView) {
+                      onNavigateToView('two-column-script');
+                    }
+                  }}
+                  className="px-2.5 py-1 text-xs font-bold rounded-lg bg-emerald-500 hover:bg-emerald-400 text-black flex items-center gap-1 shrink-0 shadow-md cursor-pointer transition-all"
+                >
+                  <Columns size={12} />
+                  <span>Open in Script</span>
+                </button>
+              )}
+
+              <button
+                onClick={() => setUploadState(null)}
+                className="p-1 rounded-lg hover:bg-black/10 dark:hover:bg-white/10 opacity-70 hover:opacity-100 transition-opacity"
+                title="Dismiss"
+              >
+                <X size={15} />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* =========================================================================
           MAIN VAULT VIEW: GRAND GALLERY HUB vs. DOCUMENT STUDIO
          ========================================================================= */}
       {!inStudioMode ? (
@@ -2691,6 +2931,40 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                               )}
                             </div>
 
+                            {/* Open in Script Page Direct Button */}
+                            {(isDocumentScriptAndScreenplay(doc, documents) || doc.category === 'SCRIPT' || doc.fileType === 'docx' || doc.fileName?.endsWith('.docx')) && (
+                              <div className="mt-2 mb-1">
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleMakeTwoColumnScriptAndOpen(doc);
+                                  }}
+                                  className="w-full py-1.5 px-2.5 rounded-xl text-xs font-bold bg-emerald-500/15 hover:bg-emerald-500 text-emerald-400 hover:text-black border border-emerald-500/30 flex items-center justify-center gap-1.5 transition-all shadow-xs cursor-pointer group/btn"
+                                >
+                                  <Columns size={12} className="text-emerald-400 group-hover/btn:text-black" />
+                                  <span>Open in 2-Column Script</span>
+                                </button>
+                              </div>
+                            )}
+
+                            {/* Bamini Detected On-Request Convert Button */}
+                            {doc.isBaminiDetected && !doc.isBaminiConverted && (
+                              <div className="mt-1 mb-1">
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleConvertBaminiToUnicode(doc);
+                                  }}
+                                  className="w-full py-1.5 px-2.5 rounded-xl text-xs font-bold bg-amber-500/15 hover:bg-amber-500 text-amber-300 hover:text-black border border-amber-500/30 flex items-center justify-center gap-1.5 transition-all shadow-xs cursor-pointer"
+                                >
+                                  <Sparkles size={12} />
+                                  <span>Convert Bamini to Unicode</span>
+                                </button>
+                              </div>
+                            )}
+
                             {/* Card Meta Footer */}
                             <div className={`pt-3 border-t flex items-center justify-between text-xs ${
                               isLight ? 'border-slate-100 text-slate-500' : 'border-[#222226] text-zinc-400'
@@ -2854,6 +3128,28 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                                       title="Play audio note"
                                     >
                                       {isPlayingThis ? <Pause size={13} /> : <Play size={13} />}
+                                    </button>
+                                  )}
+
+                                  {/* Open in Script Page Direct Button */}
+                                  {(isDocumentScriptAndScreenplay(doc, documents) || doc.category === 'SCRIPT' || doc.fileType === 'docx' || doc.fileName?.endsWith('.docx')) && (
+                                    <button
+                                      onClick={() => handleMakeTwoColumnScriptAndOpen(doc)}
+                                      className="p-1.5 rounded-lg bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500 hover:text-black transition-all"
+                                      title="Open in 2-Column Script Page"
+                                    >
+                                      <Columns size={13} />
+                                    </button>
+                                  )}
+
+                                  {/* Bamini Convert Button */}
+                                  {doc.isBaminiDetected && !doc.isBaminiConverted && (
+                                    <button
+                                      onClick={() => handleConvertBaminiToUnicode(doc)}
+                                      className="p-1.5 rounded-lg bg-amber-500/20 text-amber-300 hover:bg-amber-500 hover:text-black transition-all"
+                                      title="Convert Bamini to Unicode"
+                                    >
+                                      <Sparkles size={13} />
                                     </button>
                                   )}
 
@@ -3850,6 +4146,41 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                   className="flex flex-col gap-8 items-center pb-24"
                   style={{ transform: `scale(${zoomLevel / 100})`, transformOrigin: 'top center' }}
                 >
+                  {/* On-Request Bamini to Unicode Conversion Banner */}
+                  {isBaminiDetected && !selectedDoc?.isBaminiConverted && (
+                    <div className="w-[794px] p-3.5 rounded-xl border border-amber-500/50 bg-amber-500/10 backdrop-blur-md flex items-center justify-between gap-3 text-xs shadow-lg animate-in fade-in slide-in-from-top-1">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <div className="w-8 h-8 rounded-lg bg-amber-500 text-black flex items-center justify-center shrink-0 font-bold shadow-sm">
+                          <Type size={15} />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="font-bold text-amber-300">
+                            Bamini Typewriter Font Detected
+                          </p>
+                          <p className="text-[11px] text-amber-200/80 truncate">
+                            This document contains legacy Bamini typewriter Tamil text. Convert to standard Tamil Unicode?
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          onClick={() => handleConvertBaminiToUnicode(selectedDoc)}
+                          className="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-black font-bold text-xs flex items-center gap-1.5 transition-all shadow-md cursor-pointer"
+                        >
+                          <Sparkles size={13} />
+                          <span>Convert to Unicode</span>
+                        </button>
+                        <button
+                          onClick={() => setIsBaminiDetected(false)}
+                          className="p-1 rounded-lg hover:bg-white/10 text-amber-300/70 hover:text-amber-200 transition-colors"
+                          title="Keep original Bamini text"
+                        >
+                          <X size={15} />
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
                   {isEditMode ? (
                     /* Continuous Editable Document Sheet */
                     <div

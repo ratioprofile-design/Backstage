@@ -2,8 +2,7 @@
 import mammoth from 'mammoth';
 import * as XLSX from 'xlsx';
 import { ProductionDocument, DocumentFormat } from '../types';
-import { isLegacyBamini, transcodeBaminiToUnicode, transcodeHtmlBaminiToUnicode } from './tamilTranscoder';
-import { transcodeDocxBinaryBaminiToUnicode } from './docxBaminiTranscoder';
+import { isLegacyBamini } from './tamilTranscoder';
 import { paginateDocumentHtml, paginatePlainText } from './documentPaginator';
 
 export interface ParsedDocumentResult {
@@ -19,6 +18,7 @@ export interface ParsedDocumentResult {
   pdfDataUrl?: string;
   imageDataUrl?: string;
   isBaminiConverted?: boolean;
+  isBaminiDetected?: boolean;
   originalFileDataUrl?: string;
   originalFileName?: string;
   convertedDocxDataUrl?: string;
@@ -36,7 +36,7 @@ function readFileAsDataUrl(file: File): Promise<string> {
 /**
  * Universal document parser for Production Vault.
  * Supports Word (.docx), PDF (.pdf), Excel/CSV (.xlsx, .csv), Images (.png, .jpg, .webp, .svg), and Plain Text/Markdown.
- * Automatically detects and transcodes legacy Bamini typewriter scripts to Tamil Unicode while preserving original Word formatting.
+ * Detects legacy Bamini typewriter fonts so they can be converted to Tamil Unicode on user request.
  */
 export async function parseUniversalFile(file: File, defaultCategory: ProductionDocument['category'] = 'OTHER'): Promise<ParsedDocumentResult> {
   const fileName = file.name;
@@ -50,39 +50,12 @@ export async function parseUniversalFile(file: File, defaultCategory: Production
   if (extension === '.docx' || extension === '.doc') {
     try {
       const arrayBuffer = await file.arrayBuffer();
-      let bufferToParse = arrayBuffer;
-      let isBamini = false;
-      let convertedDocxDataUrl: string | undefined;
+      const htmlResult = await mammoth.convertToHtml({ arrayBuffer });
+      const textResult = await mammoth.extractRawText({ arrayBuffer });
 
-      // In-place binary transcoding of Word (.docx) to preserve 100% original formatting, font sizes, colors, and tables
-      if (extension === '.docx') {
-        try {
-          const transResult = await transcodeDocxBinaryBaminiToUnicode(arrayBuffer);
-          if (transResult.isConverted) {
-            isBamini = true;
-            bufferToParse = transResult.convertedBuffer;
-            convertedDocxDataUrl = transResult.convertedDataUrl;
-          }
-        } catch (docxErr) {
-          console.warn('Docx binary Bamini transcoding notice:', docxErr);
-        }
-      }
-
-      const htmlResult = await mammoth.convertToHtml({ arrayBuffer: bufferToParse });
-      const textResult = await mammoth.extractRawText({ arrayBuffer: bufferToParse });
-
-      let rawText = textResult.value || '';
-      let rawHtml = htmlResult.value || '';
-
-      if (!isBamini) {
-        isBamini = isLegacyBamini(rawText);
-      }
-
-      // Auto-transcode HTML/text fallback if binary didn't catch it
-      if (isBamini && !convertedDocxDataUrl) {
-        rawText = transcodeBaminiToUnicode(rawText);
-        rawHtml = transcodeHtmlBaminiToUnicode(rawHtml);
-      }
+      const rawText = textResult.value || '';
+      const rawHtml = htmlResult.value || '';
+      const isBamini = isLegacyBamini(rawText) || isLegacyBamini(rawHtml);
 
       // Calculate precision A4 page count using our pagination engine
       const pagination = paginateDocumentHtml(rawHtml);
@@ -97,10 +70,10 @@ export async function parseUniversalFile(file: File, defaultCategory: Production
         pageCount,
         htmlContent: rawHtml,
         textContent: rawText,
-        isBaminiConverted: isBamini,
+        isBaminiConverted: false,
+        isBaminiDetected: isBamini,
         originalFileDataUrl,
         originalFileName: fileName,
-        convertedDocxDataUrl,
       };
     } catch (err) {
       console.error('Word Document parsing failed:', err);
@@ -183,12 +156,8 @@ export async function parseUniversalFile(file: File, defaultCategory: Production
 
   // 5. Text / Markdown / Fountain / HTML
   try {
-    let text = await file.text();
-    let isBamini = isLegacyBamini(text);
-
-    if (isBamini) {
-      text = transcodeBaminiToUnicode(text);
-    }
+    const text = await file.text();
+    const isBamini = isLegacyBamini(text);
 
     const htmlContent = `<div class="whitespace-pre-wrap font-mono text-xs leading-relaxed">${text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>`;
     const pagination = paginatePlainText(text);
@@ -202,7 +171,8 @@ export async function parseUniversalFile(file: File, defaultCategory: Production
       pageCount: pagination.totalPages,
       textContent: text,
       htmlContent,
-      isBaminiConverted: isBamini,
+      isBaminiConverted: false,
+      isBaminiDetected: isBamini,
       originalFileDataUrl,
       originalFileName: fileName,
     };
