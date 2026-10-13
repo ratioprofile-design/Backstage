@@ -444,23 +444,30 @@ export const DocumentTwoColumnEditor: React.FC<DocumentTwoColumnEditorProps> = (
           afterText = '';
         }
 
+        const isDialogue = currentItem.column === 'right' || (!currentItem.column && !!currentItem.rightDialogue) || currentItem.type === 'dialogue';
+        const isCenter = currentItem.column === 'center' || currentItem.type === 'transition' || currentItem.type === 'title';
+        const isLeft = !isDialogue && !isCenter;
+
         const cleanBefore = beforeText.trimEnd();
         const cleanAfter = afterText.trimStart();
 
         const updatedCurrentItem: TamilScriptItem = {
           ...currentItem,
-          leftAction: currentItem.column === 'left' ? cleanBefore : currentItem.leftAction,
-          rightDialogue: currentItem.column === 'right' ? cleanBefore : currentItem.rightDialogue,
+          column: isDialogue ? 'right' : isCenter ? 'center' : 'left',
+          type: isDialogue ? 'dialogue' : isCenter ? (currentItem.type || 'transition') : 'action',
+          leftAction: isLeft ? cleanBefore : undefined,
+          rightDialogue: isDialogue ? cleanBefore : undefined,
+          rightCharacter: isDialogue ? (currentItem.rightCharacter || '') : undefined,
           rawText: cleanBefore,
         };
 
         const newItem: TamilScriptItem = {
           id: newItemId,
-          type: currentItem.type === 'dialogue' ? 'dialogue' : 'action',
-          column: currentItem.column,
-          leftAction: currentItem.column === 'left' ? cleanAfter : undefined,
-          rightDialogue: currentItem.column === 'right' ? cleanAfter : undefined,
-          rightCharacter: currentItem.column === 'right' ? currentItem.rightCharacter : undefined,
+          type: isDialogue ? 'dialogue' : isCenter ? (currentItem.type || 'transition') : 'action',
+          column: isDialogue ? 'right' : isCenter ? 'center' : 'left',
+          leftAction: isLeft ? cleanAfter : undefined,
+          rightDialogue: isDialogue ? cleanAfter : undefined,
+          rightCharacter: isDialogue ? (currentItem.rightCharacter || '') : undefined,
           rawText: cleanAfter,
         };
 

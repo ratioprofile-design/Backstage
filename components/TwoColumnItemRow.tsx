@@ -150,6 +150,7 @@ export const EditableBlock: React.FC<EditableBlockProps> = ({
   const elRef = useRef<HTMLElement | null>(null);
   const isFocusedRef = useRef(false);
   const lastEmittedValueRef = useRef(value || '');
+  const debounceTimerRef = useRef<any>(null);
 
   // Synchronize value from outside
   useEffect(() => {
@@ -171,6 +172,15 @@ export const EditableBlock: React.FC<EditableBlockProps> = ({
     }
   }, [value]);
 
+  // Cleanup pending debounce timer on unmount
+  useEffect(() => {
+    return () => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
+    };
+  }, []);
+
   // Initial layout sync on mount
   useLayoutEffect(() => {
     const el = elRef.current;
@@ -186,7 +196,12 @@ export const EditableBlock: React.FC<EditableBlockProps> = ({
   const handleInput = (e: React.FormEvent<HTMLElement>) => {
     const currentVal = e.currentTarget.innerText;
     lastEmittedValueRef.current = currentVal;
-    onUpdateText(currentVal);
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+    }
+    debounceTimerRef.current = setTimeout(() => {
+      onUpdateText(currentVal);
+    }, 250);
   };
 
   const handleFocus = (e: React.FocusEvent<HTMLElement>) => {
@@ -196,9 +211,13 @@ export const EditableBlock: React.FC<EditableBlockProps> = ({
 
   const handleBlur = (e: React.FocusEvent<HTMLElement>) => {
     isFocusedRef.current = false;
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = null;
+    }
     const finalVal = e.currentTarget.innerText;
+    lastEmittedValueRef.current = finalVal;
     if (finalVal !== (value || '')) {
-      lastEmittedValueRef.current = finalVal;
       onUpdateText(finalVal);
     }
     onBlur?.(e);
@@ -389,8 +408,8 @@ export const TwoColumnItemRow: React.FC<TwoColumnItemRowProps> = React.memo(
               ? 'opacity-35 scale-[0.99] ring-2 ring-emerald-500/50 shadow-xl border-emerald-500/50'
               : isSelected
               ? isLight
-                ? 'bg-slate-100/70 border-slate-300/90 shadow-xs'
-                : 'bg-zinc-800/40 border-zinc-700/70 shadow-xs'
+                ? 'bg-amber-500/[0.04] border-amber-400 ring-2 ring-amber-400/40 shadow-xs'
+                : 'bg-amber-500/[0.06] border-amber-500/80 ring-2 ring-amber-500/30 shadow-xs'
               : isLight
               ? 'hover:bg-slate-50/70 border-transparent hover:border-slate-200'
               : 'hover:bg-zinc-800/40 border-transparent hover:border-zinc-800'
@@ -1018,17 +1037,19 @@ export const TwoColumnItemRow: React.FC<TwoColumnItemRowProps> = React.memo(
                             return;
                           }
 
-                          // ArrowDown: Move to next row's action block
+                          // ArrowDown: Move to next row (default to block selection)
                           if (e.key === 'ArrowDown' && (e.altKey || isCaretOnLastLine(e.currentTarget))) {
                             e.preventDefault();
-                            onFocusNextRow?.(item.id, 'action');
+                            e.currentTarget.blur();
+                            onFocusNextRow?.(item.id, 'card');
                             return;
                           }
 
-                          // ArrowUp: Move to previous row's action block
+                          // ArrowUp: Move to previous row (default to block selection)
                           if (e.key === 'ArrowUp' && (e.altKey || isCaretOnFirstLine(e.currentTarget))) {
                             e.preventDefault();
-                            onFocusPrevRow?.(item.id, 'action');
+                            e.currentTarget.blur();
+                            onFocusPrevRow?.(item.id, 'card');
                             return;
                           }
 
@@ -1180,17 +1201,19 @@ export const TwoColumnItemRow: React.FC<TwoColumnItemRowProps> = React.memo(
                             return;
                           }
 
-                          // ArrowDown: Move to next row's dialogue block
+                          // ArrowDown: Move to next row (default to block selection)
                           if (e.key === 'ArrowDown' && (e.altKey || isCaretOnLastLine(e.currentTarget))) {
                             e.preventDefault();
-                            onFocusNextRow?.(item.id, 'dialogue');
+                            e.currentTarget.blur();
+                            onFocusNextRow?.(item.id, 'card');
                             return;
                           }
 
-                          // ArrowUp: Move to previous row's dialogue block
+                          // ArrowUp: Move to previous row (default to block selection)
                           if (e.key === 'ArrowUp' && (e.altKey || isCaretOnFirstLine(e.currentTarget))) {
                             e.preventDefault();
-                            onFocusPrevRow?.(item.id, 'dialogue');
+                            e.currentTarget.blur();
+                            onFocusPrevRow?.(item.id, 'card');
                             return;
                           }
 

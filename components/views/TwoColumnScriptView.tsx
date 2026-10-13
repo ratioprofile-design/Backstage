@@ -239,8 +239,8 @@ function mergeTwoColumnData(
       const localTimestamp = locItem.updatedAt || localDirtyItemIds.get(inItem.id) || 0;
       const incomingTimestamp = inItem.updatedAt || 0;
 
-      if (isCurrentlyActive) {
-        // Local user is actively typing in this box: keep local!
+      if (isCurrentlyActive || localDirtyItemIds.has(inItem.id)) {
+        // Local user is actively typing or has pending uncommitted edits in this box: keep local!
         mergedItems.push(locItem);
       } else if (localTimestamp > 0 && localTimestamp >= incomingTimestamp) {
         // Local user's recent edit is newer: keep local!
@@ -2149,24 +2149,31 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
           afterText = '';
         }
 
+        const isDialogue = currentItem.column === 'right' || (!currentItem.column && !!currentItem.rightDialogue) || currentItem.type === 'dialogue';
+        const isCenter = currentItem.column === 'center' || currentItem.type === 'transition' || currentItem.type === 'title';
+        const isLeft = !isDialogue && !isCenter;
+
         const cleanBefore = beforeText.trimEnd();
         const cleanAfter = afterText.trimStart();
 
         const updatedCurrentItem: TamilScriptItem = {
           ...currentItem,
-          leftAction: currentItem.column === 'left' ? cleanBefore : currentItem.leftAction,
-          rightDialogue: currentItem.column === 'right' ? cleanBefore : currentItem.rightDialogue,
+          column: isDialogue ? 'right' : isCenter ? 'center' : 'left',
+          type: isDialogue ? 'dialogue' : isCenter ? (currentItem.type || 'transition') : 'action',
+          leftAction: isLeft ? cleanBefore : undefined,
+          rightDialogue: isDialogue ? cleanBefore : undefined,
+          rightCharacter: isDialogue ? (currentItem.rightCharacter || '') : undefined,
           rawText: cleanBefore,
           updatedAt: now,
         };
 
         const newItem: TamilScriptItem = {
           id: newItemId,
-          type: currentItem.type === 'dialogue' ? 'dialogue' : 'action',
-          column: currentItem.column,
-          leftAction: currentItem.column === 'left' ? cleanAfter : undefined,
-          rightDialogue: currentItem.column === 'right' ? cleanAfter : undefined,
-          rightCharacter: currentItem.column === 'right' ? (currentItem.rightCharacter || '') : '',
+          type: isDialogue ? 'dialogue' : isCenter ? (currentItem.type || 'transition') : 'action',
+          column: isDialogue ? 'right' : isCenter ? 'center' : 'left',
+          leftAction: isLeft ? cleanAfter : undefined,
+          rightDialogue: isDialogue ? cleanAfter : undefined,
+          rightCharacter: isDialogue ? (currentItem.rightCharacter || '') : undefined,
           rawText: cleanAfter,
           updatedAt: now,
         };
@@ -2272,14 +2279,22 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
   // Jump focus to next row during keyboard editing
   const handleFocusNextRow = (
     currentItemId: string,
-    targetField: 'auto' | 'action' | 'dialogue' | 'character' = 'auto'
+    targetField: 'card' | 'auto' | 'action' | 'dialogue' | 'character' = 'card'
   ) => {
     const idx = orderedItemIds.indexOf(currentItemId);
     if (idx !== -1 && idx < orderedItemIds.length - 1) {
       const nextId = orderedItemIds[idx + 1];
       setSelectedItemIds(new Set([nextId]));
       setLastSelectedId(nextId);
-      focusScriptItem(nextId, targetField, 'start');
+      if (targetField === 'card') {
+        const cardEl = document.getElementById(`script-row-card-${nextId}`);
+        if (cardEl) {
+          cardEl.focus({ preventScroll: true });
+          scrollToItem(nextId, 'smooth');
+        }
+      } else {
+        focusScriptItem(nextId, targetField, 'start');
+      }
     } else if (idx === orderedItemIds.length - 1) {
       handleAddParagraphBelow(currentItemId, targetField === 'dialogue' ? 'right' : 'left');
     }
@@ -2288,14 +2303,22 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
   // Jump focus to previous row during keyboard editing
   const handleFocusPrevRow = (
     currentItemId: string,
-    targetField: 'auto' | 'action' | 'dialogue' | 'character' = 'auto'
+    targetField: 'card' | 'auto' | 'action' | 'dialogue' | 'character' = 'card'
   ) => {
     const idx = orderedItemIds.indexOf(currentItemId);
     if (idx > 0) {
       const prevId = orderedItemIds[idx - 1];
       setSelectedItemIds(new Set([prevId]));
       setLastSelectedId(prevId);
-      focusScriptItem(prevId, targetField, 'end');
+      if (targetField === 'card') {
+        const cardEl = document.getElementById(`script-row-card-${prevId}`);
+        if (cardEl) {
+          cardEl.focus({ preventScroll: true });
+          scrollToItem(prevId, 'smooth');
+        }
+      } else {
+        focusScriptItem(prevId, targetField, 'end');
+      }
     }
   };
 
@@ -2634,6 +2657,41 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
             e.preventDefault();
             focusScriptItem(targetId, 'auto', 'end');
             return;
+          }
+        }
+
+        // Direct typing on selected block:
+        // "if im trying to type something while the block is selected that means im trying to write a character name and it only applies if the block is assigned to dialogue."
+        if (
+          !e.metaKey &&
+          !e.ctrlKey &&
+          !e.altKey &&
+          e.key.length === 1 &&
+          e.key !== ' '
+        ) {
+          const targetId =
+            lastSelectedId ||
+            (selectedItemIds.size === 1 ? Array.from(selectedItemIds)[0] : null);
+          if (targetId) {
+            let targetItem: TamilScriptItem | null = null;
+            for (const sc of screenplayData.scenes) {
+              const found = sc.items.find((i) => i.id === targetId);
+              if (found) {
+                targetItem = found;
+                break;
+              }
+            }
+
+            if (targetItem && (targetItem.column === 'right' || targetItem.type === 'dialogue')) {
+              const charInput = document.querySelector(
+                `[data-char-container="${targetId}"] input`
+              ) as HTMLInputElement | null;
+              if (charInput) {
+                charInput.focus();
+                // Without preventDefault, the typed character naturally types into the character input
+                return;
+              }
+            }
           }
         }
       }
