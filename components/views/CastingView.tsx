@@ -278,8 +278,9 @@ export const CastingView: React.FC<{ onNavigateToView?: (view: 'characterdesign'
           rawNames.push(rawName);
         }
       });
-      if (beat.breakdown?.cast) {
-        beat.breakdown.cast.forEach(c => {
+      const rawCast = beat.breakdown?.CAST || beat.breakdown?.cast || beat.breakdownData?.CAST || beat.breakdownData?.cast;
+      if (rawCast) {
+        rawCast.forEach(c => {
           const name = typeof c === 'string' ? c : c.name;
           if (name) rawNames.push(name);
         });

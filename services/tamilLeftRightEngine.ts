@@ -11,7 +11,7 @@ import {
   Packer,
   UnderlineType,
 } from 'docx';
-import { ProductionDocument } from '../types';
+import { ProductionDocument, BreakdownData } from '../types';
 
 export interface TamilScriptItem {
   id: string;
@@ -39,6 +39,7 @@ export interface TamilScene {
   characters?: string[];
   effects?: string;
   items: TamilScriptItem[];
+  breakdown?: BreakdownData;
 }
 
 export interface TamilScreenplayData {

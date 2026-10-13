@@ -954,6 +954,7 @@ export interface Beat {
   groupId?: number; // Visual or sequence group association
   groupTitle?: string; // Group / Sequence name
   isDisabled?: boolean; // Disabled / omitted beat (excluded from screenplay)
+  shootingDay?: number; // Production schedule shoot day (1, 2, 3...)
 }
 
 export type ConnectionStyle = 'curve' | 'zigzag';
@@ -1288,3 +1289,81 @@ export interface CallSheet {
   advancedScheduleNotes: string;
 }
 
+// ─── PRODUCTION PLAN & STRIPBOARD SCHEDULING ──────────────────────────
+
+export type StripLighting = 'INTDAY' | 'EXTDAY' | 'INTNIGHT' | 'EXTNIGHT';
+
+export interface DayBanner {
+  id: string;
+  type: 'company_move' | 'lunch' | 'weather_delay' | 'note' | 'travel' | 'day_off';
+  title: string;
+  estimatedMinutes?: number;
+  locationFrom?: string;
+  locationTo?: string;
+  notes?: string;
+}
+
+export interface ProductionStrip {
+  id: string;
+  sceneNo: string;
+  beatId?: number;
+  slugline: string;
+  scriptLocation: string;
+  realLocationId?: string;
+  realLocationName?: string;
+  lighting: StripLighting;
+  pageFraction: string; // e.g., "2 3/8" or "1/8"
+  pageCountDecimal: number; // e.g., 2.375
+  estimatedHours: number; // e.g., 1.5
+  shotCount: number;
+  castIds: number[]; // e.g. [1, 2, 4]
+  castNames: string[];
+  departmentFlags: {
+    hasStunts?: boolean;
+    hasSfx?: boolean;
+    hasVfx?: boolean;
+    hasNight?: boolean;
+    hasChildArtist?: boolean;
+    hasVehicles?: boolean;
+    hasDrone?: boolean;
+  };
+  scheduledDayId?: string; // id of ShootDay, or undefined if in unscheduled rack
+  lockState: 'unlocked' | 'soft' | 'hard';
+  userNotes?: string;
+}
+
+export interface ShootDay {
+  id: string;
+  dayNumber: number;
+  date: string; // YYYY-MM-DD
+  callTime: string; // HH:MM
+  wrapEstimatedTime: string; // HH:MM
+  isRestDay?: boolean;
+  isTravelDay?: boolean;
+  notes?: string;
+  banners: DayBanner[];
+  assignedStripIds: string[];
+}
+
+export interface ProductionMilestone {
+  id: string;
+  phase: 'pre_prod' | 'shoot' | 'post_prod' | 'distribution';
+  title: string;
+  startDate: string; // YYYY-MM-DD
+  endDate: string; // YYYY-MM-DD
+  status: 'pending' | 'in_progress' | 'completed' | 'delayed';
+  ownerDepartment?: string;
+  progressPercent: number;
+  notes?: string;
+}
+
+export interface MasterProductionPlan {
+  projectId: string;
+  shootDays: ShootDay[];
+  unscheduledStripIds: string[];
+  milestones: ProductionMilestone[];
+  targetDailyPageLimit: number; // default: 4.5
+  maxShootingHoursPerDay: number; // default: 12
+  minimumTurnaroundHours: number; // default: 12
+  lastOptimizedAt?: number;
+}

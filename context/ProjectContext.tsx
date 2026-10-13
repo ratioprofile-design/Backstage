@@ -969,8 +969,17 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       globalNotes: [],
       scratchpad: '',
       talentPool: [],
-      documents: []
+      documents: [],
+      causalityLanes: [],
+      causalityGroups: [],
+      sectionBreaks: []
     };
+    try {
+      localStorage.removeItem(`causality_lanes_${id}`);
+      localStorage.removeItem(`causality_groups_${id}`);
+      localStorage.removeItem(`causality_breaks_${id}`);
+      localStorage.removeItem(`backstage_daw_tracks_${id}`);
+    } catch (e) {}
     saveProductionDocuments([], id, true);
     setCurrentProjectName(name);
     localStorage.setItem(`project_name_${id}`, name);
@@ -1395,6 +1404,12 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const updateBeat = (id: number, updates: Partial<Beat>) => {
     if (isRemoteUpdateRef.current) return;
+    const synchronizedUpdates = { ...updates };
+    if (updates.breakdown !== undefined && updates.breakdownData === undefined) {
+      synchronizedUpdates.breakdownData = updates.breakdown;
+    } else if (updates.breakdownData !== undefined && updates.breakdown === undefined) {
+      synchronizedUpdates.breakdown = updates.breakdownData;
+    }
     setBeats(prev => {
       const target = prev.find(b => b.id === id);
       let delta = 0;
@@ -1407,7 +1422,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
           setDailyStats(curr => ({ ...curr, [today]: (curr[today] || 0) + delta }));
         }, 0);
       }
-      return prev.map(b => b.id === id ? { ...b, ...updates } : b);
+      return prev.map(b => b.id === id ? { ...b, ...synchronizedUpdates } : b);
     });
     setHasUnsavedChanges(true);
   };

@@ -391,8 +391,9 @@ const PrintPreviewModal: React.FC<PrintPreviewModalProps> = ({ onClose }) => {
         });
       }
 
-      if (b.breakdown?.cast) {
-        b.breakdown.cast.forEach(c => {
+      const rawCast = b.breakdown?.CAST || b.breakdown?.cast || b.breakdownData?.CAST || b.breakdownData?.cast;
+      if (rawCast) {
+        rawCast.forEach(c => {
           const name = typeof c === 'string' ? c : c.name;
           if (name && name.trim()) chars.add(name.trim().toUpperCase());
         });
@@ -408,14 +409,16 @@ const PrintPreviewModal: React.FC<PrintPreviewModalProps> = ({ onClose }) => {
 
   // Helper matchers
   const isVfxBeat = (b: Beat) => {
-    if (b.breakdown?.vfx && b.breakdown.vfx.length > 0) return true;
+    const bd = b.breakdown || b.breakdownData;
+    if ((bd?.SFX && bd.SFX.length > 0) || (bd?.vfx && bd.vfx.length > 0)) return true;
     const fullText = `${b.title || ''} ${b.summary || ''} ${b.content || ''} ${b.slug?.location || ''}`.toLowerCase();
     const vfxKeywords = ['vfx', 'cg', 'cgi', 'greenscreen', 'green screen', 'chroma', '3d', 'visual effect', 'special effect', 'compositing', 'mocap', 'digital double'];
     return vfxKeywords.some(kw => fullText.includes(kw));
   };
 
   const isActionBeat = (b: Beat) => {
-    if (b.breakdown?.practical && b.breakdown.practical.length > 0) return true;
+    const bd = b.breakdown || b.breakdownData;
+    if ((bd?.STUNTS && bd.STUNTS.length > 0) || (bd?.practical && bd.practical.length > 0)) return true;
     const fullText = `${b.title || ''} ${b.summary || ''} ${b.content || ''} ${b.slug?.location || ''}`.toLowerCase();
     const actionKeywords = [
       'fight', 'action', 'chase', 'combat', 'battle', 'shootout', 'gunfire', 'explosion',
@@ -462,8 +465,9 @@ const PrintPreviewModal: React.FC<PrintPreviewModalProps> = ({ onClose }) => {
             if (name) charsInScene.add(name);
           });
         }
-        if (b.breakdown?.cast) {
-          b.breakdown.cast.forEach(c => {
+        const rawCastInScene = b.breakdown?.CAST || b.breakdown?.cast || b.breakdownData?.CAST || b.breakdownData?.cast;
+        if (rawCastInScene) {
+          rawCastInScene.forEach(c => {
             const name = typeof c === 'string' ? c : c.name;
             if (name) charsInScene.add(name.trim().toUpperCase());
           });

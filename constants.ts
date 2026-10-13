@@ -303,7 +303,7 @@ export const INITIAL_STATE: ProjectState = {
   },
   geminiApiKey: '',
   openrouterKey: '',
-  generalAiModel: 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free',
+  generalAiModel: 'gemini-flash-latest',
   dailyStats: {},
   sessionStartCount: 0,
   lastSessionDate: new Date().toISOString().split('T')[0],

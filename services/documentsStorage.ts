@@ -238,7 +238,7 @@ export function buildBreakdownSheetDataFromBeat(b: any): any[][] {
   if (!b) return rows;
 
   let counter = 1;
-  const breakdown = b.breakdown || {};
+  const breakdown = b.breakdown || b.breakdownData || {};
 
   Object.entries(breakdown).forEach(([catKey, val]: [string, any]) => {
     if (!val) return;
@@ -1208,7 +1208,8 @@ export function harvestProjectArtifacts(project: any): { addedCount: number; doc
       }
 
       // 3. Harvest breakdowns from beats
-      if (b.breakdown && Object.keys(b.breakdown).length > 0) {
+      const beatBd = b.breakdown || b.breakdownData;
+      if (beatBd && Object.keys(beatBd).length > 0) {
         const breakdownDocId = `harvest-breakdown-${b.id}`;
         if (!existingIds.has(breakdownDocId)) {
           const sheetData = buildBreakdownSheetDataFromBeat(b);
@@ -1220,7 +1221,7 @@ export function harvestProjectArtifacts(project: any): { addedCount: number; doc
             'DAY 1',
             b.pages || '1 PG'
           );
-          const breakdownSummary = Object.entries(b.breakdown)
+          const breakdownSummary = Object.entries(beatBd)
             .map(([cat, items]: [string, any]) => `${cat.toUpperCase()}: ${Array.isArray(items) ? items.join(', ') : items}`)
             .join('\n');
 

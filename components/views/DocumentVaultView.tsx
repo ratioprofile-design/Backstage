@@ -1229,7 +1229,7 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
       }
       if (onNavigateToView) {
         onNavigateToView('two-column-script');
-        showToast(`✓ Opened "${doc.title}" in 2-Col Script Page!`);
+        showToast(`✓ Opened "${doc.title}" in Script Page!`);
       } else {
         setSelectedDocId(doc.id);
         setStudioViewMode('two-column');
@@ -1306,7 +1306,7 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
     if (onNavigateToView) {
       onNavigateToView('two-column-script');
       confetti({ particleCount: 40, spread: 60, origin: { y: 0.6 } });
-      showToast(`✓ Created 2-Column Script & Opened in 2-Col Script Page!`);
+      showToast(`✓ Created Script & Opened in Script Page!`);
     } else {
       setStudioViewMode('two-column');
       setInStudioMode(true);
@@ -2031,7 +2031,7 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                 title="Open Dedicated 2-Column Kollywood Script Studio"
               >
                 <Columns size={13} />
-                <span className="hidden md:inline">2-Col Script Studio</span>
+                <span className="hidden md:inline">Script Studio</span>
               </button>
 
               <button
@@ -2082,7 +2082,7 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                 </button>
               </div>
 
-              {/* Open in Dedicated 2-Col Script Page */}
+              {/* Open in Dedicated Script Page */}
               <button
                 onClick={() => handleMakeTwoColumnScriptAndOpen(selectedDoc)}
                 className={`px-3 py-1.5 text-xs font-bold rounded-lg border flex items-center gap-1.5 transition-all shadow-sm cursor-pointer ${
@@ -2090,10 +2090,10 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                     ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-300'
                     : 'bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40'
                 }`}
-                title="Make / open this document in the dedicated 2-Col Script Page"
+                title="Make / open this document in the dedicated Script Page"
               >
                 <Columns size={13} className="text-emerald-400" />
-                <span>Open in 2-Col Script Page</span>
+                <span>Open in Script Page</span>
               </button>
 
               {/* Toggle 2-Column Left/Right Shooting Script Layout on Document */}
@@ -2602,7 +2602,7 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                                   handleMakeTwoColumnScriptAndOpen(doc);
                                 }}
                                 className="p-1.5 rounded-lg bg-zinc-900/90 text-emerald-400 hover:bg-emerald-500 hover:text-black transition-all shadow-md flex items-center gap-1"
-                                title="Make 2-Column Script & Open in 2-Col Script Page"
+                                title="Make Script & Open in Script Page"
                               >
                                 <Columns size={13} />
                               </button>
@@ -4783,21 +4783,21 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                   <span>{isGeneratingDocx ? 'Generating DOCX...' : 'Download Word (.docx)'}</span>
                 </button>
 
-                {/* Open in 2-Col Script Page Button */}
+                {/* Open in Script Page Button */}
                 <button
                   onClick={() => {
                     handleSaveTamilLeftRightToVault();
                     if (onNavigateToView) {
                       setIsTamilLeftRightModalOpen(false);
                       onNavigateToView('two-column-script');
-                      showToast('✓ Opened in 2-Col Script Page!');
+                      showToast('✓ Opened in Script Page!');
                     }
                   }}
                   className="px-3.5 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-black text-xs flex items-center gap-1.5 transition-all shadow-md cursor-pointer"
-                  title="Save and open directly in dedicated 2-Col Script Studio page"
+                  title="Save and open directly in dedicated Script Studio page"
                 >
                   <Columns size={13} />
-                  <span>Open in 2-Col Script Page</span>
+                  <span>Open in Script Page</span>
                 </button>
 
                 {/* Save to Vault Button */}

@@ -7,11 +7,18 @@ import { enrichBreakdownData } from "../utils/breakdownSync";
 
 export const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
 export const TOKENROUTER_BASE_URL = 'https://api.tokenrouter.com/v1';
-export const GEMINI_FALLBACK_MODEL = 'gemini-3.6-flash';
+export const GEMINI_FALLBACK_MODEL = 'gemini-flash-latest';
 
 export function normalizeGeminiModel(model?: string): string {
-  if (!model || model === 'gemini-2.5-flash' || model === 'gemini-1.5-flash' || model === 'gemini-flash') {
-    return 'gemini-3.6-flash';
+  if (
+    !model ||
+    model === 'gemini-2.5-flash' ||
+    model === 'gemini-1.5-flash' ||
+    model === 'gemini-flash' ||
+    model === 'gemini-3.6-flash' ||
+    model === 'gemini-3.5-flash'
+  ) {
+    return 'gemini-flash-latest';
   }
   return model;
 }
@@ -62,17 +69,43 @@ async function callGeminiText(prompt: string, model: string, jsonMode: boolean):
     return response.text || '';
   };
 
-  try {
-    return await execute(effectiveModel);
-  } catch (err: any) {
-    const is503 = err?.message?.includes('503') || err?.status === 503 || err?.message?.includes('high demand');
-    if (is503) {
-      console.warn(`[Gemini] ${effectiveModel} temporary 503 / high demand. Retrying...`);
-      await new Promise((r) => setTimeout(r, 1200));
-      return await execute(effectiveModel);
+  const candidateModels = [
+    effectiveModel,
+    'gemini-flash-latest',
+    'gemini-3.7-flash',
+    'gemini-3.8-flash',
+    'gemini-flash-lite-latest',
+  ];
+  const uniqueCandidates = Array.from(new Set(candidateModels.filter(Boolean)));
+
+  let lastError: any = null;
+  for (const candidate of uniqueCandidates) {
+    try {
+      return await execute(candidate);
+    } catch (err: any) {
+      lastError = err;
+      const isQuotaOrAvailabilityError =
+        err?.message?.includes('429') ||
+        err?.status === 429 ||
+        err?.message?.includes('quota') ||
+        err?.message?.includes('RESOURCE_EXHAUSTED') ||
+        err?.message?.includes('503') ||
+        err?.status === 503 ||
+        err?.message?.includes('404') ||
+        err?.status === 404 ||
+        err?.message?.includes('high demand') ||
+        err?.message?.includes('UNAVAILABLE') ||
+        err?.message?.includes('not found');
+
+      if (isQuotaOrAvailabilityError) {
+        console.warn(`[Gemini] Model ${candidate} hit quota or availability issue. Automatically cascading to next available model...`);
+        continue;
+      }
+      throw err;
     }
-    throw err;
   }
+
+  throw lastError || new Error("All Gemini models exhausted.");
 }
 
 // TokenRouter blocks browser CORS, so in dev we tunnel through the Vite dev
@@ -154,6 +187,10 @@ async function callTextModel(prompt: string, model: string, jsonMode: boolean, o
     // Prefer the in-app key (Backstage AI tab), fall back to env vars.
     const key = openRouterApiKey || import.meta.env.VITE_TOKENROUTER_API_KEY || import.meta.env.VITE_OPENROUTER_API_KEY;
     if (!key) {
+      if (getGeminiApiKey()) {
+        console.warn('External AI key not set — seamlessly using Google Gemini.');
+        return callGeminiText(prompt, GEMINI_FALLBACK_MODEL, jsonMode);
+      }
       throw new Error("API key not set. Add it in Backstage > AI.");
     }
     try {
@@ -311,6 +348,10 @@ export async function chatWithAI(
   if (isOpenRouterModel(model)) {
     const key = openRouterApiKey || import.meta.env.VITE_TOKENROUTER_API_KEY || import.meta.env.VITE_OPENROUTER_API_KEY;
     if (!key) {
+      if (getGeminiApiKey()) {
+        console.warn('External AI key not set — seamlessly falling back to Gemini for chat.');
+        return chatGemini(messages, GEMINI_FALLBACK_MODEL, systemPrompt);
+      }
       throw new Error("API key not set. Add it in Backstage > AI.");
     }
     const provider = resolveBaseUrl(key).includes('openrouter') ? 'OpenRouter' : 'TokenRouter';
@@ -619,7 +660,7 @@ Return ONLY a raw JSON Object with:
 
 export async function generateBreakdown(
   scriptText: string, 
-  model: string = 'gemini-3.6-flash', 
+  model: string = 'gemini-flash-latest', 
   language: 'english' | 'tamil' = 'english',
   openRouterApiKey?: string
 ): Promise<BreakdownData | null> {
@@ -867,8 +908,8 @@ export async function generatePollinationsImage(
   const cleanPrompt = sanitizePromptForImageGen(prompt);
   const seed = Math.floor(Math.random() * 10000000);
   
-  // Use fast, reliable Turbo engine (2-3s response)
-  const pollinationsUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(cleanPrompt)}?width=${width}&height=${height}&seed=${seed}&nologo=true&model=turbo`;
+  // Use free, fast, reliable Pollinations engine
+  const pollinationsUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(cleanPrompt)}?width=${width}&height=${height}&seed=${seed}&nologo=true`;
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 18000);
@@ -883,15 +924,20 @@ export async function generatePollinationsImage(
     if (!blob || blob.size < 500) {
       throw new Error('Received invalid or empty image blob');
     }
-    return await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        if (typeof reader.result === 'string') resolve(reader.result);
-        else reject(new Error('Failed to read image as DataURL'));
-      };
-      reader.onerror = () => reject(new Error('FileReader error'));
-      reader.readAsDataURL(blob);
-    });
+    const arrayBuffer = await blob.arrayBuffer();
+    let base64 = '';
+    if (typeof Buffer !== 'undefined') {
+      base64 = Buffer.from(arrayBuffer).toString('base64');
+    } else {
+      const bytes = new Uint8Array(arrayBuffer);
+      let binary = '';
+      for (let i = 0; i < bytes.byteLength; i++) {
+        binary += String.fromCharCode(bytes[i]);
+      }
+      base64 = btoa(binary);
+    }
+    const mime = blob.type || 'image/jpeg';
+    return `data:${mime};base64,${base64}`;
   } catch (err) {
     clearTimeout(timer);
     console.warn('Pollinations Turbo fetch error, using procedural canvas sketch:', err);

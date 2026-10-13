@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useProject } from '../../context/ProjectContext';
-import { ProductionDocument, ViewMode } from '../../types';
+import { ProductionDocument, ViewMode, Beat } from '../../types';
+import { syncBreakdownToDepartmentsAndContinuity } from '../../utils/breakdownSync';
 import {
   getProductionDocuments,
   saveProductionDocuments,
@@ -79,12 +80,90 @@ import {
   Keyboard,
   Edit2,
   Folder,
+  Tag,
+  UserCheck,
+  Car,
+  Cat,
+  Home,
+  TreePine,
+  Zap,
+  AlertTriangle,
+  Shirt,
+  Package,
+  Flame,
+  Volume2,
+  Camera,
+  ListChecks,
+  RefreshCw,
 } from 'lucide-react';
+import {
+  BreakdownCategory,
+  BreakdownItem,
+  BreakdownData,
+  CATEGORY_REGISTRY,
+} from '../../types';
+import { generateBreakdown } from '../../services/gemini';
+import { useAiKeyStatus } from '../../context/AiKeyStatusContext';
 
 export interface TwoColumnScriptViewProps {
   initialDocumentId?: string;
   onNavigateToView?: (view: ViewMode) => void;
 }
+
+const ALL_15_CATEGORIES: BreakdownCategory[] = [
+  'CAST',
+  'EXTRAS',
+  'STUNTS',
+  'VEHICLES',
+  'PROPS',
+  'SFX',
+  'WARDROBE',
+  'MAKEUP',
+  'ANIMALS',
+  'SOUND',
+  'SET_DRESSING',
+  'GREENERY',
+  'SPECIAL_EQUIPMENT',
+  'LIGHTING_GRIP',
+  'SAFETY',
+];
+
+const getBreakdownCategoryIcon = (iconName: string) => {
+  switch (iconName) {
+    case 'UserCheck': return UserCheck;
+    case 'Users': return Users;
+    case 'Flame': return Flame;
+    case 'Car': return Car;
+    case 'Package': return Package;
+    case 'Sparkles': return Sparkles;
+    case 'Shirt': return Shirt;
+    case 'Palette': return Palette;
+    case 'Cat': return Cat;
+    case 'Volume2': return Volume2;
+    case 'Home': return Home;
+    case 'TreePine': return TreePine;
+    case 'Camera': return Camera;
+    case 'Zap': return Zap;
+    case 'AlertTriangle': return AlertTriangle;
+    default: return Tag;
+  }
+};
+
+const getTwoColumnCategoryItems = (breakdown: BreakdownData | undefined, category: BreakdownCategory): (string | BreakdownItem)[] => {
+  if (!breakdown) return [];
+  const upper = breakdown[category];
+  if (Array.isArray(upper) && upper.length > 0) return upper;
+
+  if (category === 'CAST' && Array.isArray(breakdown.cast) && breakdown.cast.length > 0) return breakdown.cast;
+  if (category === 'PROPS' && Array.isArray(breakdown.props) && breakdown.props.length > 0) return breakdown.props;
+  if (category === 'SOUND' && Array.isArray(breakdown.sound) && breakdown.sound.length > 0) return breakdown.sound;
+  if (category === 'WARDROBE' && Array.isArray(breakdown.costume) && breakdown.costume.length > 0) return breakdown.costume;
+  if (category === 'SFX' && Array.isArray(breakdown.vfx) && breakdown.vfx.length > 0) return breakdown.vfx;
+  if (category === 'STUNTS' && Array.isArray(breakdown.practical) && breakdown.practical.length > 0) return breakdown.practical;
+  if (category === 'SET_DRESSING' && Array.isArray(breakdown.location) && breakdown.location.length > 0) return breakdown.location;
+
+  return Array.isArray(upper) ? upper : [];
+};
 
 /**
  * Real-time Collaborative Non-Destructive Merger
@@ -354,6 +433,13 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
   const [currentSinglePage, setCurrentSinglePage] = useState<number>(1);
   const [zoomLevel, setZoomLevel] = useState<number>(100);
   const [isStyleDrawerOpen, setIsStyleDrawerOpen] = useState<boolean>(false);
+  const { aiAvailable } = useAiKeyStatus();
+  const [isBreakdownDrawerOpen, setIsBreakdownDrawerOpen] = useState<boolean>(false);
+  const [activeBreakdownSceneId, setActiveBreakdownSceneId] = useState<string>('');
+  const [breakdownLanguage, setBreakdownLanguage] = useState<'english' | 'tamil'>(() => projectContext.breakdownLanguage || 'english');
+  const [isAnalyzingBreakdown, setIsAnalyzingBreakdown] = useState<boolean>(false);
+  const [newTagInputs, setNewTagInputs] = useState<Record<string, string>>({});
+  const [dragOverBreakdownCategory, setDragOverBreakdownCategory] = useState<BreakdownCategory | null>(null);
   const [isExportingDocx, setIsExportingDocx] = useState<boolean>(false);
   const [isExportingPdf, setIsExportingPdf] = useState<boolean>(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState<boolean>(false);
@@ -553,6 +639,214 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 3200);
   }, []);
+
+  // 15-Category Production Breakdown Helpers & Handlers
+  const findMatchingBeat = useCallback((scene?: TamilScene): Beat | undefined => {
+    if (!scene || !projectContext.beats || projectContext.beats.length === 0) return undefined;
+    if (scene.sceneNumber) {
+      const byNum = projectContext.beats.find(b => String(b.sceneNumber) === String(scene.sceneNumber));
+      if (byNum) return byNum;
+    }
+    const sceneIndex = screenplayData.scenes.findIndex(s => s.id === scene.id);
+    if (sceneIndex >= 0 && projectContext.beats[sceneIndex]) {
+      return projectContext.beats[sceneIndex];
+    }
+    return undefined;
+  }, [projectContext.beats, screenplayData.scenes]);
+
+  const activeBreakdownScene = useMemo(() => {
+    const sc = screenplayData.scenes.find((s) => s.id === activeBreakdownSceneId) || screenplayData.scenes[0];
+    if (!sc) return undefined;
+    if (!sc.breakdown) {
+      const mb = findMatchingBeat(sc);
+      const beatBd = mb?.breakdown || mb?.breakdownData;
+      if (beatBd) {
+        return { ...sc, breakdown: beatBd };
+      }
+    }
+    return sc;
+  }, [screenplayData.scenes, activeBreakdownSceneId, findMatchingBeat]);
+
+  const totalTwoColumnBreakdownItems = useMemo(() => {
+    if (!activeBreakdownScene?.breakdown) return 0;
+    return ALL_15_CATEGORIES.reduce(
+      (sum, cat) => sum + getTwoColumnCategoryItems(activeBreakdownScene.breakdown, cat).length,
+      0
+    );
+  }, [activeBreakdownScene]);
+
+  const handleSyncAllBreakdownsFromBeats = useCallback(() => {
+    if (!projectContext.beats || projectContext.beats.length === 0) {
+      showToast('No Screenplay/Mass Breakdown scenes available to sync.');
+      return;
+    }
+    let syncedCount = 0;
+    setScreenplayData((prev) => {
+      const nextScenes = prev.scenes.map((s, idx) => {
+        const mb = findMatchingBeat(s) || projectContext.beats[idx];
+        const beatBd = mb?.breakdown || mb?.breakdownData;
+        if (beatBd) {
+          syncedCount++;
+          return { ...s, breakdown: beatBd };
+        }
+        return s;
+      });
+      const next = { ...prev, scenes: nextScenes };
+      screenplayDataRef.current = next;
+      return next;
+    });
+    setHasUnsavedChanges(true);
+    showToast(`⚡ Synced breakdown for ${syncedCount} scenes from Screenplay & Mass Breakdown!`);
+  }, [projectContext.beats, findMatchingBeat]);
+
+  const handleAnalyzeTwoColumnBreakdown = async () => {
+    if (!activeBreakdownScene) return;
+    setIsAnalyzingBreakdown(true);
+    try {
+      const sceneTextParts: string[] = [];
+      if (activeBreakdownScene.sluglineText) {
+        sceneTextParts.push(activeBreakdownScene.sluglineText);
+      } else {
+        sceneTextParts.push(`SCENE ${activeBreakdownScene.sceneNumber}: ${activeBreakdownScene.location} - ${activeBreakdownScene.timeOfDay}`);
+      }
+
+      (activeBreakdownScene.items || []).forEach((item) => {
+        if (item.leftAction) sceneTextParts.push(`ACTION: ${item.leftAction}`);
+        if (item.rightCharacter && item.rightDialogue) {
+          sceneTextParts.push(`${item.rightCharacter}: ${item.rightDialogue}`);
+        } else if (item.rightDialogue) {
+          sceneTextParts.push(item.rightDialogue);
+        }
+        if (item.rightAudioSfx) sceneTextParts.push(`[SOUND: ${item.rightAudioSfx}]`);
+        if (item.rawText) sceneTextParts.push(item.rawText);
+      });
+
+      const fullText = sceneTextParts.join('\n\n');
+      const result = await generateBreakdown(
+        fullText,
+        projectContext.generalAiModel || 'gemini-flash-latest',
+        breakdownLanguage,
+        projectContext.openrouterKey
+      );
+
+      if (result) {
+        setScreenplayData((prev) => {
+          const next = {
+            ...prev,
+            scenes: prev.scenes.map((s) =>
+              s.id === activeBreakdownScene.id ? { ...s, breakdown: result } : s
+            ),
+          };
+          screenplayDataRef.current = next;
+          return next;
+        });
+        setHasUnsavedChanges(true);
+
+        // Synchronize immediately to the corresponding Screenplay Beat & Mass Breakdown
+        const mb = findMatchingBeat(activeBreakdownScene);
+        if (mb) {
+          projectContext.updateBeat(mb.id, { breakdown: result, breakdownData: result });
+          try {
+            const nextBeats = projectContext.beats.map(b => b.id === mb.id ? { ...b, breakdown: result, breakdownData: result } : b);
+            syncBreakdownToDepartmentsAndContinuity(nextBeats, []);
+          } catch (syncErr) {
+            console.warn('Sync departments error:', syncErr);
+          }
+        }
+
+        showToast(`✓ Analyzed 15 production categories for Scene ${activeBreakdownScene.sceneNumber}`);
+      } else {
+        alert('Failed to analyze breakdown for this scene.');
+      }
+    } catch (err) {
+      console.error('Error analyzing two-column breakdown:', err);
+      alert('An error occurred during breakdown analysis.');
+    } finally {
+      setIsAnalyzingBreakdown(false);
+    }
+  };
+
+  const handleAddTwoColumnTag = (category: BreakdownCategory, tag: string) => {
+    if (!activeBreakdownScene || !tag.trim()) return;
+    const currentBreakdown = activeBreakdownScene.breakdown || {};
+    const list = getTwoColumnCategoryItems(currentBreakdown, category);
+    const exists = list.some((i) => (typeof i === 'string' ? i : i.name).toLowerCase() === tag.trim().toLowerCase());
+    if (exists) return;
+
+    const newItem: BreakdownItem = {
+      name: tag.trim(),
+      category,
+      source: '',
+    };
+    const updatedBreakdown: BreakdownData = {
+      ...currentBreakdown,
+      [category]: [...list, newItem],
+    };
+
+    setScreenplayData((prev) => {
+      const next = {
+        ...prev,
+        scenes: prev.scenes.map((s) =>
+          s.id === activeBreakdownScene.id ? { ...s, breakdown: updatedBreakdown } : s
+        ),
+      };
+      screenplayDataRef.current = next;
+      return next;
+    });
+    setHasUnsavedChanges(true);
+    setNewTagInputs((prev) => ({ ...prev, [category]: '' }));
+
+    // Synchronize to main Beat
+    const mb = findMatchingBeat(activeBreakdownScene);
+    if (mb) {
+      projectContext.updateBeat(mb.id, { breakdown: updatedBreakdown, breakdownData: updatedBreakdown });
+      try {
+        const nextBeats = projectContext.beats.map(b => b.id === mb.id ? { ...b, breakdown: updatedBreakdown, breakdownData: updatedBreakdown } : b);
+        syncBreakdownToDepartmentsAndContinuity(nextBeats, []);
+      } catch (e) { /* ignore */ }
+    }
+  };
+
+  const handleRemoveTwoColumnTag = (category: BreakdownCategory, tag: string) => {
+    if (!activeBreakdownScene) return;
+    const currentBreakdown = activeBreakdownScene.breakdown || {};
+    const list = getTwoColumnCategoryItems(currentBreakdown, category);
+    const newList = list.filter((i) => (typeof i === 'string' ? i : i.name) !== tag);
+
+    const updatedBreakdown: BreakdownData = {
+      ...currentBreakdown,
+      [category]: newList,
+    };
+    if (category === 'CAST' && updatedBreakdown.cast) updatedBreakdown.cast = (updatedBreakdown.cast as any[]).filter((i) => (typeof i === 'string' ? i : i.name) !== tag);
+    if (category === 'PROPS' && updatedBreakdown.props) updatedBreakdown.props = (updatedBreakdown.props as any[]).filter((i) => (typeof i === 'string' ? i : i.name) !== tag);
+    if (category === 'SOUND' && updatedBreakdown.sound) updatedBreakdown.sound = (updatedBreakdown.sound as any[]).filter((i) => (typeof i === 'string' ? i : i.name) !== tag);
+    if (category === 'WARDROBE' && updatedBreakdown.costume) updatedBreakdown.costume = (updatedBreakdown.costume as any[]).filter((i) => (typeof i === 'string' ? i : i.name) !== tag);
+    if (category === 'SFX' && updatedBreakdown.vfx) updatedBreakdown.vfx = (updatedBreakdown.vfx as any[]).filter((i) => (typeof i === 'string' ? i : i.name) !== tag);
+    if (category === 'STUNTS' && updatedBreakdown.practical) updatedBreakdown.practical = (updatedBreakdown.practical as any[]).filter((i) => (typeof i === 'string' ? i : i.name) !== tag);
+    if (category === 'SET_DRESSING' && updatedBreakdown.location) updatedBreakdown.location = (updatedBreakdown.location as any[]).filter((i) => (typeof i === 'string' ? i : i.name) !== tag);
+
+    setScreenplayData((prev) => {
+      const next = {
+        ...prev,
+        scenes: prev.scenes.map((s) =>
+          s.id === activeBreakdownScene.id ? { ...s, breakdown: updatedBreakdown } : s
+        ),
+      };
+      screenplayDataRef.current = next;
+      return next;
+    });
+    setHasUnsavedChanges(true);
+
+    // Synchronize to main Beat
+    const mb = findMatchingBeat(activeBreakdownScene);
+    if (mb) {
+      projectContext.updateBeat(mb.id, { breakdown: updatedBreakdown, breakdownData: updatedBreakdown });
+      try {
+        const nextBeats = projectContext.beats.map(b => b.id === mb.id ? { ...b, breakdown: updatedBreakdown, breakdownData: updatedBreakdown } : b);
+        syncBreakdownToDepartmentsAndContinuity(nextBeats, []);
+      } catch (e) { /* ignore */ }
+    }
+  };
 
   // Run Dedicated Pagination Engine
   const paginationResult = useMemo(() => {
@@ -2953,9 +3247,48 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
             <span>Add Scene</span>
           </button>
 
+          {/* 15-Category Production Breakdown Drawer Toggle */}
+          <button
+            onClick={() => {
+              setIsBreakdownDrawerOpen(!isBreakdownDrawerOpen);
+              if (!isBreakdownDrawerOpen && isStyleDrawerOpen) {
+                setIsStyleDrawerOpen(false);
+              }
+              if (!activeBreakdownSceneId && screenplayData.scenes[0]) {
+                setActiveBreakdownSceneId(screenplayData.scenes[0].id);
+              }
+            }}
+            className={`px-2.5 py-1.5 text-xs font-semibold rounded-lg border flex items-center gap-1.5 transition-all cursor-pointer ${
+              isBreakdownDrawerOpen
+                ? isLight
+                  ? 'bg-amber-50 text-amber-800 border-amber-300 shadow-xs'
+                  : 'bg-amber-500/15 text-amber-300 border-amber-500/40 shadow-xs'
+                : isLight
+                ? 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'
+                : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border-zinc-700/60'
+            }`}
+            title="Open 15-Category Production Breakdown Drawer"
+          >
+            <ListChecks size={13} className={isBreakdownDrawerOpen ? 'text-amber-500' : isLight ? 'text-slate-500' : 'text-zinc-400'} />
+            <span>15-Category Breakdown</span>
+            {totalTwoColumnBreakdownItems > 0 && (
+              <span
+                className="text-[9.5px] font-mono font-bold px-1.5 py-0.2 rounded-full"
+                style={{ backgroundColor: `${appAccentColor}25`, color: appAccentColor }}
+              >
+                {totalTwoColumnBreakdownItems}
+              </span>
+            )}
+          </button>
+
           {/* Format & Style Drawer Toggle */}
           <button
-            onClick={() => setIsStyleDrawerOpen(!isStyleDrawerOpen)}
+            onClick={() => {
+              setIsStyleDrawerOpen(!isStyleDrawerOpen);
+              if (!isStyleDrawerOpen && isBreakdownDrawerOpen) {
+                setIsBreakdownDrawerOpen(false);
+              }
+            }}
             className={`px-2.5 py-1.5 text-xs font-semibold rounded-lg border flex items-center gap-1.5 transition-all cursor-pointer ${
               isStyleDrawerOpen
                 ? isLight
@@ -4500,6 +4833,295 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
                   }`}
                 />
               </div>
+            </div>
+          </aside>
+        )}
+
+        {/* =====================================================================
+            15-CATEGORY PRODUCTION BREAKDOWN DRAWER (Collapsible)
+           ===================================================================== */}
+        {isBreakdownDrawerOpen && activeBreakdownScene && (
+          <aside className={`w-96 shrink-0 border-l overflow-y-auto p-5 shadow-2xl flex flex-col gap-4 z-30 transition-all custom-scrollbar ${
+            isLight ? 'bg-white border-slate-200 text-slate-800' : 'bg-[#141419] border-zinc-800 text-zinc-100'
+          }`}>
+            {/* Header */}
+            <div className={`flex items-center justify-between pb-3 border-b ${
+              isLight ? 'border-slate-200' : 'border-zinc-700/50'
+            }`}>
+              <div className="flex items-center gap-2">
+                <ListChecks size={16} className="text-[#f5a623]" />
+                <div>
+                  <h3 className="text-xs font-black uppercase tracking-wider">15-Category Breakdown</h3>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    <span
+                      className="text-[10px] font-mono font-bold px-1.5 py-0.2 rounded"
+                      style={{ backgroundColor: `${appAccentColor}20`, color: appAccentColor }}
+                    >
+                      {totalTwoColumnBreakdownItems} items
+                    </span>
+                    <button
+                      onClick={handleSyncAllBreakdownsFromBeats}
+                      className="text-[10px] font-bold text-sky-400 hover:underline flex items-center gap-1 cursor-pointer"
+                      title="Sync all breakdown items from Screenplay & Mass Breakdown"
+                    >
+                      <RefreshCw size={10} /> Sync
+                    </button>
+                    {onNavigateToView && (
+                      <button
+                        onClick={() => onNavigateToView('breakdown')}
+                        className="text-[10px] font-bold text-amber-500 hover:underline flex items-center gap-1 cursor-pointer"
+                        title="Open full studio view"
+                      >
+                        Full Studio <ArrowRight size={10} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsBreakdownDrawerOpen(false)}
+                className={`p-1 rounded transition-colors cursor-pointer ${
+                  isLight ? 'hover:bg-slate-100 text-slate-500 hover:text-slate-900' : 'hover:bg-zinc-800 text-zinc-400 hover:text-white'
+                }`}
+              >
+                <X size={15} />
+              </button>
+            </div>
+
+            {/* Scene Selector */}
+            <div className={`p-3 rounded-xl border ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-black/30 border-zinc-800'}`}>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className={`text-[10px] font-black uppercase tracking-wider ${isLight ? 'text-slate-500' : 'text-zinc-400'}`}>
+                  Target Scene
+                </label>
+                <span className={`text-[10px] font-mono font-bold ${isLight ? 'text-slate-600' : 'text-zinc-400'}`}>
+                  Scene {activeBreakdownScene.sceneNumber || 1} of {screenplayData.scenes.length}
+                </span>
+              </div>
+              <select
+                value={activeBreakdownScene.id}
+                onChange={(e) => setActiveBreakdownSceneId(e.target.value)}
+                className={`w-full text-xs font-bold rounded-lg p-2 outline-none border transition-colors cursor-pointer ${
+                  isLight ? 'bg-white border-slate-300 text-slate-800' : 'bg-zinc-900 border-zinc-700 text-zinc-200'
+                }`}
+              >
+                {screenplayData.scenes.map((s) => {
+                  const sCount = ALL_15_CATEGORIES.reduce(
+                    (sum, cat) => sum + getTwoColumnCategoryItems(s.breakdown, cat).length,
+                    0
+                  );
+                  return (
+                    <option key={s.id} value={s.id}>
+                      Scene {s.sceneNumber}: {s.location || 'UNTITLED'} ({s.timeOfDay || 'DAY'}) {sCount > 0 ? `• [${sCount} tags]` : ''}
+                    </option>
+                  );
+                })}
+              </select>
+            </div>
+
+            {/* AI Auto-Analyze & Language Toggle */}
+            <div className={`p-3 rounded-xl border ${isLight ? 'bg-amber-50/50 border-amber-200/60' : 'bg-amber-500/5 border-amber-500/20'}`}>
+              <div className="flex items-center justify-between mb-2">
+                <span className={`text-[10px] font-black uppercase tracking-wider ${isLight ? 'text-slate-700' : 'text-zinc-300'}`}>
+                  AI Breakdown
+                </span>
+                <div className={`flex rounded border p-0.5 ${isLight ? 'bg-white border-slate-200' : 'bg-black border-zinc-800'}`}>
+                  <button
+                    onClick={() => setBreakdownLanguage('english')}
+                    className={`px-2 py-0.5 text-[9px] font-bold uppercase rounded transition-colors cursor-pointer ${
+                      breakdownLanguage === 'english' ? 'shadow-xs' : (isLight ? 'text-slate-500 hover:text-slate-800' : 'text-zinc-400 hover:text-white')
+                    }`}
+                    style={breakdownLanguage === 'english' ? { backgroundColor: appAccentColor, color: '#000000' } : undefined}
+                  >
+                    ENG
+                  </button>
+                  <button
+                    onClick={() => setBreakdownLanguage('tamil')}
+                    className={`px-2 py-0.5 text-[9px] font-bold uppercase rounded transition-colors cursor-pointer ${
+                      breakdownLanguage === 'tamil' ? 'shadow-xs' : (isLight ? 'text-slate-500 hover:text-slate-800' : 'text-zinc-400 hover:text-white')
+                    }`}
+                    style={breakdownLanguage === 'tamil' ? { backgroundColor: appAccentColor, color: '#000000' } : undefined}
+                  >
+                    TAM
+                  </button>
+                </div>
+              </div>
+              <button
+                onClick={handleAnalyzeTwoColumnBreakdown}
+                disabled={isAnalyzingBreakdown || !aiAvailable}
+                className="w-full py-2 font-bold text-xs uppercase rounded-lg flex items-center justify-center gap-2 transition-all disabled:opacity-50 shadow-xs hover:brightness-110 cursor-pointer"
+                style={{ backgroundColor: appAccentColor, color: '#000000' }}
+              >
+                {isAnalyzingBreakdown ? (
+                  <>
+                    <Sparkles size={14} className="animate-spin" />
+                    <span>Analyzing 15 Categories...</span>
+                  </>
+                ) : (
+                  <>
+                    <Sparkles size={14} />
+                    <span>Auto-Analyze Scene (15 Categories)</span>
+                  </>
+                )}
+              </button>
+            </div>
+
+            {/* 15 Production Department Sections */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between px-1">
+                <span className={`text-[10px] font-bold uppercase tracking-wider ${isLight ? 'text-slate-400' : 'text-zinc-500'}`}>
+                  15 Production Departments
+                </span>
+              </div>
+
+              {ALL_15_CATEGORIES.map((category) => {
+                const meta = CATEGORY_REGISTRY[category] || {
+                  key: category,
+                  nameEn: category,
+                  nameTa: category,
+                  color: '#f5a623',
+                  bgColor: 'rgba(245, 166, 35, 0.15)',
+                  borderColor: '#f5a623',
+                  iconName: 'Tag',
+                };
+                const IconComponent = getBreakdownCategoryIcon(meta.iconName);
+                const items = getTwoColumnCategoryItems(activeBreakdownScene.breakdown, category);
+                const isDragOver = dragOverBreakdownCategory === category;
+                const inputValue = newTagInputs[category] || '';
+
+                return (
+                  <div
+                    key={category}
+                    className={`border rounded-lg overflow-hidden transition-all ${
+                      isLight
+                        ? 'bg-slate-50/80 border-slate-200 shadow-2xs'
+                        : 'bg-[#181818] border-[#2b2b2b]'
+                    }`}
+                    style={isDragOver ? { borderColor: meta.color, boxShadow: `0 0 0 2px ${meta.color}80` } : undefined}
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      e.dataTransfer.dropEffect = 'move';
+                      setDragOverBreakdownCategory(category);
+                    }}
+                    onDragLeave={() => setDragOverBreakdownCategory(null)}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      setDragOverBreakdownCategory(null);
+                      const data = e.dataTransfer.getData('text/plain');
+                      if (!data) return;
+                      try {
+                        const { category: srcCat, item: itmName } = JSON.parse(data);
+                        if (srcCat === category) return;
+                        handleRemoveTwoColumnTag(srcCat as BreakdownCategory, itmName);
+                        handleAddTwoColumnTag(category, itmName);
+                      } catch (err) {
+                        console.error('Drop error:', err);
+                      }
+                    }}
+                  >
+                    {/* Category Title Banner */}
+                    <div
+                      className="flex items-center justify-between gap-2 px-3 py-2 border-b"
+                      style={{
+                        backgroundColor: isLight ? meta.bgColor : `${meta.color}15`,
+                        borderColor: isLight ? `${meta.color}35` : `${meta.color}30`,
+                      }}
+                    >
+                      <span
+                        className="text-[10.5px] font-extrabold uppercase tracking-wider inline-flex items-center gap-1.5"
+                        style={{ color: meta.color }}
+                      >
+                        <IconComponent size={12} style={{ color: meta.color }} />
+                        <span>{breakdownLanguage === 'tamil' ? meta.nameTa : meta.nameEn}</span>
+                      </span>
+                      <span
+                        className={`text-[9.5px] font-mono font-bold px-1.5 py-0.5 rounded ${
+                          isLight ? 'bg-white/80 text-slate-700 border border-slate-200' : 'bg-black/50 text-slate-200 border border-white/10'
+                        }`}
+                      >
+                        {items.length}
+                      </span>
+                    </div>
+
+                    {/* Items List */}
+                    <div className="p-2.5">
+                      <div className="flex flex-wrap gap-1.5 min-h-[24px] my-1">
+                        {items.length === 0 && (
+                          <span className={`text-[10px] italic select-none py-0.5 px-1 ${isLight ? 'text-slate-400' : 'text-zinc-500'}`}>
+                            No items tagged
+                          </span>
+                        )}
+                        {items.map((item, i) => {
+                          const name = typeof item === 'string' ? item : item.name;
+                          const source = typeof item === 'string' ? undefined : item.source;
+                          return (
+                            <div
+                              key={i}
+                              draggable
+                              onDragStart={(e) => {
+                                e.dataTransfer.setData('text/plain', JSON.stringify({ category, item: name }));
+                                e.dataTransfer.effectAllowed = 'move';
+                              }}
+                              className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-[10.5px] border group cursor-move transition-all ${
+                                isLight
+                                  ? 'bg-white text-slate-800 border-slate-200 hover:border-slate-300 shadow-2xs'
+                                  : 'bg-zinc-900 text-zinc-100 border-zinc-800 hover:border-zinc-700'
+                              }`}
+                              title={source ? `Source: "${source}"` : undefined}
+                            >
+                              <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: meta.color }} />
+                              <span>{name}</span>
+                              <button
+                                onClick={() => handleRemoveTwoColumnTag(category, name)}
+                                className={`opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded hover:bg-red-500 hover:text-white cursor-pointer ${
+                                  isLight ? 'text-slate-400' : 'text-zinc-500'
+                                }`}
+                              >
+                                <X size={10} />
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      {/* Add Item Input */}
+                      <div className="flex gap-1 mt-2">
+                        <input
+                          value={inputValue}
+                          onChange={(e) =>
+                            setNewTagInputs((prev) => ({ ...prev, [category]: e.target.value }))
+                          }
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && inputValue.trim()) {
+                              handleAddTwoColumnTag(category, inputValue.trim());
+                            }
+                          }}
+                          className={`flex-1 border rounded px-2 py-1 text-[10px] outline-none transition-colors ${
+                            isLight
+                              ? 'bg-white border-slate-300 text-slate-900 placeholder-slate-400'
+                              : 'bg-black/50 border-zinc-700 text-zinc-100 placeholder-zinc-500'
+                          }`}
+                          placeholder={`Add ${breakdownLanguage === 'tamil' ? meta.nameTa : meta.nameEn}...`}
+                        />
+                        <button
+                          onClick={() => {
+                            if (inputValue.trim()) {
+                              handleAddTwoColumnTag(category, inputValue.trim());
+                            }
+                          }}
+                          className={`px-2 rounded flex items-center justify-center transition-colors cursor-pointer ${
+                            isLight
+                              ? 'bg-slate-200 hover:bg-slate-300 text-slate-700'
+                              : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300'
+                          }`}
+                        >
+                          <Plus size={10} />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </aside>
         )}

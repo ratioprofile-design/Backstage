@@ -12,14 +12,15 @@ import {
   Check, Clock, MoreHorizontal, MousePointer2, Layers, Link2, AlertCircle, 
   ChevronRight, ChevronDown, Settings, Copy, PlusSquare, ArrowUp, ArrowDown,
   Highlighter, Tag, Scissors, ExternalLink, RefreshCw, FileText, ArrowRight,
-  Volume2, Square, Hash, BookOpen, Scroll
+  Volume2, Square, Hash, BookOpen, Scroll, UserCheck, Car, Cat, Home, TreePine, Zap, AlertTriangle
 } from 'lucide-react';
 import { ScriptEditor, ScriptEditorHandle } from '../ScriptEditor';
 import { SlugInput } from '../SlugInput';
 import { generateBreakdown } from '../../services/gemini';
-import { BreakdownData, BreakdownItem, BeatVersion, Note, Beat, Group, Connection, BeatStatus } from '../../types';
+import { BreakdownData, BreakdownItem, BreakdownCategory, CategoryMeta, CATEGORY_REGISTRY, BeatVersion, Note, Beat, Group, Connection, BeatStatus } from '../../types';
 import { STORYLINE_COLORS, SUPPORTED_LANGUAGES } from '../../constants';
 import { extractScriptCharacterSuggestions } from '../../utils/characterUtils';
+import { syncBreakdownToDepartmentsAndContinuity } from '../../utils/breakdownSync';
 import { BlockEditor } from '../BlockEditor';
 import DiffModal from '../DiffModal';
 import ScriptArchiveModal from '../ScriptArchiveModal';
@@ -835,7 +836,7 @@ const ContextMenuItem = ({ icon: Icon, label, onClick, danger, submenu, active, 
     );
 };
 
-const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'casting') => void }> = ({ onNavigateToView }) => {
+const ScriptView: React.FC<{ onNavigateToView?: (view: any) => void }> = ({ onNavigateToView }) => {
   const { beats, groups, connections, updateBeat, addBeat, setBeats, setConnections, scriptViewMode, setScriptViewMode, scriptConfig, setScriptConfig, scratchpadConfig, characterData, breakdownLanguage, setBreakdownLanguage, scratchpad, setScratchpad, globalNotes, setGlobalNotes, captureSnapshot, reorderBeats, setActiveBoardId, appTheme, appAccentColor = '#f5a623', generalAiModel, openrouterKey, userRole, isTamilMode, tamilFontScale, tamilFontFamily } = useProject();
   const { aiAvailable } = useAiKeyStatus();
   const isScriptReadOnly = false;
@@ -1298,28 +1299,142 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'cast
     });
   };
 
-  const handleAnalyzeBreakdown = async () => { if (!activeBeat) return; setIsAnalyzing(true); const div = document.createElement('div'); div.innerHTML = activeBeat.content || ''; const text = div.textContent || div.innerText || ''; const result = await generateBreakdown(text, generalAiModel, breakdownLanguage, openrouterKey); if (result) { updateBeat(activeBeat.id, { breakdown: result }); } else { alert("Failed to analyze breakdown."); } setIsAnalyzing(false); };
+  const ALL_15_CATEGORIES: BreakdownCategory[] = [
+    'CAST',
+    'EXTRAS',
+    'STUNTS',
+    'VEHICLES',
+    'PROPS',
+    'SFX',
+    'WARDROBE',
+    'MAKEUP',
+    'ANIMALS',
+    'SOUND',
+    'SET_DRESSING',
+    'GREENERY',
+    'SPECIAL_EQUIPMENT',
+    'LIGHTING_GRIP',
+    'SAFETY',
+  ];
+
+  const getCategoryItems = (breakdown: BreakdownData | undefined, category: BreakdownCategory): (string | BreakdownItem)[] => {
+    if (!breakdown) return [];
+    const upper = breakdown[category];
+    if (Array.isArray(upper) && upper.length > 0) return upper;
+
+    // Backward-compatible fallback for legacy lowercase keys in existing projects
+    if (category === 'CAST' && Array.isArray(breakdown.cast) && breakdown.cast.length > 0) return breakdown.cast;
+    if (category === 'PROPS' && Array.isArray(breakdown.props) && breakdown.props.length > 0) return breakdown.props;
+    if (category === 'SOUND' && Array.isArray(breakdown.sound) && breakdown.sound.length > 0) return breakdown.sound;
+    if (category === 'WARDROBE' && Array.isArray(breakdown.costume) && breakdown.costume.length > 0) return breakdown.costume;
+    if (category === 'SFX' && Array.isArray(breakdown.vfx) && breakdown.vfx.length > 0) return breakdown.vfx;
+    if (category === 'STUNTS' && Array.isArray(breakdown.practical) && breakdown.practical.length > 0) return breakdown.practical;
+    if (category === 'SET_DRESSING' && Array.isArray(breakdown.location) && breakdown.location.length > 0) return breakdown.location;
+
+    return Array.isArray(upper) ? upper : [];
+  };
+
+  const getCategoryIcon = (iconName: string) => {
+    switch (iconName) {
+      case 'UserCheck': return UserCheck;
+      case 'Users': return Users;
+      case 'Flame': return Flame;
+      case 'Car': return Car;
+      case 'Package': return Package;
+      case 'Sparkles': return Sparkles;
+      case 'Shirt': return Shirt;
+      case 'Palette': return Palette;
+      case 'Cat': return Cat;
+      case 'Volume2': return Volume2;
+      case 'Home': return Home;
+      case 'TreePine': return TreePine;
+      case 'Camera': return Camera;
+      case 'Zap': return Zap;
+      case 'AlertTriangle': return AlertTriangle;
+      default: return Tag;
+    }
+  };
+
+  const handleAnalyzeBreakdown = async () => {
+    if (!activeBeat) return;
+    setIsAnalyzing(true);
+    try {
+      const div = document.createElement('div');
+      div.innerHTML = activeBeat.content || '';
+      const bodyText = (div.textContent || div.innerText || '').trim();
+      const slugParts = [
+        activeBeat.slug?.prefix || 'INT.',
+        activeBeat.slug?.location || 'LOCATION',
+        activeBeat.slug?.time ? `- ${activeBeat.slug.time}` : ''
+      ].filter(Boolean).join(' ');
+
+      const fullText = `${slugParts}\n\n${bodyText}`.trim();
+      if (!bodyText && !activeBeat.slug?.location) {
+        alert("Please add scene text or location before analyzing.");
+        setIsAnalyzing(false);
+        return;
+      }
+
+      const result = await generateBreakdown(fullText, generalAiModel || 'gemini-flash-latest', breakdownLanguage, openrouterKey);
+      if (result) {
+        updateBeat(activeBeat.id, { breakdown: result, breakdownData: result });
+        try {
+          const nextBeats = beats.map(b => b.id === activeBeat.id ? { ...b, breakdown: result, breakdownData: result } : b);
+          syncBreakdownToDepartmentsAndContinuity(nextBeats, []);
+        } catch (syncErr) {
+          console.warn('Sync breakdown to departments error:', syncErr);
+        }
+      } else {
+        alert("Failed to analyze breakdown. Please verify AI API settings or try again.");
+      }
+    } catch (e: any) {
+      console.error("handleAnalyzeBreakdown error:", e);
+      alert(`Breakdown analysis error: ${e?.message || 'Failed to connect to AI service'}`);
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
   
-  const addTag = (targetBeatId: number, category: keyof BreakdownData, tag: string, source: string = '') => { 
+  const addTag = (targetBeatId: number, category: BreakdownCategory, tag: string, source: string = '') => { 
     const targetBeat = beats.find(b => b.id === targetBeatId);
     if (!targetBeat) return; 
     
-    const current = targetBeat.breakdown || { props: [], sound: [], costume: [], vfx: [], practical: [], cast: [], location: [] }; 
-    const list = current[category] || []; 
-    const newItem: BreakdownItem = { name: tag, source: source }; 
+    const current = targetBeat.breakdown || targetBeat.breakdownData || {}; 
+    const list = getCategoryItems(current, category); 
+    const newItem: BreakdownItem = { name: tag, source: source, category }; 
     
     const exists = list.some(i => (typeof i === 'string' ? i : i.name).toLowerCase() === tag.toLowerCase()); 
     if (!exists) { 
-        updateBeat(targetBeatId, { breakdown: { ...current, [category]: [...list, newItem] } }); 
+      const updatedBreakdown = { ...current, [category]: [...list, newItem] };
+      updateBeat(targetBeatId, { breakdown: updatedBreakdown, breakdownData: updatedBreakdown }); 
+      try {
+        const nextBeats = beats.map(b => b.id === targetBeatId ? { ...b, breakdown: updatedBreakdown, breakdownData: updatedBreakdown } : b);
+        syncBreakdownToDepartmentsAndContinuity(nextBeats, []);
+      } catch (e) { /* ignore */ }
     } 
   };
 
-  const removeTag = (category: keyof BreakdownData, tag: string) => { 
+  const removeTag = (category: BreakdownCategory, tag: string) => { 
     if (!activeBeat) return; 
-    const current = activeBeat.breakdown || { props: [], sound: [], costume: [], vfx: [], practical: [], cast: [], location: [] }; 
-    const list = current[category] || []; 
+    const current = activeBeat.breakdown || activeBeat.breakdownData || {}; 
+    const list = getCategoryItems(current, category); 
     const newList = list.filter(i => (typeof i === 'string' ? i : i.name) !== tag); 
-    updateBeat(activeBeat.id, { breakdown: { ...current, [category]: newList } }); 
+    const updated: BreakdownData = { ...current, [category]: newList };
+    
+    // Also clean up legacy lowercase keys if any
+    if (category === 'CAST' && updated.cast) updated.cast = (updated.cast as any[]).filter(i => (typeof i === 'string' ? i : i.name) !== tag);
+    if (category === 'PROPS' && updated.props) updated.props = (updated.props as any[]).filter(i => (typeof i === 'string' ? i : i.name) !== tag);
+    if (category === 'SOUND' && updated.sound) updated.sound = (updated.sound as any[]).filter(i => (typeof i === 'string' ? i : i.name) !== tag);
+    if (category === 'WARDROBE' && updated.costume) updated.costume = (updated.costume as any[]).filter(i => (typeof i === 'string' ? i : i.name) !== tag);
+    if (category === 'SFX' && updated.vfx) updated.vfx = (updated.vfx as any[]).filter(i => (typeof i === 'string' ? i : i.name) !== tag);
+    if (category === 'STUNTS' && updated.practical) updated.practical = (updated.practical as any[]).filter(i => (typeof i === 'string' ? i : i.name) !== tag);
+    if (category === 'SET_DRESSING' && updated.location) updated.location = (updated.location as any[]).filter(i => (typeof i === 'string' ? i : i.name) !== tag);
+
+    updateBeat(activeBeat.id, { breakdown: updated, breakdownData: updated }); 
+    try {
+      const nextBeats = beats.map(b => b.id === activeBeat.id ? { ...b, breakdown: updated, breakdownData: updated } : b);
+      syncBreakdownToDepartmentsAndContinuity(nextBeats, []);
+    } catch (e) { /* ignore */ }
   };
   const handleCreateSnapshot = () => { if (!activeBeat) return; const newVersion: BeatVersion = { id: `v-${Date.now()}`, timestamp: Date.now(), title: activeBeat.title || 'Untitled', content: activeBeat.content, summary: activeBeat.summary }; const currentVersions = activeBeat.versions || []; updateBeat(activeBeat.id, { versions: [...currentVersions, newVersion] }); };
   const handleRestoreClick = (v: BeatVersion) => { if (!activeBeat) return; setDiffVersion(v); };
@@ -1390,82 +1505,143 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'cast
   ];
 
   const clearHighlight = () => { const editorEl = document.getElementById(`editor-${activeBeatId}`); if (!editorEl) return; const highlights = editorEl.querySelectorAll('.temp-source-highlight'); highlights.forEach(span => { const parent = span.parentNode; if (parent) { while (span.firstChild) { parent.insertBefore(span.firstChild, span); } parent.removeChild(span); parent.normalize(); } }); };
-  const highlightSourceText = (text: string, category: keyof BreakdownData) => { if (!text || !activeBeatId || !showSourceHighlights) return; const editorEl = document.getElementById(`editor-${activeBeatId}`); if (!editorEl) return; clearHighlight(); const normalize = (s: string) => (s || '').trim().replace(/\s+/g, ' ').toLowerCase(); const search = normalize(text); if (!search) return; const walker = document.createTreeWalker(editorEl, NodeFilter.SHOW_TEXT, null); let node; while (node = walker.nextNode()) { const rawContent = node.textContent || ''; const rawIndex = rawContent.toLowerCase().indexOf(search); if (rawIndex !== -1) { const range = document.createRange(); range.setStart(node, rawIndex); range.setEnd(node, rawIndex + search.length); const span = document.createElement('span'); span.className = 'temp-source-highlight'; let rgb = '250, 204, 21'; switch(category) { case 'location': rgb = '251, 146, 60'; break; case 'vfx': rgb = '74, 222, 128'; break; case 'practical': rgb = '239, 68, 68'; break; case 'props': rgb = '248, 113, 113'; break; case 'sound': rgb = '96, 165, 250'; break; case 'costume': rgb = '244, 114, 182'; break; case 'cast': rgb = '250, 204, 21'; break; } const isDark = scriptConfig.paperTheme === 'dark' || scriptConfig.paperTheme === 'red'; const bgOpacity = isDark ? '0.3' : '0.5'; const borderOpacity = isDark ? '0.6' : '0.8'; span.style.backgroundColor = `rgba(${rgb}, ${bgOpacity})`; span.style.borderRadius = '2px'; span.style.padding = '0 2px'; span.style.borderBottom = `2px solid rgba(${rgb}, ${borderOpacity})`; span.style.color = 'inherit'; span.style.textShadow = 'none'; try { range.surroundContents(span); span.scrollIntoView({ behavior: 'smooth', block: 'center' }); return; } catch (e) { console.warn("Highlight failed:", e); } } } };
-  const handleTagDragStart = (e: React.DragEvent, category: keyof BreakdownData, item: string) => { e.dataTransfer.setData('text/plain', JSON.stringify({ category, item })); e.dataTransfer.effectAllowed = 'move'; };
-  const handleTagDragOver = (e: React.DragEvent, category: keyof BreakdownData) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setDragOverCategory(category); };
+  const highlightSourceText = (text: string, category: BreakdownCategory) => { 
+    if (!text || !activeBeatId || !showSourceHighlights) return; 
+    const editorEl = document.getElementById(`editor-${activeBeatId}`); 
+    if (!editorEl) return; 
+    clearHighlight(); 
+    const normalize = (s: string) => (s || '').trim().replace(/\s+/g, ' ').toLowerCase(); 
+    const search = normalize(text); 
+    if (!search) return; 
+    const walker = document.createTreeWalker(editorEl, NodeFilter.SHOW_TEXT, null); 
+    let node; 
+    while (node = walker.nextNode()) { 
+      const rawContent = node.textContent || ''; 
+      const rawIndex = rawContent.toLowerCase().indexOf(search); 
+      if (rawIndex !== -1) { 
+        const range = document.createRange(); 
+        range.setStart(node, rawIndex); 
+        range.setEnd(node, rawIndex + search.length); 
+        const span = document.createElement('span'); 
+        span.className = 'temp-source-highlight'; 
+        const meta = CATEGORY_REGISTRY[category];
+        const hexColor = meta?.color || '#f5a623';
+        const isDark = scriptConfig.paperTheme === 'dark' || scriptConfig.paperTheme === 'red'; 
+        span.style.backgroundColor = `${hexColor}${isDark ? '40' : '60'}`; 
+        span.style.borderRadius = '3px'; 
+        span.style.padding = '0 2px'; 
+        span.style.borderBottom = `2px solid ${hexColor}`; 
+        span.style.color = 'inherit'; 
+        span.style.textShadow = 'none'; 
+        try { 
+          range.surroundContents(span); 
+          span.scrollIntoView({ behavior: 'smooth', block: 'center' }); 
+          return; 
+        } catch (e) { 
+          console.warn("Highlight failed:", e); 
+        } 
+      } 
+    } 
+  };
+  const handleTagDragStart = (e: React.DragEvent, category: BreakdownCategory, item: string) => { e.dataTransfer.setData('text/plain', JSON.stringify({ category, item })); e.dataTransfer.effectAllowed = 'move'; };
+  const handleTagDragOver = (e: React.DragEvent, category: BreakdownCategory) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setDragOverCategory(category); };
   const handleTagDragLeave = (e: React.DragEvent) => { setDragOverCategory(null); };
-  const handleTagDrop = (e: React.DragEvent, targetCategory: keyof BreakdownData) => { e.preventDefault(); setDragOverCategory(null); const data = e.dataTransfer.getData('text/plain'); if (!data) return; try { const { category: sourceCategory, item: itemName } = JSON.parse(data); if (sourceCategory === targetCategory) return; if (activeBeat) { const current = activeBeat.breakdown || { props: [], sound: [], costume: [], vfx: [], practical: [], cast: [], location: [] }; const getName = (i: string | BreakdownItem) => typeof i === 'string' ? i : i.name; const sourceArray = current[sourceCategory as keyof BreakdownData] || []; const itemObj = sourceArray.find(i => getName(i) === itemName); const newSourceList = sourceArray.filter(i => getName(i) !== itemName); const targetList = current[targetCategory] || []; const newTargetList = targetList.some(i => getName(i) === itemName) ? targetList : [...targetList, itemObj || { name: itemName, source: '' }]; updateBeat(activeBeat.id, { breakdown: { ...current, [sourceCategory]: newSourceList, [targetCategory]: newTargetList } }); } } catch (err) { console.error("Drop failed", err); } };
-  const TagInput = ({ category }: { category: keyof BreakdownData }) => { const [val, setVal] = useState(''); return ( <div className="flex gap-1 mt-2"> <input value={val} onChange={e => setVal(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && val.trim()) { addTag(activeBeatId!, category, val.trim()); setVal(''); } }} onFocus={(e) => { e.currentTarget.style.borderColor = appAccentColor; }} onBlur={(e) => { e.currentTarget.style.borderColor = ''; }} className={`flex-1 border rounded px-2 py-1 text-[10px] outline-none transition-colors ${isLight ? 'bg-slate-50 border-slate-300 text-slate-900 placeholder-slate-400' : 'bg-[#111] border-[#333] text-white'}`} placeholder="Add..." /> <button onClick={() => { if(val.trim()) { addTag(activeBeatId!, category, val.trim()); setVal(''); } }} className={`px-2 rounded ${isLight ? 'bg-slate-200 hover:bg-slate-300 text-slate-700' : 'bg-[#222] hover:bg-[#333] text-gray-400'}`}><Plus size={10}/></button> </div> ); };
-  const CATEGORY_STYLES: Record<string, { lightBadge: string, darkBadge: string, lightTag: string, darkTag: string }> = {
-    location: {
-      lightBadge: 'text-orange-900 bg-orange-100/90 border-orange-200 font-extrabold',
-      darkBadge: 'text-orange-400 bg-orange-950/40 border-orange-800/50 font-bold',
-      lightTag: 'bg-orange-50/90 text-orange-950 border-orange-200/90 hover:bg-orange-100 font-semibold shadow-2xs',
-      darkTag: 'bg-orange-950/30 text-orange-200 border-orange-900/50 hover:bg-orange-900/40'
-    },
-    vfx: {
-      lightBadge: 'text-emerald-900 bg-emerald-100/90 border-emerald-200 font-extrabold',
-      darkBadge: 'text-emerald-400 bg-emerald-950/40 border-emerald-800/50 font-bold',
-      lightTag: 'bg-emerald-50/90 text-emerald-950 border-emerald-200/90 hover:bg-emerald-100 font-semibold shadow-2xs',
-      darkTag: 'bg-emerald-950/30 text-emerald-200 border-emerald-900/50 hover:bg-emerald-900/40'
-    },
-    practical: {
-      lightBadge: 'text-red-900 bg-red-100/90 border-red-200 font-extrabold',
-      darkBadge: 'text-red-400 bg-red-950/40 border-red-800/50 font-bold',
-      lightTag: 'bg-red-50/90 text-red-950 border-red-200/90 hover:bg-red-100 font-semibold shadow-2xs',
-      darkTag: 'bg-red-950/30 text-red-200 border-red-900/50 hover:bg-red-900/40'
-    },
-    props: {
-      lightBadge: 'text-rose-900 bg-rose-100/90 border-rose-200 font-extrabold',
-      darkBadge: 'text-rose-400 bg-rose-950/40 border-rose-800/50 font-bold',
-      lightTag: 'bg-rose-50/90 text-rose-950 border-rose-200/90 hover:bg-rose-100 font-semibold shadow-2xs',
-      darkTag: 'bg-rose-950/30 text-rose-200 border-rose-900/50 hover:bg-rose-900/40'
-    },
-    sound: {
-      lightBadge: 'text-sky-900 bg-sky-100/90 border-sky-200 font-extrabold',
-      darkBadge: 'text-sky-400 bg-sky-950/40 border-sky-800/50 font-bold',
-      lightTag: 'bg-sky-50/90 text-sky-950 border-sky-200/90 hover:bg-sky-100 font-semibold shadow-2xs',
-      darkTag: 'bg-sky-950/30 text-sky-200 border-sky-900/50 hover:bg-sky-900/40'
-    },
-    costume: {
-      lightBadge: 'text-purple-900 bg-purple-100/90 border-purple-200 font-extrabold',
-      darkBadge: 'text-purple-400 bg-purple-950/40 border-purple-800/50 font-bold',
-      lightTag: 'bg-purple-50/90 text-purple-950 border-purple-200/90 hover:bg-purple-100 font-semibold shadow-2xs',
-      darkTag: 'bg-purple-950/30 text-purple-200 border-purple-900/50 hover:bg-purple-900/40'
-    },
-    cast: {
-      lightBadge: 'text-amber-950 bg-amber-100/90 border-amber-200 font-extrabold',
-      darkBadge: 'text-amber-400 bg-amber-950/40 border-amber-800/50 font-bold',
-      lightTag: 'bg-amber-50/90 text-amber-950 border-amber-200/90 hover:bg-amber-100 font-semibold shadow-2xs',
-      darkTag: 'bg-amber-950/30 text-amber-200 border-amber-900/50 hover:bg-amber-900/40'
-    }
+  const handleTagDrop = (e: React.DragEvent, targetCategory: BreakdownCategory) => { 
+    e.preventDefault(); 
+    setDragOverCategory(null); 
+    const data = e.dataTransfer.getData('text/plain'); 
+    if (!data) return; 
+    try { 
+      const { category: sourceCategory, item: itemName } = JSON.parse(data); 
+      if (sourceCategory === targetCategory) return; 
+      if (activeBeat) { 
+        const current = activeBeat.breakdown || activeBeat.breakdownData || {}; 
+        const getName = (i: string | BreakdownItem) => typeof i === 'string' ? i : i.name; 
+        const sourceArray = getCategoryItems(current, sourceCategory as BreakdownCategory); 
+        const itemObj = sourceArray.find(i => getName(i) === itemName); 
+        const newSourceList = sourceArray.filter(i => getName(i) !== itemName); 
+        const targetList = getCategoryItems(current, targetCategory); 
+        const newTargetList = targetList.some(i => getName(i) === itemName) ? targetList : [...targetList, itemObj || { name: itemName, source: '', category: targetCategory }]; 
+        const updatedBreakdown = { ...current, [sourceCategory]: newSourceList, [targetCategory]: newTargetList };
+        updateBeat(activeBeat.id, { breakdown: updatedBreakdown, breakdownData: updatedBreakdown }); 
+        try {
+          const nextBeats = beats.map(b => b.id === activeBeat.id ? { ...b, breakdown: updatedBreakdown, breakdownData: updatedBreakdown } : b);
+          syncBreakdownToDepartmentsAndContinuity(nextBeats, []);
+        } catch (e) { /* ignore */ } 
+      } 
+    } catch (err) { 
+      console.error("Drop failed", err); 
+    } 
+  };
+  const TagInput = ({ category }: { category: BreakdownCategory }) => { 
+    const [val, setVal] = useState(''); 
+    return ( 
+      <div className="flex gap-1 mt-2"> 
+        <input 
+          value={val} 
+          onChange={e => setVal(e.target.value)} 
+          onKeyDown={e => { if (e.key === 'Enter' && val.trim()) { addTag(activeBeatId!, category, val.trim()); setVal(''); } }} 
+          onFocus={(e) => { e.currentTarget.style.borderColor = appAccentColor; }} 
+          onBlur={(e) => { e.currentTarget.style.borderColor = ''; }} 
+          className={`flex-1 border rounded px-2 py-1 text-[10px] outline-none transition-colors ${isLight ? 'bg-slate-50 border-slate-300 text-slate-900 placeholder-slate-400' : 'bg-[#111] border-[#333] text-white'}`} 
+          placeholder="Add..." 
+        /> 
+        <button 
+          onClick={() => { if(val.trim()) { addTag(activeBeatId!, category, val.trim()); setVal(''); } }} 
+          className={`px-2 rounded ${isLight ? 'bg-slate-200 hover:bg-slate-300 text-slate-700' : 'bg-[#222] hover:bg-[#333] text-gray-400'}`}
+        >
+          <Plus size={10}/>
+        </button> 
+      </div> 
+    ); 
   };
 
-  const BreakdownSection = ({ title, category, icon: Icon }: any) => { 
-    const items = activeBeat?.breakdown?.[category as keyof BreakdownData] || []; 
+  const BreakdownSection = ({ category }: { category: BreakdownCategory }) => { 
+    const meta = CATEGORY_REGISTRY[category] || {
+      key: category,
+      nameEn: category,
+      nameTa: category,
+      color: '#f5a623',
+      bgColor: 'rgba(245, 166, 35, 0.15)',
+      borderColor: '#f5a623',
+      iconName: 'Tag',
+    };
+    const IconComponent = getCategoryIcon(meta.iconName);
+    const items = getCategoryItems(activeBeat?.breakdown, category); 
     const isDragOver = dragOverCategory === category; 
-    const catStyle = CATEGORY_STYLES[category] || CATEGORY_STYLES.cast;
 
     return ( 
-      <div className={`mb-3.5 border transition-all ${
-        isLight 
-          ? 'bg-slate-50/80 border-slate-200/90 shadow-2xs' 
-          : 'bg-[#181818] border-[#2b2b2b]'
-      }`} 
-      style={isDragOver ? { borderColor: appAccentColor, boxShadow: `0 0 0 2px ${appAccentColor}80` } : undefined}
-      onDragOver={(e) => handleTagDragOver(e, category)} 
-      onDragLeave={handleTagDragLeave} 
-      onDrop={(e) => handleTagDrop(e, category)}> 
-        <div className={`flex items-center justify-between gap-2 px-3 py-2 border-b ${isLight ? catStyle.lightBadge : catStyle.darkBadge}`}>
-          <span className="text-[10px] uppercase tracking-wider inline-flex items-center gap-1.5">
-            <Icon size={12} /> {title}
+      <div 
+        className={`mb-3 border rounded-lg overflow-hidden transition-all ${
+          isLight 
+            ? 'bg-slate-50/80 border-slate-200/90 shadow-2xs' 
+            : 'bg-[#181818] border-[#2b2b2b]'
+        }`} 
+        style={isDragOver ? { borderColor: meta.color, boxShadow: `0 0 0 2px ${meta.color}80` } : undefined}
+        onDragOver={(e) => handleTagDragOver(e, category)} 
+        onDragLeave={handleTagDragLeave} 
+        onDrop={(e) => handleTagDrop(e, category)}
+      > 
+        <div 
+          className="flex items-center justify-between gap-2 px-3 py-2 border-b"
+          style={{
+            backgroundColor: isLight ? meta.bgColor : `${meta.color}15`,
+            borderColor: isLight ? `${meta.color}35` : `${meta.color}30`,
+          }}
+        >
+          <span 
+            className="text-[10px] font-extrabold uppercase tracking-wider inline-flex items-center gap-1.5"
+            style={{ color: meta.color }}
+          >
+            <IconComponent size={12} style={{ color: meta.color }} />
+            <span>{breakdownLanguage === 'tamil' ? meta.nameTa : meta.nameEn}</span>
           </span>
-          <span className={`text-[9.5px] font-mono font-bold px-1.5 py-0.5 ${isLight ? 'bg-white/70 text-slate-600' : 'bg-black/30 text-slate-300'}`}>{items.length}</span>
+          <span className={`text-[9.5px] font-mono font-bold px-1.5 py-0.5 rounded ${isLight ? 'bg-white/80 text-slate-700 border border-slate-200' : 'bg-black/50 text-slate-200 border border-white/10'}`}>{items.length}</span>
         </div>
         
-        <div className="p-3">
-          <div className="flex flex-wrap gap-1.5 min-h-[28px] my-1"> 
-          {items.length === 0 && <span className={`text-[10px] italic select-none py-1 px-1 ${isLight ? 'text-slate-400' : 'text-gray-600'}`}>No items tagged</span>} 
+        <div className="p-2.5">
+          <div className="flex flex-wrap gap-1.5 min-h-[26px] my-1"> 
+          {items.length === 0 && <span className={`text-[10px] italic select-none py-0.5 px-1 ${isLight ? 'text-slate-400' : 'text-zinc-500'}`}>No items tagged</span>} 
           {items.map((item, i) => { 
             const name = typeof item === 'string' ? item : item.name; 
             const source = typeof item === 'string' ? undefined : item.source; 
@@ -1477,18 +1653,19 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'cast
                 onMouseEnter={() => (source || name) && highlightSourceText(source || name, category)} 
                 onMouseLeave={clearHighlight} 
                 className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-[10.5px] border group cursor-move transition-all ${
-                  isLight ? catStyle.lightTag : catStyle.darkTag
+                  isLight ? 'bg-white text-slate-800 border-slate-200 hover:border-slate-300 shadow-2xs' : 'bg-zinc-900 text-zinc-100 border-zinc-800 hover:border-zinc-700'
                 } ${showSourceHighlights && source ? 'font-bold' : ''}`} 
-                style={showSourceHighlights && source ? { boxShadow: `0 0 0 2px ${appAccentColor}` } : undefined}
+                style={showSourceHighlights && source ? { borderColor: meta.color, boxShadow: `0 0 0 1.5px ${meta.color}` } : undefined} 
                 title={source ? `Source: "${source}"` : "No source info"} 
               > 
+                <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: meta.color }} />
                 <span>{name}</span> 
-                <button onClick={() => removeTag(category as keyof BreakdownData, name)} className={`opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded hover:bg-red-500 hover:text-white ${isLight ? 'text-slate-400' : 'text-gray-400'}`}><X size={10}/></button> 
+                <button onClick={() => removeTag(category, name)} className={`opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded hover:bg-red-500 hover:text-white ${isLight ? 'text-slate-400' : 'text-zinc-500'}`}><X size={10}/></button> 
               </div> 
             ); 
           })} 
           </div> 
-          <TagInput category={category as keyof BreakdownData} /> 
+          <TagInput category={category} /> 
         </div> 
       </div> 
     ); 
@@ -1507,7 +1684,7 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'cast
       setScriptContextMenu(null);
   };
 
-  const applyTagging = (category: keyof BreakdownData) => {
+  const applyTagging = (category: BreakdownCategory) => {
       if (!scriptContextMenu?.selectionText || !scriptContextMenu?.beatId) return;
       
       // Update active beat focus to the tagged beat
@@ -1530,12 +1707,12 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'cast
       ? (() => {
           const b = activeBeat?.breakdown;
           if (!b) return 0;
-          return (b.props?.length || 0) + (b.sound?.length || 0) + (b.costume?.length || 0) + (b.vfx?.length || 0) + (b.practical?.length || 0) + (b.cast?.length || 0) + (b.location?.length || 0);
+          return ALL_15_CATEGORIES.reduce((total, cat) => total + getCategoryItems(b, cat).length, 0);
       })()
       : activeSidebar === 'scratchpad'
           ? (scratchpadMode === 'global' ? (Array.isArray(globalNotes) ? globalNotes.length : 0) : (Array.isArray(activeBeat?.notes) ? activeBeat.notes.length : 0))
           : (Array.isArray(activeBeat?.versions) ? activeBeat.versions.length : 0);
-  const rightPanelLabel = activeSidebar === 'breakdown' ? 'tags' : activeSidebar === 'scratchpad' ? 'notes' : 'versions';
+  const rightPanelLabel = activeSidebar === 'breakdown' ? 'items' : activeSidebar === 'scratchpad' ? 'notes' : 'versions';
 
   return (
     <div className={`flex w-full h-full overflow-hidden font-sans ${isLight ? 'bg-slate-100 text-slate-900' : 'bg-[#0c0c0c] text-white'}`} onClick={() => setScriptContextMenu(null)}>
@@ -2300,7 +2477,7 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'cast
                     <div className={`px-4 py-3 border-b flex items-center justify-between shrink-0 ${isLight ? 'border-slate-200 bg-slate-100/50' : 'border-[#222] bg-[#121216]'}`}>
                         <div className="flex items-center gap-2">
                             <h3 className={`text-xs font-black uppercase tracking-wider flex items-center gap-2 ${isLight ? 'text-slate-800' : 'text-slate-200'}`}>
-                                {activeSidebar === 'breakdown' && <><ListChecks size={14} style={{ color: appAccentColor }} /> Scene Breakdown</>}
+                                {activeSidebar === 'breakdown' && <><ListChecks size={14} style={{ color: appAccentColor }} /> 15-Category Production Breakdown</>}
                                 {activeSidebar === 'scratchpad' && <><StickyNote size={14} style={{ color: appAccentColor }} /> Note Blocks</>}
                                 {activeSidebar === 'history' && <><History size={14} style={{ color: appAccentColor }} /> Version History</>}
                             </h3>
@@ -2365,13 +2542,24 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'cast
                                                 {isAnalyzing ? <Sparkles size={14} className="animate-spin" /> : <Sparkles size={14} />} {isAnalyzing ? 'Analyzing...' : 'Auto-Analyze'}
                                             </button>
                                         </div>
-                                        <BreakdownSection title="Location Scenario" category="location" icon={MapIcon} color="text-orange-500" />
-                                        <BreakdownSection title="Visual Effects" category="vfx" icon={Wand2} color="text-emerald-500" />
-                                        <BreakdownSection title="Practical Effects" category="practical" icon={Flame} color="text-red-500" />
-                                        <BreakdownSection title="Props" category="props" icon={Package} color="text-rose-500" />
-                                        <BreakdownSection title="Sound / SFX" category="sound" icon={Mic2} color="text-sky-500" />
-                                        <BreakdownSection title="Wardrobe" category="costume" icon={Shirt} color="text-pink-500" />
-                                        <BreakdownSection title="Cast / Extras" category="cast" icon={Users} color="text-amber-500" />
+                                        <div className="flex items-center justify-between mb-3 px-0.5">
+                                            <span className={`text-[10px] font-black uppercase tracking-wider ${isLight ? 'text-slate-500' : 'text-zinc-400'}`}>
+                                                15 Production Departments
+                                            </span>
+                                            {onNavigateToView && (
+                                                <button
+                                                    onClick={() => onNavigateToView('breakdown')}
+                                                    className="text-[10px] font-bold flex items-center gap-1 hover:underline transition-all"
+                                                    style={{ color: appAccentColor }}
+                                                    title="Open Full Breakdown Studio"
+                                                >
+                                                    Full Studio <ArrowRight size={10} />
+                                                </button>
+                                            )}
+                                        </div>
+                                        {ALL_15_CATEGORIES.map((category) => (
+                                            <BreakdownSection key={category} category={category} />
+                                        ))}
                                     </>
                                 ) : (
                                     <div className={`flex flex-col items-center justify-center h-full gap-2 ${isLight ? 'text-slate-400' : 'text-gray-500'}`}>
@@ -2611,18 +2799,24 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: 'characterdesign' | 'cast
                     {/* 3. Breakdown Submenu */}
                     <ContextMenuItem 
                         icon={Tag} 
-                        label="Production Tags" 
+                        label="15-Category Production Tags" 
                         isLight={isLight}
                         submenu={
-                            <>
-                                <ContextMenuItem icon={MapIcon} label="Location Scenario" onClick={() => applyTagging('location')} isLight={isLight} />
-                                <ContextMenuItem icon={Wand2} label="Visual Effects" onClick={() => applyTagging('vfx')} isLight={isLight} />
-                                <ContextMenuItem icon={Flame} label="Special Effects" onClick={() => applyTagging('practical')} isLight={isLight} />
-                                <ContextMenuItem icon={Package} label="Prop" onClick={() => applyTagging('props')} isLight={isLight} />
-                                <ContextMenuItem icon={Mic2} label="Audio / SFX" onClick={() => applyTagging('sound')} isLight={isLight} />
-                                <ContextMenuItem icon={Shirt} label="Wardrobe" onClick={() => applyTagging('costume')} isLight={isLight} />
-                                <ContextMenuItem icon={Users} label="Cast / Extras" onClick={() => applyTagging('cast')} isLight={isLight} />
-                            </>
+                            <div className="max-h-80 overflow-y-auto custom-scrollbar">
+                                {ALL_15_CATEGORIES.map(cat => {
+                                    const meta = CATEGORY_REGISTRY[cat];
+                                    const IconComponent = getCategoryIcon(meta?.iconName || 'Tag');
+                                    return (
+                                        <ContextMenuItem 
+                                            key={cat} 
+                                            icon={IconComponent} 
+                                            label={breakdownLanguage === 'tamil' ? meta?.nameTa || cat : meta?.nameEn || cat} 
+                                            onClick={() => applyTagging(cat)} 
+                                            isLight={isLight} 
+                                        />
+                                    );
+                                })}
+                            </div>
                         }
                     />
                 </>

@@ -192,10 +192,10 @@ export const BreakdownView: React.FC<BreakdownViewProps> = ({
 
   const currentBeat = beats[selectedSceneIndex] || beats[0];
 
-  // Helper: Extract items for a specific category from a Beat's breakdownData
+  // Helper: Extract items for a specific category from a Beat's breakdownData or breakdown
   const getBeatCategoryItems = (beat: Beat, category: BreakdownCategory): BreakdownItem[] => {
-    if (!beat.breakdownData) return [];
-    const bd = beat.breakdownData;
+    const bd = beat?.breakdown || beat?.breakdownData;
+    if (!bd) return [];
 
     // 1. Direct 15 category key
     const list = (bd as any)[category];
@@ -249,8 +249,8 @@ export const BreakdownView: React.FC<BreakdownViewProps> = ({
 
   // Check if beat has any breakdown items
   const hasBreakdown = (beat: Beat): boolean => {
-    if (!beat.breakdownData) return false;
-    const bd = beat.breakdownData;
+    const bd = beat?.breakdown || beat?.breakdownData;
+    if (!bd) return false;
     if (Array.isArray(bd.items) && bd.items.length > 0) return true;
     for (const cat of ALL_15_CATEGORIES) {
       const items = (bd as any)[cat];
@@ -292,13 +292,19 @@ export const BreakdownView: React.FC<BreakdownViewProps> = ({
 
       const res = await generateBreakdown(
         scriptText,
-        generalAiModel || 'gemini-3.6-flash',
+        generalAiModel || 'gemini-flash-latest',
         isTamil ? 'tamil' : 'english',
         openrouterKey
       );
 
       if (res) {
-        updateBeat(currentBeat.id, { breakdownData: res });
+        updateBeat(currentBeat.id, { breakdown: res, breakdownData: res });
+        try {
+          const updatedBeats = beats.map((b) => b.id === currentBeat.id ? { ...b, breakdown: res, breakdownData: res } : b);
+          syncBreakdownToDepartmentsAndContinuity(updatedBeats, allTasks);
+        } catch (syncErr) {
+          console.warn('Sync departments error:', syncErr);
+        }
         confetti({
           particleCount: 45,
           spread: 55,
@@ -320,10 +326,11 @@ export const BreakdownView: React.FC<BreakdownViewProps> = ({
     batchBreakdownManager.startBatch(
       beats,
       isTamil ? 'tamil' : 'english',
-      generalAiModel || 'gemini-3.6-flash',
+      generalAiModel || 'gemini-flash-latest',
       openrouterKey,
       (updatedBeat) => {
-        updateBeat(updatedBeat.id, { breakdownData: updatedBeat.breakdownData });
+        const bd = updatedBeat.breakdown || updatedBeat.breakdownData;
+        updateBeat(updatedBeat.id, { breakdown: bd, breakdownData: bd });
       }
     );
     setIsBatchModalOpen(false);
@@ -335,10 +342,11 @@ export const BreakdownView: React.FC<BreakdownViewProps> = ({
     batchBreakdownManager.startBatch(
       targetBeats,
       isTamil ? 'tamil' : 'english',
-      generalAiModel || 'gemini-3.6-flash',
+      generalAiModel || 'gemini-flash-latest',
       openrouterKey,
       (updatedBeat) => {
-        updateBeat(updatedBeat.id, { breakdownData: updatedBeat.breakdownData });
+        const bd = updatedBeat.breakdown || updatedBeat.breakdownData;
+        updateBeat(updatedBeat.id, { breakdown: bd, breakdownData: bd });
       }
     );
     setIsBatchModalOpen(false);
@@ -353,10 +361,11 @@ export const BreakdownView: React.FC<BreakdownViewProps> = ({
     batchBreakdownManager.startBatch(
       unbroken,
       isTamil ? 'tamil' : 'english',
-      generalAiModel || 'gemini-3.6-flash',
+      generalAiModel || 'gemini-flash-latest',
       openrouterKey,
       (updatedBeat) => {
-        updateBeat(updatedBeat.id, { breakdownData: updatedBeat.breakdownData });
+        const bd = updatedBeat.breakdown || updatedBeat.breakdownData;
+        updateBeat(updatedBeat.id, { breakdown: bd, breakdownData: bd });
       }
     );
     setIsBatchModalOpen(false);
@@ -379,14 +388,7 @@ export const BreakdownView: React.FC<BreakdownViewProps> = ({
       source: 'Manual entry',
     };
 
-    const currentData = currentBeat.breakdownData || {
-      props: [],
-      sound: [],
-      costume: [],
-      vfx: [],
-      practical: [],
-      cast: [],
-      location: [],
+    const currentData = currentBeat.breakdown || currentBeat.breakdownData || {
       items: [],
     };
 
@@ -399,7 +401,12 @@ export const BreakdownView: React.FC<BreakdownViewProps> = ({
       items: [...(currentData.items || []).filter((i) => i.category !== activeAddCategory), ...updatedCatItems],
     };
 
-    updateBeat(currentBeat.id, { breakdownData: updatedData });
+    updateBeat(currentBeat.id, { breakdown: updatedData, breakdownData: updatedData });
+    try {
+      const updatedBeats = beats.map((b) => b.id === currentBeat.id ? { ...b, breakdown: updatedData, breakdownData: updatedData } : b);
+      syncBreakdownToDepartmentsAndContinuity(updatedBeats, allTasks);
+    } catch (e) { /* ignore */ }
+
     setNewItemName('');
     setNewItemDesc('');
     setNewItemCount(1);
@@ -409,18 +416,22 @@ export const BreakdownView: React.FC<BreakdownViewProps> = ({
 
   // Delete Item from current scene
   const handleDeleteItem = (category: BreakdownCategory, itemIndex: number) => {
-    if (!currentBeat || !currentBeat.breakdownData) return;
+    const currentData = currentBeat?.breakdown || currentBeat?.breakdownData;
+    if (!currentBeat || !currentData) return;
     const catItems = getBeatCategoryItems(currentBeat, category);
     const updatedCatItems = catItems.filter((_, idx) => idx !== itemIndex);
 
-    const currentData = currentBeat.breakdownData;
     const updatedData: BreakdownData = {
       ...currentData,
       [category]: updatedCatItems,
       items: (currentData.items || []).filter((i, idx) => !(i.category === category && idx === itemIndex)),
     };
 
-    updateBeat(currentBeat.id, { breakdownData: updatedData });
+    updateBeat(currentBeat.id, { breakdown: updatedData, breakdownData: updatedData });
+    try {
+      const updatedBeats = beats.map((b) => b.id === currentBeat.id ? { ...b, breakdown: updatedData, breakdownData: updatedData } : b);
+      syncBreakdownToDepartmentsAndContinuity(updatedBeats, allTasks);
+    } catch (e) { /* ignore */ }
   };
 
   // Save 1st AD Breakdown sheet to Vault

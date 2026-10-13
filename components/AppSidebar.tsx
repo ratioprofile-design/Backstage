@@ -87,8 +87,8 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
     const list = [
       { id: 'board' as ViewMode, label: translateUi('Causality', appLanguage), icon: Workflow },
       { id: 'excalidraw' as ViewMode, label: translateUi('Excalidraw', appLanguage), icon: PenTool },
-      { id: 'script' as ViewMode, label: translateUi('Script', appLanguage), icon: FileText },
-      { id: 'two-column-script' as ViewMode, label: '2-Col Script', icon: Columns },
+      { id: 'script' as ViewMode, label: translateUi('Screenplay', appLanguage), icon: FileText },
+      { id: 'two-column-script' as ViewMode, label: translateUi('Script', appLanguage), icon: Columns },
       { id: 'casting' as ViewMode, label: translateUi('Casting & Roster', appLanguage), icon: Users },
       { id: 'breakdown' as ViewMode, label: translateUi('Breakdown', appLanguage), icon: Layers },
       { id: 'continuity' as ViewMode, label: translateUi('Continuity', appLanguage), icon: Clock },

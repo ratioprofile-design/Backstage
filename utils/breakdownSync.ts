@@ -87,8 +87,10 @@ export function detectDepartmentForItem(
 ): DepartmentClassification {
   const lower = itemName.toLowerCase();
 
+  const catUpper = (category || '').toUpperCase();
+
   // 1. Vehicle detection (high priority: routes to transportation & continuity vehicle)
-  const isVehicle = VEHICLE_KEYWORDS.some(kw => {
+  const isVehicle = catUpper === 'VEHICLES' || VEHICLE_KEYWORDS.some(kw => {
     const reg = new RegExp(`\\b${kw}\\b`, 'i');
     return reg.test(lower);
   });
@@ -104,7 +106,7 @@ export function detectDepartmentForItem(
   }
 
   // 2. Makeup / Prosthetics / Blood & Wound detection
-  const isMakeup = MAKEUP_KEYWORDS.some(kw => lower.includes(kw));
+  const isMakeup = catUpper === 'MAKEUP' || MAKEUP_KEYWORDS.some(kw => lower.includes(kw));
   if (isMakeup) {
     return {
       departmentId: 'makeup',
@@ -122,7 +124,7 @@ export function detectDepartmentForItem(
   });
 
   // 4. Category-based and semantic detection
-  if (category === 'costume' || COSTUME_KEYWORDS.some(kw => lower.includes(kw))) {
+  if (catUpper === 'WARDROBE' || category === 'costume' || COSTUME_KEYWORDS.some(kw => lower.includes(kw))) {
     return {
       departmentId: 'costume',
       departmentName: 'Costume & Wardrobe',
@@ -132,7 +134,7 @@ export function detectDepartmentForItem(
     };
   }
 
-  if (category === 'practical' || SFX_KEYWORDS.some(kw => lower.includes(kw))) {
+  if (catUpper === 'SFX' || category === 'practical' || SFX_KEYWORDS.some(kw => lower.includes(kw))) {
     return {
       departmentId: 'sfx',
       departmentName: 'Special Effects (SFX)',
@@ -141,7 +143,7 @@ export function detectDepartmentForItem(
     };
   }
 
-  if (category === 'vfx' || VFX_KEYWORDS.some(kw => lower.includes(kw))) {
+  if (catUpper === 'VFX' || category === 'vfx' || VFX_KEYWORDS.some(kw => lower.includes(kw))) {
     return {
       departmentId: 'vfx',
       departmentName: 'VFX Department',
@@ -150,7 +152,7 @@ export function detectDepartmentForItem(
     };
   }
 
-  if (category === 'sound' || SOUND_KEYWORDS.some(kw => lower.includes(kw))) {
+  if (catUpper === 'SOUND' || category === 'sound' || SOUND_KEYWORDS.some(kw => lower.includes(kw))) {
     return {
       departmentId: 'sound',
       departmentName: 'Sound Department',
@@ -159,16 +161,61 @@ export function detectDepartmentForItem(
     };
   }
 
-  if (category === 'location' || LOCATION_KEYWORDS.some(kw => lower.includes(kw))) {
+  if (catUpper === 'SET_DRESSING' || category === 'location' || LOCATION_KEYWORDS.some(kw => lower.includes(kw))) {
     return {
-      departmentId: 'locations',
-      departmentName: 'Locations',
+      departmentId: 'art',
+      departmentName: 'Art & Set Dressing',
       isVehicle: false,
       isWeapon: false
     };
   }
 
-  if (STUNT_KEYWORDS.some(kw => lower.includes(kw))) {
+  if (catUpper === 'GREENERY') {
+    return {
+      departmentId: 'art',
+      departmentName: 'Greenery & Landscape',
+      isVehicle: false,
+      isWeapon: false
+    };
+  }
+
+  if (catUpper === 'SPECIAL_EQUIPMENT') {
+    return {
+      departmentId: 'camera',
+      departmentName: 'Special Camera & Grip',
+      isVehicle: false,
+      isWeapon: false
+    };
+  }
+
+  if (catUpper === 'LIGHTING_GRIP') {
+    return {
+      departmentId: 'lighting',
+      departmentName: 'Lighting & Grip',
+      isVehicle: false,
+      isWeapon: false
+    };
+  }
+
+  if (catUpper === 'SAFETY') {
+    return {
+      departmentId: 'safety',
+      departmentName: 'Safety & Medical',
+      isVehicle: false,
+      isWeapon: false
+    };
+  }
+
+  if (catUpper === 'ANIMALS') {
+    return {
+      departmentId: 'animals',
+      departmentName: 'Animal Wrangler',
+      isVehicle: false,
+      isWeapon: false
+    };
+  }
+
+  if (catUpper === 'STUNTS' || STUNT_KEYWORDS.some(kw => lower.includes(kw))) {
     return {
       departmentId: 'stunts',
       departmentName: 'Stunts Unit',
@@ -177,7 +224,7 @@ export function detectDepartmentForItem(
     };
   }
 
-  if (category === 'props' || isWeapon) {
+  if (catUpper === 'PROPS' || category === 'props' || isWeapon) {
     return {
       departmentId: 'props',
       departmentName: 'Props Unit',
@@ -187,10 +234,10 @@ export function detectDepartmentForItem(
     };
   }
 
-  if (category === 'cast') {
+  if (catUpper === 'CAST' || catUpper === 'EXTRAS' || category === 'cast') {
     return {
       departmentId: 'direction',
-      departmentName: 'Direction',
+      departmentName: 'Direction & Casting',
       isVehicle: false,
       isWeapon: false
     };
@@ -489,18 +536,22 @@ export function syncBreakdownToDepartmentsAndContinuity(
 
   (beats || []).forEach((beat, bIdx) => {
     const scNum = beat.sceneNumber || `${bIdx + 1}`;
-    if (!beat.breakdown) return;
+    const bd = beat.breakdown || beat.breakdownData;
+    if (!bd) return;
 
     const div = document.createElement('div');
     div.innerHTML = beat.content || '';
     const scriptText = div.textContent || div.innerText || '';
 
     const categories: (keyof BreakdownData)[] = [
+      'CAST', 'EXTRAS', 'STUNTS', 'VEHICLES', 'PROPS', 'SFX', 'WARDROBE',
+      'MAKEUP', 'ANIMALS', 'SOUND', 'SET_DRESSING', 'GREENERY',
+      'SPECIAL_EQUIPMENT', 'LIGHTING_GRIP', 'SAFETY',
       'props', 'costume', 'practical', 'vfx', 'sound', 'location', 'cast'
     ];
 
     categories.forEach(cat => {
-      const items = beat.breakdown?.[cat] || [];
+      const items = (bd as any)[cat] || [];
       items.forEach(rawItem => {
         const enriched = enrichBreakdownItem(rawItem, cat, scriptText);
         const name = enriched.name.trim();

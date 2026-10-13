@@ -1373,7 +1373,8 @@ export const CrewView: React.FC<CrewViewProps> = ({
       
       // Auto match breakdown items for current dept
       let relatedAssets: string[] = [];
-      if (b?.breakdown) {
+      const bd = b?.breakdown || b?.breakdownData;
+      if (bd) {
         const getNames = (arr: any) => safeArray(arr).map((i: any) => {
           if (!i) return '';
           if (typeof i === 'string') return i;
@@ -1381,17 +1382,21 @@ export const CrewView: React.FC<CrewViewProps> = ({
         }).filter(Boolean);
 
         if (selectedDeptId === 'props' || selectedDeptId === 'art') {
-          relatedAssets = getNames(b.breakdown.props);
+          relatedAssets = getNames((bd as any).PROPS || (bd as any).props || (bd as any).SET_DRESSING);
         } else if (selectedDeptId === 'costume') {
-          relatedAssets = getNames(b.breakdown.costume);
+          relatedAssets = getNames((bd as any).WARDROBE || (bd as any).costume);
         } else if (selectedDeptId === 'sound' || selectedDeptId === 'music') {
-          relatedAssets = getNames(b.breakdown.sound);
+          relatedAssets = getNames((bd as any).SOUND || (bd as any).sound);
         } else if (selectedDeptId === 'vfx') {
-          relatedAssets = getNames(b.breakdown.vfx);
+          relatedAssets = getNames((bd as any).SFX || (bd as any).vfx);
         } else if (selectedDeptId === 'sfx' || selectedDeptId === 'stunts') {
-          relatedAssets = getNames(b.breakdown.practical);
+          relatedAssets = getNames((bd as any).STUNTS || (bd as any).SFX || (bd as any).practical);
+        } else if (selectedDeptId === 'transportation') {
+          relatedAssets = getNames((bd as any).VEHICLES);
+        } else if (selectedDeptId === 'makeup') {
+          relatedAssets = getNames((bd as any).MAKEUP);
         } else {
-          relatedAssets = getNames(b.breakdown.cast);
+          relatedAssets = getNames((bd as any).CAST || (bd as any).EXTRAS || (bd as any).cast);
         }
       }
 
@@ -1415,7 +1420,8 @@ export const CrewView: React.FC<CrewViewProps> = ({
     if (beats && Array.isArray(beats)) {
       beats.forEach((b, idx) => {
         const scNum = b?.sceneNumber || `${idx + 1}`;
-        if (!b?.breakdown) return;
+        const bd = b?.breakdown || b?.breakdownData;
+        if (!bd) return;
 
         const pushAsset = (item: any, category: string) => {
           if (!item) return;
@@ -1442,9 +1448,14 @@ export const CrewView: React.FC<CrewViewProps> = ({
           }
         };
 
-        const catKeys: (keyof BreakdownData)[] = ['props', 'costume', 'practical', 'vfx', 'sound', 'location', 'cast'];
+        const catKeys: string[] = [
+          'CAST', 'EXTRAS', 'STUNTS', 'VEHICLES', 'PROPS', 'SFX', 'WARDROBE',
+          'MAKEUP', 'ANIMALS', 'SOUND', 'SET_DRESSING', 'GREENERY',
+          'SPECIAL_EQUIPMENT', 'LIGHTING_GRIP', 'SAFETY',
+          'props', 'costume', 'practical', 'vfx', 'sound', 'location', 'cast'
+        ];
         catKeys.forEach(catKey => {
-          safeArray(b.breakdown[catKey]).forEach((item: any) => {
+          safeArray((bd as any)[catKey]).forEach((item: any) => {
             const name = typeof item === 'string' ? item : item?.name;
             if (!name) return;
             const classification = detectDepartmentForItem(name, catKey);

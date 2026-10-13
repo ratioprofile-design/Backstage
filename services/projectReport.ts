@@ -82,7 +82,7 @@ export function buildProjectSnapshot(input: ProjectSnapshotInput): string {
     const words = countWords(beat.content);
     const loc = beat.slug?.location || '?';
     const time = beat.slug?.time || '?';
-    const bd = beat.breakdown;
+    const bd = beat.breakdown || beat.breakdownData;
     const bdCount = bd ? Object.values(bd).reduce((n, arr) => n + (Array.isArray(arr) ? arr.length : 0), 0) : 0;
     const shots = Array.isArray(beat.shots) ? beat.shots.length : 0;
     const summary = beat.summary ? truncate(beat.summary, 220) : '';
@@ -95,8 +95,18 @@ export function buildProjectSnapshot(input: ProjectSnapshotInput): string {
   lines.push('');
 
   // ---- BREAKDOWN REPORT (aggregated across scenes) ----
-  const bdCategories: (keyof NonNullable<Beat['breakdown']>)[] = ['sound', 'props', 'costume', 'vfx', 'practical', 'cast', 'location'];
+  const bdCategories: string[] = [
+    'CAST', 'EXTRAS', 'STUNTS', 'VEHICLES', 'PROPS', 'SFX', 'WARDROBE',
+    'MAKEUP', 'ANIMALS', 'SOUND', 'SET_DRESSING', 'GREENERY',
+    'SPECIAL_EQUIPMENT', 'LIGHTING_GRIP', 'SAFETY',
+    'sound', 'props', 'costume', 'vfx', 'practical', 'cast', 'location'
+  ];
   const bdTitles: Record<string, string> = {
+    CAST: 'CAST', EXTRAS: 'EXTRAS', STUNTS: 'STUNTS', VEHICLES: 'VEHICLES',
+    PROPS: 'PROPS', SFX: 'SFX & VFX', WARDROBE: 'WARDROBE', MAKEUP: 'MAKEUP',
+    ANIMALS: 'ANIMALS', SOUND: 'SOUND', SET_DRESSING: 'SET DRESSING',
+    GREENERY: 'GREENERY', SPECIAL_EQUIPMENT: 'SPECIAL EQUIPMENT',
+    LIGHTING_GRIP: 'LIGHTING & GRIP', SAFETY: 'SAFETY',
     sound: 'SOUND', props: 'PROPS', costume: 'COSTUME', vfx: 'VFX',
     practical: 'PRACTICAL / SFX', cast: 'EXTRAS / NON-SPEAKING CAST', location: 'LOCATION NOTES',
   };
@@ -106,7 +116,8 @@ export function buildProjectSnapshot(input: ProjectSnapshotInput): string {
     const counts = new Map<string, number>();
     const sceneRefs = new Map<string, string[]>();
     scenes.forEach(({ beat, num }) => {
-      const arr = beat.breakdown?.[cat];
+      const bd = beat.breakdown || beat.breakdownData;
+      const arr = bd ? (bd as any)[cat] : undefined;
       if (!Array.isArray(arr) || arr.length === 0) return;
       arr.forEach((item) => {
         const nm = nameOf(item);
@@ -119,7 +130,7 @@ export function buildProjectSnapshot(input: ProjectSnapshotInput): string {
     });
     if (counts.size === 0) return;
     anyBreakdown = true;
-    lines.push(`— ${bdTitles[cat]} (${counts.size} unique):`);
+    lines.push(`— ${bdTitles[cat] || cat} (${counts.size} unique):`);
     let idx = 0;
     counts.forEach((count, itemName) => {
       if (idx++ >= 40) return;
@@ -216,7 +227,8 @@ export function snapshotStats(input: ProjectSnapshotInput): {
   const words = beats.reduce((sum, b) => sum + countWords(b.content), 0);
   let breakdownItems = 0;
   beats.forEach((b) => {
-    if (b.breakdown) Object.values(b.breakdown).forEach((arr) => { if (Array.isArray(arr)) breakdownItems += arr.length; });
+    const bd = b.breakdown || b.breakdownData;
+    if (bd) Object.values(bd).forEach((arr) => { if (Array.isArray(arr)) breakdownItems += arr.length; });
   });
   return {
     scenes: beats.length,

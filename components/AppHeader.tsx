@@ -98,8 +98,8 @@ const AppHeader: React.FC<AppHeaderProps> = ({
     const list = [
       { id: 'board', label: translateUi('Causality Short', appLanguage) !== 'Causality Short' ? translateUi('Causality Short', appLanguage) : 'Causality' },
       { id: 'excalidraw', label: translateUi('Excalidraw Short', appLanguage) !== 'Excalidraw Short' ? translateUi('Excalidraw Short', appLanguage) : 'Excalidraw' },
-      { id: 'script', label: translateUi('Script', appLanguage) },
-      { id: 'two-column-script', label: '2-Col Script' },
+      { id: 'script', label: translateUi('Screenplay', appLanguage) },
+      { id: 'two-column-script', label: translateUi('Script', appLanguage) },
       { id: 'casting', label: translateUi('Casting', appLanguage) },
       { id: 'breakdown', label: translateUi('Breakdown', appLanguage) },
       { id: 'continuity', label: translateUi('Continuity', appLanguage) },

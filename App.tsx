@@ -827,7 +827,7 @@ const AppContent: React.FC = () => {
             )}
             {currentView === 'shotlist' && <div className="w-full h-full"><ShotListView key={`shotlist-${refreshKey}`} onNavigateToStoryboard={() => setCurrentView('storyboard')} /></div>}
             {currentView === 'storyboard' && <div className="w-full h-full"><StoryboardView key={`story-${refreshKey}`} /></div>}
-            {currentView === 'schedule' && <div className="w-full h-full"><ScheduleView key={`schedule-${refreshKey}`} /></div>}
+            {currentView === 'schedule' && <div className="w-full h-full"><ScheduleView key={`schedule-${refreshKey}`} onNavigateToView={setCurrentView} /></div>}
             {currentView === 'dood' && <div className="w-full h-full"><DoodMatrixView key={`dood-${refreshKey}`} /></div>}
             {currentView === 'documents' && <div className="w-full h-full"><DocumentVaultView key={`documents-${refreshKey}`} onNavigateToView={setCurrentView} /></div>}
             {currentView === 'two-column-script' && <div className="w-full h-full"><TwoColumnScriptView key={`two-col-${refreshKey}`} onNavigateToView={setCurrentView} /></div>}

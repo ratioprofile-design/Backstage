@@ -5,7 +5,7 @@ import { Beat, SectionBreak, CausalityLane, CausalityGroup } from '../../types';
 import {
   ZoomIn, ZoomOut, ChevronLeft, ChevronRight, Plus, Trash2, Copy,
   Edit3, Lightbulb, ScrollText, Sparkles, ArrowLeftRight, Maximize2, Minimize2,
-  Palette, Play, FolderPlus, Layers, Eye, EyeOff, Check, X
+  Palette, Play, FolderPlus, Layers, Eye, EyeOff, Check, X, GripVertical
 } from 'lucide-react';
 import { AISceneGeneratorModal } from '../AISceneGeneratorModal';
 import { ScriptRollingPreviewModal } from '../ScriptRollingPreviewModal';
@@ -38,23 +38,37 @@ const CAUSALITY_PALETTE = [
 ];
 
 const DEFAULT_LANES: CausalityLane[] = [
-  { id: 'ruby', label: 'RUBY ARC', color: '#1e295d', isUnused: false, collapsed: false },
+  { id: 'main', label: 'Main Plot', color: '#1c1d21', isUnused: false, collapsed: false },
   { id: 'unused', label: 'Unused', color: '#1c1d21', isUnused: true, collapsed: false },
-  { id: 'main', label: 'Main Screenplay in Tamil', color: '#1c1d21', isUnused: false, collapsed: false },
 ];
 
-const DEFAULT_GROUPS: CausalityGroup[] = [
-  { id: 'g-unused-block', laneId: 'unused', title: 'Un used Beats', startUnit: 2.0, durationUnits: 20.0, type: 'block' },
-  { id: 'g-u1', laneId: 'unused', title: 'Group', startUnit: 2.6, durationUnits: 5.0, type: 'group' },
-  { id: 'g-u2', laneId: 'unused', title: 'After Effects of Reflection', startUnit: 8.2, durationUnits: 5.2, type: 'group' },
-  { id: 'g-u3', laneId: 'unused', title: 'Venba The Broken Glass', startUnit: 14.0, durationUnits: 5.2, type: 'group' },
-  { id: 'g-ease', laneId: 'main', title: 'Ease In', startUnit: 2.5, durationUnits: 6.5, type: 'group' },
-  { id: 'g-music', laneId: 'main', title: 'A Musical Flow', startUnit: 14.0, durationUnits: 7.5, type: 'group' },
-];
+const DEFAULT_GROUPS: CausalityGroup[] = [];
 
-const CARD_HEIGHT_SOLID = 24; // Compact active beat strip
-const CARD_HEIGHT_OUTLINE = 46; // Multi-line disabled beat card
-const LANE_MIN_HEIGHT = 175;
+const isDemoGroup = (g: any): boolean => {
+  if (!g) return false;
+  return (
+    g.id === 'g-unused-block' ||
+    g.id === 'g-u1' ||
+    g.id === 'g-u2' ||
+    g.id === 'g-u3' ||
+    g.id === 'g-ease' ||
+    g.id === 'g-music' ||
+    g.title === 'Un used Beats' ||
+    g.title === 'After Effects of Reflection' ||
+    g.title === 'Venba The Broken Glass' ||
+    g.title === 'A Musical Flow' ||
+    g.title === 'Ease In'
+  );
+};
+
+const isDemoLane = (l: any): boolean => {
+  if (!l) return false;
+  return l.id === 'ruby' || l.label === 'RUBY ARC' || l.label === 'Main Screenplay in Tamil';
+};
+
+const CARD_HEIGHT_SOLID = 38; // Substantial, tactile active beat card
+const CARD_HEIGHT_OUTLINE = 52; // Multi-line disabled beat card
+const LANE_MIN_HEIGHT = 180;
 
 export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
   const {
@@ -82,7 +96,10 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
       const saved = localStorage.getItem(lanesStorageKey);
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const cleaned = parsed.filter(l => !isDemoLane(l));
+          if (cleaned.length > 0) return cleaned;
+        }
       }
     } catch (e) {}
     return DEFAULT_LANES;
@@ -99,7 +116,9 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
       const saved = localStorage.getItem(groupsStorageKey);
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) return parsed;
+        if (Array.isArray(parsed)) {
+          return parsed.filter(g => !isDemoGroup(g));
+        }
       }
     } catch (e) {}
     return DEFAULT_GROUPS;
@@ -129,14 +148,19 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
         const savedLanes = localStorage.getItem(`causality_lanes_${currentProjectId || 'default'}`);
         if (savedLanes) {
           const parsed = JSON.parse(savedLanes);
-          if (Array.isArray(parsed) && parsed.length > 0) setLanes(parsed);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            const cleaned = parsed.filter(l => !isDemoLane(l));
+            setLanes(cleaned.length > 0 ? cleaned : DEFAULT_LANES);
+          }
         }
       } catch (e) {}
       try {
         const savedGroups = localStorage.getItem(`causality_groups_${currentProjectId || 'default'}`);
         if (savedGroups) {
           const parsed = JSON.parse(savedGroups);
-          if (Array.isArray(parsed)) setGroups(parsed);
+          if (Array.isArray(parsed)) {
+            setGroups(parsed.filter(g => !isDemoGroup(g)));
+          }
         }
       } catch (e) {}
       try {
@@ -160,7 +184,23 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
   const [zoomLevel, setZoomLevel] = useState(1.0);
   const [playheadPos, setPlayheadPos] = useState(1.5);
   const [selectedBeatId, setSelectedBeatId] = useState<number | null>(null);
-  const [selectedLaneIdx, setSelectedLaneIdx] = useState(2); // default to Main Screenplay
+  const [selectedLaneIdx, setSelectedLaneIdx] = useState(() => {
+    try {
+      const saved = localStorage.getItem(lanesStorageKey);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const cleaned = parsed.filter(l => !isDemoLane(l));
+          const mIdx = cleaned.findIndex((l: CausalityLane) => !l.isUnused && l.id === 'main');
+          if (mIdx >= 0) return mIdx;
+          const firstNonUnused = cleaned.findIndex((l: CausalityLane) => !l.isUnused);
+          if (firstNonUnused >= 0) return firstNonUnused;
+        }
+      }
+    } catch (e) {}
+    const defaultMain = DEFAULT_LANES.findIndex(l => !l.isUnused);
+    return defaultMain >= 0 ? defaultMain : 0;
+  });
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isScriptRollingOpen, setIsScriptRollingOpen] = useState(false);
   const [isAiModalOpen, setIsAiModalOpen] = useState(false);
@@ -200,6 +240,16 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
     currentUnit: number;
     currentLaneIdx: number;
     currentRow: number;
+    domEl: HTMLElement | null;
+    hasMoved: boolean;
+  } | null>(null);
+
+  const isResizingBeatRef = useRef(false);
+  const beatResizeDataRef = useRef<{
+    beatId: number;
+    startX: number;
+    initialDuration: number;
+    currentDuration: number;
     domEl: HTMLElement | null;
   } | null>(null);
 
@@ -244,13 +294,21 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
       return aS - bS;
     });
 
+    // Default active lane index for beats without explicit lane assignment
+    const defaultActiveLaneIdx = (() => {
+      const idx = lanes.findIndex(l => !l.isUnused && l.id === 'main');
+      if (idx >= 0) return idx;
+      const firstActive = lanes.findIndex(l => !l.isUnused);
+      return firstActive >= 0 ? firstActive : 0;
+    })();
+
     // Map of laneIdx -> map of rowIdx -> maxEndUnit
     const laneRowMap = new Map<number, Map<number, number>>();
 
     return sorted.map((beat) => {
       let laneIdx = typeof beat.trackIndex === 'number' && beat.trackIndex >= 0 && beat.trackIndex < lanes.length
         ? beat.trackIndex
-        : (beat.isDisabled ? unusedLaneIndex : 2);
+        : (beat.isDisabled ? unusedLaneIndex : defaultActiveLaneIdx);
 
       if (beat.isDisabled && laneIdx !== unusedLaneIndex && lanes[laneIdx]?.isUnused !== true) {
         laneIdx = unusedLaneIndex;
@@ -264,11 +322,11 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
 
       const cleanTitle = (beat.title || 'Untitled Beat').trim();
       const isMultiLine = isOmittedOrDisabled && cleanTitle.length > 25;
-      const minW = Math.max(90, Math.min(220, isOmittedOrDisabled ? cleanTitle.length * 6.5 + 24 : cleanTitle.length * 7.5 + 24));
+      const minW = Math.max(135, Math.min(280, isOmittedOrDisabled ? cleanTitle.length * 7.5 + 44 : cleanTitle.length * 8.5 + 50));
 
       const durationUnits = typeof beat.durationPages === 'number' && beat.durationPages > 0
-        ? Math.max(1.0, beat.durationPages)
-        : Math.max(1.0, Math.round((minW / effectivePxPerUnit) * 10) / 10);
+        ? Math.max(1.2, beat.durationPages)
+        : Math.max(1.2, Math.round((minW / effectivePxPerUnit) * 10) / 10);
 
       // Constant fallback position keyed by project index so other beats NEVER shift when one moves
       const rawStart = typeof beat.startTime === 'number' && beat.startTime >= 0.5
@@ -278,18 +336,28 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
             return 2.5 + (projectIdx >= 0 ? projectIdx : 0) * 1.5;
           })();
 
-      // Stable row assignment: If beat already has subtrackIndex or a cached row, KEEP IT!
+      // Stable row assignment: If beat already has subtrackIndex or a cached row, check if it collides!
+      const rowEnds = laneRowMap.get(laneIdx) || new Map<number, number>();
       let assignedRow: number;
       if (typeof beat.subtrackIndex === 'number' && beat.subtrackIndex >= 0) {
-        assignedRow = beat.subtrackIndex;
+        const preferredRow = beat.subtrackIndex;
+        // If preferredRow is already occupied at rawStart by an overlapping beat, waterfall to avoid crumbling
+        if ((rowEnds.get(preferredRow) || 0) > rawStart + 0.05) {
+          let r = preferredRow + 1;
+          while ((rowEnds.get(r) || 0) > rawStart + 0.05) {
+            r++;
+          }
+          assignedRow = r;
+        } else {
+          assignedRow = preferredRow;
+        }
         beatRowCacheRef.current.set(beat.id, assignedRow);
       } else if (beatRowCacheRef.current.has(beat.id)) {
         assignedRow = beatRowCacheRef.current.get(beat.id)!;
       } else {
         // First time seeing this beat: find first available row that doesn't collide
-        const rowEnds = laneRowMap.get(laneIdx) || new Map<number, number>();
         let r = 0;
-        while ((rowEnds.get(r) || 0) > rawStart - 0.05) {
+        while ((rowEnds.get(r) || 0) > rawStart + 0.05) {
           r++;
         }
         assignedRow = r;
@@ -297,7 +365,6 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
       }
 
       // Record row end
-      const rowEnds = laneRowMap.get(laneIdx) || new Map<number, number>();
       rowEnds.set(assignedRow, Math.max(rowEnds.get(assignedRow) || 0, rawStart + durationUnits));
       laneRowMap.set(laneIdx, rowEnds);
 
@@ -380,8 +447,8 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
       // 3. Layout each beat in this lane
       const beatsInLane = laneBeats.map(b => {
         const isOutlined = b.isOmittedOrDisabled;
-        const cardHeight = isOutlined ? (b.isMultiLine ? CARD_HEIGHT_OUTLINE : 28) : CARD_HEIGHT_SOLID;
-        const rowStep = isOutlined && b.isMultiLine ? 54 : 32;
+        const cardHeight = isOutlined ? (b.isMultiLine ? CARD_HEIGHT_OUTLINE : 38) : CARD_HEIGHT_SOLID;
+        const rowStep = isOutlined && b.isMultiLine ? 60 : 48;
         const topPx = beatTopBase + b.row * rowStep;
         const bottomPx = topPx + cardHeight;
         return {
@@ -555,7 +622,7 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
     const newBeat: Beat = {
       id: newId, x: 100, y: 100, title: '', sceneNumber: String(sceneNo),
       slug: { prefix: 'INT', location: 'SCENE', time: 'DAY' }, content: '<p></p>',
-      trackIndex: laneIdx, subtrackIndex: 0, startTime: snapToGrid(pos),
+      trackIndex: laneIdx, startTime: snapToGrid(pos),
       durationPages: 1.5, durationWidth: 1.5 * effectivePxPerUnit,
       isDisabled: isUnused,
       ...( { color } as any )
@@ -571,7 +638,7 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
     return newId;
   }, [beats.length, captureSnapshot, effectivePxPerUnit, playheadPos, setBeats, lanes]);
 
-  // ─── Rapid Flow: Enter saves title → cascades next beat below ───────
+  // ─── Rapid Flow: Enter saves title → cascades next beat cleanly ahead ───
   const handleRapidEntrySave = useCallback((beatId: number) => {
     const title = editingBeatTitle.trim() || `Untitled Beat`;
     updateBeat(beatId, { title });
@@ -580,8 +647,10 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
     const thisBeat = beatsWithLayout.find(b => b.id === beatId);
     const laneIdx = thisBeat?.laneIdx ?? selectedLaneIdx;
 
-    const nextStart = thisBeat ? thisBeat.startUnit + 0.6 : playheadPos + 1.0;
-    createBeat(laneIdx, snapToGrid(nextStart));
+    const nextStart = thisBeat
+      ? snapToGrid(thisBeat.startUnit + Math.max(thisBeat.durationUnits, 1.4) + 0.25)
+      : snapToGrid(playheadPos + 1.5);
+    createBeat(laneIdx, nextStart);
   }, [editingBeatTitle, updateBeat, captureSnapshot, beatsWithLayout, selectedLaneIdx, playheadPos, createBeat]);
 
   const handleTabToSummary = useCallback((beatId: number) => {
@@ -605,8 +674,10 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
 
     const thisBeat = beatsWithLayout.find(b => b.id === beatId);
     const laneIdx = thisBeat?.laneIdx ?? selectedLaneIdx;
-    const nextStart = thisBeat ? thisBeat.startUnit + 0.6 : playheadPos + 1.0;
-    createBeat(laneIdx, snapToGrid(nextStart));
+    const nextStart = thisBeat
+      ? snapToGrid(thisBeat.startUnit + Math.max(thisBeat.durationUnits, 1.4) + 0.25)
+      : snapToGrid(playheadPos + 1.5);
+    createBeat(laneIdx, nextStart);
   }, [editingBeatSummary, updateBeat, captureSnapshot, beatsWithLayout, selectedLaneIdx, playheadPos, createBeat]);
 
   // ─── Lane Management ────────────────────────────────────────────────
@@ -723,9 +794,13 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
     saveGroups(groups.filter(g => g.id !== groupId));
   };
 
-  // ─── BUTTER-SMOOTH BEAT DRAGGING (ZERO-JITTER) ──────────────────────
+  // ─── BUTTER-SMOOTH BEAT DRAGGING & REARRANGING ─────────────────────
   const handleBeatMouseDown = (e: React.MouseEvent, beatId: number) => {
     if (e.button !== 0) return;
+    const target = e.target as HTMLElement;
+    if (target.closest('input') || target.closest('button') || target.closest('[data-resize-handle]')) {
+      return;
+    }
     e.stopPropagation();
 
     const b = beatsWithLayout.find(item => item.id === beatId);
@@ -736,7 +811,6 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
 
     const domEl = document.querySelector(`[data-beat-id="${beatId}"]`) as HTMLElement | null;
 
-    isDraggingBeatRef.current = true;
     beatDragDataRef.current = {
       beatId,
       startX: e.clientX,
@@ -747,15 +821,30 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
       currentUnit: b.startUnit,
       currentLaneIdx: b.laneIdx,
       currentRow: b.row,
+      domEl,
+      hasMoved: false
+    };
+  };
+
+  // ─── BEAT RESIZE HANDLE (Adjust Duration) ──────────────────────────
+  const handleBeatResizeMouseDown = (e: React.MouseEvent, beatId: number) => {
+    if (e.button !== 0) return;
+    e.stopPropagation();
+    const b = beats.find(item => item.id === beatId);
+    if (!b) return;
+
+    const domEl = document.querySelector(`[data-beat-id="${beatId}"]`) as HTMLElement | null;
+    if (domEl) domEl.style.transition = 'none';
+
+    const currentDur = typeof b.durationPages === 'number' && b.durationPages > 0 ? b.durationPages : 1.5;
+    isResizingBeatRef.current = true;
+    beatResizeDataRef.current = {
+      beatId,
+      startX: e.clientX,
+      initialDuration: currentDur,
+      currentDuration: currentDur,
       domEl
     };
-
-    if (domEl) {
-      domEl.style.transition = 'none';
-      domEl.style.zIndex = '60';
-      domEl.style.opacity = '0.9';
-      domEl.style.pointerEvents = 'none';
-    }
   };
 
   // ─── BUTTER-SMOOTH GROUP DRAGGING (Moves group & contained beats) ────
@@ -854,11 +943,28 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
   // Global mousemove & mouseup listeners for hardware-accelerated drag
   useEffect(() => {
     const handleGlobalMouseMove = (e: MouseEvent) => {
-      // 1. Beat Dragging (Zero lag, 1:1 hardware tracked with row snapping)
-      if (isDraggingBeatRef.current && beatDragDataRef.current) {
+      // 1. Beat Dragging (Zero lag, 1:1 hardware tracked with smooth row & rearrange snapping)
+      if (beatDragDataRef.current) {
         const d = beatDragDataRef.current;
         const dx = e.clientX - d.startX;
         const dy = e.clientY - d.startY;
+
+        // Distinguish intentional drag from simple click
+        if (!d.hasMoved) {
+          if (Math.hypot(dx, dy) > 4) {
+            d.hasMoved = true;
+            isDraggingBeatRef.current = true;
+            if (d.domEl) {
+              d.domEl.style.transition = 'none';
+              d.domEl.style.zIndex = '60';
+              d.domEl.style.opacity = '0.92';
+              d.domEl.style.pointerEvents = 'none';
+            }
+          } else {
+            return;
+          }
+        }
+
         const dp = dx / effectivePxPerUnit;
         const newUnit = snapToGrid(Math.max(0.5, d.initialStart + dp));
 
@@ -885,10 +991,10 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
           targetLaneIdx = Math.max(0, Math.min(lanes.length - 1, targetLaneIdx));
         }
 
-        // Determine target row based on vertical position within target lane
+        // Determine target row based on vertical position within target lane (rowStep = 48px)
         const laneLayout = layoutByLane[targetLaneIdx];
         const beatTopBase = laneLayout?.beatTopBase ?? 44;
-        const targetRow = Math.max(0, Math.floor((targetLaneRelY - beatTopBase + 16) / 32));
+        const targetRow = Math.max(0, Math.floor((targetLaneRelY - beatTopBase + 23) / 48));
 
         d.currentUnit = newUnit;
         d.currentLaneIdx = targetLaneIdx;
@@ -896,11 +1002,23 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
 
         // Apply hardware GPU transform
         if (d.domEl) {
-          d.domEl.style.transform = `translate3d(${dx}px, ${dy}px, 0) scale(1.02)`;
+          d.domEl.style.transform = `translate3d(${dx}px, ${dy}px, 0) scale(1.03)`;
         }
       }
 
-      // 2. Group Dragging
+      // 2. Beat Resizing (Direct DOM manipulation - instantaneous & smooth)
+      if (isResizingBeatRef.current && beatResizeDataRef.current) {
+        const rd = beatResizeDataRef.current;
+        const dx = e.clientX - rd.startX;
+        const dp = dx / effectivePxPerUnit;
+        const newDuration = Math.max(1.0, Math.round((rd.initialDuration + dp) * 4) / 4);
+        rd.currentDuration = newDuration;
+        if (rd.domEl) {
+          rd.domEl.style.width = `${Math.max(130, newDuration * effectivePxPerUnit)}px`;
+        }
+      }
+
+      // 3. Group Dragging
       if (isDraggingGroupRef.current && groupDragDataRef.current) {
         const gd = groupDragDataRef.current;
         const dx = e.clientX - gd.startX;
@@ -942,7 +1060,7 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
         });
       }
 
-      // 3. Group Resizing (Direct DOM manipulation - zero React lag & 120fps smooth)
+      // 4. Group Resizing (Direct DOM manipulation - zero React lag & 120fps smooth)
       if (isResizingGroupRef.current && groupResizeDataRef.current) {
         const rd = groupResizeDataRef.current;
         const dx = e.clientX - rd.startX;
@@ -956,8 +1074,23 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
     };
 
     const handleGlobalMouseUp = () => {
-      // 1. Commit Beat Drag
-      if (isDraggingBeatRef.current && beatDragDataRef.current) {
+      // 1. Commit Beat Resize
+      if (isResizingBeatRef.current && beatResizeDataRef.current) {
+        const rd = beatResizeDataRef.current;
+        if (rd.domEl) {
+          rd.domEl.style.transition = '';
+        }
+        updateBeat(rd.beatId, {
+          durationPages: rd.currentDuration,
+          durationWidth: rd.currentDuration * effectivePxPerUnit
+        });
+        captureSnapshot();
+        isResizingBeatRef.current = false;
+        beatResizeDataRef.current = null;
+      }
+
+      // 2. Commit Beat Drag & Auto-Rearrange
+      if (beatDragDataRef.current) {
         const d = beatDragDataRef.current;
         if (d.domEl) {
           d.domEl.style.transform = '';
@@ -967,21 +1100,61 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
           d.domEl.style.transition = '';
         }
 
-        const isTargetUnused = lanes[d.currentLaneIdx]?.isUnused === true;
-        const isInitialUnused = lanes[d.initialLaneIdx]?.isUnused === true;
+        if (d.hasMoved) {
+          const isTargetUnused = lanes[d.currentLaneIdx]?.isUnused === true;
+          const isInitialUnused = lanes[d.initialLaneIdx]?.isUnused === true;
 
-        const updates: Partial<Beat> = {
-          startTime: d.currentUnit,
-          trackIndex: d.currentLaneIdx,
-          subtrackIndex: d.currentRow
-        };
+          const thisBeat = beats.find(b => b.id === d.beatId);
+          const thisBeatDur = typeof thisBeat?.durationPages === 'number' && thisBeat.durationPages > 0
+            ? thisBeat.durationPages
+            : 1.5;
 
-        if (isTargetUnused && !isInitialUnused) updates.isDisabled = true;
-        else if (!isTargetUnused && isInitialUnused) updates.isDisabled = false;
+          // Find other beats on same target lane and row to resolve order & prevent overlap
+          const otherBeatsOnRow = beats
+            .filter(b => b.id !== d.beatId && (b.trackIndex ?? 0) === d.currentLaneIdx && (b.subtrackIndex ?? 0) === d.currentRow)
+            .sort((a, b) => (a.startTime ?? 0) - (b.startTime ?? 0));
 
-        beatRowCacheRef.current.set(d.beatId, d.currentRow);
-        updateBeat(d.beatId, updates);
-        captureSnapshot();
+          // Sequence / rearrange: insert this beat at target position and ensure no crumbling
+          const allOnRow = [
+            ...otherBeatsOnRow,
+            { ...(thisBeat || {}), id: d.beatId, startTime: d.currentUnit, durationPages: thisBeatDur } as Beat
+          ].sort((a, b) => (a.startTime ?? 0) - (b.startTime ?? 0));
+
+          const rowStartMap = new Map<number, number>();
+          let cursor = 0;
+          allOnRow.forEach((b, idx) => {
+            const dur = typeof b.durationPages === 'number' && b.durationPages > 0 ? b.durationPages : 1.5;
+            const assignedStart = idx === 0
+              ? Math.max(0.5, b.startTime ?? 0.5)
+              : Math.max(b.startTime ?? 0.5, cursor);
+            rowStartMap.set(b.id, snapToGrid(assignedStart));
+            cursor = snapToGrid(assignedStart + dur + 0.25);
+          });
+
+          // Apply updates to beats in ProjectContext
+          setBeats(prev => prev.map(b => {
+            if (b.id === d.beatId) {
+              const assignedStart = rowStartMap.get(d.beatId) ?? d.currentUnit;
+              beatRowCacheRef.current.set(d.beatId, d.currentRow);
+              return {
+                ...b,
+                startTime: assignedStart,
+                trackIndex: d.currentLaneIdx,
+                subtrackIndex: d.currentRow,
+                isDisabled: isTargetUnused ? true : (isInitialUnused ? false : b.isDisabled)
+              };
+            }
+            if (rowStartMap.has(b.id) && (b.trackIndex ?? 0) === d.currentLaneIdx && (b.subtrackIndex ?? 0) === d.currentRow) {
+              return {
+                ...b,
+                startTime: rowStartMap.get(b.id)!
+              };
+            }
+            return b;
+          }));
+
+          captureSnapshot();
+        }
 
         isDraggingBeatRef.current = false;
         beatDragDataRef.current = null;
@@ -1138,23 +1311,26 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
       };
     }
     return {
-      canvasBg: '#3d4047',
-      topBarBg: '#1a1c22',
-      topBarBorder: '#0f1014',
-      topBarText: '#cbd5e1',
-      bottomBarBg: '#16171b',
-      bottomBarBorder: '#25272e',
+      canvasBg: '#2a2b30',
+      canvasGridLine: 'rgba(255, 255, 255, 0.04)',
+      timelineRulerBg: '#212226',
+      timelineRulerBorder: '#18191c',
+      topBarBg: '#18191c',
+      topBarBorder: '#121316',
+      topBarText: '#e2e8f0',
+      bottomBarBg: '#18191c',
+      bottomBarBorder: '#121316',
       bottomBarText: '#94a3b8',
-      laneBorder: 'rgba(0, 0, 0, 0.35)',
+      laneBorder: '#1d1e22',
       cyanPlayhead: '#00e5ff',
-      blockBg: 'rgba(90, 93, 102, 0.45)',
-      blockBorder: 'rgba(255, 255, 255, 0.10)',
-      blockHeaderBg: 'rgba(0, 0, 0, 0.55)',
+      blockBg: 'rgba(55, 58, 66, 0.55)',
+      blockBorder: 'rgba(255, 255, 255, 0.08)',
+      blockHeaderBg: 'rgba(24, 25, 28, 0.85)',
       blockHeaderText: '#ffffff',
-      groupBg: 'rgba(75, 78, 86, 0.55)',
-      groupBorder: 'rgba(255, 255, 255, 0.12)',
-      groupHeaderBg: 'rgba(0, 0, 0, 0.40)',
-      groupHeaderText: 'rgba(255, 255, 255, 0.80)',
+      groupBg: 'rgba(48, 50, 58, 0.60)',
+      groupBorder: 'rgba(255, 255, 255, 0.09)',
+      groupHeaderBg: 'rgba(20, 21, 24, 0.75)',
+      groupHeaderText: 'rgba(255, 255, 255, 0.85)',
     };
   }, [isLight]);
 
@@ -1230,18 +1406,68 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
           style={{ width: `${totalBoardWidth + 240}px` }}
           className="min-h-full flex flex-col relative"
         >
+          {/* ─── CAUSALITY TOP TIMELINE RULER BAR (Page / Beat Time Marks) ─── */}
+          <div
+            className="h-7 border-b flex items-center sticky top-0 z-25 select-none"
+            style={{
+              backgroundColor: themeStyles.timelineRulerBg || '#212226',
+              borderColor: themeStyles.laneBorder || '#1d1e22',
+              width: `${totalBoardWidth + 240}px`
+            }}
+          >
+            {/* Left corner spacer matching lane badge width */}
+            <div className="w-44 shrink-0 px-3 text-[10px] font-mono font-semibold tracking-wider opacity-50 uppercase flex items-center border-r border-black/20 dark:border-white/5">
+              Timeline / Pages
+            </div>
+
+            {/* Ruler ticks & numbers */}
+            <div
+              className="flex-1 h-full relative cursor-pointer"
+              onClick={(e) => {
+                const rect = e.currentTarget.getBoundingClientRect();
+                const clickX = e.clientX - rect.left;
+                if (clickX >= 0) {
+                  setPlayheadPos(snapToGrid(clickX / effectivePxPerUnit));
+                }
+              }}
+            >
+              {Array.from({ length: Math.ceil((totalBoardWidth + 240) / (effectivePxPerUnit || 100)) + 2 }).map((_, i) => {
+                const left = i * effectivePxPerUnit;
+                return (
+                  <div key={i} style={{ left: `${left}px` }} className="absolute top-0 bottom-0 pointer-events-none">
+                    {/* Primary major tick & label */}
+                    <div className="h-full border-l border-white/20 flex flex-col justify-between pl-1">
+                      <span className="text-[9px] font-mono font-medium text-white/60 select-none">
+                        p.{i + 1}
+                      </span>
+                      <div className="w-1 h-[3px] bg-white/30" />
+                    </div>
+                    {/* Quarter tick marks */}
+                    <div style={{ left: `${effectivePxPerUnit * 0.25}px` }} className="absolute bottom-0 h-1.5 border-l border-white/10 pointer-events-none" />
+                    <div style={{ left: `${effectivePxPerUnit * 0.5}px` }} className="absolute bottom-0 h-2 border-l border-white/15 pointer-events-none" />
+                    <div style={{ left: `${effectivePxPerUnit * 0.75}px` }} className="absolute bottom-0 h-1.5 border-l border-white/10 pointer-events-none" />
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
           {/* Vertical Cyan Playhead Line */}
           <div
             style={{
               left: `${playheadPos * effectivePxPerUnit + 176}px`,
-              height: `${lanes.reduce((s, _, i) => s + getLaneHeight(i), 0) + 120}px`,
+              height: `${lanes.reduce((s, _, i) => s + getLaneHeight(i), 0) + 140}px`,
               backgroundColor: themeStyles.cyanPlayhead
             }}
-            className="absolute top-0 w-[1.5px] pointer-events-none z-30 shadow-md"
+            className="absolute top-0 w-[2px] pointer-events-none z-30 shadow-[0_0_8px_rgba(0,229,255,0.7)]"
           >
+            {/* Playhead Scrubber Diamond / Flag */}
             <div
-              style={{ backgroundColor: themeStyles.cyanPlayhead }}
-              className="w-2.5 h-2.5 rounded-full shadow-md -translate-x-[4px] -translate-y-[2px]"
+              style={{
+                backgroundColor: themeStyles.cyanPlayhead,
+                borderColor: '#ffffff'
+              }}
+              className="w-3.5 h-3.5 rotate-45 border shadow-md -translate-x-[5px] translate-y-[5px]"
             />
           </div>
 
@@ -1419,38 +1645,6 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
                       }}
                       className="flex-1 relative overflow-visible"
                     >
-                      {/* Empty Lane Invitation */}
-                      {beats.length === 0 && !lane.isUnused && laneIdx === 2 && (
-                        <div className="absolute left-16 top-1/2 -translate-y-1/2 flex items-center gap-4 px-4 py-3 rounded-xl border border-dashed border-white/20 bg-black/20 dark:bg-white/5 backdrop-blur-md pointer-events-auto select-none z-20">
-                          <div className="text-xs">
-                            <span className="font-semibold block text-sm opacity-95">Ready to structure your screenplay</span>
-                            <span className="opacity-70 text-[11px]">Press <kbd className="px-1.5 py-0.5 rounded bg-black/40 text-amber-400 font-mono font-bold">Enter</kbd> to add beats in flow, or double-click anywhere</span>
-                          </div>
-                          <div className="flex items-center gap-2 ml-2">
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                createBeat(laneIdx, 2.5);
-                              }}
-                              className="px-3.5 py-1.5 rounded-lg text-xs font-bold bg-[#00e5ff] text-black hover:bg-[#38bdf8] transition-all cursor-pointer shadow-md active:scale-95"
-                            >
-                              + Add Beat
-                            </button>
-                            {typeof autoGenerate5Scenes === 'function' && (
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  autoGenerate5Scenes();
-                                }}
-                                className="px-3 py-1.5 rounded-lg text-xs font-medium border border-white/20 hover:bg-white/10 transition-all cursor-pointer"
-                              >
-                                Load Sample Story
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      )}
-
                       {/* Groups & Blocks (Pass-through pointer-events so beats receive all clicks) */}
                       {laneGroups.map(grp => {
                         const grpLayout = laneLayout?.groupsLayoutMap.get(grp.id);
@@ -1605,61 +1799,111 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
                               width: `${widthPx}px`,
                               height: `${cardHeight}px`,
                               backgroundColor: isOutlined
-                                ? isLight ? '#ffffff' : 'rgba(25, 27, 33, 0.75)'
+                                ? isLight ? '#ffffff' : 'rgba(25, 27, 33, 0.85)'
                                 : (beat.color || '#3b5284'),
                               border: isOutlined
                                 ? `1.5px solid ${beat.color || '#eab308'}`
-                                : 'none',
+                                : '1px solid rgba(255, 255, 255, 0.2)',
                               color: isOutlined
                                 ? isLight ? '#0f172a' : '#ffffff'
                                 : '#ffffff'
                             }}
-                            className={`absolute rounded-[3px] select-none cursor-grab active:cursor-grabbing flex items-center px-2 z-20 pointer-events-auto transition-[box-shadow,background-color,border-color,opacity] duration-150 ${
-                              isOutlined ? 'shadow-xs' : 'shadow-sm'
+                            className={`group absolute rounded-[6px] select-none cursor-grab active:cursor-grabbing flex items-center px-2.5 z-20 pointer-events-auto transition-[box-shadow,background-color,border-color,opacity] duration-150 shadow-sm hover:shadow-md ${
+                              isOutlined ? 'shadow-xs' : ''
                             } ${
-                              isSelected ? 'ring-2 ring-white scale-[1.02] shadow-xl z-30' : 'hover:brightness-110'
+                              isSelected ? 'ring-2 ring-white/95 scale-[1.01] shadow-xl z-30' : 'hover:brightness-105'
                             }`}
                           >
-                            {isEditing && editingField === 'title' ? (
-                              <input
-                                type="text"
-                                autoFocus
-                                placeholder="Type beat name..."
-                                value={editingBeatTitle}
-                                onChange={(e) => setEditingBeatTitle(e.target.value)}
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter') {
-                                    e.preventDefault();
-                                    handleRapidEntrySave(beat.id);
-                                  } else if (e.key === 'Tab') {
-                                    e.preventDefault();
-                                    handleTabToSummary(beat.id);
-                                  } else if (e.key === 'Escape') {
-                                    const title = editingBeatTitle.trim() || 'Untitled Beat';
-                                    updateBeat(beat.id, { title });
-                                    setEditingBeatId(null);
-                                  }
-                                }}
-                                onBlur={() => {
-                                  const title = editingBeatTitle.trim() || 'Untitled Beat';
-                                  updateBeat(beat.id, { title });
-                                  if (editingField === 'title') setEditingBeatId(null);
-                                }}
-                                onClick={(e) => e.stopPropagation()}
-                                onMouseDown={(e) => e.stopPropagation()}
-                                className="w-full bg-black/20 text-white rounded px-1 text-[11px] font-medium outline-none placeholder-white/50"
-                              />
-                            ) : (
-                              <span
-                                className={`${
-                                  isOutlined
-                                    ? 'text-[10.5px] leading-snug font-medium line-clamp-2'
-                                    : 'text-[11px] font-medium truncate drop-shadow-[0_1px_1px_rgba(0,0,0,0.5)]'
-                                }`}
-                              >
-                                {beat.title || 'Untitled Beat'}
+                            {/* Visual Grip Handle */}
+                            <GripVertical
+                              size={13}
+                              className="text-white/40 group-hover:text-white/90 shrink-0 mr-1.5 cursor-grab active:cursor-grabbing transition-colors"
+                            />
+
+                            {/* Scene Number Badge */}
+                            {beat.sceneNumber && (
+                              <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-black/35 text-white/90 mr-1.5 shrink-0 select-none border border-white/10">
+                                #{beat.sceneNumber}
                               </span>
                             )}
+
+                            {isEditing ? (
+                              editingField === 'title' ? (
+                                <input
+                                  type="text"
+                                  autoFocus
+                                  placeholder="Type beat name..."
+                                  value={editingBeatTitle}
+                                  onChange={(e) => setEditingBeatTitle(e.target.value)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                      e.preventDefault();
+                                      handleRapidEntrySave(beat.id);
+                                    } else if (e.key === 'Tab') {
+                                      e.preventDefault();
+                                      handleTabToSummary(beat.id);
+                                    } else if (e.key === 'Escape') {
+                                      const title = editingBeatTitle.trim() || 'Untitled Beat';
+                                      updateBeat(beat.id, { title });
+                                      setEditingBeatId(null);
+                                    }
+                                  }}
+                                  onBlur={() => {
+                                    const title = editingBeatTitle.trim() || 'Untitled Beat';
+                                    updateBeat(beat.id, { title });
+                                    if (editingField === 'title') setEditingBeatId(null);
+                                  }}
+                                  onClick={(e) => e.stopPropagation()}
+                                  onMouseDown={(e) => e.stopPropagation()}
+                                  className="flex-1 bg-black/40 text-white rounded px-1.5 py-0.5 text-[12px] font-medium outline-none border border-white/30 placeholder-white/50"
+                                />
+                              ) : (
+                                <input
+                                  type="text"
+                                  autoFocus
+                                  placeholder="Summary / Action note..."
+                                  value={editingBeatSummary}
+                                  onChange={(e) => setEditingBeatSummary(e.target.value)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                      e.preventDefault();
+                                      handleSummaryEnter(beat.id);
+                                    } else if (e.key === 'Escape') {
+                                      handleSummarySave(beat.id);
+                                    }
+                                  }}
+                                  onBlur={() => handleSummarySave(beat.id)}
+                                  onClick={(e) => e.stopPropagation()}
+                                  onMouseDown={(e) => e.stopPropagation()}
+                                  className="flex-1 bg-black/40 text-white rounded px-1.5 py-0.5 text-[11px] font-medium outline-none border border-amber-400/50 placeholder-white/50"
+                                />
+                              )
+                            ) : (
+                              <div className="flex-1 flex flex-col justify-center min-w-0 pr-1">
+                                <span
+                                  className={`truncate ${
+                                    isOutlined
+                                      ? 'text-[11px] font-medium'
+                                      : 'text-[12px] font-semibold text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.6)]'
+                                  }`}
+                                >
+                                  {beat.title || 'Untitled Beat'}
+                                </span>
+                                {beat.summary && (
+                                  <span className="text-[9.5px] opacity-75 truncate text-white/80 leading-none mt-0.5 font-normal">
+                                    {beat.summary}
+                                  </span>
+                                )}
+                              </div>
+                            )}
+
+                            {/* Duration Resizer on Right Edge */}
+                            <div
+                              data-resize-handle="true"
+                              onMouseDown={(e) => handleBeatResizeMouseDown(e, beat.id)}
+                              className="absolute right-0 top-0 bottom-0 w-2.5 cursor-ew-resize hover:bg-white/25 rounded-r-[6px] transition-colors"
+                              title="Drag to resize duration"
+                            />
                           </div>
                         );
                       })}

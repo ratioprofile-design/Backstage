@@ -1131,8 +1131,9 @@ Photos attached: ${imgs.length > 0 ? imgs.length : 'None'}
         const location = beat.slug?.location || 'LOCATION';
 
         const castList: string[] = [];
-        if (beat.breakdown?.cast) {
-          beat.breakdown.cast.forEach((c) => {
+        const rawCast = beat.breakdown?.CAST || beat.breakdown?.cast || beat.breakdownData?.CAST || beat.breakdownData?.cast;
+        if (rawCast) {
+          rawCast.forEach((c) => {
             const name = typeof c === 'string' ? c : c.name;
             if (name) castList.push(name);
           });
@@ -1250,9 +1251,10 @@ Photos attached: ${imgs.length > 0 ? imgs.length : 'None'}
     });
 
     (beats || []).forEach((b) => {
-      if (b.breakdown) {
-        const bd = b.breakdown;
-        (bd.costume || []).forEach((item) => {
+      const bd = b.breakdown || b.breakdownData;
+      if (bd) {
+        const costumes = (bd as any).WARDROBE || bd.costume || [];
+        costumes.forEach((item: any) => {
           const name = typeof item === 'string' ? item : item.name;
           if (name) {
             const key = name.toLowerCase().replace(/\s+/g, '-');
@@ -1261,7 +1263,8 @@ Photos attached: ${imgs.length > 0 ? imgs.length : 'None'}
             }
           }
         });
-        (bd.props || []).forEach((item) => {
+        const propsList = (bd as any).PROPS || bd.props || [];
+        propsList.forEach((item: any) => {
           const name = typeof item === 'string' ? item : item.name;
           if (name) {
             const key = name.toLowerCase().replace(/\s+/g, '-');
@@ -1270,7 +1273,8 @@ Photos attached: ${imgs.length > 0 ? imgs.length : 'None'}
             }
           }
         });
-        (bd.practical || []).concat(bd.vfx || []).forEach((item) => {
+        const vehiclesList = (bd as any).VEHICLES || bd.practical || bd.vfx || [];
+        vehiclesList.forEach((item: any) => {
           const name = typeof item === 'string' ? item : item.name;
           if (name) {
             const key = name.toLowerCase().replace(/\s+/g, '-');
@@ -1279,7 +1283,18 @@ Photos attached: ${imgs.length > 0 ? imgs.length : 'None'}
             }
           }
         });
-        (bd.cast || []).forEach((item) => {
+        const makeupsList = (bd as any).MAKEUP || [];
+        makeupsList.forEach((item: any) => {
+          const name = typeof item === 'string' ? item : item.name;
+          if (name) {
+            const key = name.toLowerCase().replace(/\s+/g, '-');
+            if (!map.has(`makeup:${key}`)) {
+              map.set(`makeup:${key}`, { key, dept: 'makeup', label: name });
+            }
+          }
+        });
+        const castArr = (bd as any).CAST || bd.cast || [];
+        castArr.forEach((item: any) => {
           const name = typeof item === 'string' ? item : item.name;
           if (name) {
             const key = name.toLowerCase().replace(/\s+/g, '-');
