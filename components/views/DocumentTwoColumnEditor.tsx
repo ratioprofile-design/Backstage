@@ -409,11 +409,11 @@ export const DocumentTwoColumnEditor: React.FC<DocumentTwoColumnEditorProps> = (
     return Math.floor((container.innerText || '').length / 2);
   };
 
-  // Split paragraph into separate shots
+  // Split paragraph into separate lines/blocks on Enter or Alt+Click
   const handleSplitParagraph = (
     itemId: string,
-    splitOffset?: number,
-    customFullText?: string
+    beforeOrOffset?: number | string,
+    afterOrFullText?: string
   ) => {
     const newItemId = `item-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
 
@@ -426,42 +426,42 @@ export const DocumentTwoColumnEditor: React.FC<DocumentTwoColumnEditorProps> = (
 
         itemFound = true;
         const currentItem = scene.items[itemIndex];
-        const fullText =
-          customFullText ??
-          (currentItem.leftAction || currentItem.rawText || currentItem.rightDialogue || '');
-
-        let beforeText = fullText;
+        
+        let beforeText = '';
         let afterText = '';
 
-        if (typeof splitOffset === 'number' && splitOffset >= 0 && splitOffset <= fullText.length) {
-          beforeText = fullText.slice(0, splitOffset);
-          afterText = fullText.slice(splitOffset);
+        if (typeof beforeOrOffset === 'string') {
+          beforeText = beforeOrOffset;
+          afterText = typeof afterOrFullText === 'string' ? afterOrFullText : '';
+        } else if (typeof beforeOrOffset === 'number') {
+          const fullText = afterOrFullText ?? (currentItem.leftAction || currentItem.rawText || currentItem.rightDialogue || '');
+          const offset = Math.max(0, Math.min(beforeOrOffset, fullText.length));
+          beforeText = fullText.slice(0, offset);
+          afterText = fullText.slice(offset);
         } else {
-          const mid = Math.floor(fullText.length / 2);
-          beforeText = fullText.slice(0, mid);
-          afterText = fullText.slice(mid);
+          const fullText = afterOrFullText ?? (currentItem.leftAction || currentItem.rawText || currentItem.rightDialogue || '');
+          beforeText = fullText;
+          afterText = '';
         }
 
-        // Action block: last description must end with " -"
-        const cleanBefore = beforeText.trimEnd().replace(/\s*-+$/, '');
-        const formattedBefore = cleanBefore ? `${cleanBefore} -` : '-';
-        const formattedAfter = afterText.trimStart();
+        const cleanBefore = beforeText.trimEnd();
+        const cleanAfter = afterText.trimStart();
 
         const updatedCurrentItem: TamilScriptItem = {
           ...currentItem,
-          leftAction: currentItem.column === 'left' ? formattedBefore : currentItem.leftAction,
-          rightDialogue: currentItem.column === 'right' ? formattedBefore : currentItem.rightDialogue,
-          rawText: formattedBefore,
+          leftAction: currentItem.column === 'left' ? cleanBefore : currentItem.leftAction,
+          rightDialogue: currentItem.column === 'right' ? cleanBefore : currentItem.rightDialogue,
+          rawText: cleanBefore,
         };
 
         const newItem: TamilScriptItem = {
           id: newItemId,
           type: currentItem.type === 'dialogue' ? 'dialogue' : 'action',
           column: currentItem.column,
-          leftAction: currentItem.column === 'left' ? formattedAfter : undefined,
-          rightDialogue: currentItem.column === 'right' ? formattedAfter : undefined,
+          leftAction: currentItem.column === 'left' ? cleanAfter : undefined,
+          rightDialogue: currentItem.column === 'right' ? cleanAfter : undefined,
           rightCharacter: currentItem.column === 'right' ? currentItem.rightCharacter : undefined,
-          rawText: formattedAfter,
+          rawText: cleanAfter,
         };
 
         const newItems = [...scene.items];
@@ -483,10 +483,9 @@ export const DocumentTwoColumnEditor: React.FC<DocumentTwoColumnEditorProps> = (
 
     setSelectedItemIds(new Set());
     setHasUnsavedChanges(true);
-    showToast('✂ Paragraph split into separate shots ending with " -"');
 
-    // Auto focus the new line
-    setTimeout(() => {
+    // Auto focus the new line with retry
+    const attemptFocus = (retries = 3) => {
       const nextElem = document.querySelector(`[data-item-id="${newItemId}"]`) as HTMLElement;
       if (nextElem) {
         nextElem.focus();
@@ -498,8 +497,11 @@ export const DocumentTwoColumnEditor: React.FC<DocumentTwoColumnEditorProps> = (
           sel.removeAllRanges();
           sel.addRange(range);
         }
+      } else if (retries > 0) {
+        setTimeout(() => attemptFocus(retries - 1), 40);
       }
-    }, 60);
+    };
+    setTimeout(() => attemptFocus(), 40);
   };
 
   // Update scene metadata
@@ -1487,16 +1489,29 @@ export const DocumentTwoColumnEditor: React.FC<DocumentTwoColumnEditorProps> = (
                                     if (e.key === 'Enter' && !e.shiftKey) {
                                       e.preventDefault();
                                       const sel = window.getSelection();
-                                      let offset = -1;
+                                      let beforeText = '';
+                                      let afterText = '';
+
                                       if (sel && sel.rangeCount > 0) {
                                         const range = sel.getRangeAt(0);
-                                        const preCaretRange = range.cloneRange();
-                                        preCaretRange.selectNodeContents(e.currentTarget);
-                                        preCaretRange.setEnd(range.endContainer, range.endOffset);
-                                        offset = preCaretRange.toString().length;
+                                        const preRange = range.cloneRange();
+                                        preRange.selectNodeContents(e.currentTarget);
+                                        preRange.setEnd(range.startContainer, range.startOffset);
+                                        beforeText = preRange.toString();
+
+                                        const postRange = range.cloneRange();
+                                        postRange.selectNodeContents(e.currentTarget);
+                                        postRange.setStart(range.endContainer, range.endOffset);
+                                        afterText = postRange.toString();
+                                      } else {
+                                        beforeText = e.currentTarget.innerText || '';
+                                        afterText = '';
                                       }
+
+                                      e.currentTarget.innerText = beforeText;
                                       setSelectedItemIds(new Set());
-                                      handleSplitParagraph(item.id, offset >= 0 ? offset : undefined, e.currentTarget.innerText);
+                                      handleSplitParagraph(item.id, beforeText, afterText);
+                                      return;
                                     }
                                   }}
                                   onClick={(e) => {
@@ -1563,16 +1578,29 @@ export const DocumentTwoColumnEditor: React.FC<DocumentTwoColumnEditorProps> = (
                                         if (e.key === 'Enter' && !e.shiftKey) {
                                           e.preventDefault();
                                           const sel = window.getSelection();
-                                          let offset = -1;
+                                          let beforeText = '';
+                                          let afterText = '';
+
                                           if (sel && sel.rangeCount > 0) {
                                             const range = sel.getRangeAt(0);
-                                            const preCaretRange = range.cloneRange();
-                                            preCaretRange.selectNodeContents(e.currentTarget);
-                                            preCaretRange.setEnd(range.endContainer, range.endOffset);
-                                            offset = preCaretRange.toString().length;
+                                            const preRange = range.cloneRange();
+                                            preRange.selectNodeContents(e.currentTarget);
+                                            preRange.setEnd(range.startContainer, range.startOffset);
+                                            beforeText = preRange.toString();
+
+                                            const postRange = range.cloneRange();
+                                            postRange.selectNodeContents(e.currentTarget);
+                                            postRange.setStart(range.endContainer, range.endOffset);
+                                            afterText = postRange.toString();
+                                          } else {
+                                            beforeText = e.currentTarget.innerText || '';
+                                            afterText = '';
                                           }
+
+                                          e.currentTarget.innerText = beforeText;
                                           setSelectedItemIds(new Set());
-                                          handleSplitParagraph(item.id, offset >= 0 ? offset : undefined, e.currentTarget.innerText);
+                                          handleSplitParagraph(item.id, beforeText, afterText);
+                                          return;
                                         }
                                       }}
                                       onClick={(e) => {

@@ -2108,11 +2108,11 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
     showToast(`✓ Moved paragraph ${position}`);
   };
 
-  // Split paragraph into separate shots
+  // Split paragraph into separate lines/blocks on Enter or Alt+Click
   const handleSplitParagraph = (
     itemId: string,
-    splitOffset?: number,
-    customFullText?: string
+    beforeOrOffset?: number | string,
+    afterOrFullText?: string
   ) => {
     const now = Date.now();
     const newItemId = `item-${now}-${Math.random().toString(36).substring(2, 7)}`;
@@ -2131,32 +2131,32 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
 
         itemFound = true;
         const currentItem = scene.items[itemIndex];
-        const fullText =
-          customFullText ??
-          (currentItem.leftAction || currentItem.rawText || currentItem.rightDialogue || '');
-
-        let beforeText = fullText;
+        
+        let beforeText = '';
         let afterText = '';
 
-        if (typeof splitOffset === 'number' && splitOffset >= 0 && splitOffset <= fullText.length) {
-          beforeText = fullText.slice(0, splitOffset);
-          afterText = fullText.slice(splitOffset);
+        if (typeof beforeOrOffset === 'string') {
+          beforeText = beforeOrOffset;
+          afterText = typeof afterOrFullText === 'string' ? afterOrFullText : '';
+        } else if (typeof beforeOrOffset === 'number') {
+          const fullText = afterOrFullText ?? (currentItem.leftAction || currentItem.rawText || currentItem.rightDialogue || '');
+          const offset = Math.max(0, Math.min(beforeOrOffset, fullText.length));
+          beforeText = fullText.slice(0, offset);
+          afterText = fullText.slice(offset);
         } else {
-          const mid = Math.floor(fullText.length / 2);
-          beforeText = fullText.slice(0, mid);
-          afterText = fullText.slice(mid);
+          const fullText = afterOrFullText ?? (currentItem.leftAction || currentItem.rawText || currentItem.rightDialogue || '');
+          beforeText = fullText;
+          afterText = '';
         }
 
-        // Action block: last description must end with " -"
-        const cleanBefore = beforeText.trimEnd().replace(/\s*-+$/, '');
-        const formattedBefore = cleanBefore ? `${cleanBefore} -` : '-';
-        const formattedAfter = afterText.trimStart();
+        const cleanBefore = beforeText.trimEnd();
+        const cleanAfter = afterText.trimStart();
 
         const updatedCurrentItem: TamilScriptItem = {
           ...currentItem,
-          leftAction: currentItem.column === 'left' ? formattedBefore : currentItem.leftAction,
-          rightDialogue: currentItem.column === 'right' ? formattedBefore : currentItem.rightDialogue,
-          rawText: formattedBefore,
+          leftAction: currentItem.column === 'left' ? cleanBefore : currentItem.leftAction,
+          rightDialogue: currentItem.column === 'right' ? cleanBefore : currentItem.rightDialogue,
+          rawText: cleanBefore,
           updatedAt: now,
         };
 
@@ -2164,10 +2164,10 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
           id: newItemId,
           type: currentItem.type === 'dialogue' ? 'dialogue' : 'action',
           column: currentItem.column,
-          leftAction: currentItem.column === 'left' ? formattedAfter : undefined,
-          rightDialogue: currentItem.column === 'right' ? formattedAfter : undefined,
-          rightCharacter: '',
-          rawText: formattedAfter,
+          leftAction: currentItem.column === 'left' ? cleanAfter : undefined,
+          rightDialogue: currentItem.column === 'right' ? cleanAfter : undefined,
+          rightCharacter: currentItem.column === 'right' ? (currentItem.rightCharacter || '') : '',
+          rawText: cleanAfter,
           updatedAt: now,
         };
 
@@ -2192,10 +2192,10 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
 
     setSelectedItemIds(new Set());
     setHasUnsavedChanges(true);
-    showToast('✂ Paragraph split into separate shots ending with " -"');
+    showToast('✓ Split paragraph into new line');
 
-    // Auto focus the new line
-    setTimeout(() => {
+    // Auto focus the new line with retry
+    const attemptFocus = (retries = 3) => {
       const nextElem = document.querySelector(`[data-item-id="${newItemId}"]`) as HTMLElement;
       if (nextElem) {
         nextElem.focus();
@@ -2207,8 +2207,11 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
           sel.removeAllRanges();
           sel.addRange(range);
         }
+      } else if (retries > 0) {
+        setTimeout(() => attemptFocus(retries - 1), 40);
       }
-    }, 60);
+    };
+    setTimeout(() => attemptFocus(), 40);
   };
 
   // Focus item for keyboard editing

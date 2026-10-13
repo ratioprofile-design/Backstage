@@ -54,7 +54,7 @@ export interface TwoColumnItemRowProps {
   onDelete: (itemId: string, e?: React.MouseEvent) => void;
   onAddAbove: (itemId: string, column: 'left' | 'right' | 'center') => void;
   onAddBelow: (itemId: string, column: 'left' | 'right' | 'center') => void;
-  onSplit: (itemId: string, splitOffset?: number, customFullText?: string) => void;
+  onSplit: (itemId: string, beforeOrOffset?: number | string, afterOrFullText?: string) => void;
   onDragStart: (itemId: string, e: React.DragEvent) => void;
   onDragEnd: () => void;
   onDragOver: (itemId: string, e: React.DragEvent) => void;
@@ -151,21 +151,20 @@ export const EditableBlock: React.FC<EditableBlockProps> = ({
   const isFocusedRef = useRef(false);
   const lastEmittedValueRef = useRef(value || '');
 
-  // Synchronize value from outside ONLY when NOT focused
+  // Synchronize value from outside
   useEffect(() => {
     const el = elRef.current;
     if (!el) return;
 
-    const isFocused = isFocusedRef.current || document.activeElement === el;
     const targetVal = value || '';
 
-    // If focused by user, the DOM is the active editor source of truth.
-    // NEVER overwrite the element's DOM text while the user is actively typing in it!
-    if (isFocused) {
+    // If targetVal matches what this element just emitted via local typing, don't clobber DOM
+    if (targetVal === lastEmittedValueRef.current && el.innerText === targetVal) {
       return;
     }
 
-    // If not currently focused by the user, always sync DOM text to match prop value
+    // If the prop value has changed (e.g. paragraph split, undo/redo, collaborator sync),
+    // update the DOM even if focused, and sync lastEmittedValueRef
     if (el.innerText !== targetVal) {
       el.innerText = targetVal;
       lastEmittedValueRef.current = targetVal;
@@ -199,6 +198,7 @@ export const EditableBlock: React.FC<EditableBlockProps> = ({
     isFocusedRef.current = false;
     const finalVal = e.currentTarget.innerText;
     if (finalVal !== (value || '')) {
+      lastEmittedValueRef.current = finalVal;
       onUpdateText(finalVal);
     }
     onBlur?.(e);
@@ -1071,19 +1071,33 @@ export const TwoColumnItemRow: React.FC<TwoColumnItemRowProps> = React.memo(
                             return;
                           }
 
-                          // Enter splits paragraph into separate shot ending with " -"
+                          // Enter splits paragraph into separate line
                           if (e.key === 'Enter' && !e.shiftKey) {
                             e.preventDefault();
                             const sel = window.getSelection();
-                            let offset = -1;
+                            let beforeText = '';
+                            let afterText = '';
+
                             if (sel && sel.rangeCount > 0) {
                               const range = sel.getRangeAt(0);
-                              const preCaretRange = range.cloneRange();
-                              preCaretRange.selectNodeContents(e.currentTarget);
-                              preCaretRange.setEnd(range.endContainer, range.endOffset);
-                              offset = preCaretRange.toString().length;
+                              const preRange = range.cloneRange();
+                              preRange.selectNodeContents(e.currentTarget);
+                              preRange.setEnd(range.startContainer, range.startOffset);
+                              beforeText = preRange.toString();
+
+                              const postRange = range.cloneRange();
+                              postRange.selectNodeContents(e.currentTarget);
+                              postRange.setStart(range.endContainer, range.endOffset);
+                              afterText = postRange.toString();
+                            } else {
+                              beforeText = e.currentTarget.innerText || '';
+                              afterText = '';
                             }
-                            onSplit(item.id, offset >= 0 ? offset : undefined, e.currentTarget.innerText);
+
+                            // Update current element DOM immediately to avoid blur race condition
+                            e.currentTarget.innerText = beforeText;
+                            onSplit(item.id, beforeText, afterText);
+                            return;
                           }
                         }}
                         onClick={(e) => {
@@ -1110,7 +1124,7 @@ export const TwoColumnItemRow: React.FC<TwoColumnItemRowProps> = React.memo(
                             ? 'border border-dashed border-emerald-500/40 bg-emerald-500/[0.04]'
                             : ''
                         }`}
-                        title="Type to edit. Press Enter to split shot into next line ending with ' -'. Tab / ArrowRight to jump to Dialogue. Alt+Down/Up to jump rows."
+                        title="Type to edit. Press Enter to split paragraph into next line. Tab / ArrowRight to jump to Dialogue. Alt+Down/Up to jump rows."
                       />
                     );
                   })()
@@ -1240,15 +1254,29 @@ export const TwoColumnItemRow: React.FC<TwoColumnItemRowProps> = React.memo(
                           if (e.key === 'Enter' && !e.shiftKey) {
                             e.preventDefault();
                             const sel = window.getSelection();
-                            let offset = -1;
+                            let beforeText = '';
+                            let afterText = '';
+
                             if (sel && sel.rangeCount > 0) {
                               const range = sel.getRangeAt(0);
-                              const preCaretRange = range.cloneRange();
-                              preCaretRange.selectNodeContents(e.currentTarget);
-                              preCaretRange.setEnd(range.endContainer, range.endOffset);
-                              offset = preCaretRange.toString().length;
+                              const preRange = range.cloneRange();
+                              preRange.selectNodeContents(e.currentTarget);
+                              preRange.setEnd(range.startContainer, range.startOffset);
+                              beforeText = preRange.toString();
+
+                              const postRange = range.cloneRange();
+                              postRange.selectNodeContents(e.currentTarget);
+                              postRange.setStart(range.endContainer, range.endOffset);
+                              afterText = postRange.toString();
+                            } else {
+                              beforeText = e.currentTarget.innerText || '';
+                              afterText = '';
                             }
-                            onSplit(item.id, offset >= 0 ? offset : undefined, e.currentTarget.innerText);
+
+                            // Update current element DOM immediately to avoid blur race condition
+                            e.currentTarget.innerText = beforeText;
+                            onSplit(item.id, beforeText, afterText);
+                            return;
                           }
                         }}
                         onClick={(e) => {
