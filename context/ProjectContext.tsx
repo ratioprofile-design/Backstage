@@ -36,7 +36,16 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const curId = typeof localStorage !== 'undefined' ? (localStorage.getItem('currentProjectId') || 'empty-project') : 'empty-project';
     return typeof localStorage !== 'undefined' ? (localStorage.getItem(`project_name_${curId}`) || '') : '';
   });
-  const [projectList, setProjectList] = useState<ProjectMetadata[]>([]);
+  const [projectList, setProjectList] = useState<ProjectMetadata[]>(() => {
+    try {
+      const raw = localStorage.getItem('projectList');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch {}
+    return [];
+  });
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isInitialLoading, setIsInitialLoading] = useState(true);
@@ -974,6 +983,9 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const closeProject = useCallback(() => {
     setCurrentProjectId(null);
     localStorage.removeItem('currentProjectId');
+    try {
+      localStorage.setItem('backstage_project_closed', 'true');
+    } catch {}
     setFileHandle(null);
     setFilePath(null);
     applyProjectState(INITIAL_STATE);
@@ -1098,22 +1110,24 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     setCurrentProjectId(id);
     setCurrentProjectName(resolvedName);
-    localStorage.setItem('currentProjectId', id);
+    try {
+      localStorage.setItem('currentProjectId', id);
+      localStorage.setItem('backstage_project_closed', 'false');
+    } catch {}
     if (resolvedName) {
-      localStorage.setItem(`project_name_${id}`, resolvedName);
+      try {
+        localStorage.setItem(`project_name_${id}`, resolvedName);
+      } catch {}
       setProjectList(prev => {
         const existing = prev.find(p => p.id === id);
-        if (existing) {
-          return prev.map(p => p.id === id ? { ...p, name: resolvedName, isInvited: p.isInvited ?? isInvitedProj } : p);
-        } else {
-          return [...prev, {
-            id,
-            name: resolvedName,
-            lastModified: Date.now(),
-            created: Date.now(),
-            isInvited: isInvitedProj
-          }];
-        }
+        const updatedItem = existing
+          ? { ...existing, name: resolvedName, lastModified: Date.now(), isInvited: existing.isInvited ?? isInvitedProj }
+          : { id, name: resolvedName, lastModified: Date.now(), created: Date.now(), isInvited: isInvitedProj };
+        const nextList = [updatedItem, ...prev.filter(p => p.id !== id)];
+        try {
+          localStorage.setItem('projectList', JSON.stringify(nextList));
+        } catch {}
+        return nextList;
       });
     }
   };

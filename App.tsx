@@ -213,14 +213,44 @@ const StyleInjector: React.FC = () => {
 const AppContent: React.FC = () => {
   console.log('[probe] AppContent mounted, supabase user =', useProject ? 'n/a' : 'n/a');
   const { currentUser, currentProjectId, undo, redo, isInitialLoading, saveProject, saveProjectAs, loadProject, closeProject, setAppTheme, filePath, setFilePath, supabaseUser, isCloudMode, logout, selectProject, deleteProject, projectList, userRole, updateUserRole, navLayout = 'horizontal', beats, appTheme } = useProject();
-  const [currentView, setCurrentView] = useState<ViewMode>('board');
+  const [currentView, setCurrentView] = useState<ViewMode>(() => {
+    try {
+      const saved = localStorage.getItem('backstage_last_view');
+      if (saved) return saved as ViewMode;
+    } catch {}
+    return 'board';
+  });
+
+  // Automatically remember every visited page across browser reloads
+  useEffect(() => {
+    if (currentView) {
+      try {
+        localStorage.setItem('backstage_last_view', currentView);
+      } catch {}
+    }
+  }, [currentView]);
+
   const [openBeatIds, setOpenBeatIds] = useState<number[]>([]);
   const [minimizedBeatIds, setMinimizedBeatIds] = useState<number[]>([]);
   const [forcedPositions, setForcedPositions] = useState<Record<number, { x: number; y: number }>>({});
   const [showPrintPreview, setShowPrintPreview] = useState(false);
   const [showAssistant, setShowAssistant] = useState(false);
   const [showNewProject, setShowNewProject] = useState(false);
-  const [showWelcome, setShowWelcome] = useState(true);
+  const [showWelcome, setShowWelcome] = useState<boolean>(() => {
+    if (typeof localStorage === 'undefined') return true;
+    const explicitlyClosed = localStorage.getItem('backstage_project_closed') === 'true';
+    if (explicitlyClosed) return true;
+    const curProjId = localStorage.getItem('currentProjectId');
+    // If user has an active project or existing project in storage, resume workspace on refresh
+    if (curProjId && curProjId !== 'empty-project') {
+      return false;
+    }
+    const rawList = localStorage.getItem('projectList');
+    if (rawList && rawList !== '[]') {
+      return false;
+    }
+    return false;
+  });
   const [recentFiles, setRecentFiles] = useState<RecentFile[]>(() => getRecentFiles());
   const [refreshKey, setRefreshKey] = useState(0);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
@@ -724,18 +754,32 @@ const AppContent: React.FC = () => {
                 recents={recentFiles}
                 onNew={() => {
                     if (isTauri()) handleMenuNewFile();
-                    else { setShowNewProject(true); setShowWelcome(false); }
+                    else { 
+                      setShowNewProject(true); 
+                      setShowWelcome(false); 
+                      try { localStorage.setItem('backstage_project_closed', 'false'); } catch {}
+                    }
                 }}
                 onOpen={() => handleMenuOpenFile()}
                 onOpenRecent={async (path) => {
                     const ok = await openPath(path);
-                    if (ok) setShowWelcome(false);
+                    if (ok) {
+                      setShowWelcome(false);
+                      try { localStorage.setItem('backstage_project_closed', 'false'); } catch {}
+                    }
                 }}
-                onDismiss={() => setShowWelcome(false)}
+                onDismiss={() => {
+                    setShowWelcome(false);
+                    try { localStorage.setItem('backstage_project_closed', 'false'); } catch {}
+                }}
                 isCloudMode={isCloudMode}
                 currentUser={currentUser}
                 cloudProjects={projectList}
-                onOpenCloudProject={(id) => { selectProject(id); setShowWelcome(false); }}
+                onOpenCloudProject={(id) => { 
+                    selectProject(id); 
+                    setShowWelcome(false); 
+                    try { localStorage.setItem('backstage_project_closed', 'false'); } catch {}
+                }}
                 onDeleteCloudProject={(id) => { if (supabaseUser) deleteProject(id); }}
                 onOpenAuth={() => setShowAuthModal(true)}
             />

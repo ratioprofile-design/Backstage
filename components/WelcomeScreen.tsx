@@ -37,12 +37,14 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
   onOpenAuth,
 }) => {
   const { 
+    currentProjectId,
+    deleteProject,
     userRole, logout, schemaError, projectList, selectProject, 
     autoGenerate5Scenes, setActiveBoardId, appAccentColor = '#f5a623',
     renameProject
   } = useProject();
 
-  const [activeTab, setActiveTab] = useState<'recents' | 'cloud' | 'invites'>('recents');
+  const [activeTab, setActiveTab] = useState<'all' | 'cloud' | 'local' | 'collab'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [invitedProjects, setInvitedProjects] = useState<any[]>([]);
   const [isLoadingInvites, setIsLoadingInvites] = useState(false);
@@ -55,10 +57,6 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
         .then(({ fetchInvitedProjects }) => fetchInvitedProjects(currentUser))
         .then(data => {
           setInvitedProjects(data || []);
-          // Auto-focus invites tab if there are active invites
-          if (data && data.length > 0) {
-            setActiveTab('invites');
-          }
         })
         .catch(err => console.error('Failed to load invites:', err))
         .finally(() => setIsLoadingInvites(false));
@@ -84,34 +82,163 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [onDismiss, onNew, onOpen]);
 
-  // Filtered recent files
-  const filteredRecents = useMemo(() => {
-    if (!recents) return [];
-    if (!searchQuery.trim()) return recents;
-    const q = searchQuery.toLowerCase();
-    return recents.filter(f => 
-      f.name.toLowerCase().includes(q) || f.path.toLowerCase().includes(q)
-    );
-  }, [recents, searchQuery]);
+  // Unified recent projects: Combines local, cloud, collab & desktop files, sorted RECENT 1st
+  const allRecentProjects = useMemo(() => {
+    const map = new Map<string, {
+      id: string;
+      name: string;
+      type: 'local' | 'cloud' | 'collab' | 'file';
+      path?: string;
+      lastModified: number;
+      invitedBy?: string;
+      isCurrent?: boolean;
+      raw?: any;
+    }>();
 
-  // Filtered cloud projects
-  const filteredCloudProjects = useMemo(() => {
-    const list = cloudProjects && cloudProjects.length > 0 ? cloudProjects : projectList;
-    if (!list) return [];
+    // 1. Projects from context (cloud & local)
+    const activeList = cloudProjects && cloudProjects.length > 0 ? cloudProjects : projectList;
+    (activeList || []).forEach(p => {
+      if (!p || !p.id) return;
+      const isCollab = !!p.isInvited;
+      const isCloud = !isCollab && Boolean(isCloudMode || currentUser);
+      const modTime = p.lastModified || p.created || ((p as any).updatedAt ? new Date((p as any).updatedAt).getTime() : 0);
+      map.set(p.id, {
+        id: p.id,
+        name: p.name || 'Untitled Screenplay',
+        type: isCollab ? 'collab' : (isCloud ? 'cloud' : 'local'),
+        lastModified: modTime || Date.now(),
+        invitedBy: p.invitedBy,
+        isCurrent: p.id === currentProjectId,
+        raw: p
+      });
+    });
+
+    // 2. Local projects stored in localStorage
+    try {
+      const rawLocal = localStorage.getItem('projectList');
+      if (rawLocal) {
+        const parsed = JSON.parse(rawLocal);
+        if (Array.isArray(parsed)) {
+          parsed.forEach((lp: any) => {
+            if (lp && lp.id && !map.has(lp.id)) {
+              map.set(lp.id, {
+                id: lp.id,
+                name: lp.name || 'Untitled Screenplay',
+                type: 'local',
+                lastModified: lp.lastModified || lp.created || Date.now(),
+                isCurrent: lp.id === currentProjectId,
+                raw: lp
+              });
+            }
+          });
+        }
+      }
+    } catch {}
+
+    // 3. Invites from collaborators
+    (invitedProjects || []).forEach(inv => {
+      if (!inv || !inv.id) return;
+      const existing = map.get(inv.id);
+      const modTime = inv.updated_at ? new Date(inv.updated_at).getTime() : (existing?.lastModified || Date.now());
+      map.set(inv.id, {
+        id: inv.id,
+        name: inv.name || existing?.name || 'Shared Production',
+        type: 'collab',
+        lastModified: modTime,
+        invitedBy: inv.invitedBy || inv.invited_by || existing?.invitedBy,
+        isCurrent: inv.id === currentProjectId,
+        raw: inv
+      });
+    });
+
+    // 4. Desktop recent files (if on Tauri)
+    (recents || []).forEach(f => {
+      if (!f || !f.path) return;
+      const fileKey = `file_${f.path}`;
+      if (!map.has(fileKey)) {
+        map.set(fileKey, {
+          id: fileKey,
+          name: f.name || f.path,
+          type: 'file',
+          path: f.path,
+          lastModified: f.lastModified || Date.now(),
+        });
+      }
+    });
+
+    // Sort by recent 1st! (highest lastModified timestamp first)
+    const list = Array.from(map.values());
+    list.sort((a, b) => (b.lastModified || 0) - (a.lastModified || 0));
+
+    // If active current project exists, anchor it at #1
+    const currentIdx = list.findIndex(p => p.isCurrent);
+    if (currentIdx > 0) {
+      const [curr] = list.splice(currentIdx, 1);
+      list.unshift(curr);
+    }
+
+    return list;
+  }, [cloudProjects, projectList, invitedProjects, recents, isCloudMode, currentUser, currentProjectId]);
+
+  const filteredProjects = useMemo(() => {
+    let list = allRecentProjects;
+    if (activeTab === 'cloud') {
+      list = list.filter(p => p.type === 'cloud');
+    } else if (activeTab === 'local') {
+      list = list.filter(p => p.type === 'local' || p.type === 'file');
+    } else if (activeTab === 'collab') {
+      list = list.filter(p => p.type === 'collab');
+    }
+
     if (!searchQuery.trim()) return list;
     const q = searchQuery.toLowerCase();
-    return list.filter(p => p.name.toLowerCase().includes(q));
-  }, [cloudProjects, projectList, searchQuery]);
-
-  // Filtered invites
-  const filteredInvites = useMemo(() => {
-    if (!invitedProjects) return [];
-    if (!searchQuery.trim()) return invitedProjects;
-    const q = searchQuery.toLowerCase();
-    return invitedProjects.filter(p => 
-      p.name.toLowerCase().includes(q) || (p.invitedBy && p.invitedBy.toLowerCase().includes(q))
+    return list.filter(p => 
+      p.name.toLowerCase().includes(q) || 
+      (p.path && p.path.toLowerCase().includes(q)) ||
+      (p.invitedBy && p.invitedBy.toLowerCase().includes(q))
     );
-  }, [invitedProjects, searchQuery]);
+  }, [allRecentProjects, activeTab, searchQuery]);
+
+  const cloudCount = useMemo(() => allRecentProjects.filter(p => p.type === 'cloud').length, [allRecentProjects]);
+  const localCount = useMemo(() => allRecentProjects.filter(p => p.type === 'local' || p.type === 'file').length, [allRecentProjects]);
+  const collabCount = useMemo(() => allRecentProjects.filter(p => p.type === 'collab').length, [allRecentProjects]);
+
+  const formatRelativeTime = (timestamp: number): string => {
+    if (!timestamp) return '';
+    const now = Date.now();
+    const diffSec = Math.floor((now - timestamp) / 1000);
+    if (diffSec < 60) return 'Just now';
+    const diffMin = Math.floor(diffSec / 60);
+    if (diffMin < 60) return `${diffMin}m ago`;
+    const diffHr = Math.floor(diffMin / 60);
+    if (diffHr < 24) return `${diffHr}h ago`;
+    const diffDays = Math.floor(diffHr / 24);
+    if (diffDays < 7) return `${diffDays}d ago`;
+    return new Date(timestamp).toLocaleDateString();
+  };
+
+  const handleOpenProject = (proj: any) => {
+    if (proj.type === 'file' && proj.path) {
+      onOpenRecent(proj.path);
+    } else {
+      if (onOpenCloudProject) {
+        onOpenCloudProject(proj.id);
+      } else {
+        selectProject(proj.id);
+        onDismiss();
+      }
+    }
+  };
+
+  const handleDeleteProject = (proj: any) => {
+    if (window.confirm(`Delete project "${proj.name}"?`)) {
+      if (proj.type === 'cloud' && onDeleteCloudProject) {
+        onDeleteCloudProject(proj.id);
+      } else {
+        deleteProject(proj.id);
+      }
+    }
+  };
 
   // Quick Action: Launch Demo Screenplay
   const handleLoadDemoProject = () => {
@@ -330,48 +457,72 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
           {/* Top Bar: Tabs & Search Input */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3.5 pb-4 border-b border-white/10">
             {/* Segmented Navigation Tabs */}
-            <div className="flex items-center gap-1 p-1 bg-white/[0.04] border border-white/5 rounded-xl">
+            <div className="flex items-center gap-1 p-1 bg-white/[0.04] border border-white/5 rounded-xl overflow-x-auto max-w-full">
               <button
-                onClick={() => setActiveTab('recents')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 transition-all ${
-                  activeTab === 'recents'
+                onClick={() => setActiveTab('all')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 transition-all whitespace-nowrap ${
+                  activeTab === 'all'
                     ? 'bg-white/10 text-white shadow-xs'
                     : 'text-gray-400 hover:text-white'
                 }`}
               >
                 <Clock size={13} />
-                <span>Recent Scripts</span>
+                <span>Recent Projects</span>
+                {allRecentProjects.length > 0 && (
+                  <span className="ml-1 px-1.5 py-0.2 rounded-full text-[9px] font-mono bg-white/10 text-gray-300">
+                    {allRecentProjects.length}
+                  </span>
+                )}
               </button>
 
               <button
                 onClick={() => setActiveTab('cloud')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 transition-all ${
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 transition-all whitespace-nowrap ${
                   activeTab === 'cloud'
                     ? 'bg-white/10 text-white shadow-xs'
                     : 'text-gray-400 hover:text-white'
                 }`}
               >
                 <Cloud size={13} />
-                <span>Cloud Projects</span>
-                {filteredCloudProjects.length > 0 && (
+                <span>Cloud</span>
+                {cloudCount > 0 && (
                   <span className="ml-1 px-1.5 py-0.2 rounded-full text-[9px] font-mono bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-                    {filteredCloudProjects.length}
+                    {cloudCount}
                   </span>
                 )}
               </button>
 
               <button
-                onClick={() => setActiveTab('invites')}
-                className={`relative px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 transition-all ${
-                  activeTab === 'invites'
-                    ? 'bg-white/10 text-amber-400 shadow-xs'
-                    : 'text-gray-400 hover:text-amber-300'
+                onClick={() => setActiveTab('local')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 transition-all whitespace-nowrap ${
+                  activeTab === 'local'
+                    ? 'bg-white/10 text-white shadow-xs'
+                    : 'text-gray-400 hover:text-white'
+                }`}
+              >
+                <Film size={13} />
+                <span>Local</span>
+                {localCount > 0 && (
+                  <span className="ml-1 px-1.5 py-0.2 rounded-full text-[9px] font-mono bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                    {localCount}
+                  </span>
+                )}
+              </button>
+
+              <button
+                onClick={() => setActiveTab('collab')}
+                className={`relative px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 transition-all whitespace-nowrap ${
+                  activeTab === 'collab'
+                    ? 'bg-white/10 text-sky-400 shadow-xs'
+                    : 'text-gray-400 hover:text-sky-300'
                 }`}
               >
                 <Mail size={13} />
-                <span>Invites</span>
-                {invitedProjects.length > 0 && (
-                  <span className="ml-1 w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+                <span>Collab</span>
+                {collabCount > 0 && (
+                  <span className="ml-1 px-1.5 py-0.2 rounded-full text-[9px] font-mono bg-sky-500/20 text-sky-400 border border-sky-500/30">
+                    {collabCount}
+                  </span>
                 )}
               </button>
             </div>
@@ -383,7 +534,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Filter scripts..."
+                placeholder="Filter projects..."
                 className="w-full bg-white/[0.03] border border-white/10 rounded-xl pl-8 pr-3 py-1.5 text-xs text-white placeholder-gray-500 outline-none focus:border-amber-500/50 focus:bg-white/[0.06] transition-all"
               />
               {searchQuery && (
@@ -397,228 +548,136 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
             </div>
           </div>
 
-          {/* Tab Content List Container */}
+          {/* Unified Project List Container — Always Sorted RECENT 1st */}
           <div className="flex-1 overflow-y-auto pr-1 mt-4 space-y-2">
-            
-            {/* TAB 1: Recent Files */}
-            {activeTab === 'recents' && (
-              <>
-                {filteredRecents.length > 0 ? (
-                  <div className="grid grid-cols-1 gap-2.5">
-                    {filteredRecents.map((file, idx) => (
-                      <div
-                        key={file.path || idx}
-                        onClick={() => onOpenRecent(file.path)}
-                        className="group flex items-center justify-between p-3.5 rounded-xl bg-white/[0.02] hover:bg-white/[0.07] border border-white/5 hover:border-white/15 transition-all cursor-pointer"
-                      >
-                        <div className="flex items-center gap-3.5 min-w-0 flex-1 mr-2">
-                          <div className="w-9 h-9 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center justify-center shrink-0 text-amber-400 group-hover:scale-105 transition-transform">
-                            <Film size={16} />
-                          </div>
-                          <div className="flex flex-col min-w-0">
-                            <span className="text-xs font-bold text-slate-200 group-hover:text-white truncate">
-                              {file.name}
-                            </span>
-                            <span className="text-[10px] font-mono text-gray-500 truncate max-w-[340px]">
-                              {file.path}
-                            </span>
-                          </div>
-                        </div>
+            {filteredProjects.length > 0 ? (
+              <div className="grid grid-cols-1 gap-2.5">
+                {filteredProjects.map((proj) => (
+                  <div
+                    key={proj.id}
+                    onClick={() => handleOpenProject(proj)}
+                    className={`group flex items-center justify-between p-3.5 rounded-xl border transition-all cursor-pointer ${
+                      proj.isCurrent 
+                        ? 'bg-amber-500/[0.08] border-amber-500/30 hover:bg-amber-500/[0.12]' 
+                        : 'bg-white/[0.02] hover:bg-white/[0.07] border-white/5 hover:border-white/15'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3.5 min-w-0 flex-1 mr-2">
+                      <div className={`w-9 h-9 rounded-lg border flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform ${
+                        proj.type === 'cloud'
+                          ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
+                          : proj.type === 'collab'
+                          ? 'bg-sky-500/10 border-sky-500/20 text-sky-400'
+                          : 'bg-amber-500/10 border-amber-500/20 text-amber-400'
+                      }`}>
+                        {proj.type === 'cloud' ? <Cloud size={16} /> : proj.type === 'collab' ? <Mail size={16} /> : <Film size={16} />}
+                      </div>
 
-                        <div className="flex items-center gap-2 shrink-0">
-                          <span className="hidden sm:inline text-[10px] text-gray-500 font-mono">
-                            Open
+                      <div className="flex flex-col min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-bold text-slate-200 group-hover:text-white truncate">
+                            {proj.name}
                           </span>
-                          <ChevronRight size={14} className="text-gray-600 group-hover:text-white group-hover:translate-x-0.5 transition-all" />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="h-full flex flex-col items-center justify-center text-center p-8 text-gray-500 gap-3">
-                    <div className="w-12 h-12 rounded-2xl bg-white/[0.02] border border-white/5 flex items-center justify-center">
-                      <Clock size={20} className="text-gray-600" />
-                    </div>
-                    <div>
-                      <h4 className="text-xs font-bold text-gray-300 uppercase tracking-wider">No Recent Files Found</h4>
-                      <p className="text-[11px] text-gray-500 max-w-[280px] mt-1 leading-relaxed">
-                        {searchQuery ? `No files matching "${searchQuery}"` : 'Files you open or save locally will automatically appear here.'}
-                      </p>
-                    </div>
-                  </div>
-                )}
-              </>
-            )}
-
-            {/* TAB 2: Cloud Projects */}
-            {activeTab === 'cloud' && (
-              <>
-                {filteredCloudProjects.length > 0 ? (
-                  <div className="grid grid-cols-1 gap-2.5">
-                    {filteredCloudProjects.map((proj) => (
-                      <div
-                        key={proj.id}
-                        className="group flex items-center justify-between p-3.5 rounded-xl bg-white/[0.02] hover:bg-white/[0.07] border border-white/5 hover:border-white/15 transition-all"
-                      >
-                        <div 
-                          onClick={() => onOpenCloudProject ? onOpenCloudProject(proj.id) : selectProject(proj.id)}
-                          className="flex items-center gap-3.5 min-w-0 flex-1 cursor-pointer mr-2"
-                        >
-                          <div className="w-9 h-9 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center shrink-0 text-emerald-400 group-hover:scale-105 transition-transform">
-                            <Cloud size={16} />
-                          </div>
-                          <div className="flex flex-col min-w-0">
-                            <span className="text-xs font-bold text-slate-200 group-hover:text-white truncate">
-                              {proj.name}
+                          {proj.isCurrent && (
+                            <span className="px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-wider bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                              Active
                             </span>
-                            <span className="text-[10px] text-gray-500 font-mono flex items-center gap-2">
-                              <span>Cloud Workspace</span>
-                              {proj.updatedAt && (
-                                <>
-                                  <span>•</span>
-                                  <span>{new Date(proj.updatedAt).toLocaleDateString()}</span>
-                                </>
-                              )}
-                            </span>
-                          </div>
-                        </div>
-
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          <button
-                            onClick={() => onOpenCloudProject ? onOpenCloudProject(proj.id) : selectProject(proj.id)}
-                            className="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-xs font-semibold text-slate-300 hover:text-white transition-colors"
-                          >
-                            Open
-                          </button>
-
-                          {!proj.isInvited && (
-                            <button
-                              onClick={async (e) => {
-                                e.stopPropagation();
-                                const newName = window.prompt(`Rename project:`, proj.name);
-                                if (newName && newName.trim() && newName.trim() !== proj.name) {
-                                  await renameProject(proj.id, newName.trim());
-                                }
-                              }}
-                              className="p-1.5 rounded-lg text-gray-500 hover:text-amber-400 hover:bg-amber-500/10 transition-colors"
-                              title="Rename project (Owner only)"
-                            >
-                              <Pencil size={13} />
-                            </button>
-                          )}
-
-                          {onDeleteCloudProject && !proj.isInvited && (
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                if (window.confirm(`Delete cloud project "${proj.name}"?`)) {
-                                  onDeleteCloudProject(proj.id);
-                                }
-                              }}
-                              className="p-1.5 rounded-lg text-gray-500 hover:text-red-400 hover:bg-red-500/10 transition-colors"
-                              title="Delete project"
-                            >
-                              <Trash2 size={13} />
-                            </button>
                           )}
                         </div>
+
+                        <div className="text-[10px] text-gray-500 font-mono flex items-center gap-2 mt-0.5">
+                          <span className={`px-1.5 py-0.2 rounded text-[8px] uppercase font-bold tracking-wider border ${
+                            proj.type === 'cloud'
+                              ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
+                              : proj.type === 'collab'
+                              ? 'bg-sky-500/15 text-sky-300 border-sky-500/30'
+                              : 'bg-amber-500/15 text-amber-300 border-amber-500/30'
+                          }`}>
+                            {proj.type === 'cloud' ? 'Cloud' : proj.type === 'collab' ? 'Collab' : 'Local'}
+                          </span>
+                          {proj.invitedBy && <span>• Invited by {proj.invitedBy}</span>}
+                          {proj.lastModified && <span>• {formatRelativeTime(proj.lastModified)}</span>}
+                          {proj.path && <span className="truncate max-w-[200px] text-gray-600">• {proj.path}</span>}
+                        </div>
                       </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="h-full flex flex-col items-center justify-center text-center p-8 text-gray-500 gap-3">
-                    <div className="w-12 h-12 rounded-2xl bg-white/[0.02] border border-white/5 flex items-center justify-center">
-                      <Cloud size={20} className="text-gray-600" />
                     </div>
-                    <div>
-                      <h4 className="text-xs font-bold text-gray-300 uppercase tracking-wider">
-                        {currentUser ? 'No Cloud Projects' : 'Sign In Required for Cloud Sync'}
-                      </h4>
-                      <p className="text-[11px] text-gray-500 max-w-[280px] mt-1 leading-relaxed">
-                        {currentUser
-                          ? 'Projects created while logged in are automatically backed up to your production cloud.'
-                          : 'Log in with your account to access your cloud scripts, automated backups, and shared production workspaces.'
-                        }
-                      </p>
-                    </div>
-                    {!currentUser && onOpenAuth && (
+
+                    <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
                       <button
-                        onClick={onOpenAuth}
-                        className="mt-1 px-4 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-black text-xs font-bold uppercase tracking-wider transition-all shadow-md active:scale-95 cursor-pointer"
+                        onClick={() => handleOpenProject(proj)}
+                        className="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-xs font-semibold text-slate-300 hover:text-white transition-colors"
                       >
-                        Log In to Access Cloud
+                        Open
                       </button>
-                    )}
-                  </div>
-                )}
-              </>
-            )}
 
-            {/* TAB 3: Production Invites */}
-            {activeTab === 'invites' && (
-              <>
-                {filteredInvites.length > 0 ? (
-                  <div className="grid grid-cols-1 gap-2.5">
-                    {filteredInvites.map((inv) => (
-                      <div
-                        key={inv.id}
-                        className="flex items-center justify-between p-4 rounded-xl bg-gradient-to-r from-amber-500/[0.08] to-transparent border border-amber-500/30 shadow-lg"
-                      >
-                        <div className="flex items-center gap-3.5 min-w-0 mr-3">
-                          <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center shrink-0 text-amber-400">
-                            <Mail size={18} />
-                          </div>
-                          <div className="flex flex-col min-w-0">
-                            <span className="text-xs font-black uppercase tracking-wider text-white truncate">
-                              {inv.name}
-                            </span>
-                            <span className="text-[10px] text-gray-400">
-                              Invited by <strong className="text-amber-400 font-bold">{inv.invitedBy || 'Writer'}</strong>
-                            </span>
-                          </div>
-                        </div>
-
+                      {proj.type !== 'file' && proj.type !== 'collab' && (
                         <button
-                          onClick={() => {
-                            if (onOpenCloudProject) onOpenCloudProject(inv.id);
-                            onDismiss();
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            const newName = window.prompt(`Rename project:`, proj.name);
+                            if (newName && newName.trim() && newName.trim() !== proj.name) {
+                              await renameProject(proj.id, newName.trim());
+                            }
                           }}
-                          className="px-4 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-black text-xs font-black uppercase tracking-wider transition-all shadow-md active:scale-95 shrink-0"
+                          className="p-1.5 rounded-lg text-gray-500 hover:text-amber-400 hover:bg-amber-500/10 transition-colors"
+                          title="Rename project"
                         >
-                          Join Workspace
+                          <Pencil size={13} />
                         </button>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="h-full flex flex-col items-center justify-center text-center p-8 text-gray-500 gap-3">
-                    <div className="w-12 h-12 rounded-2xl bg-white/[0.02] border border-white/5 flex items-center justify-center">
-                      <Mail size={20} className="text-gray-600" />
-                    </div>
-                    <div>
-                      <h4 className="text-xs font-bold text-gray-300 uppercase tracking-wider">
-                        {currentUser ? 'No Active Invites' : 'Sign In to View Collaboration Invites'}
-                      </h4>
-                      <p className="text-[11px] text-gray-500 max-w-[320px] mt-1 leading-relaxed">
-                        {currentUser
-                          ? `When other writers or producers invite you by email (${currentUser}), collaborative productions appear here.`
-                          : 'Sign in to check for invitations sent to your email from directors, screenwriters, or producers.'
-                        }
-                      </p>
-                    </div>
-                    {!currentUser && onOpenAuth && (
-                      <button
-                        onClick={onOpenAuth}
-                        className="mt-1 px-4 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-black text-xs font-bold uppercase tracking-wider transition-all shadow-md active:scale-95 cursor-pointer"
-                      >
-                        Log In to View Invites
-                      </button>
-                    )}
-                  </div>
-                )}
-              </>
-            )}
+                      )}
 
+                      {proj.type !== 'file' && proj.type !== 'collab' && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteProject(proj);
+                          }}
+                          className="p-1.5 rounded-lg text-gray-500 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                          title="Delete project"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="h-full flex flex-col items-center justify-center text-center p-8 text-gray-500 gap-3">
+                <div className="w-12 h-12 rounded-2xl bg-white/[0.02] border border-white/5 flex items-center justify-center">
+                  {activeTab === 'cloud' ? <Cloud size={20} className="text-gray-600" /> : activeTab === 'collab' ? <Mail size={20} className="text-gray-600" /> : <Clock size={20} className="text-gray-600" />}
+                </div>
+                <div>
+                  <h4 className="text-xs font-bold text-gray-300 uppercase tracking-wider">
+                    {searchQuery ? `No projects matching "${searchQuery}"` : `No ${activeTab === 'all' ? 'Recent' : activeTab} Projects Found`}
+                  </h4>
+                  <p className="text-[11px] text-gray-500 max-w-[300px] mt-1 leading-relaxed">
+                    {activeTab === 'cloud' && !currentUser
+                      ? 'Sign in to access your cloud scripts, automated backups, and shared production workspaces.'
+                      : activeTab === 'collab' && !currentUser
+                      ? 'Sign in to view invitations sent to your email from directors, screenwriters, or producers.'
+                      : 'Projects you create or work on will automatically appear here, ordered with your most recent projects first.'
+                    }
+                  </p>
+                </div>
+                {!currentUser && (activeTab === 'cloud' || activeTab === 'collab') && onOpenAuth && (
+                  <button
+                    onClick={onOpenAuth}
+                    className="mt-1 px-4 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-black text-xs font-bold uppercase tracking-wider transition-all shadow-md active:scale-95 cursor-pointer"
+                  >
+                    Log In to Backstage
+                  </button>
+                )}
+                {activeTab === 'all' && (
+                  <button
+                    onClick={onNew}
+                    className="mt-1 px-4 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-bold uppercase tracking-wider transition-all"
+                  >
+                    Create New Screenplay
+                  </button>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Quick Shortcuts Footer */}
