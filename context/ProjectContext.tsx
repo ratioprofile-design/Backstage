@@ -1074,8 +1074,20 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
         else if (!opts?.silent) applyProjectState(INITIAL_STATE);
       }
     } else {
-      const dataStr = localStorage.getItem(`project_data_${id}`);
-      applyProjectState(dataStr ? JSON.parse(dataStr) : INITIAL_STATE);
+      let localState = null;
+      try {
+        const dataStr = localStorage.getItem(`project_data_${id}`);
+        if (dataStr) localState = JSON.parse(dataStr);
+      } catch (e) {}
+
+      if (!localState) {
+        try {
+          const idbState = await loadLargeProject(id);
+          if (idbState) localState = idbState;
+        } catch (e) {}
+      }
+
+      applyProjectState(localState || INITIAL_STATE, { targetProjectId: id });
     }
 
     if (!resolvedName) {
@@ -1221,10 +1233,18 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
           progress: 55,
           message: 'Optimizing headshots for Supabase...'
         }));
-        const optimizedTalent = await optimizeTalentForCloud(talentPool || []);
+        const sanitizedCloudDocs = (currentDocs || []).map((doc: any) => ({
+          ...doc,
+          pdfDataUrl: doc.pdfDataUrl && doc.pdfDataUrl.length > 50000 ? undefined : doc.pdfDataUrl,
+          originalFileDataUrl: doc.originalFileDataUrl && doc.originalFileDataUrl.length > 50000 ? undefined : doc.originalFileDataUrl,
+          convertedDocxDataUrl: doc.convertedDocxDataUrl && doc.convertedDocxDataUrl.length > 50000 ? undefined : doc.convertedDocxDataUrl,
+          imageDataUrl: doc.imageDataUrl && doc.imageDataUrl.length > 50000 ? undefined : doc.imageDataUrl,
+        }));
+
         const cloudPayload = {
           ...projectData,
-          talentPool: optimizedTalent
+          talentPool: optimizedTalent,
+          documents: sanitizedCloudDocs
         };
 
         // Broadcast IMMEDIATELY to active collaborators on the project channel

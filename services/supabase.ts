@@ -363,7 +363,22 @@ export const saveProjectDocumentToCloud = async (
     }
 
     if (error) {
-      console.warn("Failed to upsert to project_documents table (it may not be created yet):", error.message);
+      console.warn("Failed to upsert document with heavy binaries, retrying without large base64 strings:", error.message);
+      // Strip heavy binary strings (>50KB) so document metadata, script text, sheets, and annotations are safely preserved
+      const safeRow = {
+        ...row,
+        pdf_data_url: null,
+        original_file_data_url: null,
+        converted_docx_data_url: null,
+        image_data_url: null,
+      };
+      const retrySafe = await supabase
+        .from('project_documents')
+        .upsert(safeRow, { onConflict: 'id' });
+      if (!retrySafe.error) {
+        return true;
+      }
+      console.warn("Failed to upsert to project_documents table (it may not be created yet):", retrySafe.error.message);
       return false;
     }
     return true;

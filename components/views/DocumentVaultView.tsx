@@ -26,6 +26,7 @@ import {
   mergeProductionDocuments,
   SCENE_4_BREAKDOWN_SHEET_DATA
 } from '../../services/documentsStorage';
+import { loadLargeDocuments } from '../../services/largeStorage';
 import { supabase, isSupabaseConfigured } from '../../services/supabase';
 import * as XLSX from 'xlsx';
 import { parseUniversalFile } from '../../services/documentParser';
@@ -216,18 +217,32 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
   const [selectedDocId, setSelectedDocId] = useState<string>(() => documents[0]?.id || '');
   const [isCloudSyncing, setIsCloudSyncing] = useState<boolean>(false);
 
-  // Synchronize documents with current project and Supabase Cloud
+  // Synchronize documents with current project, IndexedDB, and Supabase Cloud
   useEffect(() => {
+    let isMounted = true;
     const local = getProductionDocuments(currentProjectId || undefined);
     setDocuments(local);
     if (!selectedDocId || !local.some(d => d.id === selectedDocId)) {
       setSelectedDocId(local[0]?.id || '');
     }
 
+    // Hydrate from IndexedDB in case large files/PDFs were stored there
+    loadLargeDocuments(currentProjectId || 'empty-project').then((idbDocs) => {
+      if (!isMounted || !idbDocs || idbDocs.length === 0) return;
+      setDocuments((prevDocs) => {
+        const merged = mergeProductionDocuments(prevDocs, idbDocs);
+        if (!selectedDocId || !merged.some(d => d.id === selectedDocId)) {
+          setSelectedDocId(merged[0]?.id || '');
+        }
+        return merged;
+      });
+    }).catch(err => console.warn('[DocVault] IndexedDB hydration note:', err));
+
     if (currentProjectId) {
       setIsCloudSyncing(true);
       syncDocumentsWithCloud(currentProjectId, supabaseUser?.id)
         .then((synced) => {
+          if (!isMounted) return;
           if (synced && synced.length > 0) {
             setDocuments(synced);
             if (!selectedDocId || !synced.some(d => d.id === selectedDocId)) {
@@ -235,8 +250,14 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
             }
           }
         })
-        .finally(() => setIsCloudSyncing(false));
+        .finally(() => {
+          if (isMounted) setIsCloudSyncing(false);
+        });
     }
+
+    return () => {
+      isMounted = false;
+    };
   }, [currentProjectId, supabaseUser?.id]);
   
   // Tamil Left-Right (இருபக்க திரைக்கதை வடிவம்) Modal & Conversion State
@@ -371,7 +392,8 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
       const incoming = Array.isArray(e.detail) 
         ? e.detail 
         : (e.detail?.docs && Array.isArray(e.detail.docs) ? e.detail.docs : null);
-      if (incoming) {
+      const incomingProjId = e.detail?.projectId;
+      if (incoming && (!incomingProjId || !currentProjectId || incomingProjId === currentProjectId)) {
         setDocuments((prev) => mergeProductionDocuments(prev, incoming));
         if (!selectedDocId && incoming[0]) {
           setSelectedDocId(incoming[0].id);
@@ -382,7 +404,7 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
     return () => {
       window.removeEventListener('backstage_documents_updated', handleDocsUpdated);
     };
-  }, [selectedDocId]);
+  }, [selectedDocId, currentProjectId]);
 
   // Real-time Supabase Broadcast Channel for instant multi-user cross-browser synchronization
   useEffect(() => {

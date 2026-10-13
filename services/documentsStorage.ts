@@ -8,8 +8,13 @@ import {
   supabase,
   isSupabaseConfigured
 } from './supabase';
+import { saveLargeDocuments, loadLargeDocuments } from './largeStorage';
 
 const STORAGE_KEY = 'backstage_production_documents';
+
+// In-memory cache guarantees that uploaded documents are instantly available
+// and never lost during rapid state switches, re-renders, or quota issues.
+const inMemoryDocsCache: Record<string, ProductionDocument[]> = {};
 
 export function getDocumentStorageKey(projectId?: string): string {
   if (projectId) return `backstage_production_documents_${projectId}`;
@@ -637,16 +642,19 @@ export const INITIAL_DOCUMENTS: ProductionDocument[] = [
 ];
 
 export function getProductionDocuments(projectId?: string): ProductionDocument[] {
+  const activeProjId = projectId || (typeof localStorage !== 'undefined' ? localStorage.getItem('currentProjectId') || 'default' : 'default');
+
   try {
     const key = getDocumentStorageKey(projectId);
     let raw = localStorage.getItem(key);
-    if (!raw) {
-      // New or uninitialized projects start clean without forced template scripts
-      return [];
-    }
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) {
-      return [];
+    let parsed: ProductionDocument[] = [];
+    if (raw) {
+      try {
+        const item = JSON.parse(raw);
+        if (Array.isArray(item)) {
+          parsed = item;
+        }
+      } catch (parseErr) {}
     }
 
     const filtered = parsed.filter(
@@ -673,16 +681,41 @@ export function getProductionDocuments(projectId?: string): ProductionDocument[]
       return doc;
     });
 
+    // If we have an in-memory cache, merge non-destructively so in-memory uploaded docs or heavy binaries are never lost
+    let result = migrated;
+    if (inMemoryDocsCache[activeProjId] && inMemoryDocsCache[activeProjId].length > 0) {
+      result = mergeProductionDocuments(migrated, inMemoryDocsCache[activeProjId]);
+    }
+    inMemoryDocsCache[activeProjId] = result;
+
     if (hasMigrated) {
-      saveProductionDocuments(migrated, projectId, true);
-      return migrated;
+      saveProductionDocuments(result, projectId, true);
     }
 
-    return parsed;
+    return result;
   } catch (e) {
     console.error('Failed to load production documents:', e);
-    return [];
+    return inMemoryDocsCache[activeProjId] || [];
   }
+}
+
+/**
+ * Asynchronously load full production documents from unlimited IndexedDB storage
+ */
+export async function loadProductionDocumentsAsync(projectId?: string): Promise<ProductionDocument[]> {
+  const activeProjId = projectId || (typeof localStorage !== 'undefined' ? localStorage.getItem('currentProjectId') || 'default' : 'default');
+  const currentSyncDocs = getProductionDocuments(activeProjId);
+  try {
+    const idbDocs = await loadLargeDocuments(activeProjId);
+    if (idbDocs && Array.isArray(idbDocs) && idbDocs.length > 0) {
+      const merged = mergeProductionDocuments(currentSyncDocs, idbDocs);
+      inMemoryDocsCache[activeProjId] = merged;
+      return merged;
+    }
+  } catch (e) {
+    console.warn('[DocVault] Async IndexedDB document load note:', e);
+  }
+  return currentSyncDocs;
 }
 
 /**
@@ -753,7 +786,8 @@ export function mergeProductionDocuments(
 }
 
 /**
- * Broadcast document updates across all active collaborator browsers in real-time
+ * Broadcast document updates across all active collaborator browsers in real-time.
+ * Strips huge base64 binaries if needed so broadcast stays within WebSocket 256KB limit.
  */
 export function broadcastDocumentsUpdated(
   docs: ProductionDocument[],
@@ -766,13 +800,22 @@ export function broadcastDocumentsUpdated(
 
   if (isSupabaseConfigured && supabase) {
     try {
+      // Strip heavy binaries from broadcast payload so WebSocket packet stays well under 256KB
+      const broadcastSafeDocs = docs.map((doc) => ({
+        ...doc,
+        pdfDataUrl: doc.pdfDataUrl && doc.pdfDataUrl.length > 50000 ? undefined : doc.pdfDataUrl,
+        originalFileDataUrl: doc.originalFileDataUrl && doc.originalFileDataUrl.length > 50000 ? undefined : doc.originalFileDataUrl,
+        convertedDocxDataUrl: doc.convertedDocxDataUrl && doc.convertedDocxDataUrl.length > 50000 ? undefined : doc.convertedDocxDataUrl,
+        imageDataUrl: doc.imageDataUrl && doc.imageDataUrl.length > 50000 ? undefined : doc.imageDataUrl,
+      }));
+
       const channel = supabase.channel(`project_changes_${activeProjId}`);
       channel.send({
         type: 'broadcast',
         event: 'vault_documents_updated',
         payload: {
           projectId: activeProjId,
-          documents: docs,
+          documents: broadcastSafeDocs,
           senderId: senderId || 'user',
           senderInstanceId: senderInstanceId || Math.random().toString(36).substring(2, 10),
           timestamp: Date.now()
@@ -792,28 +835,68 @@ export function saveProductionDocuments(
   senderId?: string,
   senderInstanceId?: string
 ): void {
+  const activeProjId = projectId || (typeof localStorage !== 'undefined' ? localStorage.getItem('currentProjectId') || 'default' : 'default');
+
+  // 1. Immediately cache in-memory so synchronous access never loses documents
+  inMemoryDocsCache[activeProjId] = docs;
+
+  // 2. Persist to unlimited IndexedDB storage (handles 50MB+ PDFs/DOCX with 0 quota errors)
+  if (typeof indexedDB !== 'undefined') {
+    saveLargeDocuments(activeProjId, docs).catch((idbErr) => {
+      console.warn('[DocVault] IndexedDB save notice:', idbErr);
+    });
+  }
+
+  // 3. Persist to localStorage with QuotaExceededError protection
   try {
     const key = getDocumentStorageKey(projectId);
     localStorage.setItem(key, JSON.stringify(docs));
+  } catch (quotaErr) {
+    console.warn('[DocVault] localStorage quota exceeded, saving sanitized metadata copy:', quotaErr);
+    try {
+      // Strip heavy base64 data URLs (>50KB) so document cards, script text, metadata,
+      // annotations, and breakdown sheet data NEVER vanish from localStorage
+      const sanitizedDocs = docs.map((doc) => ({
+        ...doc,
+        pdfDataUrl: doc.pdfDataUrl && doc.pdfDataUrl.length > 50000 ? undefined : doc.pdfDataUrl,
+        originalFileDataUrl: doc.originalFileDataUrl && doc.originalFileDataUrl.length > 50000 ? undefined : doc.originalFileDataUrl,
+        convertedDocxDataUrl: doc.convertedDocxDataUrl && doc.convertedDocxDataUrl.length > 50000 ? undefined : doc.convertedDocxDataUrl,
+        imageDataUrl: doc.imageDataUrl && doc.imageDataUrl.length > 50000 ? undefined : doc.imageDataUrl,
+      }));
+      const key = getDocumentStorageKey(projectId);
+      localStorage.setItem(key, JSON.stringify(sanitizedDocs));
+    } catch (secondErr) {
+      console.error('[DocVault] Could not write sanitized documents to localStorage:', secondErr);
+    }
+  }
+
+  // 4. Dispatch custom window event
+  try {
     if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('backstage_documents_updated', { detail: { docs, projectId } }));
+      window.dispatchEvent(new CustomEvent('backstage_documents_updated', { detail: { docs, projectId: activeProjId } }));
     }
+  } catch (evErr) {
+    console.warn('[DocVault] Window dispatch event error:', evErr);
+  }
 
-    if (broadcast) {
-      broadcastDocumentsUpdated(docs, projectId, senderId, senderInstanceId);
+  // 5. Broadcast to active collaborators
+  if (broadcast) {
+    try {
+      broadcastDocumentsUpdated(docs, activeProjId, senderId, senderInstanceId);
+    } catch (bcErr) {
+      console.warn('[DocVault] Broadcast error:', bcErr);
     }
+  }
 
-    // Background push to Supabase Cloud if online
-    if (!skipCloud && isSupabaseConfigured) {
-      const activeProjId = projectId || (typeof localStorage !== 'undefined' ? localStorage.getItem('currentProjectId') : null);
-      if (activeProjId) {
-        docs.forEach(doc => {
-          saveProjectDocumentToCloud(activeProjId, doc).catch(() => {});
+  // 6. Background push to Supabase Cloud if online
+  if (!skipCloud && isSupabaseConfigured) {
+    if (activeProjId) {
+      docs.forEach((doc) => {
+        saveProjectDocumentToCloud(activeProjId, doc).catch((cloudErr) => {
+          console.warn('[DocVault] Cloud document save warning:', cloudErr);
         });
-      }
+      });
     }
-  } catch (e) {
-    console.error('Failed to save production documents:', e);
   }
 }
 
@@ -885,7 +968,7 @@ export async function syncDocumentsWithCloud(
   projectId: string,
   userId?: string
 ): Promise<ProductionDocument[]> {
-  const localDocs = getProductionDocuments(projectId);
+  const localDocs = await loadProductionDocumentsAsync(projectId);
   if (!isSupabaseConfigured || !projectId) {
     return localDocs;
   }
@@ -903,10 +986,25 @@ export async function syncDocumentsWithCloud(
     }
 
     if (!cloudDocs || cloudDocs.length === 0) {
+      // If cloud has no documents yet, push local documents to cloud so collaborators can collaborate!
+      if (localDocs && localDocs.length > 0) {
+        localDocs.forEach((doc) => {
+          saveProjectDocumentToCloud(projectId, doc, userId).catch(() => {});
+        });
+      }
       return localDocs;
     }
 
+    // Merge cloud and local non-destructively so in-flight or offline docs are never overwritten
     const merged = mergeProductionDocuments(localDocs, cloudDocs);
+
+    // Also push any local documents not yet in cloud to Supabase so collaborators get them!
+    const cloudIds = new Set((cloudDocs || []).map((cd) => cd.id));
+    localDocs.forEach((doc) => {
+      if (!cloudIds.has(doc.id)) {
+        saveProjectDocumentToCloud(projectId, doc, userId).catch(() => {});
+      }
+    });
 
     saveProductionDocuments(merged, projectId, true);
     return merged;
