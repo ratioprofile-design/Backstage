@@ -17,6 +17,9 @@ export interface ParsedDocumentResult {
   sheetData?: any[][];
   pdfDataUrl?: string;
   imageDataUrl?: string;
+  audioUrl?: string;
+  videoUrl?: string;
+  durationSeconds?: number;
   isBaminiConverted?: boolean;
   isBaminiDetected?: boolean;
   originalFileDataUrl?: string;
@@ -131,7 +134,53 @@ export async function parseUniversalFile(file: File, defaultCategory: Production
     });
   }
 
-  // 4. PDF Documents (.pdf)
+  // 4. Audio Files (.mp3, .wav, .ogg, .m4a, .aac, .flac)
+  if (['.mp3', '.wav', '.ogg', '.m4a', '.aac', '.flac'].includes(extension) || file.type.startsWith('audio/')) {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        const dataUrl = ev.target?.result as string;
+        resolve({
+          title,
+          fileName,
+          fileSize,
+          fileType: 'audio',
+          category: defaultCategory === 'OTHER' ? 'VOICE_NOTE' : defaultCategory,
+          pageCount: 1,
+          audioUrl: dataUrl,
+          textContent: `Audio file: ${fileName}`,
+          originalFileDataUrl: dataUrl,
+          originalFileName: fileName,
+        });
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  // 5. Video Files (.mp4, .mov, .mkv, .webm, .avi)
+  if (['.mp4', '.mov', '.mkv', '.webm', '.avi'].includes(extension) || file.type.startsWith('video/')) {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        const dataUrl = ev.target?.result as string;
+        resolve({
+          title,
+          fileName,
+          fileSize,
+          fileType: 'video',
+          category: defaultCategory === 'OTHER' ? 'VIDEO' : defaultCategory,
+          pageCount: 1,
+          videoUrl: dataUrl,
+          textContent: `Video file: ${fileName}`,
+          originalFileDataUrl: dataUrl,
+          originalFileName: fileName,
+        });
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  // 6. PDF Documents (.pdf)
   if (extension === '.pdf' || file.type === 'application/pdf') {
     return new Promise((resolve) => {
       const reader = new FileReader();
@@ -154,7 +203,7 @@ export async function parseUniversalFile(file: File, defaultCategory: Production
     });
   }
 
-  // 5. Text / Markdown / Fountain / HTML
+  // 7. Text / Markdown / Fountain / HTML
   try {
     const text = await file.text();
     const isBamini = isLegacyBamini(text);

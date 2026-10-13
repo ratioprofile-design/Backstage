@@ -311,6 +311,8 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
         return activeTwoCol;
       }
     }
+    const stagedDoc = documents.find((d) => d.isStagedToScript);
+    if (stagedDoc) return stagedDoc.id;
     const scriptDoc = documents.find((d) => d.isLeftRightFormat || d.hasTwoColumnScript || d.category === 'SCRIPT');
     return scriptDoc?.id || '';
   });
@@ -328,7 +330,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
   }, [initialDocumentId, documents]);
 
   const activeDoc = useMemo(() => {
-    return documents.find((d) => d.id === selectedDocId) || documents.find((d) => d.isLeftRightFormat || d.hasTwoColumnScript || d.category === 'SCRIPT');
+    return documents.find((d) => d.id === selectedDocId) || documents.find((d) => d.isStagedToScript) || documents.find((d) => d.isLeftRightFormat || d.hasTwoColumnScript || d.category === 'SCRIPT');
   }, [documents, selectedDocId]);
 
   // Screenplay Data
@@ -398,6 +400,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
 
   const scriptVaultDocs = useMemo(() => {
     return documents.filter((d) =>
+      d.isStagedToScript ||
       d.category === 'SCRIPT' ||
       d.isLeftRightFormat ||
       d.hasTwoColumnScript ||

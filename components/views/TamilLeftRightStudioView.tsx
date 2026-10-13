@@ -30,7 +30,7 @@ export const TamilLeftRightStudioView: React.FC<TamilLeftRightStudioViewProps> =
   // Construct a fallback document if none is passed
   const doc: ProductionDocument = initialDocument || {
     id: `doc-${Date.now()}`,
-    title: initialTitle || 'பைலட் ரங்கா',
+    title: initialTitle || 'Untitled Screenplay',
     textContent: initialRawText || '',
     category: 'SCRIPT',
     format: 'DOCX',

@@ -127,7 +127,11 @@ import {
   RefreshCw,
   Info,
   Trash2,
-  Filter
+  Filter,
+  Video,
+  Tv,
+  Music,
+  FileCode
 } from 'lucide-react';
 
 const HIGHLIGHT_COLORS = [
@@ -155,6 +159,8 @@ const CATEGORY_STYLES: Record<string, { label: string; icon: any; badgeBg: strin
   CONTRACT: { label: 'Contracts & Legal', icon: Scale, badgeBg: 'bg-indigo-500/15', badgeText: 'text-indigo-400', border: 'border-indigo-500/30' },
   PERMIT: { label: 'Location Permits', icon: FileCheck, badgeBg: 'bg-teal-500/15', badgeText: 'text-teal-400', border: 'border-teal-500/30' },
   EXPORT: { label: 'Exports & Reports', icon: Download, badgeBg: 'bg-fuchsia-500/15', badgeText: 'text-fuchsia-400', border: 'border-fuchsia-500/30' },
+  VIDEO: { label: 'Video & YouTube', icon: Video, badgeBg: 'bg-purple-500/15', badgeText: 'text-purple-400', border: 'border-purple-500/30' },
+  AUDIO: { label: 'Music & Audio', icon: Music, badgeBg: 'bg-cyan-500/15', badgeText: 'text-cyan-400', border: 'border-cyan-500/30' },
   OTHER: { label: 'Other Docs', icon: Folder, badgeBg: 'bg-zinc-500/15', badgeText: 'text-zinc-300', border: 'border-zinc-500/30' },
 };
 
@@ -266,7 +272,11 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
   const [isGeneratingDocx, setIsGeneratingDocx] = useState<boolean>(false);
   const [tamilViewTab, setTamilViewTab] = useState<'visual' | 'typewriter'>('visual');
   const [inLeftRightStudio, setInLeftRightStudio] = useState<boolean>(false);
-  const [studioInitialDoc, setStudioInitialDoc] = useState<ProductionDocument | null>(null);
+  // YouTube & Video Web Link Embed State
+  const [isAddYouTubeModalOpen, setIsAddYouTubeModalOpen] = useState<boolean>(false);
+  const [youtubeUrlInput, setYoutubeUrlInput] = useState<string>('');
+  const [youtubeTitleInput, setYoutubeTitleInput] = useState<string>('');
+  const [youtubeNotesInput, setYoutubeNotesInput] = useState<string>('');
 
   // Gallery Hub vs. Studio Mode
   const [inStudioMode, setInStudioMode] = useState<boolean>(false);
@@ -1230,7 +1240,78 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
     }
   };
 
-  // Universal File Upload Handler with Real-Time Uploading Bar & Script Integration
+  // Helper to extract YouTube video ID from various URL formats
+  const extractYouTubeId = (url: string): string | null => {
+    if (!url) return null;
+    const regExp = /(?:youtube\.com\/(?:[^\/\n\s]+\/\S+\/|(?:v|e(?:mbed)?)\/|\S*?[?&]v=)|youtu\.be\/|youtube\.com\/shorts\/)([a-zA-Z0-9_-]{11})/;
+    const match = url.match(regExp);
+    return match ? match[1] : null;
+  };
+
+  // Add YouTube Video or Web Media to Vault
+  const handleAddYouTubeLink = () => {
+    const videoId = extractYouTubeId(youtubeUrlInput.trim());
+    if (!videoId) {
+      showToast('⚠️ Please enter a valid YouTube link (e.g., https://youtu.be/... or youtube.com/watch?v=...)');
+      return;
+    }
+    const cleanTitle = youtubeTitleInput.trim() || `YouTube Video (${videoId})`;
+    const docId = `doc-yt-${Date.now()}`;
+    const embedUrl = `https://www.youtube.com/embed/${videoId}`;
+    const thumbnailUrl = `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`;
+
+    // Handle duplicate title with incrementing number
+    let highestCopyNum = 0;
+    let hasDuplicate = false;
+    documents.forEach((d) => {
+      if (d.title.toLowerCase() === cleanTitle.toLowerCase()) {
+        hasDuplicate = true;
+        if (highestCopyNum < 1) highestCopyNum = 1;
+      } else {
+        const escaped = cleanTitle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const m = d.title.match(new RegExp(`^${escaped} \\((\\d+)\\)$`, 'i'));
+        if (m && m[1]) {
+          hasDuplicate = true;
+          const n = parseInt(m[1], 10);
+          if (n >= highestCopyNum) highestCopyNum = n + 1;
+        }
+      }
+    });
+
+    const finalTitle = hasDuplicate ? `${cleanTitle} (${highestCopyNum})` : cleanTitle;
+
+    const newDoc: ProductionDocument = {
+      id: docId,
+      projectId: currentProjectId || undefined,
+      title: finalTitle,
+      category: 'VIDEO',
+      fileName: `${finalTitle}.youtube`,
+      fileSize: 'Online Stream',
+      fileType: 'youtube',
+      pageCount: 1,
+      uploadedAt: new Date().toISOString(),
+      imageDataUrl: thumbnailUrl,
+      youtubeUrl: youtubeUrlInput.trim(),
+      youtubeEmbedUrl: embedUrl,
+      isStagedToScript: false,
+      textContent: youtubeNotesInput.trim() || `YouTube Link: ${youtubeUrlInput.trim()}`,
+      htmlContent: `<div style="text-align: center; padding: 20px;"><iframe width="100%" height="480" src="${embedUrl}" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen style="border-radius: 12px; border: 1px solid #333;"></iframe></div>`,
+      author: projectContext.currentUser || 'User',
+      status: 'approved',
+      tags: ['YouTube', 'Video Reference', 'Media'],
+      annotations: [],
+    };
+
+    const updated = [newDoc, ...documents];
+    updateDocuments(updated);
+    setIsAddYouTubeModalOpen(false);
+    setYoutubeUrlInput('');
+    setYoutubeTitleInput('');
+    setYoutubeNotesInput('');
+    showToast(`✓ Added YouTube link "${finalTitle}" to Vault!`);
+  };
+
+  // Universal File Upload Handler with Auto-Incremented Copies and No Auto-Opening
   const handleUniversalUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -1259,7 +1340,7 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
         (selectedCategory === 'ALL' || selectedCategory === 'ARCHIVED' ? 'OTHER' : selectedCategory) as any
       );
 
-      setUploadState((prev) => prev ? { ...prev, progress: 70, statusText: 'Analyzing script format & metadata...' } : null);
+      setUploadState((prev) => prev ? { ...prev, progress: 70, statusText: 'Analyzing format & metadata...' } : null);
       await new Promise((resolve) => setTimeout(resolve, 80));
 
       const rawScriptText = parsed.textContent || (parsed.htmlContent ? parsed.htmlContent.replace(/<[^>]+>/g, '\n') : '');
@@ -1284,30 +1365,65 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
         }
       }
 
+      // Handle duplicate uploads gracefully with auto-incremented number (e.g. Photo.png -> Photo (1).png -> Photo (2).png)
+      const rawOriginalName = parsed.fileName || file.name;
+      const lastDot = rawOriginalName.lastIndexOf('.');
+      const rawBaseName = lastDot !== -1 ? rawOriginalName.substring(0, lastDot) : rawOriginalName;
+      const rawExt = lastDot !== -1 ? rawOriginalName.substring(lastDot) : '';
+      const rawTitle = parsed.title || rawBaseName;
+
+      let highestCopyNum = 0;
+      let hasDuplicateMatch = false;
+
+      documents.forEach((d) => {
+        const dFile = d.originalFileName || d.fileName || '';
+        if (dFile.toLowerCase() === rawOriginalName.toLowerCase()) {
+          hasDuplicateMatch = true;
+          if (highestCopyNum < 1) highestCopyNum = 1;
+        } else {
+          const escapedBase = rawBaseName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          const escapedExt = rawExt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          const copyRegex = new RegExp(`^${escapedBase} \\((\\d+)\\)${escapedExt}$`, 'i');
+          const m = dFile.match(copyRegex);
+          if (m && m[1]) {
+            hasDuplicateMatch = true;
+            const n = parseInt(m[1], 10);
+            if (n >= highestCopyNum) highestCopyNum = n + 1;
+          }
+        }
+      });
+
+      const finalFileName = hasDuplicateMatch ? `${rawBaseName} (${highestCopyNum})${rawExt}` : rawOriginalName;
+      const finalTitle = hasDuplicateMatch ? `${rawTitle} (${highestCopyNum})` : rawTitle;
+
       setUploadState((prev) => prev ? { ...prev, progress: 90, statusText: 'Indexing into Production Vault...' } : null);
 
       const docId = `doc-${Date.now()}`;
       const newDoc: ProductionDocument = {
         id: docId,
         projectId: currentProjectId || undefined,
-        title: parsed.title,
-        category: isScriptFile ? 'SCRIPT' : parsed.category,
-        fileName: parsed.fileName,
+        title: finalTitle,
+        category: parsed.category === 'VIDEO' ? 'VIDEO' : parsed.fileType === 'audio' ? 'VOICE_NOTE' : isScriptFile ? 'SCRIPT' : parsed.category,
+        fileName: finalFileName,
         fileSize: parsed.fileSize,
         fileType: parsed.fileType,
         pageCount: Math.max(1, twoColData ? twoColData.scenes.length : parsed.pageCount),
         uploadedAt: new Date().toISOString(),
         pdfDataUrl: parsed.pdfDataUrl,
         imageDataUrl: parsed.imageDataUrl,
+        audioUrl: parsed.audioUrl,
+        videoUrl: parsed.videoUrl,
+        durationSeconds: parsed.durationSeconds,
+        isStagedToScript: false, // Never automatically staged; staged only on explicit user action
         htmlContent: leftRightHtml,
         textContent: parsed.textContent,
         sheetData: parsed.sheetData,
         author: projectContext.currentUser || 'Uploaded by User',
         status: 'review',
-        tags: Array.from(new Set(['Import', parsed.category, ...(isScriptFile ? ['Script', 'Screenplay', '2-Col Script'] : [])])),
+        tags: Array.from(new Set(['Import', parsed.category, ...(isScriptFile ? ['Script', 'Screenplay'] : [])])),
         annotations: [],
         originalFileDataUrl: parsed.originalFileDataUrl,
-        originalFileName: parsed.fileName,
+        originalFileName: finalFileName,
         convertedDocxDataUrl: parsed.convertedDocxDataUrl,
         isBaminiConverted: false,
         isBaminiDetected: parsed.isBaminiDetected,
@@ -1320,10 +1436,8 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
       updateDocuments(updated);
       setSelectedDocId(newDoc.id);
 
-      // If it is a script, set it as the active 2-column doc id so the Script page opens it!
-      if (isScriptFile && typeof localStorage !== 'undefined') {
-        localStorage.setItem('active_two_column_doc_id', newDoc.id);
-      }
+      // CRITICAL: NEVER automatically open the document, never navigate away, and do NOT force active_two_column_doc_id
+      // Stay cleanly in the Vault Gallery so the user sees the newly added card!
 
       // Notify other views and listeners
       window.dispatchEvent(new CustomEvent('backstage_documents_updated', { detail: updated }));
@@ -1332,16 +1446,16 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
       setUploadState({
         isUploading: false,
         isComplete: true,
-        fileName: file.name,
+        fileName: finalFileName,
         fileSize: sizeStr,
         progress: 100,
-        statusText: isScriptFile ? '✓ Script uploaded & ready for 2-Column Script page!' : '✓ Document uploaded into Vault!',
+        statusText: `✓ "${finalFileName}" uploaded into Vault!`,
         docId: newDoc.id,
         isScript: isScriptFile,
       });
 
       confetti({ particleCount: 35, spread: 50, origin: { y: 0.6 } });
-      showToast(isScriptFile ? `✓ Imported script "${parsed.fileName}" into Vault & ready for 2-Column Script!` : `✓ Imported "${parsed.fileName}" into Vault!`);
+      showToast(`✓ Imported "${finalFileName}" into Vault!`);
 
       // Auto dismiss complete banner after 4.5 seconds
       setTimeout(() => {
@@ -1418,20 +1532,45 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
     }
   };
 
-  // Check if a document has a 2-column script created from it or is in 2-column format
-  const isDocumentScriptAndScreenplay = (doc: ProductionDocument, allDocs: ProductionDocument[]) => {
-    if (doc.hasTwoColumnScript) return true;
-    if (doc.isLeftRightFormat) return true;
-    if (doc.leftRightDocId) return true;
-    if (doc.sourceDocId && allDocs.some((d) => d.id === doc.sourceDocId)) return true;
-    if (allDocs.some((d) => d.sourceDocId === doc.id && d.isLeftRightFormat)) return true;
-    const lowerTags = (doc.tags || []).map((t) => t.toLowerCase());
-    return (
-      lowerTags.includes('2-col script') ||
-      lowerTags.includes('tamil left-right') ||
-      lowerTags.includes('kollywood format') ||
-      lowerTags.includes('2-col created')
-    );
+  // Check if a document is staged in the Script page (Only staged documents show the Script Page icon!)
+  const isDocumentStagedToScript = (doc: ProductionDocument) => {
+    return !!doc.isStagedToScript;
+  };
+
+  const isDocumentScriptAndScreenplay = (doc: ProductionDocument, _allDocs?: ProductionDocument[]) => {
+    return !!doc.isStagedToScript;
+  };
+
+  // Toggle Staging of any document into the Script Page
+  const handleToggleStageToScript = (targetDoc: ProductionDocument, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    const willBeStaged = !targetDoc.isStagedToScript;
+    const updated = documents.map((d) => {
+      if (d.id === targetDoc.id) {
+        return {
+          ...d,
+          isStagedToScript: willBeStaged,
+          isLeftRightFormat: willBeStaged ? true : d.isLeftRightFormat,
+          hasTwoColumnScript: willBeStaged ? true : d.hasTwoColumnScript,
+        };
+      }
+      return d;
+    });
+
+    updateDocuments(updated);
+    if (willBeStaged) {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('active_two_column_doc_id', targetDoc.id);
+      }
+      window.dispatchEvent(new CustomEvent('backstage_documents_updated', { detail: updated }));
+      showToast(`✓ Staged "${targetDoc.title}" to Script Page!`);
+    } else {
+      if (typeof localStorage !== 'undefined' && localStorage.getItem('active_two_column_doc_id') === targetDoc.id) {
+        localStorage.removeItem('active_two_column_doc_id');
+      }
+      window.dispatchEvent(new CustomEvent('backstage_documents_updated', { detail: updated }));
+      showToast(`Unstaged "${targetDoc.title}" from Script Page.`);
+    }
   };
 
   const isWordModel = (doc: ProductionDocument) => {
@@ -2026,7 +2165,7 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
       <input
         ref={fileInputRef}
         type="file"
-        accept=".pdf,.docx,.xlsx,.xls,.png,.jpg,.jpeg,.webp,.svg,.txt,.md,.webm,.mp3,.wav"
+        accept=".pdf,.docx,.doc,.xlsx,.xls,.csv,.png,.jpg,.jpeg,.webp,.svg,.gif,.bmp,.mp3,.wav,.ogg,.m4a,.aac,.flac,.webm,.mp4,.mov,.mkv,.avi,.txt,.md,.fountain"
         className="hidden"
         onChange={handleUniversalUpload}
       />
@@ -2253,10 +2392,21 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                 className={`px-2.5 py-1 text-xs font-medium rounded-lg border flex items-center gap-1.5 transition-all ${
                   isLight ? 'bg-slate-50 border-slate-200 text-slate-500 hover:text-slate-700 hover:border-slate-300' : 'bg-transparent border-zinc-800 text-zinc-500 hover:text-zinc-300 hover:border-zinc-700'
                 }`}
-                title="Import PDF, Word, Image, Audio, Sheet"
+                title="Import PDF, Word, Image, Audio, Sheet, Video"
               >
                 <Upload size={13} />
                 <span className="hidden md:inline">Import</span>
+              </button>
+
+              <button
+                onClick={() => setIsAddYouTubeModalOpen(true)}
+                className={`px-2.5 py-1 text-xs font-medium rounded-lg border flex items-center gap-1.5 transition-all ${
+                  isLight ? 'bg-slate-50 border-slate-200 text-slate-500 hover:text-slate-700 hover:border-slate-300' : 'bg-transparent border-zinc-800 text-zinc-500 hover:text-zinc-300 hover:border-zinc-700'
+                }`}
+                title="Embed YouTube Video or Web Link"
+              >
+                <Tv size={13} className="text-red-500" />
+                <span className="hidden md:inline">YouTube / Link</span>
               </button>
 
               <button
@@ -2264,7 +2414,7 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                   if (onNavigateToView) {
                     onNavigateToView('two-column-script');
                   } else {
-                    const targetDoc = selectedDoc || documents.find((d) => d.category === 'SCRIPT' || d.isLeftRightFormat || d.id === 'doc-ranga-1') || documents[0];
+                    const targetDoc = selectedDoc || documents.find((d) => d.isStagedToScript) || documents.find((d) => d.category === 'SCRIPT' || d.isLeftRightFormat) || documents[0];
                     if (targetDoc) {
                       setSelectedDocId(targetDoc.id);
                       setStudioViewMode('two-column');
@@ -2767,8 +2917,10 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                     {filteredDocuments.map((doc) => {
                       const style = CATEGORY_STYLES[doc.category] || CATEGORY_STYLES.OTHER;
                       const IconComp = style.icon;
-                      const isAudio = doc.category === 'VOICE_NOTE' || doc.fileType === 'audio' || !!doc.audioUrl;
-                      const isImage = !!doc.imageDataUrl;
+                      const isYouTube = doc.fileType === 'youtube' || !!doc.youtubeUrl || !!doc.youtubeEmbedUrl;
+                      const isVideo = (doc.fileType === 'video' || doc.category === 'VIDEO' || !!doc.videoUrl) && !isYouTube;
+                      const isAudio = (doc.category === 'VOICE_NOTE' || doc.category === 'AUDIO' || doc.fileType === 'audio' || !!doc.audioUrl) && !isVideo && !isYouTube;
+                      const isImage = !!doc.imageDataUrl && !isYouTube && !isVideo;
                       const isPlayingThis = playingDocId === doc.id;
 
                       return (
@@ -2785,13 +2937,60 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                           <div className={`h-40 w-full relative overflow-hidden border-b flex items-center justify-center ${
                             isLight ? 'bg-slate-100 border-slate-100' : 'bg-[#0e0e11] border-[#222226]'
                           }`}>
-                            {/* CASE 1: Voice Note / Audio Player Card */}
-                            {isAudio ? (
+                            {/* CASE 1: YouTube Embed Preview */}
+                            {isYouTube ? (
+                              <div className="w-full h-full relative overflow-hidden bg-black flex items-center justify-center">
+                                {doc.imageDataUrl ? (
+                                  <img
+                                    src={doc.imageDataUrl}
+                                    alt={doc.title}
+                                    className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                                  />
+                                ) : (
+                                  <div className="w-full h-full bg-red-950/40 flex items-center justify-center">
+                                    <Tv size={36} className="text-red-500" />
+                                  </div>
+                                )}
+                                <div className="absolute inset-0 bg-black/40 flex items-center justify-center group-hover:bg-black/20 transition-all">
+                                  <div className="w-11 h-11 rounded-full bg-red-600 text-white flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform">
+                                    <Play size={18} className="ml-0.5 fill-white" />
+                                  </div>
+                                </div>
+                                <div className="absolute bottom-2 left-2.5 px-2 py-0.5 rounded bg-black/75 text-[9px] font-mono text-white flex items-center gap-1 backdrop-blur-sm">
+                                  <Tv size={10} className="text-red-400" /> YouTube
+                                </div>
+                              </div>
+                            ) : isVideo ? (
+                              /* CASE 2: Video Asset Preview */
+                              <div className="w-full h-full relative overflow-hidden bg-black flex items-center justify-center">
+                                {doc.videoUrl ? (
+                                  <video
+                                    src={doc.videoUrl}
+                                    className="w-full h-full object-cover"
+                                    muted
+                                    preload="metadata"
+                                  />
+                                ) : (
+                                  <div className="w-full h-full bg-purple-950/40 flex items-center justify-center">
+                                    <Video size={36} className="text-purple-400" />
+                                  </div>
+                                )}
+                                <div className="absolute inset-0 bg-black/40 flex items-center justify-center group-hover:bg-black/20 transition-all">
+                                  <div className="w-11 h-11 rounded-full bg-purple-600/90 text-white flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform">
+                                    <Play size={18} className="ml-0.5 fill-white" />
+                                  </div>
+                                </div>
+                                <div className="absolute bottom-2 left-2.5 px-2 py-0.5 rounded bg-black/75 text-[9px] font-mono text-white flex items-center gap-1 backdrop-blur-sm">
+                                  <Video size={10} className="text-purple-400" /> Video File
+                                </div>
+                              </div>
+                            ) : isAudio ? (
+                              /* CASE 3: Voice Note / Audio Player Card */
                               <div className="w-full h-full p-4 flex flex-col justify-between bg-gradient-to-br from-cyan-950/30 via-zinc-900/60 to-zinc-950/80">
                                 <div className="flex items-center justify-between">
                                   <span className="flex items-center gap-1.5 text-xs font-bold text-cyan-400">
                                     <Radio size={14} className={isPlayingThis ? 'animate-pulse text-cyan-300' : ''} />
-                                    Voice Memo
+                                    Audio Track
                                   </span>
                                   <span className="text-[11px] font-mono text-cyan-300/80 px-2 py-0.5 rounded bg-cyan-900/30 border border-cyan-800/40">
                                     {doc.durationSeconds ? `${doc.durationSeconds}s` : 'Audio'}
@@ -2828,11 +3027,11 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                                     {isPlayingThis ? <Pause size={13} /> : <Play size={13} />}
                                     <span>{isPlayingThis ? 'Pause' : 'Play Audio'}</span>
                                   </button>
-                                  <span className="text-[10px] text-zinc-500 font-mono">WebM Audio</span>
+                                  <span className="text-[10px] text-zinc-500 font-mono">Audio Track</span>
                                 </div>
                               </div>
                             ) : isImage ? (
-                              /* CASE 2: Image / Storyboard / Snapshot Preview */
+                              /* CASE 4: Image / Storyboard / Snapshot Preview */
                               <div className="w-full h-full relative overflow-hidden bg-black/40 flex items-center justify-center">
                                 <img
                                   src={doc.imageDataUrl}
@@ -2846,7 +3045,7 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                                 </div>
                               </div>
                             ) : doc.category === 'BREAKDOWN' || doc.builtInType === 'breakdown' || !!doc.sheetData ? (
-                              /* CASE 3A: Production Breakdown Table Card Preview */
+                              /* CASE 5: Production Breakdown Table Card Preview */
                               <div className="w-full h-full p-3.5 flex flex-col justify-between relative overflow-hidden bg-gradient-to-br from-amber-950/20 via-zinc-900/70 to-zinc-950/90">
                                 <div className="flex items-center justify-between">
                                   <span className="text-[10px] font-mono font-bold text-amber-400 uppercase tracking-wider flex items-center gap-1">
@@ -2854,7 +3053,7 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                                     Breakdown Sheet
                                   </span>
                                   <span className="text-[10px] font-mono text-amber-300 px-2 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/30 font-bold">
-                                    {doc.sheetData && doc.sheetData.length > 1 ? `${doc.sheetData.length - 1} Elements` : '16 Elements'}
+                                    {doc.sheetData && doc.sheetData.length > 1 ? `${doc.sheetData.length - 1} Elements` : 'Sheet'}
                                   </span>
                                 </div>
 
@@ -2891,39 +3090,54 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                                 </div>
                               </div>
                             ) : (
-                              /* CASE 3B: Standard Document Paper Simulation */
-                              <div className="w-full h-full p-4 flex flex-col justify-start relative overflow-hidden">
-                                <div className="w-3/4 h-2.5 rounded bg-zinc-700/60 mb-2"></div>
-                                <div className="w-full h-1.5 rounded bg-zinc-700/40 mb-1.5"></div>
-                                <div className="w-5/6 h-1.5 rounded bg-zinc-700/40 mb-1.5"></div>
-                                <div className="w-2/3 h-1.5 rounded bg-zinc-700/40 mb-3"></div>
-                                <div className="text-[11px] font-mono line-clamp-3 text-zinc-400 leading-relaxed italic opacity-85">
-                                  {doc.textContent || (doc.htmlContent ? doc.htmlContent.replace(/<[^>]+>/g, ' ') : 'Production Document')}
+                              /* CASE 6: Pure Icon Preview (NO raw text dump on card) */
+                              <div className="w-full h-full p-4 flex flex-col items-center justify-center relative overflow-hidden bg-gradient-to-b from-white/[0.03] to-transparent">
+                                <div className={`w-14 h-14 rounded-2xl flex items-center justify-center shadow-lg transition-transform duration-200 group-hover:scale-110 ${
+                                  doc.fileType === 'pdf' || doc.fileName?.toLowerCase().endsWith('.pdf')
+                                    ? 'bg-rose-500/15 text-rose-400 border border-rose-500/30 shadow-rose-500/10'
+                                    : doc.fileType === 'docx' || doc.fileName?.toLowerCase().endsWith('.docx') || doc.fileName?.toLowerCase().endsWith('.doc')
+                                    ? 'bg-blue-500/15 text-blue-400 border border-blue-500/30 shadow-blue-500/10'
+                                    : doc.category === 'SCRIPT' || doc.hasTwoColumnScript
+                                    ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30 shadow-amber-500/10'
+                                    : doc.fileType === 'sheet' || doc.category === 'SCHEDULE'
+                                    ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 shadow-emerald-500/10'
+                                    : 'bg-zinc-500/15 text-zinc-300 border border-zinc-500/30'
+                                }`}>
+                                  {doc.fileType === 'pdf' || doc.fileName?.toLowerCase().endsWith('.pdf') ? (
+                                    <FileText size={28} />
+                                  ) : doc.fileType === 'docx' || doc.fileName?.toLowerCase().endsWith('.docx') || doc.fileName?.toLowerCase().endsWith('.doc') ? (
+                                    <FileText size={28} />
+                                  ) : doc.category === 'SCRIPT' || doc.hasTwoColumnScript ? (
+                                    <FileCode size={28} />
+                                  ) : doc.fileType === 'sheet' || doc.category === 'SCHEDULE' ? (
+                                    <TableIcon size={28} />
+                                  ) : (
+                                    <FileText size={28} />
+                                  )}
                                 </div>
-                                <div className="absolute bottom-2 right-3 text-[10px] font-mono text-zinc-500 flex items-center gap-1">
+
+                                <span className="mt-2.5 text-[10px] font-mono font-bold uppercase tracking-wider text-zinc-400">
+                                  {doc.fileType?.toUpperCase() || (doc.fileName?.split('.').pop() || 'DOC').toUpperCase()}
+                                </span>
+
+                                <div className="absolute bottom-2.5 right-3 text-[10px] font-mono text-zinc-500 flex items-center gap-1">
                                   <BookOpen size={11} /> {doc.pageCount || 1} {doc.pageCount === 1 ? 'Page' : 'Pages'}
                                 </div>
                               </div>
                             )}
 
-                            {/* Top Badge: Category Pill or Dual Script & Screenplay Badges */}
+                            {/* Top Badge: Category Pill & Script Staged Badge (ONLY shown when staged!) */}
                             <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5 flex-wrap z-10">
-                              {isDocumentScriptAndScreenplay(doc, documents) ? (
-                                <>
-                                  <span className="px-2 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider border backdrop-blur-md shadow-sm bg-blue-500/20 text-blue-400 border-blue-500/30 flex items-center gap-1">
-                                    <FileText size={10} />
-                                    <span>Script</span>
-                                  </span>
-                                  <span className="px-2 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider border backdrop-blur-md shadow-sm bg-emerald-500/25 text-emerald-300 border-emerald-500/40 flex items-center gap-1">
-                                    <Columns size={10} />
-                                    <span>Screenplay</span>
-                                  </span>
-                                  {isWordModel(doc) && (
-                                    <span className="px-1.5 py-0.5 rounded-md text-[9px] font-bold uppercase tracking-wider border backdrop-blur-md bg-sky-500/15 text-sky-300 border-sky-500/30">
-                                      Word
-                                    </span>
-                                  )}
-                                </>
+                              {isDocumentStagedToScript(doc) && (
+                                <span className="px-2 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider border backdrop-blur-md shadow-sm bg-emerald-500/25 text-emerald-300 border-emerald-500/40 flex items-center gap-1" title="Staged in Script Page">
+                                  <Columns size={10} className="text-emerald-400" />
+                                  <span>Staged</span>
+                                </span>
+                              )}
+                              {isWordModel(doc) ? (
+                                <span className="px-1.5 py-0.5 rounded-md text-[9px] font-bold uppercase tracking-wider border backdrop-blur-md bg-blue-500/15 text-blue-300 border-blue-500/30">
+                                  Word
+                                </span>
                               ) : (
                                 <span className={`px-2 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider border backdrop-blur-md shadow-sm ${style.badgeBg} ${style.badgeText} ${style.border}`}>
                                   <IconComp size={10} className="inline mr-1" />
@@ -2934,14 +3148,15 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
 
                             {/* Top Right: Quick Action Triggers */}
                             <div className="absolute top-2.5 right-2.5 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
-                              {/* 2-Column Script Quick Trigger */}
+                              {/* Stage to Script Toggle Button */}
                               <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleMakeTwoColumnScriptAndOpen(doc);
-                                }}
-                                className="p-1.5 rounded-lg bg-zinc-900/90 text-emerald-400 hover:bg-emerald-500 hover:text-black transition-all shadow-md flex items-center gap-1"
-                                title="Make Script & Open in Script Page"
+                                onClick={(e) => handleToggleStageToScript(doc, e)}
+                                className={`p-1.5 rounded-lg transition-all shadow-md flex items-center gap-1 ${
+                                  doc.isStagedToScript
+                                    ? 'bg-emerald-500 text-black font-bold shadow-emerald-500/30'
+                                    : 'bg-zinc-900/90 text-zinc-400 hover:text-emerald-400 hover:bg-zinc-800'
+                                }`}
+                                title={doc.isStagedToScript ? "Staged in Script (Click to unstage)" : "Stage document to Script Page"}
                               >
                                 <Columns size={13} />
                               </button>
@@ -3030,19 +3245,20 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                               )}
                             </div>
 
-                            {/* Open in Script Page Direct Button */}
-                            {(isDocumentScriptAndScreenplay(doc, documents) || doc.category === 'SCRIPT' || doc.fileType === 'docx' || doc.fileName?.endsWith('.docx')) && (
+                            {/* Staged in Script Page Direct Button (ONLY when staged!) */}
+                            {doc.isStagedToScript && (
                               <div className="mt-2 mb-1">
                                 <button
                                   type="button"
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    handleMakeTwoColumnScriptAndOpen(doc);
+                                    if (onNavigateToView) onNavigateToView('two-column-script');
+                                    else handleMakeTwoColumnScriptAndOpen(doc);
                                   }}
                                   className="w-full py-1.5 px-2.5 rounded-xl text-xs font-bold bg-emerald-500/15 hover:bg-emerald-500 text-emerald-400 hover:text-black border border-emerald-500/30 flex items-center justify-center gap-1.5 transition-all shadow-xs cursor-pointer group/btn"
                                 >
                                   <Columns size={12} className="text-emerald-400 group-hover/btn:text-black" />
-                                  <span>Open in 2-Column Script</span>
+                                  <span>Open in Script Page</span>
                                 </button>
                               </div>
                             )}
@@ -3230,16 +3446,18 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                                     </button>
                                   )}
 
-                                  {/* Open in Script Page Direct Button */}
-                                  {(isDocumentScriptAndScreenplay(doc, documents) || doc.category === 'SCRIPT' || doc.fileType === 'docx' || doc.fileName?.endsWith('.docx')) && (
-                                    <button
-                                      onClick={() => handleMakeTwoColumnScriptAndOpen(doc)}
-                                      className="p-1.5 rounded-lg bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500 hover:text-black transition-all"
-                                      title="Open in 2-Column Script Page"
-                                    >
-                                      <Columns size={13} />
-                                    </button>
-                                  )}
+                                  {/* Stage to Script Toggle Button */}
+                                  <button
+                                    onClick={(e) => handleToggleStageToScript(doc, e)}
+                                    className={`p-1.5 rounded-lg transition-all ${
+                                      doc.isStagedToScript
+                                        ? 'bg-emerald-500 text-black font-bold'
+                                        : 'bg-zinc-800 text-zinc-400 hover:text-emerald-400 hover:bg-zinc-700'
+                                    }`}
+                                    title={doc.isStagedToScript ? "Staged in Script Page (Click to unstage)" : "Stage document to Script Page"}
+                                  >
+                                    <Columns size={13} />
+                                  </button>
 
                                   {/* Bamini Convert Button */}
                                   {doc.isBaminiDetected && !doc.isBaminiConverted && (
@@ -3883,7 +4101,33 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
               }}
             >
               {/* Media Studio Renderer */}
-              {selectedDoc?.imageDataUrl ? (
+              {selectedDoc?.fileType === 'youtube' || selectedDoc?.youtubeEmbedUrl ? (
+                /* YOUTUBE EMBED PLAYER STUDIO */
+                <div
+                  className="relative rounded-2xl border border-zinc-800 shadow-2xl overflow-hidden bg-black w-full max-w-4xl aspect-video flex items-center justify-center"
+                  style={{ transform: `scale(${zoomLevel / 100})`, transformOrigin: 'top center' }}
+                >
+                  <iframe
+                    src={selectedDoc.youtubeEmbedUrl || (selectedDoc.youtubeUrl ? `https://www.youtube.com/embed/${extractYouTubeId(selectedDoc.youtubeUrl)}` : '')}
+                    className="w-full h-full"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                    allowFullScreen
+                    title={selectedDoc.title}
+                  />
+                </div>
+              ) : selectedDoc?.fileType === 'video' || selectedDoc?.videoUrl ? (
+                /* VIDEO FILE PLAYER STUDIO */
+                <div
+                  className="relative rounded-2xl border border-zinc-800 shadow-2xl overflow-hidden bg-black w-full max-w-4xl aspect-video flex items-center justify-center"
+                  style={{ transform: `scale(${zoomLevel / 100})`, transformOrigin: 'top center' }}
+                >
+                  <video
+                    src={selectedDoc.videoUrl}
+                    controls
+                    className="max-w-full max-h-full rounded-xl"
+                  />
+                </div>
+              ) : selectedDoc?.imageDataUrl ? (
                 /* IMAGE / SNAPSHOT STUDIO */
                 <div
                   className="relative rounded-xl border shadow-2xl overflow-hidden bg-black max-w-4xl max-h-[85vh] flex items-center justify-center"
@@ -5029,6 +5273,86 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                 className="px-4 py-1.5 text-xs font-bold rounded-xl bg-[#f5a623] hover:bg-[#e09612] text-black disabled:opacity-40"
               >
                 Save to Vault
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* =========================================================================
+          MODAL: EMBED YOUTUBE / WEB VIDEO MODAL
+         ========================================================================= */}
+      {isAddYouTubeModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-[#121216] border border-zinc-800 rounded-2xl w-full max-w-lg p-6 shadow-2xl flex flex-col gap-4">
+            <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
+              <div className="flex items-center gap-2 text-white font-bold text-sm">
+                <Tv size={18} className="text-red-500" />
+                <span>Embed YouTube or Web Video into Vault</span>
+              </div>
+              <button
+                onClick={() => setIsAddYouTubeModalOpen(false)}
+                className="text-zinc-500 hover:text-white p-1 rounded-lg"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="flex flex-col gap-3">
+              <div>
+                <label className="text-[11px] font-mono text-zinc-400 block mb-1">
+                  YouTube Video Link <span className="text-red-400">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={youtubeUrlInput}
+                  onChange={(e) => setYoutubeUrlInput(e.target.value)}
+                  placeholder="https://www.youtube.com/watch?v=... or https://youtu.be/..."
+                  className="w-full px-3 py-2 text-xs rounded-xl bg-zinc-900 border border-zinc-700 outline-none text-white focus:border-red-500"
+                />
+              </div>
+
+              <div>
+                <label className="text-[11px] font-mono text-zinc-400 block mb-1">
+                  Video Title (Optional)
+                </label>
+                <input
+                  type="text"
+                  value={youtubeTitleInput}
+                  onChange={(e) => setYoutubeTitleInput(e.target.value)}
+                  placeholder="e.g. Act III Stunt Reference / Visual Inspiration"
+                  className="w-full px-3 py-2 text-xs rounded-xl bg-zinc-900 border border-zinc-700 outline-none text-white focus:border-red-500"
+                />
+              </div>
+
+              <div>
+                <label className="text-[11px] font-mono text-zinc-400 block mb-1">
+                  Production Notes & Timestamps (Optional)
+                </label>
+                <textarea
+                  value={youtubeNotesInput}
+                  onChange={(e) => setYoutubeNotesInput(e.target.value)}
+                  placeholder="Notes on lighting, reference choreography at 01:45..."
+                  rows={3}
+                  className="w-full px-3 py-2 text-xs rounded-xl bg-zinc-900 border border-zinc-700 outline-none text-white focus:border-red-500 resize-none"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                onClick={() => setIsAddYouTubeModalOpen(false)}
+                className="px-4 py-2 text-xs font-bold rounded-xl border border-zinc-700 hover:bg-zinc-800 text-zinc-300"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleAddYouTubeLink}
+                disabled={!youtubeUrlInput.trim()}
+                className="px-4 py-2 text-xs font-bold rounded-xl bg-red-600 hover:bg-red-500 text-white disabled:opacity-40 transition-all flex items-center gap-1.5"
+              >
+                <Tv size={14} />
+                <span>Add to Vault</span>
               </button>
             </div>
           </div>

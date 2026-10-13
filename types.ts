@@ -1175,6 +1175,8 @@ export type DocumentFormat =
   | 'permit' 
   | 'contract' 
   | 'audio' 
+  | 'video'
+  | 'youtube'
   | 'note' 
   | 'snapshot' 
   | 'export' 
@@ -1191,6 +1193,8 @@ export type DocumentCategory =
   | 'SAFETY' 
   | 'CONTRACT' 
   | 'VOICE_NOTE' 
+  | 'AUDIO'
+  | 'VIDEO'
   | 'NOTE' 
   | 'SNAPSHOT' 
   | 'EXPORT' 
@@ -1211,6 +1215,10 @@ export interface ProductionDocument {
   imageDataUrl?: string;
   audioUrl?: string;
   durationSeconds?: number;
+  videoUrl?: string;
+  youtubeUrl?: string;
+  youtubeEmbedUrl?: string;
+  isStagedToScript?: boolean; // When staged in Script page, displays Script icon
   htmlContent?: string;
   textContent?: string;
   sheetData?: any[][];
