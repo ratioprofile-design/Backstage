@@ -4,6 +4,8 @@ import {
   fetchProjectDocumentsFromCloud, 
   deleteProjectDocumentFromCloud,
   uploadDocumentBinaryToStorage,
+  fetchProjectData,
+  supabase,
   isSupabaseConfigured
 } from './supabase';
 
@@ -683,12 +685,122 @@ export function getProductionDocuments(projectId?: string): ProductionDocument[]
   }
 }
 
-export function saveProductionDocuments(docs: ProductionDocument[], projectId?: string, skipCloud = false): void {
+/**
+ * Safely merge two lists of ProductionDocuments without losing in-flight edits or collaborators' new documents.
+ */
+export function mergeProductionDocuments(
+  existingDocs: ProductionDocument[],
+  incomingDocs: ProductionDocument[]
+): ProductionDocument[] {
+  if (!incomingDocs || incomingDocs.length === 0) return existingDocs || [];
+  if (!existingDocs || existingDocs.length === 0) return incomingDocs || [];
+
+  const map = new Map<string, ProductionDocument>();
+
+  // Add existing docs first
+  existingDocs.forEach((doc) => {
+    if (doc && doc.id) {
+      map.set(doc.id, doc);
+    }
+  });
+
+  // Merge incoming docs
+  incomingDocs.forEach((incoming) => {
+    if (!incoming || !incoming.id) return;
+    const existing = map.get(incoming.id);
+    if (!existing) {
+      // New document added by collaborator
+      map.set(incoming.id, incoming);
+    } else {
+      // Merge properties non-destructively
+      const mergedAnnos = [...(existing.annotations || [])];
+      (incoming.annotations || []).forEach((inAnno) => {
+        const idx = mergedAnnos.findIndex((a) => a.id === inAnno.id);
+        if (idx >= 0) {
+          mergedAnnos[idx] = inAnno;
+        } else {
+          mergedAnnos.push(inAnno);
+        }
+      });
+
+      const mergedDoc: ProductionDocument = {
+        ...existing,
+        ...incoming,
+        // Preserve binary assets if incoming omitted them
+        pdfDataUrl: incoming.pdfDataUrl || existing.pdfDataUrl,
+        imageDataUrl: incoming.imageDataUrl || existing.imageDataUrl,
+        audioUrl: incoming.audioUrl || existing.audioUrl,
+        originalFileDataUrl: incoming.originalFileDataUrl || existing.originalFileDataUrl,
+        convertedDocxDataUrl: incoming.convertedDocxDataUrl || existing.convertedDocxDataUrl,
+        htmlContent: incoming.htmlContent || existing.htmlContent,
+        textContent: incoming.textContent || existing.textContent,
+        sheetData: incoming.sheetData || existing.sheetData,
+        twoColumnData: incoming.twoColumnData || existing.twoColumnData,
+        hasTwoColumnScript: incoming.hasTwoColumnScript ?? existing.hasTwoColumnScript,
+        isLeftRightFormat: incoming.isLeftRightFormat ?? existing.isLeftRightFormat,
+        isBaminiConverted: incoming.isBaminiConverted ?? existing.isBaminiConverted,
+        isBaminiDetected: incoming.isBaminiDetected ?? existing.isBaminiDetected,
+        annotations: mergedAnnos,
+        tags: Array.from(new Set([...(existing.tags || []), ...(incoming.tags || [])])),
+      };
+      map.set(incoming.id, mergedDoc);
+    }
+  });
+
+  return Array.from(map.values()).sort(
+    (a, b) => new Date(b.uploadedAt || 0).getTime() - new Date(a.uploadedAt || 0).getTime()
+  );
+}
+
+/**
+ * Broadcast document updates across all active collaborator browsers in real-time
+ */
+export function broadcastDocumentsUpdated(
+  docs: ProductionDocument[],
+  projectId?: string,
+  senderId?: string,
+  senderInstanceId?: string
+): void {
+  const activeProjId = projectId || (typeof localStorage !== 'undefined' ? localStorage.getItem('currentProjectId') || undefined : undefined);
+  if (!activeProjId) return;
+
+  if (isSupabaseConfigured && supabase) {
+    try {
+      const channel = supabase.channel(`project_changes_${activeProjId}`);
+      channel.send({
+        type: 'broadcast',
+        event: 'vault_documents_updated',
+        payload: {
+          projectId: activeProjId,
+          documents: docs,
+          senderId: senderId || 'user',
+          senderInstanceId: senderInstanceId || Math.random().toString(36).substring(2, 10),
+          timestamp: Date.now()
+        }
+      }).catch((err: any) => console.warn('Supabase document broadcast failed:', err));
+    } catch (e) {
+      console.warn('Realtime channel document broadcast error:', e);
+    }
+  }
+}
+
+export function saveProductionDocuments(
+  docs: ProductionDocument[],
+  projectId?: string,
+  skipCloud = false,
+  broadcast = false,
+  senderId?: string,
+  senderInstanceId?: string
+): void {
   try {
     const key = getDocumentStorageKey(projectId);
     localStorage.setItem(key, JSON.stringify(docs));
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('backstage_documents_updated', { detail: { docs, projectId } }));
+    }
+
+    if (broadcast) {
+      broadcastDocumentsUpdated(docs, projectId, senderId, senderInstanceId);
     }
 
     // Background push to Supabase Cloud if online
@@ -744,7 +856,10 @@ export function addProductionDocument(
     originalFileName: doc.originalFileName,
     convertedDocxDataUrl: doc.convertedDocxDataUrl,
     isBaminiConverted: doc.isBaminiConverted,
+    isBaminiDetected: doc.isBaminiDetected,
     isLeftRightFormat: doc.isLeftRightFormat,
+    hasTwoColumnScript: doc.hasTwoColumnScript,
+    twoColumnData: doc.twoColumnData,
     leftRightDocId: doc.leftRightDocId,
     sourceDocId: doc.sourceDocId,
   };
@@ -752,7 +867,7 @@ export function addProductionDocument(
   // Prevent duplicate titles if exact same ID exists
   const filtered = currentDocs.filter((d) => d.id !== newDoc.id);
   const updated = [newDoc, ...filtered];
-  saveProductionDocuments(updated, activeProjId);
+  saveProductionDocuments(updated, activeProjId, false, true);
 
   // Cloud upload immediately
   if (activeProjId && isSupabaseConfigured) {
@@ -776,28 +891,22 @@ export async function syncDocumentsWithCloud(
   }
 
   try {
-    const cloudDocs = await fetchProjectDocumentsFromCloud(projectId);
-    if (!cloudDocs) {
-      // If table doesn't exist yet, return localDocs safely
+    let cloudDocs = await fetchProjectDocumentsFromCloud(projectId);
+    // If project_documents table returned empty or null, check projects table's documents array
+    if (!cloudDocs || cloudDocs.length === 0) {
+      try {
+        const projData = await fetchProjectData(projectId);
+        if (projData && Array.isArray(projData.documents) && projData.documents.length > 0) {
+          cloudDocs = projData.documents;
+        }
+      } catch (e) {}
+    }
+
+    if (!cloudDocs || cloudDocs.length === 0) {
       return localDocs;
     }
 
-    const map = new Map<string, ProductionDocument>();
-
-    // Add cloud docs as authoritative source for team
-    cloudDocs.forEach((d: any) => map.set(d.id, d));
-
-    // Also include any local docs that may not have synced to cloud yet
-    localDocs.forEach((d) => {
-      if (!map.has(d.id)) {
-        map.set(d.id, d);
-        saveProjectDocumentToCloud(projectId, d, userId).catch(() => {});
-      }
-    });
-
-    const merged = Array.from(map.values()).sort((a, b) => 
-      new Date(b.uploadedAt || 0).getTime() - new Date(a.uploadedAt || 0).getTime()
-    );
+    const merged = mergeProductionDocuments(localDocs, cloudDocs);
 
     saveProductionDocuments(merged, projectId, true);
     return merged;

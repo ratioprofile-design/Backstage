@@ -310,7 +310,7 @@ export const saveProjectDocumentToCloud = async (
   if (!isSupabaseConfigured || !projectId) return false;
 
   try {
-    const row = {
+    const row: any = {
       id: doc.id,
       project_id: projectId,
       user_id: userId || null,
@@ -340,15 +340,27 @@ export const saveProjectDocumentToCloud = async (
       original_file_name: doc.originalFileName || null,
       converted_docx_data_url: doc.convertedDocxDataUrl || null,
       is_bamini_converted: !!doc.isBaminiConverted,
+      is_bamini_detected: !!doc.isBaminiDetected,
       is_left_right_format: !!doc.isLeftRightFormat,
+      has_two_column_script: !!doc.hasTwoColumnScript,
+      two_column_data: doc.twoColumnData || null,
       left_right_doc_id: doc.leftRightDocId || null,
       source_doc_id: doc.sourceDocId || null,
       updated_at: new Date().toISOString()
     };
 
-    const { error } = await supabase
+    let { error } = await supabase
       .from('project_documents')
       .upsert(row, { onConflict: 'id' });
+
+    if (error && (error.code === '42703' || error.message?.includes('column'))) {
+      // In case Postgres table doesn't have the new columns yet, fallback to base columns
+      const { two_column_data, has_two_column_script, is_bamini_detected, ...baseRow } = row;
+      const retry = await supabase
+        .from('project_documents')
+        .upsert(baseRow, { onConflict: 'id' });
+      error = retry.error;
+    }
 
     if (error) {
       console.warn("Failed to upsert to project_documents table (it may not be created yet):", error.message);
@@ -410,7 +422,10 @@ export const fetchProjectDocumentsFromCloud = async (projectId: string): Promise
       originalFileName: row.original_file_name,
       convertedDocxDataUrl: row.converted_docx_data_url,
       isBaminiConverted: !!row.is_bamini_converted,
+      isBaminiDetected: !!row.is_bamini_detected,
       isLeftRightFormat: !!row.is_left_right_format,
+      hasTwoColumnScript: !!row.has_two_column_script,
+      twoColumnData: row.two_column_data || undefined,
       leftRightDocId: row.left_right_doc_id,
       sourceDocId: row.source_doc_id
     }));

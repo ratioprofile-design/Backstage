@@ -23,8 +23,10 @@ import {
   updateDocumentTags,
   generateBreakdownHtmlTable,
   syncDocumentsWithCloud,
+  mergeProductionDocuments,
   SCENE_4_BREAKDOWN_SHEET_DATA
 } from '../../services/documentsStorage';
+import { supabase, isSupabaseConfigured } from '../../services/supabase';
 import * as XLSX from 'xlsx';
 import { parseUniversalFile } from '../../services/documentParser';
 import { generateText } from '../../services/gemini';
@@ -359,17 +361,18 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
     setTimeout(() => setToastMessage(null), 3500);
   };
 
+  const clientInstanceIdRef = useRef<string>(Math.random().toString(36).substring(2, 11));
   const fileInputRef = useRef<HTMLInputElement>(null);
   const documentSheetRef = useRef<HTMLDivElement>(null);
 
-  // Listen to live document updates across the workspace and collaborators
+  // Listen to live document updates across the local workspace window
   useEffect(() => {
     const handleDocsUpdated = (e: any) => {
       const incoming = Array.isArray(e.detail) 
         ? e.detail 
         : (e.detail?.docs && Array.isArray(e.detail.docs) ? e.detail.docs : null);
       if (incoming) {
-        setDocuments(incoming);
+        setDocuments((prev) => mergeProductionDocuments(prev, incoming));
         if (!selectedDocId && incoming[0]) {
           setSelectedDocId(incoming[0].id);
         }
@@ -380,6 +383,73 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
       window.removeEventListener('backstage_documents_updated', handleDocsUpdated);
     };
   }, [selectedDocId]);
+
+  // Real-time Supabase Broadcast Channel for instant multi-user cross-browser synchronization
+  useEffect(() => {
+    if (!isSupabaseConfigured || !currentProjectId) return;
+
+    const channel = supabase
+      .channel(`project_changes_${currentProjectId}`)
+      .on(
+        'broadcast',
+        { event: 'vault_documents_updated' },
+        (msg: any) => {
+          const payload = msg.payload || msg;
+          if (!payload || !payload.documents) return;
+          // Ignore own broadcast
+          if (payload.senderInstanceId && payload.senderInstanceId === clientInstanceIdRef.current) return;
+          if (payload.senderId && payload.senderId === currentUser && !payload.senderInstanceId) return;
+
+          console.log('[DocumentVault] Live update received from collaborator:', payload.senderId);
+          const incomingDocs: ProductionDocument[] = payload.documents;
+          setDocuments((prevDocs) => {
+            const merged = mergeProductionDocuments(prevDocs, incomingDocs);
+            saveProductionDocuments(merged, currentProjectId, true);
+            return merged;
+          });
+
+          // If current doc was updated by collaborator, refresh in-place content if not dirty
+          if (selectedDocId) {
+            const updatedSelected = incomingDocs.find((d: any) => d.id === selectedDocId);
+            if (updatedSelected && !hasUnsavedChanges) {
+              const newHtml = updatedSelected.htmlContent || (updatedSelected.textContent ? `<p>${updatedSelected.textContent.replace(/\n/g, '<br/>')}</p>` : '');
+              setEditedHtmlContent(newHtml);
+            }
+          }
+
+          showToast('✓ Documents updated by collaborator in real-time!');
+        }
+      )
+      .on(
+        'broadcast',
+        { event: 'two_column_script_synced' },
+        (msg: any) => {
+          const payload = msg.payload || msg;
+          if (!payload || !payload.docId || !payload.twoColumnData) return;
+          if (payload.senderInstanceId && payload.senderInstanceId === clientInstanceIdRef.current) return;
+
+          setDocuments((prevDocs) => {
+            const next = prevDocs.map((d) => {
+              if (d.id === payload.docId) {
+                return {
+                  ...d,
+                  twoColumnData: payload.twoColumnData,
+                  title: payload.twoColumnData.title || d.title,
+                };
+              }
+              return d;
+            });
+            saveProductionDocuments(next, currentProjectId, true);
+            return next;
+          });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [currentProjectId, currentUser, selectedDocId, hasUnsavedChanges]);
 
   // Audio Playback event handling
   useEffect(() => {
@@ -884,7 +954,14 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
   // Persist documents on change and sync with all collaborators
   const updateDocuments = (docs: ProductionDocument[]) => {
     setDocuments(docs);
-    saveProductionDocuments(docs, currentProjectId || undefined);
+    saveProductionDocuments(
+      docs, 
+      currentProjectId || undefined, 
+      false, 
+      true, 
+      currentUser || 'User', 
+      clientInstanceIdRef.current
+    );
     if (setProjectHasUnsavedChanges) setProjectHasUnsavedChanges(true);
     if (isCloudMode && saveProject) {
       saveProject();
@@ -921,9 +998,9 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
     if (!docToArchive) return;
 
     if (confirm(`Archive "${docToArchive.title}"?\n\nBackstage Vault preserves all production assets; documents are archived safely and never permanently deleted.`)) {
-      archiveProductionDocument(docId);
-      const updated = getProductionDocuments();
-      setDocuments(updated);
+      archiveProductionDocument(docId, currentProjectId || undefined);
+      const updated = getProductionDocuments(currentProjectId || undefined);
+      updateDocuments(updated);
       showToast(`🗄️ Archived "${docToArchive.title}" into Vault Archive.`);
     }
   };
@@ -931,9 +1008,9 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
   // UNARCHIVE / RESTORE DOCUMENT
   const handleUnarchiveDocument = (e: React.MouseEvent, docId: string) => {
     e.stopPropagation();
-    unarchiveProductionDocument(docId);
-    const updated = getProductionDocuments();
-    setDocuments(updated);
+    unarchiveProductionDocument(docId, currentProjectId || undefined);
+    const updated = getProductionDocuments(currentProjectId || undefined);
+    updateDocuments(updated);
     confetti({ particleCount: 25, spread: 50, origin: { y: 0.6 } });
     showToast(`✓ Restored document back to active Vault!`);
   };

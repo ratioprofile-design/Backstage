@@ -12,7 +12,7 @@ import { createAuto5ScenesDataset, createAutoScenesDataset } from '../services/s
 import { isTauri, getTauriFs, getTauriDialog, getTauriWindow } from '../utils/desktop';
 import { addRecentFile } from '../utils/recentFiles';
 import { isCausalityData, parseCausalityProject } from '../services/causalityParser';
-import { getProductionDocuments, saveProductionDocuments } from '../services/documentsStorage';
+import { getProductionDocuments, saveProductionDocuments, mergeProductionDocuments, syncDocumentsWithCloud } from '../services/documentsStorage';
 import { saveLargeProject, loadLargeProject } from '../services/largeStorage';
 import { optimizeTalentForCloud } from '../services/imageOptimizer';
 
@@ -532,7 +532,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     };
   }, []);
 
-  const applyProjectState = useCallback((data: any, options?: { projectName?: string }) => {
+  const applyProjectState = useCallback((data: any, options?: { projectName?: string; targetProjectId?: string }) => {
     if (!data) return;
 
     isImportingRef.current = true;
@@ -717,8 +717,11 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       setNavLayoutState(cleanData.navLayout);
       localStorage.setItem('app_nav_layout', cleanData.navLayout);
     }
-    if (Array.isArray(cleanData.documents)) {
-      saveProductionDocuments(cleanData.documents, currentProjectId || undefined, true);
+    const activeTargetProjId = options?.targetProjectId || (cleanData as any)?._projectId || currentProjectId || undefined;
+    if (Array.isArray(cleanData.documents) && activeTargetProjId) {
+      const currentDocs = getProductionDocuments(activeTargetProjId);
+      const merged = mergeProductionDocuments(currentDocs, cleanData.documents);
+      saveProductionDocuments(merged, activeTargetProjId, true);
     }
     
     // Reset the flag after a timeout to allow state to settle
@@ -751,6 +754,13 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
           // 1. Ignore if WE are the ones who sent this update
           if (newData.lastInstanceId === INSTANCE_ID) return;
 
+          // Always merge documents across collaborators non-destructively
+          if (Array.isArray(newData.documents) && newData.documents.length > 0) {
+            const currentDocs = getProductionDocuments(currentProjectId);
+            const merged = mergeProductionDocuments(currentDocs, newData.documents);
+            saveProductionDocuments(merged, currentProjectId, true);
+          }
+
           // 2. Only pull remote changes if we don't have local unsaved work
           // or if we are idle. This prevents "writing over" current progress.
           if (!hasUnsavedChangesRef.current && !isSavingRef.current) {
@@ -766,10 +776,31 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
           const broadcastData = payload.payload?.data || payload.data;
           const remoteInstance = payload.payload?.lastInstanceId || payload.lastInstanceId;
           if (!broadcastData || remoteInstance === INSTANCE_ID) return;
+
+          // Always merge documents across collaborators non-destructively
+          if (Array.isArray(broadcastData.documents) && broadcastData.documents.length > 0) {
+            const currentDocs = getProductionDocuments(currentProjectId);
+            const merged = mergeProductionDocuments(currentDocs, broadcastData.documents);
+            saveProductionDocuments(merged, currentProjectId, true);
+          }
+
           if (!hasUnsavedChangesRef.current && !isSavingRef.current) {
             console.log("Realtime broadcast: Updating local state from collaborator.");
             applyProjectState(broadcastData);
           }
+        }
+      )
+      .on(
+        'broadcast',
+        { event: 'vault_documents_updated' },
+        (payload: any) => {
+          const docs = payload.payload?.documents || payload.documents;
+          const remoteInstance = payload.payload?.senderInstanceId || payload.senderInstanceId;
+          if (!docs || remoteInstance === INSTANCE_ID) return;
+          console.log("Realtime broadcast: Vault documents updated by collaborator.");
+          const currentDocs = getProductionDocuments(currentProjectId);
+          const merged = mergeProductionDocuments(currentDocs, docs);
+          saveProductionDocuments(merged, currentProjectId, true);
         }
       )
       .subscribe();
@@ -1018,7 +1049,8 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
         resolvedName = data?._projectName || data?.projectName || data?.name || '';
         isInvitedProj = Boolean(data?._ownerId && data._ownerId !== supabaseUser.id);
 
-        applyProjectState(cleanData);
+        applyProjectState(cleanData, { targetProjectId: id });
+        syncDocumentsWithCloud(id, supabaseUser.id).catch(() => {});
 
         // Auto-register current user as an active collaborator inside project metadata
         const currentEmail = supabaseUser.email?.toLowerCase().trim();

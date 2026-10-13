@@ -5,6 +5,7 @@ import { syncBreakdownToDepartmentsAndContinuity } from '../../utils/breakdownSy
 import {
   getProductionDocuments,
   saveProductionDocuments,
+  mergeProductionDocuments,
 } from '../../services/documentsStorage';
 import {
   TamilScreenplayData,
@@ -377,7 +378,14 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
       };
       const allDocs = getProductionDocuments(projectContext.currentProjectId || undefined);
       const nextList = allDocs.map((d) => (d.id === updated.id ? updated : d));
-      saveProductionDocuments(nextList, projectContext.currentProjectId || undefined);
+      saveProductionDocuments(
+        nextList, 
+        projectContext.currentProjectId || undefined, 
+        false, 
+        true, 
+        projectContext.currentUser || 'user', 
+        clientInstanceIdRef.current
+      );
       setDocuments(nextList);
     }
     setHasUnsavedChanges(true);
@@ -2761,7 +2769,14 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
         : [updated, ...allDocs];
     }
 
-    saveProductionDocuments(nextList, projId);
+    saveProductionDocuments(
+      nextList, 
+      projId, 
+      false, 
+      true, 
+      projectContext.currentUser || 'user', 
+      clientInstanceIdRef.current
+    );
     setDocuments(nextList);
     setHasUnsavedChanges(false);
     setIsAutoSaving(false);
@@ -2780,6 +2795,18 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
             twoColumnData: currentData,
             senderId: projectContext.currentUser || 'user',
             senderInstanceId: clientInstanceIdRef.current,
+          }
+        }).catch(() => {});
+
+        chan.send({
+          type: 'broadcast',
+          event: 'vault_documents_updated',
+          payload: {
+            projectId: projId,
+            documents: nextList,
+            senderId: projectContext.currentUser || 'user',
+            senderInstanceId: clientInstanceIdRef.current,
+            timestamp: Date.now()
           }
         }).catch(() => {});
       } catch (e) {}
@@ -2832,6 +2859,37 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
           const nextDocs = allDocs.map((d) => d.id === payload.docId ? { ...d, twoColumnData: merged } : d);
           setDocuments(nextDocs);
           saveProductionDocuments(nextDocs, projId, true);
+        }
+      )
+      .on(
+        'broadcast',
+        { event: 'vault_documents_updated' },
+        (msg: any) => {
+          const payload = msg.payload || msg;
+          if (!payload || !payload.documents) return;
+          if (payload.senderInstanceId && payload.senderInstanceId === clientInstanceIdRef.current) return;
+          if (payload.senderId && payload.senderId === projectContext.currentUser && !payload.senderInstanceId) return;
+
+          console.log('[TwoColumn] Live documents updated from collaborator:', payload.senderId);
+          const incoming: ProductionDocument[] = payload.documents;
+          setDocuments((prev) => mergeProductionDocuments(prev, incoming));
+
+          // Check if active document or newly uploaded script needs to update screenplayData
+          const activeStorageId = typeof localStorage !== 'undefined' ? localStorage.getItem('active_two_column_doc_id') : null;
+          const curId = activeStorageId || selectedDocId;
+          const matchedDoc = incoming.find((d: any) => d.id === curId);
+          if (matchedDoc && matchedDoc.twoColumnData && Array.isArray(matchedDoc.twoColumnData.scenes)) {
+            const merged = mergeTwoColumnData(
+              screenplayDataRef.current,
+              matchedDoc.twoColumnData,
+              activeTypingItemIdRef.current,
+              localDirtyItemIdsRef.current,
+              localDeletedItemIdsRef.current,
+              localDeletedSceneIdsRef.current
+            );
+            screenplayDataRef.current = merged;
+            setScreenplayData(merged);
+          }
         }
       )
       .subscribe();
