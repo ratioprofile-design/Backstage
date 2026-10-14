@@ -312,7 +312,8 @@ export const INITIAL_STATE: ProjectState = {
   boardLayerOrder: ['annotations', 'text', 'connections', 'groups', 'beats'],
   characterDesignLocked: false,
   collaborators: [],
-  talentPool: []
+  talentPool: [],
+  appZoomLevel: 0.8
 };
 
 export const SCRIPT_FORMATS = [

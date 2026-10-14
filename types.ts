@@ -360,6 +360,7 @@ export interface ProjectState {
   appLanguage?: 'english' | 'tamil' | 'spanish' | 'french' | 'german';
   navLayout?: 'horizontal' | 'vertical';
   themeAnimationStyle?: ThemeAnimationStyle;
+  appZoomLevel?: number;
 
   // Board Layers
   boardLayerOrder: BoardLayer[];
@@ -480,6 +481,7 @@ export interface ProjectContextType extends ProjectState {
   setNavLayout: (layout: 'horizontal' | 'vertical') => void;
   themeAnimationStyle: ThemeAnimationStyle;
   setThemeAnimationStyle: (style: ThemeAnimationStyle) => void;
+  setAppZoomLevel: (zoom: number) => void;
 
   // Breakdown Configuration
   setBreakdownLanguage: (lang: 'english' | 'tamil') => void;

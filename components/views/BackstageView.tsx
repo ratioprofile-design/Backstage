@@ -16,7 +16,7 @@ import {
   Moon, Sun, Coffee, Download, XCircle, Sparkles, Wifi, ShieldCheck, ShieldAlert,
   Key, Cpu, ListChecks, StickyNote, List, Hash, RotateCw, CheckSquare, Quote, WifiOff,
   Palette, Languages, CheckCircle2, ChevronRight, Folder, Pipette, Layout, X,
-  Users, UserPlus, Mail, Trash2, CheckCheck, Link2
+  Users, UserPlus, Mail, Trash2, CheckCheck, Link2, ZoomIn
 } from 'lucide-react';
 import PrintPreviewModal from '../PrintPreviewModal';
 import { 
@@ -253,7 +253,8 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard, onClos
     navLayout = 'horizontal', setNavLayout,
     breakdownLanguage = 'english', setBreakdownLanguage,
     isPdfDropEnabled, setPdfDropEnabled,
-    isRedoEnabled, setRedoEnabled
+    isRedoEnabled, setRedoEnabled,
+    appZoomLevel = 0.8, setAppZoomLevel
   } = useProject();
 
   const { aiAvailable, router: routerStatus, gemini: geminiStatus, testing: keysTesting, refresh: refreshKeyStatus } = useAiKeyStatus();
@@ -1044,7 +1045,66 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard, onClos
                             </div>
                         </div>
 
-                        {/* 3. APP LANGUAGE & BREAKDOWN LANGUAGE */}
+                        {/* 4. APPLICATION SCALE & DENSITY (80% DEFAULT) */}
+                        <div className="md:col-span-2 bg-[#111] p-6 rounded-sm border border-[#222]">
+                            <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+                              <div>
+                                <h4 className="text-sm font-bold text-white uppercase tracking-wide flex items-center gap-2">
+                                  <ZoomIn size={16} style={{ color: appAccentColor }} /> Application Scale & Compactness
+                                </h4>
+                                <p className="text-xs text-gray-400 mt-1">
+                                  Adjust the visual scale and density of the studio. Tuned for razor-sharp typography, ultra-high contrast, and compact layout.
+                                </p>
+                              </div>
+                              <span className="text-[10px] font-mono uppercase px-2 py-1 rounded bg-[#222] text-gray-300 border border-[#333]">
+                                Active: {Math.round((appZoomLevel || 0.8) * 100)}% {Math.abs((appZoomLevel || 0.8) - 0.8) < 0.01 ? '(DEFAULT)' : ''}
+                              </span>
+                            </div>
+
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-6">
+                              {[
+                                { zoom: 0.8, label: '80% Compact', badge: 'Default & Crisp', desc: 'Sleek, maximum screen space, razor-sharp density' },
+                                { zoom: 0.85, label: '85% Balanced', badge: '', desc: 'Slightly enlarged compact view with high crispness' },
+                                { zoom: 0.9, label: '90% Comfortable', badge: '', desc: 'Moderate scale for smaller laptop displays' },
+                                { zoom: 1.0, label: '100% Standard', badge: '1:1 Original', desc: 'Unscaled standard size' },
+                              ].map((opt) => {
+                                const isSelected = Math.abs((appZoomLevel || 0.8) - opt.zoom) < 0.01;
+                                return (
+                                  <div
+                                    key={opt.zoom}
+                                    onClick={() => setAppZoomLevel(opt.zoom)}
+                                    className={`p-4 rounded-lg border cursor-pointer transition-all flex flex-col justify-between h-32 relative overflow-hidden group ${
+                                      isSelected ? 'bg-[#181818] border-2 shadow-lg' : 'bg-[#0f0f0f] border-[#222] hover:border-[#444] hover:bg-[#141414]'
+                                    }`}
+                                    style={{ borderColor: isSelected ? appAccentColor : undefined }}
+                                  >
+                                    <div className="flex items-center justify-between">
+                                      <span className="text-xs font-mono font-bold text-white px-2 py-0.5 rounded bg-[#222] border border-[#333]">
+                                        {Math.round(opt.zoom * 100)}%
+                                      </span>
+                                      {isSelected ? (
+                                        <CheckCircle2 size={18} style={{ color: appAccentColor }} />
+                                      ) : opt.badge ? (
+                                        <span className="text-[9px] font-bold uppercase tracking-wider text-amber-400/90 bg-amber-400/10 px-1.5 py-0.5 rounded">
+                                          {opt.badge}
+                                        </span>
+                                      ) : null}
+                                    </div>
+                                    <div>
+                                      <div className="text-xs font-black uppercase text-white tracking-wider flex items-center gap-1.5">
+                                        {opt.label}
+                                      </div>
+                                      <div className="text-[10px] text-gray-500 font-mono mt-0.5 leading-snug">
+                                        {opt.desc}
+                                      </div>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                        </div>
+
+                        {/* 5. APP LANGUAGE & BREAKDOWN LANGUAGE */}
                         <div className="bg-[#111] p-6 rounded-sm border border-[#222] space-y-4">
                             <h4 className="text-sm font-bold text-white uppercase tracking-wide flex items-center gap-2">
                               <Languages size={16} style={{ color: appAccentColor }} /> App Language

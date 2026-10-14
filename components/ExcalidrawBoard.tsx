@@ -554,6 +554,7 @@ export const ExcalidrawBoard: React.FC<ExcalidrawBoardProps> = ({ isLight = fals
   return (
     <div 
       className="w-full h-full relative overflow-hidden select-none"
+      style={{ fontSize: '16px' }}
       onDragOverCapture={(e) => {
         if (e.dataTransfer.types.includes('Files')) {
           e.preventDefault();

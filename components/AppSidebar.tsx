@@ -44,6 +44,7 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
     undo, redo, canUndo, canRedo,
     appTheme, setAppTheme, appAccentColor = '#f5a623',
     appLanguage,
+    appZoomLevel = 0.8, setAppZoomLevel,
     navLayout, setNavLayout,
     hasUnsavedChanges, isSaving, currentUser, isCloudMode,
     cloudOffline, supabaseUser, logout
@@ -127,18 +128,18 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
   return (
     <>
       <aside
-        className={`no-print shrink-0 flex flex-col h-screen select-none z-40 transition-all duration-300 border-r ${
+        className={`no-print shrink-0 flex flex-col h-full select-none z-40 transition-all duration-300 border-r ${
           isLight
             ? 'bg-white border-gray-200 text-gray-800'
             : 'bg-[#111114] border-[#26262a] text-gray-200'
         }`}
         style={{
-          width: isCollapsed ? '64px' : '230px'
+          width: isCollapsed ? '52px' : '185px'
         }}
       >
         {/* Brand Header */}
         <div
-          className={`h-[50px] px-3 flex items-center border-b transition-all ${
+          className={`h-[42px] px-2.5 flex items-center border-b transition-all ${
             isLight ? 'border-gray-200 bg-gray-50/50' : 'border-[#26262a] bg-[#0c0c0e]'
           } ${isCollapsed ? 'justify-center' : 'justify-between'}`}
         >
@@ -225,7 +226,7 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
                 key={item.id}
                 onClick={() => onViewChange(item.id)}
                 title={isCollapsed ? item.label : undefined}
-                className={`w-full flex items-center gap-3 px-2.5 py-2 rounded-md transition-all duration-150 relative group ${
+                className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-md transition-all duration-150 relative group ${
                   isCollapsed ? 'justify-center' : 'justify-start text-left'
                 } ${
                   isActive
@@ -254,7 +255,7 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
                 )}
 
                 <Icon
-                  size={16}
+                  size={14}
                   className={`shrink-0 transition-transform ${
                     isActive ? 'scale-105' : 'group-hover:scale-105'
                   }`}
@@ -262,7 +263,7 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
                 />
 
                 {!isCollapsed && (
-                  <span className="text-[12px] uppercase font-semibold tracking-wide truncate flex-1">
+                  <span className="text-[10.5px] uppercase font-semibold tracking-wide truncate flex-1">
                     {item.label}
                   </span>
                 )}
@@ -331,6 +332,24 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
                 <Target size={15} style={progressDisplay ? { color: appAccentColor } : {}} />
               )}
             </button>
+
+            {/* ZOOM SCALE CYCLER BUTTON */}
+            {!isCollapsed && (
+              <button
+                onClick={() => {
+                  const nextZoom = (appZoomLevel || 0.8) === 0.8 ? 0.9 : (appZoomLevel || 0.8) === 0.9 ? 1.0 : 0.8;
+                  setAppZoomLevel(nextZoom);
+                }}
+                className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold tracking-tight border transition-all ${
+                  isLight
+                    ? 'border-gray-300 text-gray-700 hover:bg-gray-200'
+                    : 'border-[#333] text-gray-300 hover:border-[#555] hover:text-white hover:bg-[#1e1e24]'
+                }`}
+                title={`Studio Zoom: ${Math.round((appZoomLevel || 0.8) * 100)}% (Click to toggle 80% / 90% / 100%)`}
+              >
+                {Math.round((appZoomLevel || 0.8) * 100)}%
+              </button>
+            )}
 
             {/* THEME TOGGLE */}
             <ThemeToggleButton variant="sidebar" size={15} />

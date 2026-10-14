@@ -304,6 +304,7 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
   const [zoomLevel, setZoomLevel] = useState<number>(100);
   const [readerViewMode, setReaderViewMode] = useState<'stacked' | 'single' | 'spread'>('stacked');
   const [isBaminiDetected, setIsBaminiDetected] = useState<boolean>(false);
+  const [isDraggingOver, setIsDraggingOver] = useState<boolean>(false);
   const [uploadState, setUploadState] = useState<{
     isUploading: boolean;
     fileName: string;
@@ -314,6 +315,10 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
     docId?: string;
     isScript?: boolean;
     error?: string;
+    totalFiles?: number;
+    currentIndex?: number;
+    successCount?: number;
+    failCount?: number;
   } | null>(null);
 
   // Document In-Place Editing & Typography
@@ -1311,169 +1316,251 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
     showToast(`✓ Added YouTube link "${finalTitle}" to Vault!`);
   };
 
-  // Universal File Upload Handler with Auto-Incremented Copies and No Auto-Opening
-  const handleUniversalUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  // Universal Multiple Files Upload Handler with Batch Progress & Duplicate Handling
+  const processFilesUpload = async (files: File[]) => {
+    if (!files || files.length === 0) return;
 
-    // Clear input so selecting the same file again triggers change
-    e.target.value = '';
+    const totalFiles = files.length;
+    let successCount = 0;
+    let failCount = 0;
+    const totalBytes = files.reduce((acc, f) => acc + f.size, 0);
+    const sizeMb = (totalBytes / (1024 * 1024)).toFixed(1);
+    const batchSizeStr = totalBytes < 1024 * 1024 ? `${(totalBytes / 1024).toFixed(0)} KB` : `${sizeMb} MB`;
 
-    const sizeMb = (file.size / (1024 * 1024)).toFixed(1);
-    const sizeStr = file.size < 1024 * 1024 ? `${(file.size / 1024).toFixed(0)} KB` : `${sizeMb} MB`;
-
-    // 1. Initial Upload State (Progress Bar Active)
+    // 1. Initialize Batch Upload State
     setUploadState({
       isUploading: true,
-      fileName: file.name,
-      fileSize: sizeStr,
-      progress: 15,
-      statusText: 'Reading document bytes...',
+      fileName: totalFiles > 1 ? `${totalFiles} files selected` : files[0].name,
+      fileSize: totalFiles > 1 ? batchSizeStr : (files[0].size < 1024 * 1024 ? `${(files[0].size / 1024).toFixed(0)} KB` : `${(files[0].size / (1024 * 1024)).toFixed(1)} MB`),
+      progress: 5,
+      statusText: totalFiles > 1 ? `Starting import of ${totalFiles} documents...` : `Reading "${files[0].name}"...`,
+      totalFiles,
+      currentIndex: 1,
+      successCount: 0,
+      failCount: 0,
     });
 
-    try {
-      await new Promise((resolve) => setTimeout(resolve, 80));
-      setUploadState((prev) => prev ? { ...prev, progress: 40, statusText: 'Parsing document structure & pages...' } : null);
+    let currentDocsList = [...documents];
+    const newlyAddedDocs: ProductionDocument[] = [];
+    let lastProcessedScript = false;
+    let lastProcessedDocId: string | undefined;
 
-      const parsed = await parseUniversalFile(
-        file,
-        (selectedCategory === 'ALL' || selectedCategory === 'ARCHIVED' ? 'OTHER' : selectedCategory) as any
-      );
+    for (let i = 0; i < totalFiles; i++) {
+      const file = files[i];
+      const fileIndex = i + 1;
+      const baseProgress = Math.round((i / totalFiles) * 100);
+      const stepWeight = 100 / totalFiles;
 
-      setUploadState((prev) => prev ? { ...prev, progress: 70, statusText: 'Analyzing format & metadata...' } : null);
-      await new Promise((resolve) => setTimeout(resolve, 80));
+      const fSizeMb = (file.size / (1024 * 1024)).toFixed(1);
+      const fSizeStr = file.size < 1024 * 1024 ? `${(file.size / 1024).toFixed(0)} KB` : `${fSizeMb} MB`;
 
-      const rawScriptText = parsed.textContent || (parsed.htmlContent ? parsed.htmlContent.replace(/<[^>]+>/g, '\n') : '');
-      const isScriptFile =
-        parsed.category === 'SCRIPT' ||
-        file.name.toLowerCase().endsWith('.docx') ||
-        file.name.toLowerCase().endsWith('.doc') ||
-        file.name.toLowerCase().endsWith('.fountain') ||
-        file.name.toLowerCase().endsWith('.txt');
-
-      let twoColData: TamilScreenplayData | undefined;
-      let leftRightHtml = parsed.htmlContent;
-
-      if (isScriptFile && rawScriptText.trim()) {
-        try {
-          twoColData = parseScreenplayToTamilLeftRight(rawScriptText, parsed.title);
-          if (!leftRightHtml || leftRightHtml.length < 50) {
-            leftRightHtml = generateTamilLeftRightHtml(twoColData);
-          }
-        } catch (scriptErr) {
-          console.warn('Script parsing for 2-column view notice:', scriptErr);
-        }
-      }
-
-      // Handle duplicate uploads gracefully with auto-incremented number (e.g. Photo.png -> Photo (1).png -> Photo (2).png)
-      const rawOriginalName = parsed.fileName || file.name;
-      const lastDot = rawOriginalName.lastIndexOf('.');
-      const rawBaseName = lastDot !== -1 ? rawOriginalName.substring(0, lastDot) : rawOriginalName;
-      const rawExt = lastDot !== -1 ? rawOriginalName.substring(lastDot) : '';
-      const rawTitle = parsed.title || rawBaseName;
-
-      let highestCopyNum = 0;
-      let hasDuplicateMatch = false;
-
-      documents.forEach((d) => {
-        const dFile = d.originalFileName || d.fileName || '';
-        if (dFile.toLowerCase() === rawOriginalName.toLowerCase()) {
-          hasDuplicateMatch = true;
-          if (highestCopyNum < 1) highestCopyNum = 1;
-        } else {
-          const escapedBase = rawBaseName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-          const escapedExt = rawExt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-          const copyRegex = new RegExp(`^${escapedBase} \\((\\d+)\\)${escapedExt}$`, 'i');
-          const m = dFile.match(copyRegex);
-          if (m && m[1]) {
-            hasDuplicateMatch = true;
-            const n = parseInt(m[1], 10);
-            if (n >= highestCopyNum) highestCopyNum = n + 1;
-          }
-        }
+      setUploadState({
+        isUploading: true,
+        fileName: file.name,
+        fileSize: fSizeStr,
+        progress: Math.min(96, Math.max(5, Math.round(baseProgress + stepWeight * 0.15))),
+        statusText: totalFiles > 1 
+          ? `File ${fileIndex} of ${totalFiles}: Reading "${file.name}"...`
+          : `Reading "${file.name}"...`,
+        totalFiles,
+        currentIndex: fileIndex,
+        successCount,
+        failCount,
       });
 
-      const finalFileName = hasDuplicateMatch ? `${rawBaseName} (${highestCopyNum})${rawExt}` : rawOriginalName;
-      const finalTitle = hasDuplicateMatch ? `${rawTitle} (${highestCopyNum})` : rawTitle;
+      try {
+        await new Promise((r) => setTimeout(r, 40));
 
-      setUploadState((prev) => prev ? { ...prev, progress: 90, statusText: 'Indexing into Production Vault...' } : null);
+        setUploadState(prev => prev ? {
+          ...prev,
+          progress: Math.min(97, Math.round(baseProgress + stepWeight * 0.45)),
+          statusText: totalFiles > 1
+            ? `File ${fileIndex} of ${totalFiles}: Parsing structure & contents of "${file.name}"...`
+            : `Parsing structure & pages...`,
+        } : null);
 
-      const docId = `doc-${Date.now()}`;
-      const newDoc: ProductionDocument = {
-        id: docId,
-        projectId: currentProjectId || undefined,
-        title: finalTitle,
-        category: parsed.category === 'VIDEO' ? 'VIDEO' : parsed.fileType === 'audio' ? 'VOICE_NOTE' : isScriptFile ? 'SCRIPT' : parsed.category,
-        fileName: finalFileName,
-        fileSize: parsed.fileSize,
-        fileType: parsed.fileType,
-        pageCount: Math.max(1, twoColData ? twoColData.scenes.length : parsed.pageCount),
-        uploadedAt: new Date().toISOString(),
-        pdfDataUrl: parsed.pdfDataUrl,
-        imageDataUrl: parsed.imageDataUrl,
-        audioUrl: parsed.audioUrl,
-        videoUrl: parsed.videoUrl,
-        durationSeconds: parsed.durationSeconds,
-        isStagedToScript: false, // Never automatically staged; staged only on explicit user action
-        htmlContent: leftRightHtml,
-        textContent: parsed.textContent,
-        sheetData: parsed.sheetData,
-        author: projectContext.currentUser || 'Uploaded by User',
-        status: 'review',
-        tags: Array.from(new Set(['Import', parsed.category, ...(isScriptFile ? ['Script', 'Screenplay'] : [])])),
-        annotations: [],
-        originalFileDataUrl: parsed.originalFileDataUrl,
-        originalFileName: finalFileName,
-        convertedDocxDataUrl: parsed.convertedDocxDataUrl,
-        isBaminiConverted: false,
-        isBaminiDetected: parsed.isBaminiDetected,
-        isLeftRightFormat: isScriptFile,
-        hasTwoColumnScript: isScriptFile,
-        twoColumnData: twoColData,
-      };
+        const parsed = await parseUniversalFile(
+          file,
+          (selectedCategory === 'ALL' || selectedCategory === 'ARCHIVED' ? 'OTHER' : selectedCategory) as any
+        );
 
-      const updated = [newDoc, ...documents];
-      updateDocuments(updated);
-      setSelectedDocId(newDoc.id);
+        setUploadState(prev => prev ? {
+          ...prev,
+          progress: Math.min(98, Math.round(baseProgress + stepWeight * 0.75)),
+          statusText: totalFiles > 1
+            ? `File ${fileIndex} of ${totalFiles}: Analyzing metadata for "${file.name}"...`
+            : `Analyzing format & metadata...`,
+        } : null);
 
-      // CRITICAL: NEVER automatically open the document, never navigate away, and do NOT force active_two_column_doc_id
-      // Stay cleanly in the Vault Gallery so the user sees the newly added card!
+        const rawScriptText = parsed.textContent || (parsed.htmlContent ? parsed.htmlContent.replace(/<[^>]+>/g, '\n') : '');
+        const isScriptFile =
+          parsed.category === 'SCRIPT' ||
+          file.name.toLowerCase().endsWith('.docx') ||
+          file.name.toLowerCase().endsWith('.doc') ||
+          file.name.toLowerCase().endsWith('.fountain') ||
+          file.name.toLowerCase().endsWith('.txt');
 
-      // Notify other views and listeners
-      window.dispatchEvent(new CustomEvent('backstage_documents_updated', { detail: updated }));
+        let twoColData: TamilScreenplayData | undefined;
+        let leftRightHtml = parsed.htmlContent;
 
-      // Complete Upload State
+        if (isScriptFile && rawScriptText.trim()) {
+          try {
+            twoColData = parseScreenplayToTamilLeftRight(rawScriptText, parsed.title);
+            if (!leftRightHtml || leftRightHtml.length < 50) {
+              leftRightHtml = generateTamilLeftRightHtml(twoColData);
+            }
+          } catch (scriptErr) {
+            console.warn('Script parsing for 2-column view notice:', scriptErr);
+          }
+        }
+
+        // Handle duplicate uploads gracefully with auto-incremented number (e.g. Photo.png -> Photo (1).png -> Photo (2).png)
+        const rawOriginalName = parsed.fileName || file.name;
+        const lastDot = rawOriginalName.lastIndexOf('.');
+        const rawBaseName = lastDot !== -1 ? rawOriginalName.substring(0, lastDot) : rawOriginalName;
+        const rawExt = lastDot !== -1 ? rawOriginalName.substring(lastDot) : '';
+        const rawTitle = parsed.title || rawBaseName;
+
+        let highestCopyNum = 0;
+        let hasDuplicateMatch = false;
+
+        currentDocsList.forEach((d) => {
+          const dFile = d.originalFileName || d.fileName || '';
+          if (dFile.toLowerCase() === rawOriginalName.toLowerCase()) {
+            hasDuplicateMatch = true;
+            if (highestCopyNum < 1) highestCopyNum = 1;
+          } else {
+            const escapedBase = rawBaseName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const escapedExt = rawExt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const copyRegex = new RegExp(`^${escapedBase} \\((\\d+)\\)${escapedExt}$`, 'i');
+            const m = dFile.match(copyRegex);
+            if (m && m[1]) {
+              hasDuplicateMatch = true;
+              const n = parseInt(m[1], 10);
+              if (n >= highestCopyNum) highestCopyNum = n + 1;
+            }
+          }
+        });
+
+        const finalFileName = hasDuplicateMatch ? `${rawBaseName} (${highestCopyNum})${rawExt}` : rawOriginalName;
+        const finalTitle = hasDuplicateMatch ? `${rawTitle} (${highestCopyNum})` : rawTitle;
+
+        const docId = `doc-${Date.now()}-${i}`;
+        const newDoc: ProductionDocument = {
+          id: docId,
+          projectId: currentProjectId || undefined,
+          title: finalTitle,
+          category: parsed.category === 'VIDEO' ? 'VIDEO' : parsed.fileType === 'audio' ? 'VOICE_NOTE' : isScriptFile ? 'SCRIPT' : parsed.category,
+          fileName: finalFileName,
+          fileSize: parsed.fileSize,
+          fileType: parsed.fileType,
+          pageCount: Math.max(1, twoColData ? twoColData.scenes.length : parsed.pageCount),
+          uploadedAt: new Date().toISOString(),
+          pdfDataUrl: parsed.pdfDataUrl,
+          imageDataUrl: parsed.imageDataUrl,
+          audioUrl: parsed.audioUrl,
+          videoUrl: parsed.videoUrl,
+          durationSeconds: parsed.durationSeconds,
+          isStagedToScript: false, // Never automatically staged; staged only on explicit user action
+          htmlContent: leftRightHtml,
+          textContent: parsed.textContent,
+          sheetData: parsed.sheetData,
+          author: projectContext.currentUser || 'Uploaded by User',
+          status: 'review',
+          tags: Array.from(new Set(['Import', parsed.category, ...(isScriptFile ? ['Script', 'Screenplay'] : [])])),
+          annotations: [],
+          originalFileDataUrl: parsed.originalFileDataUrl,
+          originalFileName: finalFileName,
+          convertedDocxDataUrl: parsed.convertedDocxDataUrl,
+          isBaminiConverted: false,
+          isBaminiDetected: parsed.isBaminiDetected,
+          isLeftRightFormat: isScriptFile,
+          hasTwoColumnScript: isScriptFile,
+          twoColumnData: twoColData,
+        };
+
+        currentDocsList = [newDoc, ...currentDocsList];
+        newlyAddedDocs.unshift(newDoc);
+        updateDocuments(currentDocsList);
+        setSelectedDocId(newDoc.id);
+
+        // Notify other views and listeners in real-time
+        window.dispatchEvent(new CustomEvent('backstage_documents_updated', { detail: currentDocsList }));
+
+        successCount++;
+        lastProcessedScript = isScriptFile || Boolean(twoColData);
+        lastProcessedDocId = newDoc.id;
+
+        setUploadState(prev => prev ? {
+          ...prev,
+          progress: Math.min(99, Math.round(((i + 1) / totalFiles) * 100)),
+          statusText: totalFiles > 1
+            ? `File ${fileIndex} of ${totalFiles}: Indexed "${finalFileName}"`
+            : `Indexed into Production Vault...`,
+          successCount,
+          failCount,
+        } : null);
+
+      } catch (fileErr) {
+        console.error(`Failed to parse file "${file.name}":`, fileErr);
+        failCount++;
+        setUploadState(prev => prev ? {
+          ...prev,
+          failCount,
+          statusText: `Failed to process "${file.name}". Continuing...`,
+        } : null);
+      }
+    }
+
+    // Complete Upload State
+    if (successCount > 0) {
       setUploadState({
         isUploading: false,
         isComplete: true,
-        fileName: finalFileName,
-        fileSize: sizeStr,
+        fileName: totalFiles > 1 ? `${successCount} documents imported` : newlyAddedDocs[0]?.fileName || files[0].name,
+        fileSize: totalFiles > 1 ? batchSizeStr : (files[0].size < 1024 * 1024 ? `${(files[0].size / 1024).toFixed(0)} KB` : `${sizeMb} MB`),
         progress: 100,
-        statusText: `✓ "${finalFileName}" uploaded into Vault!`,
-        docId: newDoc.id,
-        isScript: isScriptFile,
+        statusText: totalFiles > 1 
+          ? `✓ Successfully imported ${successCount} of ${totalFiles} documents into Vault!${failCount > 0 ? ` (${failCount} failed)` : ''}`
+          : `✓ "${newlyAddedDocs[0]?.fileName || files[0].name}" uploaded into Vault!`,
+        docId: lastProcessedDocId,
+        isScript: lastProcessedScript,
+        totalFiles,
+        currentIndex: totalFiles,
+        successCount,
+        failCount,
       });
 
-      confetti({ particleCount: 35, spread: 50, origin: { y: 0.6 } });
-      showToast(`✓ Imported "${finalFileName}" into Vault!`);
+      confetti({ particleCount: Math.min(80, 25 + totalFiles * 8), spread: 60, origin: { y: 0.6 } });
+      showToast(`✓ Imported ${successCount} document${successCount > 1 ? 's' : ''} into Vault!`);
 
       // Auto dismiss complete banner after 4.5 seconds
       setTimeout(() => {
         setUploadState((cur) => (cur?.isComplete ? null : cur));
       }, 4500);
-    } catch (err) {
-      console.error(err);
+    } else {
       setUploadState({
         isUploading: false,
         isComplete: false,
-        fileName: file.name,
-        fileSize: sizeStr,
+        fileName: files[0]?.name || 'Import failed',
+        fileSize: batchSizeStr,
         progress: 0,
-        statusText: 'Upload failed',
-        error: 'Failed to parse uploaded document.',
+        statusText: 'Batch import failed',
+        error: 'Failed to parse uploaded documents. Please verify file formats.',
+        totalFiles,
+        currentIndex: totalFiles,
+        successCount: 0,
+        failCount: totalFiles,
       });
-      showToast('Failed to parse uploaded document.');
+      showToast('Failed to parse uploaded documents.');
     }
+  };
+
+  const handleUniversalUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const fileList = Array.from(e.target.files || []);
+    if (fileList.length === 0) return;
+    e.target.value = '';
+    await processFilesUpload(fileList);
   };
 
   // Download Word (.docx) with Bamini converted to Unicode, preserving 100% of the original file format, styling, sizes, colors and tables
@@ -2156,19 +2243,62 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
   }
 
   return (
-    <div className={`w-full h-full flex flex-col font-sans select-none overflow-hidden ${isLight ? 'bg-[#f4f5f8] text-slate-900' : 'bg-[#09090b] text-gray-100'}`}>
+    <div 
+      className={`w-full h-full flex flex-col font-sans select-none overflow-hidden relative ${isLight ? 'bg-[#f4f5f8] text-slate-900' : 'bg-[#09090b] text-gray-100'}`}
+      onDragOver={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (!isDraggingOver) setIsDraggingOver(true);
+      }}
+      onDragEnter={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsDraggingOver(true);
+      }}
+      onDragLeave={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+        setIsDraggingOver(false);
+      }}
+      onDrop={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsDraggingOver(false);
+        const droppedFiles = Array.from(e.dataTransfer.files || []);
+        if (droppedFiles.length > 0) {
+          processFilesUpload(droppedFiles);
+        }
+      }}
+    >
       
       {/* Hidden Audio Element for Playback */}
       <audio ref={audioRef} className="hidden" />
 
-      {/* Hidden File Picker for Universal Upload */}
+      {/* Hidden File Picker for Universal Upload (Multiple Files Supported) */}
       <input
         ref={fileInputRef}
         type="file"
+        multiple
         accept=".pdf,.docx,.doc,.xlsx,.xls,.csv,.png,.jpg,.jpeg,.webp,.svg,.gif,.bmp,.mp3,.wav,.ogg,.m4a,.aac,.flac,.webm,.mp4,.mov,.mkv,.avi,.txt,.md,.fountain"
         className="hidden"
         onChange={handleUniversalUpload}
       />
+
+      {/* Full-Screen Drag & Drop Overlay */}
+      {isDraggingOver && (
+        <div className="absolute inset-0 z-50 bg-[#09090b]/85 backdrop-blur-md border-2 border-dashed border-[#f5a623] m-3 rounded-2xl flex flex-col items-center justify-center p-8 pointer-events-none animate-in fade-in duration-150">
+          <div className="w-16 h-16 rounded-2xl bg-[#f5a623]/20 border border-[#f5a623]/40 flex items-center justify-center text-[#f5a623] mb-4 animate-bounce">
+            <Upload size={32} />
+          </div>
+          <h3 className="text-lg font-black text-white tracking-wide mb-1">
+            Drop Files to Import into Production Vault
+          </h3>
+          <p className="text-xs text-zinc-400 font-mono max-w-md text-center">
+            Upload multiple scripts, PDFs, Word docs, spreadsheets, images, voice notes & videos
+          </p>
+        </div>
+      )}
 
       {/* Toast Notification */}
       {toastMessage && (
@@ -2392,10 +2522,10 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                 className={`px-2.5 py-1 text-xs font-medium rounded-lg border flex items-center gap-1.5 transition-all ${
                   isLight ? 'bg-slate-50 border-slate-200 text-slate-500 hover:text-slate-700 hover:border-slate-300' : 'bg-transparent border-zinc-800 text-zinc-500 hover:text-zinc-300 hover:border-zinc-700'
                 }`}
-                title="Import PDF, Word, Image, Audio, Sheet, Video"
+                title="Import multiple files: PDF, Word (.docx), Excel, Images, Audio, Video, Scripts"
               >
                 <Upload size={13} />
-                <span className="hidden md:inline">Import</span>
+                <span className="hidden md:inline">Import Files</span>
               </button>
 
               <button
@@ -2644,12 +2774,21 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
               </div>
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
+                  {uploadState.totalFiles && uploadState.totalFiles > 1 && (
+                    <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                      {uploadState.isComplete 
+                        ? `Batch Done (${uploadState.successCount}/${uploadState.totalFiles})` 
+                        : `File ${uploadState.currentIndex || 1} of ${uploadState.totalFiles}`}
+                    </span>
+                  )}
                   <span className="font-bold text-xs truncate max-w-[200px] sm:max-w-md">
                     {uploadState.fileName}
                   </span>
-                  <span className="text-[10px] font-mono opacity-60">
-                    ({uploadState.fileSize})
-                  </span>
+                  {uploadState.fileSize && (
+                    <span className="text-[10px] font-mono opacity-60">
+                      ({uploadState.fileSize})
+                    </span>
+                  )}
                 </div>
                 <p className="text-[11px] opacity-80 flex items-center gap-1.5 mt-0.5">
                   {uploadState.statusText}
@@ -2669,7 +2808,7 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                         ? 'bg-emerald-500'
                         : 'bg-gradient-to-r from-amber-500 via-[#f5a623] to-emerald-400'
                     }`}
-                    style={{ width: `${uploadState.progress}%` }}
+                    style={{ width: `${Math.max(4, Math.min(100, uploadState.progress))}%` }}
                   />
                 </div>
               </div>

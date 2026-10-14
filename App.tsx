@@ -341,6 +341,7 @@ const AppContent: React.FC = () => {
             const parsed = JSON.parse(event.target?.result as string);
             const projName = file.name.replace(/\.[^/.]+$/, "");
             loadProject(parsed, { projectName: projName });
+            setRecentFiles(addRecentFile(file.name, projName));
             setShowWelcome(false);
           } catch (err) {
             console.error("Drag-and-drop import failed", err);
@@ -411,6 +412,7 @@ const AppContent: React.FC = () => {
                 const parsed = JSON.parse(event.target?.result as string);
                 const projName = file.name.replace(/\.[^/.]+$/, "");
                 loadProject(parsed, { projectName: projName });
+                setRecentFiles(addRecentFile(file.name, projName));
                 setShowWelcome(false);
               } catch (err) {
                 console.error("Failed to load project", err);
@@ -782,6 +784,7 @@ const AppContent: React.FC = () => {
                 }}
                 onDeleteCloudProject={(id) => { if (supabaseUser) deleteProject(id); }}
                 onOpenAuth={() => setShowAuthModal(true)}
+                onNavigateToView={(view) => setCurrentView(view)}
             />
             {showAuthModal && (
               <AuthScreen 
@@ -805,7 +808,7 @@ const AppContent: React.FC = () => {
   return (
     <>
       <StyleInjector />
-      <div className="flex h-screen w-screen overflow-hidden bg-[#0c0c0c] text-white">
+      <div className="flex h-full w-full overflow-hidden bg-[#0c0c0c] text-white">
         {/* VERTICAL SIDEBAR NAVIGATION */}
         {navLayout === 'vertical' && (
           <AppSidebar

@@ -46,6 +46,7 @@ const AppHeader: React.FC<AppHeaderProps> = ({
       saveProject, saveProjectAs, hasUnsavedChanges, currentUser, isCloudMode, isSaving, fileHandle,
       autoGenerate5Scenes, appTheme, setAppTheme, logout, cloudOffline, supabaseUser, userRole, appAccentColor,
       appLanguage,
+      appZoomLevel = 0.8, setAppZoomLevel,
       collaborators = [],
       currentProjectName,
       isCurrentProjectShared,
@@ -187,21 +188,21 @@ const AppHeader: React.FC<AppHeaderProps> = ({
 
   return (
     <>
-      <header className={`w-full h-[50px] bg-[#111] border-b border-[#3d3d3d] flex items-center justify-between px-5 shrink-0 z-[500] select-none shadow-[0_2px_10px_rgba(0,0,0,0.3)] font-['Helvetica_Neue',Helvetica,Arial,sans-serif]`}>
+      <header className={`w-full h-[42px] bg-[#111] border-b border-[#3d3d3d] flex items-center justify-between px-3.5 shrink-0 z-[500] select-none shadow-[0_2px_10px_rgba(0,0,0,0.3)] font-['Helvetica_Neue',Helvetica,Arial,sans-serif]`}>
         
         {/* LEFT: Cinematic Logo */}
-        <div className="flex items-center gap-4 h-full flex-1">
+        <div className="flex items-center gap-3.5 h-full flex-1">
           <div 
-              className="flex items-center gap-3 select-none h-full"
+              className="flex items-center gap-2.5 select-none h-full"
               title={fileHandle ? fileHandle.name : activeProjectName}
           >
-              <div className="w-8 h-8 rounded bg-gradient-to-br from-[#222] to-[#111] border border-[#333] flex items-center justify-center shadow-sm relative">
-                  <Film size={16} className="text-[#f5a623]" />
+              <div className="w-7 h-7 rounded bg-gradient-to-br from-[#222] to-[#111] border border-[#333] flex items-center justify-center shadow-sm relative">
+                  <Film size={14} className="text-[#f5a623]" />
               </div>
               
               <div className="flex items-center gap-2 transition-all">
                   <div className="flex flex-col justify-center pt-0.5">
-                      <span className="text-[13px] font-black tracking-tight text-white uppercase leading-none">
+                      <span className="text-[11.5px] font-black tracking-tight text-white uppercase leading-none">
                           {translateUi('Backstage', appLanguage)}
                       </span>
                   </div>
@@ -395,6 +396,19 @@ const AppHeader: React.FC<AppHeaderProps> = ({
                  <Clock size={14} className="z-10" />
              )}
           </button>
+
+          {/* ZOOM SCALE CYCLER BUTTON */}
+          <button
+            onClick={() => {
+              const nextZoom = (appZoomLevel || 0.8) === 0.8 ? 0.9 : (appZoomLevel || 0.8) === 0.9 ? 1.0 : 0.8;
+              setAppZoomLevel(nextZoom);
+            }}
+            className="h-9 px-2.5 rounded-[4px] bg-[#222] border border-[#3d3d3d] hover:border-[#f5a623] flex items-center justify-center text-xs font-mono font-bold text-gray-300 hover:text-white transition-all shadow-sm cursor-pointer select-none"
+            title={`Studio Zoom: ${Math.round((appZoomLevel || 0.8) * 100)}% (Click to toggle 80% / 90% / 100%)`}
+          >
+            {Math.round((appZoomLevel || 0.8) * 100)}%
+          </button>
+
           {/* THEME TOGGLE BUTTON */}
           <ThemeToggleButton variant="header" size={16} />
 

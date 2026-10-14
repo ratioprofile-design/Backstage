@@ -4,10 +4,11 @@ import {
   Mail, LogOut, Search, Sparkles, PenTool, ArrowRight, User, 
   Layers, CheckCircle2, Play, BookOpen, X, Command, AlertTriangle, Pencil
 } from 'lucide-react';
-import { RecentFile } from '../utils/recentFiles';
+import { RecentFile, getRecentFiles } from '../utils/recentFiles';
 import { ProjectMetadata } from '../types';
 import { useProject } from '../context/ProjectContext';
 import { isTauri } from '../utils/desktop';
+import { getProductionDocuments } from '../services/documentsStorage';
 
 interface WelcomeScreenProps {
   recents: RecentFile[];
@@ -21,6 +22,7 @@ interface WelcomeScreenProps {
   onOpenCloudProject?: (id: string) => void;
   onDeleteCloudProject?: (id: string) => void;
   onOpenAuth?: () => void;
+  onNavigateToView?: (view: any) => void;
 }
 
 export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
@@ -35,9 +37,11 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
   onOpenCloudProject,
   onDeleteCloudProject,
   onOpenAuth,
+  onNavigateToView,
 }) => {
   const { 
     currentProjectId,
+    currentProjectName,
     deleteProject,
     userRole, logout, schemaError, projectList, selectProject, 
     autoGenerate5Scenes, setActiveBoardId, appAccentColor = '#f5a623',
@@ -49,17 +53,59 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
   const [invitedProjects, setInvitedProjects] = useState<any[]>([]);
   const [isLoadingInvites, setIsLoadingInvites] = useState(false);
 
-  // Fetch workspace invites from Supabase
+  // Fetch workspace invites from Supabase with realtime subscription and focus refresh
   useEffect(() => {
-    if (currentUser) {
-      setIsLoadingInvites(true);
+    let channel: any = null;
+    let pollInterval: any = null;
+
+    const loadInvites = () => {
+      if (!currentUser) return;
       import('../services/supabase')
         .then(({ fetchInvitedProjects }) => fetchInvitedProjects(currentUser))
         .then(data => {
           setInvitedProjects(data || []);
         })
-        .catch(err => console.error('Failed to load invites:', err))
-        .finally(() => setIsLoadingInvites(false));
+        .catch(err => console.error('Failed to load invites:', err));
+    };
+
+    if (currentUser) {
+      setIsLoadingInvites(true);
+      loadInvites();
+      setIsLoadingInvites(false);
+
+      // Subscribe to real-time project rename and invite changes
+      import('../services/supabase').then(({ supabase, isSupabaseConfigured }) => {
+        if (isSupabaseConfigured && supabase) {
+          channel = supabase.channel('global_projects_sync')
+            .on('broadcast', { event: 'project_renamed' }, (payload: any) => {
+              const data = payload?.payload || payload;
+              if (data?.id && data?.newName) {
+                setInvitedProjects(prev => prev.map(inv => 
+                  inv.id === data.id ? { ...inv, name: data.newName } : inv
+                ));
+              }
+              loadInvites();
+            })
+            .subscribe();
+        }
+      });
+
+      // Background fallback poll every 6s while Welcome Screen is active
+      pollInterval = setInterval(loadInvites, 6000);
+
+      // Auto-refresh when collaborator returns to the app tab/window
+      const handleFocus = () => loadInvites();
+      window.addEventListener('focus', handleFocus);
+
+      return () => {
+        if (pollInterval) clearInterval(pollInterval);
+        window.removeEventListener('focus', handleFocus);
+        if (channel) {
+          import('../services/supabase').then(({ supabase }) => {
+            supabase.removeChannel(channel);
+          });
+        }
+      };
     }
   }, [currentUser]);
 
@@ -82,7 +128,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [onDismiss, onNew, onOpen]);
 
-  // Unified recent projects: Combines local, cloud, collab & desktop files, sorted RECENT 1st
+  // Unified recent scripts & projects: Combines local, cloud, collab, vault scripts & desktop files, sorted RECENT 1st
   const allRecentProjects = useMemo(() => {
     const map = new Map<string, {
       id: string;
@@ -93,11 +139,12 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
       invitedBy?: string;
       isCurrent?: boolean;
       raw?: any;
+      rawDoc?: any;
     }>();
 
-    // 1. Projects from context (cloud & local)
-    const activeList = cloudProjects && cloudProjects.length > 0 ? cloudProjects : projectList;
-    (activeList || []).forEach(p => {
+    // 1. Projects from context (both cloud and local)
+    const combinedContextList = [...(cloudProjects || []), ...(projectList || [])];
+    combinedContextList.forEach(p => {
       if (!p || !p.id) return;
       const isCollab = !!p.isInvited;
       const isCloud = !isCollab && Boolean(isCloudMode || currentUser);
@@ -135,7 +182,42 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
       }
     } catch {}
 
-    // 3. Invites from collaborators
+    // 3. Auto-discover active local project or localStorage project_name_* scripts
+    if (currentProjectId && !map.has(currentProjectId)) {
+      const curName = (currentProjectName && currentProjectName.trim()) 
+        || (typeof localStorage !== 'undefined' ? localStorage.getItem(`project_name_${currentProjectId}`) : '') 
+        || 'Current Screenplay';
+      map.set(currentProjectId, {
+        id: currentProjectId,
+        name: curName,
+        type: isCloudMode || currentUser ? 'cloud' : 'local',
+        lastModified: Date.now(),
+        isCurrent: true
+      });
+    }
+
+    try {
+      if (typeof localStorage !== 'undefined') {
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i);
+          if (key && key.startsWith('project_name_')) {
+            const pId = key.replace('project_name_', '');
+            if (pId && !map.has(pId)) {
+              const pName = localStorage.getItem(key) || 'Untitled Screenplay';
+              map.set(pId, {
+                id: pId,
+                name: pName,
+                type: 'local',
+                lastModified: Date.now() - 3600000,
+                isCurrent: pId === currentProjectId,
+              });
+            }
+          }
+        }
+      }
+    } catch {}
+
+    // 4. Invites from collaborators (with live project names)
     (invitedProjects || []).forEach(inv => {
       if (!inv || !inv.id) return;
       const existing = map.get(inv.id);
@@ -151,20 +233,40 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
       });
     });
 
-    // 4. Desktop recent files (if on Tauri)
-    (recents || []).forEach(f => {
+    // 5. Desktop and web recent script files
+    const storedRecents = getRecentFiles();
+    const allRecents = [...(recents || []), ...storedRecents];
+    allRecents.forEach(f => {
       if (!f || !f.path) return;
       const fileKey = `file_${f.path}`;
       if (!map.has(fileKey)) {
         map.set(fileKey, {
           id: fileKey,
-          name: f.name || f.path,
+          name: f.name || f.path.split(/[/\\]/).pop()?.replace(/\.[^/.]+$/, '') || f.path,
           type: 'file',
           path: f.path,
           lastModified: f.lastModified || Date.now(),
         });
       }
     });
+
+    // 6. Scripts from Production Document Vault
+    try {
+      const vaultDocs = getProductionDocuments(currentProjectId || undefined);
+      const scriptDocs = (vaultDocs || []).filter(d => d.category === 'SCRIPT' || d.isStagedToScript || d.hasTwoColumnScript);
+      scriptDocs.forEach(d => {
+        const docKey = `doc_${d.id}`;
+        if (!map.has(docKey)) {
+          map.set(docKey, {
+            id: docKey,
+            name: d.title || d.fileName || 'Production Script',
+            type: 'local',
+            lastModified: d.uploadedAt ? new Date(d.uploadedAt).getTime() : Date.now(),
+            rawDoc: d
+          });
+        }
+      });
+    } catch {}
 
     // Sort by recent 1st! (highest lastModified timestamp first)
     const list = Array.from(map.values());
@@ -178,7 +280,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
     }
 
     return list;
-  }, [cloudProjects, projectList, invitedProjects, recents, isCloudMode, currentUser, currentProjectId]);
+  }, [cloudProjects, projectList, invitedProjects, recents, isCloudMode, currentUser, currentProjectId, currentProjectName]);
 
   const filteredProjects = useMemo(() => {
     let list = allRecentProjects;
@@ -218,10 +320,20 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
   };
 
   const handleOpenProject = (proj: any) => {
+    if (proj.rawDoc) {
+      localStorage.setItem('active_two_column_doc_id', proj.rawDoc.id);
+      onDismiss();
+      if (onNavigateToView) {
+        onNavigateToView('two-column-script');
+      } else {
+        window.dispatchEvent(new CustomEvent('backstage_navigate_view', { detail: 'two-column-script' }));
+      }
+      return;
+    }
     if (proj.type === 'file' && proj.path) {
       onOpenRecent(proj.path);
     } else {
-      if (onOpenCloudProject) {
+      if (proj.type === 'cloud' && onOpenCloudProject) {
         onOpenCloudProject(proj.id);
       } else {
         selectProject(proj.id);
@@ -616,7 +728,11 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
                             e.stopPropagation();
                             const newName = window.prompt(`Rename project:`, proj.name);
                             if (newName && newName.trim() && newName.trim() !== proj.name) {
-                              await renameProject(proj.id, newName.trim());
+                              const trimmed = newName.trim();
+                              const ok = await renameProject(proj.id, trimmed);
+                              if (ok) {
+                                setInvitedProjects(prev => prev.map(inv => inv.id === proj.id ? { ...inv, name: trimmed } : inv));
+                              }
                             }
                           }}
                           className="p-1.5 rounded-lg text-gray-500 hover:text-amber-400 hover:bg-amber-500/10 transition-colors"

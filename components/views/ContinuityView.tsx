@@ -1725,7 +1725,7 @@ Photos attached: ${imgs.length > 0 ? imgs.length : 'None'}
   }, [sceneNumbers, beats, looks, shootScheduleDays]);
 
   return (
-    <div className={`continuity-studio-wrapper w-full h-screen max-h-screen font-sans flex flex-col overflow-hidden select-none transition-colors ${
+    <div className={`continuity-studio-wrapper w-full h-full max-h-full font-sans flex flex-col overflow-hidden select-none transition-colors ${
       chartTheme === 'dark' ? 'bg-[#09090b] text-slate-100' : 'bg-slate-100 text-slate-900'
     }`}>
       {/* PRO TOP COMMAND & METRIC HEADER */}

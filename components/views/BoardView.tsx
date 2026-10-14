@@ -276,7 +276,7 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
     groupDomEl: HTMLElement | null;
   } | null>(null);
 
-  const baseUnitPixels = 100;
+  const baseUnitPixels = 80;
   const effectivePxPerUnit = baseUnitPixels * zoomLevel;
 
   // Unused lane index

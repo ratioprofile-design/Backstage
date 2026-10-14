@@ -133,7 +133,7 @@ export const renameCloudProject = async (id: string, userId: string, newName: st
   try {
     const { data: existing, error: checkError } = await supabase
       .from('projects')
-      .select('id, user_id')
+      .select('id, user_id, data')
       .eq('id', id)
       .maybeSingle();
 
@@ -142,15 +142,64 @@ export const renameCloudProject = async (id: string, userId: string, newName: st
       return false;
     }
 
+    const trimmed = newName.trim();
+    const updatedData = existing.data ? { ...existing.data, projectName: trimmed } : undefined;
+
+    const updatePayload: any = {
+      name: trimmed,
+      updated_at: new Date().toISOString()
+    };
+    if (updatedData) {
+      updatePayload.data = updatedData;
+    }
+
     const { error } = await supabase
       .from('projects')
-      .update({
-        name: newName.trim(),
-        updated_at: new Date().toISOString()
-      })
+      .update(updatePayload)
       .eq('id', id);
 
-    return !error;
+    if (error) {
+      console.error("Failed to rename cloud project in projects table:", error);
+      return false;
+    }
+
+    // 1. Sync updated project name into project_invites table for all collaborators
+    try {
+      await supabase
+        .from('project_invites')
+        .update({ project_name: trimmed })
+        .eq('project_id', id);
+    } catch (invErr) {
+      console.warn("Failed to update project_invites table on rename:", invErr);
+    }
+
+    // 2. Sync local simulated invites if any exist
+    try {
+      const invites = JSON.parse(localStorage.getItem('simulated_invites') || '[]');
+      const updated = invites.map((inv: any) => inv.project_id === id ? { ...inv, project_name: trimmed } : inv);
+      localStorage.setItem('simulated_invites', JSON.stringify(updated));
+    } catch (e) {}
+
+    // 3. Broadcast real-time rename event across Supabase channels
+    try {
+      const globalChannel = supabase.channel('global_projects_sync');
+      globalChannel.send({
+        type: 'broadcast',
+        event: 'project_renamed',
+        payload: { id, newName: trimmed, updatedAt: new Date().toISOString() }
+      });
+
+      const projChannel = supabase.channel(`project_changes_${id}`);
+      projChannel.send({
+        type: 'broadcast',
+        event: 'project_renamed',
+        payload: { id, newName: trimmed, updatedAt: new Date().toISOString() }
+      });
+    } catch (bErr) {
+      console.warn("Broadcast rename failed:", bErr);
+    }
+
+    return true;
   } catch (e) {
     console.error("Failed to rename cloud project:", e);
     return false;
@@ -237,12 +286,33 @@ export const fetchInvitedProjects = async (email: string) => {
         .from('project_invites')
         .select('*')
         .eq('invitee_email', email.toLowerCase().trim());
-      if (!error && data) {
-        return data.map((inv: any) => ({
-          id: inv.project_id,
-          name: inv.project_name || 'Invited Project',
-          invitedBy: inv.invited_by || 'Collaborator'
-        }));
+      if (!error && data && data.length > 0) {
+        // Query the live projects table to get the true current name and updated timestamp
+        const projectIds = data.map((inv: any) => inv.project_id).filter(Boolean);
+        let projectMap = new Map<string, any>();
+        if (projectIds.length > 0) {
+          try {
+            const { data: projs } = await supabase
+              .from('projects')
+              .select('id, name, updated_at')
+              .in('id', projectIds);
+            if (projs) {
+              projs.forEach((p: any) => projectMap.set(p.id, p));
+            }
+          } catch (pErr) {
+            console.warn("Failed to join projects table for invites:", pErr);
+          }
+        }
+
+        return data.map((inv: any) => {
+          const liveProj = projectMap.get(inv.project_id);
+          return {
+            id: inv.project_id,
+            name: liveProj?.name || inv.project_name || 'Invited Project',
+            invitedBy: inv.invited_by || 'Collaborator',
+            updated_at: liveProj?.updated_at || inv.created_at
+          };
+        });
       }
     } catch (e) {
       console.warn("Failed to fetch from project_invites table, falling back to local storage", e);
@@ -252,11 +322,14 @@ export const fetchInvitedProjects = async (email: string) => {
   const invites = JSON.parse(localStorage.getItem('simulated_invites') || '[]');
   return invites
     .filter((inv: any) => inv.invitee_email === email.toLowerCase().trim())
-    .map((inv: any) => ({
-      id: inv.project_id,
-      name: inv.project_name || 'Invited Project',
-      invitedBy: inv.invited_by || 'Collaborator'
-    }));
+    .map((inv: any) => {
+      const liveName = localStorage.getItem(`project_name_${inv.project_id}`) || inv.project_name || 'Invited Project';
+      return {
+        id: inv.project_id,
+        name: liveName,
+        invitedBy: inv.invited_by || 'Collaborator'
+      };
+    });
 };
 
 /**

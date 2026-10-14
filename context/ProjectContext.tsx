@@ -41,10 +41,41 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const raw = localStorage.getItem('projectList');
       if (raw) {
         const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) return parsed;
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
       }
     } catch {}
-    return [];
+
+    // Auto-discover existing local projects/scripts if projectList is empty
+    const discovered: ProjectMetadata[] = [];
+    const curId = typeof localStorage !== 'undefined' ? (localStorage.getItem('currentProjectId') || 'empty-project') : 'empty-project';
+    const curName = typeof localStorage !== 'undefined' ? (localStorage.getItem(`project_name_${curId}`) || 'My Screenplay') : 'My Screenplay';
+    discovered.push({
+      id: curId,
+      name: curName,
+      created: Date.now(),
+      lastModified: Date.now()
+    });
+
+    if (typeof localStorage !== 'undefined') {
+      try {
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i);
+          if (key && key.startsWith('project_name_')) {
+            const pId = key.replace('project_name_', '');
+            if (pId && pId !== curId && !discovered.some(p => p.id === pId)) {
+              const pName = localStorage.getItem(key) || 'Untitled Screenplay';
+              discovered.push({
+                id: pId,
+                name: pName,
+                created: Date.now() - 86400000,
+                lastModified: Date.now() - 3600000
+              });
+            }
+          }
+        }
+      } catch (e) {}
+    }
+    return discovered;
   });
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -225,6 +256,36 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     localStorage.setItem('app_theme_animation', style);
     setHasUnsavedChanges(true);
   }, []);
+
+  const [appZoomLevel, setAppZoomLevelState] = useState<number>(() => {
+    if (typeof localStorage === 'undefined') return 0.8;
+    const saved = localStorage.getItem('app_zoom_level');
+    if (saved) {
+      const parsed = parseFloat(saved);
+      if (!isNaN(parsed) && parsed >= 0.5 && parsed <= 1.5) return parsed;
+    }
+    return INITIAL_STATE.appZoomLevel || 0.8;
+  });
+
+  const setAppZoomLevel = useCallback((zoom: number) => {
+    const clamped = Math.min(Math.max(zoom, 0.5), 1.5);
+    setAppZoomLevelState(clamped);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('app_zoom_level', String(clamped));
+      const basePx = Math.round(16 * clamped * 10) / 10;
+      document.documentElement.style.fontSize = `${basePx}px`;
+      document.documentElement.style.zoom = '';
+    }
+    setHasUnsavedChanges(true);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const basePx = Math.round(16 * appZoomLevel * 10) / 10;
+      document.documentElement.style.fontSize = `${basePx}px`;
+      document.documentElement.style.zoom = '';
+    }
+  }, [appZoomLevel]);
 
   const setAppTheme = useCallback((theme: 'dark' | 'light' | 'system', event?: any) => {
     const updateThemeState = () => {
@@ -726,6 +787,9 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       setNavLayoutState(cleanData.navLayout);
       localStorage.setItem('app_nav_layout', cleanData.navLayout);
     }
+    if (cleanData.appZoomLevel) {
+      setAppZoomLevel(cleanData.appZoomLevel);
+    }
     const activeTargetProjId = options?.targetProjectId || (cleanData as any)?._projectId || currentProjectId || undefined;
     if (Array.isArray(cleanData.documents) && activeTargetProjId) {
       const currentDocs = getProductionDocuments(activeTargetProjId);
@@ -810,6 +874,26 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
           const currentDocs = getProductionDocuments(currentProjectId);
           const merged = mergeProductionDocuments(currentDocs, docs);
           saveProductionDocuments(merged, currentProjectId, true);
+        }
+      )
+      .on(
+        'broadcast',
+        { event: 'project_renamed' },
+        (payload: any) => {
+          const data = payload.payload || payload.data || payload;
+          if (data?.id && data?.newName) {
+            if (currentProjectId === data.id) {
+              setCurrentProjectName(data.newName);
+              try {
+                localStorage.setItem(`project_name_${data.id}`, data.newName);
+              } catch (e) {}
+            }
+            setProjectList(prev => {
+              const updated = prev.map(p => p.id === data.id ? { ...p, name: data.newName, lastModified: Date.now() } : p);
+              try { localStorage.setItem('projectList', JSON.stringify(updated)); } catch (e) {}
+              return updated;
+            });
+          }
         }
       )
       .subscribe();
@@ -1319,6 +1403,23 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setCloudOffline(cloudFailed);
     if (saved) {
       setHasUnsavedChanges(false);
+      if (currentProjectId) {
+        const curName = currentProjectName || localStorage.getItem(`project_name_${currentProjectId}`) || 'Current Screenplay';
+        setProjectList(prev => {
+          const existing = prev.find(p => p.id === currentProjectId);
+          const updatedMeta: ProjectMetadata = {
+            id: currentProjectId,
+            name: curName,
+            lastModified: Date.now(),
+            created: existing?.created || Date.now()
+          };
+          const nextList = [updatedMeta, ...prev.filter(p => p.id !== currentProjectId)];
+          try {
+            localStorage.setItem('projectList', JSON.stringify(nextList));
+          } catch (e) {}
+          return nextList;
+        });
+      }
       if (cloudFailed) {
         setCloudSyncStatus({
           isUploading: false,
@@ -1883,6 +1984,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     shortlistTalentForCharacter, passTalentForCharacter, starTalentForCharacter,
     navLayout, setNavLayout,
     themeAnimationStyle, setThemeAnimationStyle,
+    appZoomLevel, setAppZoomLevel,
     cloudSyncStatus, triggerCloudSync,
     currentProjectName,
     isCurrentProjectShared: Boolean(projectList.find(p => p.id === currentProjectId)?.isInvited),
