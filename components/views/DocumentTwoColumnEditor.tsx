@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { ProductionDocument } from '../../types';
 import {
   TamilScreenplayData,
@@ -37,6 +37,7 @@ import {
   Sparkles,
   Columns,
   RotateCcw,
+  RotateCw,
   Layers,
   X,
   Edit2,
@@ -45,7 +46,262 @@ import {
   PanelLeft,
   PanelLeftClose,
   Printer,
+  Sliders,
+  Type,
+  CornerDownLeft,
 } from 'lucide-react';
+
+export interface TwoColumnEditorPreferences {
+  characterFontSize: 'xs' | 'sm' | 'base' | 'lg' | 'xl';
+  characterColor: 'sky' | 'emerald' | 'amber' | 'rose' | 'violet' | 'white';
+  characterWeight: 'normal' | 'bold' | 'black';
+  scriptFontSize: 'sm' | 'base' | 'lg' | 'xl';
+  lineSpacing: 'snug' | 'relaxed' | 'loose';
+  enterKeyMode: 'newline' | 'split';
+}
+
+export const DEFAULT_PREFS: TwoColumnEditorPreferences = {
+  characterFontSize: 'base', // 16px - clearly visible and prominent
+  characterColor: 'sky',
+  characterWeight: 'bold',
+  scriptFontSize: 'sm', // 14px
+  lineSpacing: 'relaxed',
+  enterKeyMode: 'newline', // Enter inserts new line, Shift+Enter or scissors splits!
+};
+
+export const getCharFontSizeClass = (size: TwoColumnEditorPreferences['characterFontSize']) => {
+  switch (size) {
+    case 'xs': return 'text-xs'; // 12px
+    case 'sm': return 'text-sm'; // 14px
+    case 'base': return 'text-base'; // 16px
+    case 'lg': return 'text-lg'; // 18px
+    case 'xl': return 'text-xl'; // 20px
+    default: return 'text-base';
+  }
+};
+
+export const getCharColorClass = (color: TwoColumnEditorPreferences['characterColor'], isLight: boolean) => {
+  switch (color) {
+    case 'sky': return isLight ? 'text-sky-600' : 'text-sky-400';
+    case 'emerald': return isLight ? 'text-emerald-600' : 'text-emerald-400';
+    case 'amber': return isLight ? 'text-amber-600' : 'text-amber-400';
+    case 'rose': return isLight ? 'text-rose-600' : 'text-rose-400';
+    case 'violet': return isLight ? 'text-violet-600' : 'text-violet-400';
+    case 'white': return isLight ? 'text-zinc-900 font-extrabold' : 'text-zinc-100 font-extrabold';
+    default: return isLight ? 'text-sky-600' : 'text-sky-400';
+  }
+};
+
+export const getCharWeightClass = (weight: TwoColumnEditorPreferences['characterWeight']) => {
+  switch (weight) {
+    case 'normal': return 'font-medium';
+    case 'bold': return 'font-bold';
+    case 'black': return 'font-black';
+    default: return 'font-bold';
+  }
+};
+
+export const getScriptFontSizeClass = (size: TwoColumnEditorPreferences['scriptFontSize']) => {
+  switch (size) {
+    case 'sm': return 'text-sm'; // 14px
+    case 'base': return 'text-base'; // 16px
+    case 'lg': return 'text-lg'; // 18px
+    case 'xl': return 'text-xl'; // 20px
+    default: return 'text-sm';
+  }
+};
+
+export const getLineSpacingClass = (spacing: TwoColumnEditorPreferences['lineSpacing']) => {
+  switch (spacing) {
+    case 'snug': return 'leading-snug';
+    case 'relaxed': return 'leading-relaxed';
+    case 'loose': return 'leading-loose';
+    default: return 'leading-relaxed';
+  }
+};
+
+interface ScriptParagraphFieldProps {
+  id: string;
+  initialText: string;
+  placeholder?: string;
+  className?: string;
+  title?: string;
+  enterKeyMode: 'newline' | 'split';
+  onChange: (text: string) => void;
+  onSplit: (before: string, after: string) => void;
+  onStartEdit?: () => void;
+  onSelectBlock?: (e: React.MouseEvent) => void;
+  onAddParagraphAbove?: () => void;
+  onAddParagraphBelow?: () => void;
+  onUndo?: () => void;
+  onRedo?: () => void;
+}
+
+const ScriptParagraphField: React.FC<ScriptParagraphFieldProps> = ({
+  id,
+  initialText,
+  placeholder,
+  className = '',
+  title,
+  enterKeyMode,
+  onChange,
+  onSplit,
+  onStartEdit,
+  onSelectBlock,
+  onAddParagraphAbove,
+  onAddParagraphBelow,
+  onUndo,
+  onRedo,
+}) => {
+  const elRef = useRef<HTMLDivElement>(null);
+  const isFocusedRef = useRef(false);
+  const debounceTimerRef = useRef<any>(null);
+
+  // Synchronize DOM text ONLY when the user is NOT actively typing inside it!
+  useEffect(() => {
+    if (!isFocusedRef.current && elRef.current) {
+      if (elRef.current.innerText !== (initialText || '')) {
+        elRef.current.innerText = initialText || '';
+      }
+    }
+  }, [initialText]);
+
+  const handleInput = () => {
+    if (!elRef.current) return;
+    const currentVal = elRef.current.innerText;
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    debounceTimerRef.current = setTimeout(() => {
+      onChange(currentVal);
+    }, 200);
+  };
+
+  const handleBlur = () => {
+    isFocusedRef.current = false;
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    if (elRef.current) {
+      onChange(elRef.current.innerText);
+    }
+  };
+
+  const handleFocus = () => {
+    isFocusedRef.current = true;
+    onStartEdit?.();
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    // 1. Meta/Ctrl + Enter: insert new paragraph above or below
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+      e.preventDefault();
+      if (e.shiftKey) {
+        onAddParagraphAbove?.();
+      } else {
+        onAddParagraphBelow?.();
+      }
+      return;
+    }
+
+    // 2. Undo / Redo inside the field
+    if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === 'z') {
+      e.preventDefault();
+      onUndo?.();
+      return;
+    }
+    if (
+      ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'y') ||
+      ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'z')
+    ) {
+      e.preventDefault();
+      onRedo?.();
+      return;
+    }
+
+    // 3. Enter key handling according to user preference
+    if (e.key === 'Enter') {
+      const isSplitAction = enterKeyMode === 'split' ? !e.shiftKey : e.shiftKey;
+      if (isSplitAction) {
+        e.preventDefault();
+        const sel = window.getSelection();
+        let beforeText = '';
+        let afterText = '';
+
+        if (sel && sel.rangeCount > 0 && elRef.current) {
+          const range = sel.getRangeAt(0);
+          const preRange = range.cloneRange();
+          preRange.selectNodeContents(elRef.current);
+          preRange.setEnd(range.startContainer, range.startOffset);
+          beforeText = preRange.toString();
+
+          const postRange = range.cloneRange();
+          postRange.selectNodeContents(elRef.current);
+          postRange.setStart(range.endContainer, range.endOffset);
+          afterText = postRange.toString();
+        } else {
+          beforeText = elRef.current?.innerText || '';
+          afterText = '';
+        }
+
+        if (elRef.current) {
+          elRef.current.innerText = beforeText;
+        }
+        onSplit(beforeText, afterText);
+        return;
+      }
+      // In 'newline' mode with regular Enter: browser naturally inserts newline cleanly!
+    }
+  };
+
+  return (
+    <div
+      ref={elRef}
+      data-item-id={id}
+      contentEditable
+      suppressContentEditableWarning
+      onInput={handleInput}
+      onFocus={handleFocus}
+      onBlur={handleBlur}
+      onKeyDown={handleKeyDown}
+      onClick={(e) => {
+        // Cmd / Ctrl + Click: multi-select block
+        if (e.metaKey || e.ctrlKey) {
+          e.preventDefault();
+          e.stopPropagation();
+          onSelectBlock?.(e);
+          return;
+        }
+        // Alt / Option + Click: split at caret
+        if (e.altKey && elRef.current) {
+          e.preventDefault();
+          e.stopPropagation();
+          const sel = window.getSelection();
+          let beforeText = '';
+          let afterText = '';
+          if (sel && sel.rangeCount > 0) {
+            const range = sel.getRangeAt(0);
+            const preRange = range.cloneRange();
+            preRange.selectNodeContents(elRef.current);
+            preRange.setEnd(range.startContainer, range.startOffset);
+            beforeText = preRange.toString();
+
+            const postRange = range.cloneRange();
+            postRange.selectNodeContents(elRef.current);
+            postRange.setStart(range.endContainer, range.endOffset);
+            afterText = postRange.toString();
+          } else {
+            beforeText = elRef.current.innerText;
+          }
+          elRef.current.innerText = beforeText;
+          onSplit(beforeText, afterText);
+          return;
+        }
+        // Normal click: place cursor & prevent toggling card selection
+        e.stopPropagation();
+      }}
+      className={className}
+      title={title}
+      placeholder={placeholder}
+    />
+  );
+};
 
 export interface DocumentTwoColumnEditorProps {
   document: ProductionDocument;
@@ -65,6 +321,88 @@ export const DocumentTwoColumnEditor: React.FC<DocumentTwoColumnEditorProps> = (
     const rawText = doc.textContent || (doc.htmlContent ? doc.htmlContent.replace(/<[^>]+>/g, '\n') : '');
     return parseScreenplayToTamilLeftRight(rawText, doc.title);
   });
+
+  // Customizable Editor Preferences (persisted in localStorage)
+  const [prefs, setPrefs] = useState<TwoColumnEditorPreferences>(() => {
+    try {
+      const stored = localStorage.getItem('backstage_twocolumn_editor_prefs');
+      if (stored) {
+        return { ...DEFAULT_PREFS, ...JSON.parse(stored) };
+      }
+    } catch (e) {
+      // fallback to default
+    }
+    return DEFAULT_PREFS;
+  });
+
+  const updatePrefs = (partial: Partial<TwoColumnEditorPreferences>) => {
+    setPrefs((prev) => {
+      const next = { ...prev, ...partial };
+      try {
+        localStorage.setItem('backstage_twocolumn_editor_prefs', JSON.stringify(next));
+      } catch (e) {}
+      return next;
+    });
+  };
+
+  const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
+  const settingsRef = useRef<HTMLDivElement>(null);
+
+  // Close appearance settings popover on click outside
+  useEffect(() => {
+    const handleOutsideClick = (e: MouseEvent) => {
+      if (settingsRef.current && !settingsRef.current.contains(e.target as Node)) {
+        setIsSettingsOpen(false);
+      }
+    };
+    if (isSettingsOpen) {
+      window.addEventListener('mousedown', handleOutsideClick);
+    }
+    return () => window.removeEventListener('mousedown', handleOutsideClick);
+  }, [isSettingsOpen]);
+
+  // Comprehensive Undo / Redo History Management
+  const [undoStack, setUndoStack] = useState<TamilScreenplayData[]>([]);
+  const [redoStack, setRedoStack] = useState<TamilScreenplayData[]>([]);
+
+  // Push snapshot to undo stack
+  const recordHistory = useCallback((customState?: TamilScreenplayData) => {
+    const snapshot = customState ? JSON.parse(JSON.stringify(customState)) : JSON.parse(JSON.stringify(screenplayData));
+    setUndoStack((prev) => [...prev.slice(-40), snapshot]);
+    setRedoStack([]);
+  }, [screenplayData]);
+
+  // Undo previous action
+  const handleUndo = useCallback(() => {
+    setUndoStack((prevUndo) => {
+      if (prevUndo.length === 0) return prevUndo;
+      const previous = prevUndo[prevUndo.length - 1];
+      const newUndo = prevUndo.slice(0, -1);
+      setScreenplayData((current) => {
+        setRedoStack((prevRedo) => [...prevRedo, JSON.parse(JSON.stringify(current))]);
+        return previous;
+      });
+      setHasUnsavedChanges(true);
+      showToast('↶ Undo');
+      return newUndo;
+    });
+  }, []);
+
+  // Redo undone action
+  const handleRedo = useCallback(() => {
+    setRedoStack((prevRedo) => {
+      if (prevRedo.length === 0) return prevRedo;
+      const next = prevRedo[prevRedo.length - 1];
+      const newRedo = prevRedo.slice(0, -1);
+      setScreenplayData((current) => {
+        setUndoStack((prevUndo) => [...prevUndo, JSON.parse(JSON.stringify(current))]);
+        return next;
+      });
+      setHasUnsavedChanges(true);
+      showToast('↷ Redo');
+      return newRedo;
+    });
+  }, []);
 
   // Track highlighted/selected paragraph IDs
   const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set());
@@ -90,9 +428,33 @@ export const DocumentTwoColumnEditor: React.FC<DocumentTwoColumnEditorProps> = (
   const [isFindReplaceOpen, setIsFindReplaceOpen] = useState<boolean>(false);
   const [showReplaceByDefault, setShowReplaceByDefault] = useState<boolean>(false);
 
-  // Global keyboard shortcuts for Find & Replace (Cmd+F, Cmd+H)
+  // Global keyboard shortcuts for Undo, Redo, Find & Replace (Cmd+Z, Cmd+Y, Cmd+F, Cmd+H)
   useEffect(() => {
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      // 1. Global Undo: Cmd+Z / Ctrl+Z (without shift)
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === 'z') {
+        const target = e.target as HTMLElement;
+        const isExternalInput = target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') && !target.closest('[data-char-container]');
+        if (isExternalInput) return;
+        e.preventDefault();
+        handleUndo();
+        return;
+      }
+
+      // 2. Global Redo: Cmd+Y / Ctrl+Y or Cmd+Shift+Z / Ctrl+Shift+Z
+      if (
+        ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'y') ||
+        ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'z')
+      ) {
+        const target = e.target as HTMLElement;
+        const isExternalInput = target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') && !target.closest('[data-char-container]');
+        if (isExternalInput) return;
+        e.preventDefault();
+        handleRedo();
+        return;
+      }
+
+      // 3. Find & Replace Shortcuts
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'f') {
         e.preventDefault();
         setIsFindReplaceOpen(true);
@@ -105,7 +467,7 @@ export const DocumentTwoColumnEditor: React.FC<DocumentTwoColumnEditorProps> = (
     };
     window.addEventListener('keydown', handleGlobalKeyDown);
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
-  }, []);
+  }, [handleUndo, handleRedo]);
 
   const handleSelectScene = (sceneId: string) => {
     setActiveSceneId(sceneId);
@@ -279,6 +641,7 @@ export const DocumentTwoColumnEditor: React.FC<DocumentTwoColumnEditorProps> = (
     const idsToMove = specificItemId ? new Set([specificItemId]) : selectedItemIds;
     if (idsToMove.size === 0) return;
 
+    recordHistory();
     setScreenplayData((prev) => {
       const nextScenes = prev.scenes.map((scene) => ({
         ...scene,
@@ -346,6 +709,7 @@ export const DocumentTwoColumnEditor: React.FC<DocumentTwoColumnEditorProps> = (
 
   // Update character name for dialogue items
   const handleUpdateItemCharacter = (itemId: string, newChar: string) => {
+    recordHistory();
     setScreenplayData((prev) => ({
       ...prev,
       scenes: prev.scenes.map((scene) => ({
@@ -367,6 +731,7 @@ export const DocumentTwoColumnEditor: React.FC<DocumentTwoColumnEditorProps> = (
   // Delete an item
   const handleDeleteItem = (itemId: string, e: React.MouseEvent) => {
     e.stopPropagation();
+    recordHistory();
     setScreenplayData((prev) => ({
       ...prev,
       scenes: prev.scenes.map((scene) => ({
@@ -415,6 +780,7 @@ export const DocumentTwoColumnEditor: React.FC<DocumentTwoColumnEditorProps> = (
     beforeOrOffset?: number | string,
     afterOrFullText?: string
   ) => {
+    recordHistory();
     const newItemId = `item-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
 
     setScreenplayData((prev) => {
@@ -513,6 +879,7 @@ export const DocumentTwoColumnEditor: React.FC<DocumentTwoColumnEditorProps> = (
 
   // Update scene metadata
   const handleUpdateScene = (sceneId: string, updates: Partial<TamilScene>) => {
+    recordHistory();
     setScreenplayData((prev) => ({
       ...prev,
       scenes: prev.scenes.map((scene) => (scene.id === sceneId ? { ...scene, ...updates } : scene)),
@@ -522,6 +889,7 @@ export const DocumentTwoColumnEditor: React.FC<DocumentTwoColumnEditorProps> = (
 
   // Add a new paragraph above
   const handleAddParagraphAbove = (beforeItemId: string, column: 'left' | 'right' | 'center' = 'left') => {
+    recordHistory();
     const newItem: TamilScriptItem = {
       id: `item-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
       type: column === 'center' ? 'title' : column === 'right' ? 'dialogue' : 'action',
@@ -584,6 +952,7 @@ export const DocumentTwoColumnEditor: React.FC<DocumentTwoColumnEditorProps> = (
 
   // Add a new paragraph below
   const handleAddParagraphBelow = (afterItemId?: string, column: 'left' | 'right' | 'center' = 'left') => {
+    recordHistory();
     const newItem: TamilScriptItem = {
       id: `item-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
       type: column === 'center' ? 'title' : column === 'right' ? 'dialogue' : 'action',
@@ -943,8 +1312,226 @@ export const DocumentTwoColumnEditor: React.FC<DocumentTwoColumnEditorProps> = (
           )}
         </div>
 
-        {/* Right: Actions (Scenes, Find, Zoom, Word Download & Save) */}
+        {/* Right: Actions (Undo/Redo, Appearance, Scenes, Find, Zoom, Word Download & Save) */}
         <div className="flex items-center gap-2">
+          {/* Undo & Redo History Buttons */}
+          <div className="flex items-center gap-0.5 bg-zinc-800/80 border border-zinc-700/80 rounded-lg p-0.5 shadow-xs">
+            <button
+              type="button"
+              onClick={handleUndo}
+              disabled={undoStack.length === 0}
+              className="p-1.5 text-zinc-300 hover:text-white disabled:text-zinc-600 disabled:hover:text-zinc-600 rounded transition-colors cursor-pointer disabled:cursor-not-allowed"
+              title={undoStack.length > 0 ? `Undo (Ctrl+Z / ⌘Z) [${undoStack.length} actions available]` : "Undo (Ctrl+Z / ⌘Z) - no actions"}
+            >
+              <RotateCcw size={13} />
+            </button>
+            <button
+              type="button"
+              onClick={handleRedo}
+              disabled={redoStack.length === 0}
+              className="p-1.5 text-zinc-300 hover:text-white disabled:text-zinc-600 disabled:hover:text-zinc-600 rounded transition-colors cursor-pointer disabled:cursor-not-allowed"
+              title={redoStack.length > 0 ? `Redo (Ctrl+Y / ⌘Y) [${redoStack.length} actions available]` : "Redo (Ctrl+Y / ⌘Y) - no actions"}
+            >
+              <RotateCw size={13} />
+            </button>
+          </div>
+
+          {/* Appearance & Typography Customization */}
+          <div className="relative" ref={settingsRef}>
+            <button
+              type="button"
+              onClick={() => setIsSettingsOpen(!isSettingsOpen)}
+              className={`px-2.5 py-1 text-xs font-bold rounded-lg border flex items-center gap-1.5 transition-all shadow-xs cursor-pointer ${
+                isSettingsOpen
+                  ? 'bg-amber-500 text-black border-amber-400 font-bold'
+                  : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border-zinc-700'
+              }`}
+              title="Customizable Appearance: Character Font Size, Colors, Body Text Size & Editing Behavior"
+            >
+              <Sliders size={13} className={isSettingsOpen ? 'text-black' : 'text-amber-400'} />
+              <span>Appearance</span>
+            </button>
+
+            {/* Appearance Settings Popover */}
+            {isSettingsOpen && (
+              <div className={`absolute right-0 top-full mt-2 w-80 sm:w-96 rounded-2xl border shadow-2xl p-4 z-50 animate-in fade-in zoom-in-95 duration-150 ${
+                isLight ? 'bg-white border-zinc-300 text-zinc-900 shadow-xl' : 'bg-zinc-900 border-zinc-700/80 text-zinc-100 shadow-2xl'
+              }`}>
+                <div className="flex items-center justify-between border-b pb-2.5 mb-3 border-zinc-200 dark:border-zinc-800">
+                  <div className="flex items-center gap-2">
+                    <Type size={16} className="text-amber-500" />
+                    <h3 className="text-xs font-black uppercase tracking-wider">Typography & Editing Styles</h3>
+                  </div>
+                  <button
+                    onClick={() => setIsSettingsOpen(false)}
+                    className="p-1 rounded-md text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 cursor-pointer"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+
+                <div className="space-y-4 text-xs">
+                  {/* 1. Character Name Font Size */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5 font-bold">
+                      <span className="text-zinc-400">Character Name Font Size:</span>
+                      <span className="text-amber-400 font-mono font-black">{prefs.characterFontSize.toUpperCase()}</span>
+                    </div>
+                    <div className="grid grid-cols-5 gap-1 bg-zinc-800/60 p-1 rounded-xl border border-zinc-700/60">
+                      {(['xs', 'sm', 'base', 'lg', 'xl'] as const).map((sz) => (
+                        <button
+                          key={sz}
+                          type="button"
+                          onClick={() => updatePrefs({ characterFontSize: sz })}
+                          className={`py-1 rounded-lg font-bold text-[11px] transition-all cursor-pointer ${
+                            prefs.characterFontSize === sz
+                              ? 'bg-amber-500 text-black shadow-xs font-black'
+                              : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700/50'
+                          }`}
+                        >
+                          {sz === 'xs' ? '12px' : sz === 'sm' ? '14px' : sz === 'base' ? '16px' : sz === 'lg' ? '18px' : '20px'}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* 2. Character Name Color */}
+                  <div>
+                    <span className="text-zinc-400 font-bold block mb-1.5">Character Name Color:</span>
+                    <div className="flex items-center gap-2">
+                      {[
+                        { id: 'sky', label: 'Sky Blue', color: 'bg-sky-400' },
+                        { id: 'emerald', label: 'Emerald', color: 'bg-emerald-400' },
+                        { id: 'amber', label: 'Amber', color: 'bg-amber-400' },
+                        { id: 'rose', label: 'Rose', color: 'bg-rose-400' },
+                        { id: 'violet', label: 'Violet', color: 'bg-violet-400' },
+                        { id: 'white', label: 'White', color: 'bg-zinc-200' },
+                      ].map((c) => (
+                        <button
+                          key={c.id}
+                          type="button"
+                          onClick={() => updatePrefs({ characterColor: c.id as any })}
+                          className={`w-6 h-6 rounded-full ${c.color} transition-all cursor-pointer flex items-center justify-center ${
+                            prefs.characterColor === c.id ? 'ring-2 ring-white ring-offset-2 ring-offset-zinc-900 scale-110 shadow-sm' : 'opacity-70 hover:opacity-100'
+                          }`}
+                          title={c.label}
+                        >
+                          {prefs.characterColor === c.id && <Check size={11} className="text-black stroke-[3]" />}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* 3. Script Text Font Size (Action & Dialogue) */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5 font-bold">
+                      <span className="text-zinc-400">Action & Dialogue Font Size:</span>
+                      <span className="text-sky-400 font-mono font-black">{prefs.scriptFontSize.toUpperCase()}</span>
+                    </div>
+                    <div className="grid grid-cols-4 gap-1 bg-zinc-800/60 p-1 rounded-xl border border-zinc-700/60">
+                      {(['sm', 'base', 'lg', 'xl'] as const).map((sz) => (
+                        <button
+                          key={sz}
+                          type="button"
+                          onClick={() => updatePrefs({ scriptFontSize: sz })}
+                          className={`py-1 rounded-lg font-bold text-[11px] transition-all cursor-pointer ${
+                            prefs.scriptFontSize === sz
+                              ? 'bg-sky-500 text-white shadow-xs font-black'
+                              : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700/50'
+                          }`}
+                        >
+                          {sz === 'sm' ? '14px' : sz === 'base' ? '16px' : sz === 'lg' ? '18px' : '20px'}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* 4. Line Spacing (Leading) */}
+                  <div>
+                    <span className="text-zinc-400 font-bold block mb-1.5">Line Spacing:</span>
+                    <div className="grid grid-cols-3 gap-1 bg-zinc-800/60 p-1 rounded-xl border border-zinc-700/60">
+                      {(['snug', 'relaxed', 'loose'] as const).map((sp) => (
+                        <button
+                          key={sp}
+                          type="button"
+                          onClick={() => updatePrefs({ lineSpacing: sp })}
+                          className={`py-1 rounded-lg font-bold text-[11px] capitalize transition-all cursor-pointer ${
+                            prefs.lineSpacing === sp
+                              ? 'bg-emerald-500 text-white shadow-xs font-black'
+                              : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700/50'
+                          }`}
+                        >
+                          {sp}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* 5. Enter Key Editing Behavior */}
+                  <div className="pt-1 border-t border-zinc-200 dark:border-zinc-800">
+                    <span className="text-zinc-400 font-bold block mb-1.5">Enter Key Behavior:</span>
+                    <div className="flex flex-col gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => updatePrefs({ enterKeyMode: 'newline' })}
+                        className={`p-2 rounded-xl text-left border flex items-start gap-2 transition-all cursor-pointer ${
+                          prefs.enterKeyMode === 'newline'
+                            ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300'
+                            : 'bg-zinc-800/40 border-zinc-700/50 text-zinc-400 hover:bg-zinc-800'
+                        }`}
+                      >
+                        <CornerDownLeft size={14} className="shrink-0 mt-0.5 text-emerald-400" />
+                        <div>
+                          <div className="font-bold text-[11.5px] text-zinc-200">Enter = New Line (Recommended)</div>
+                          <div className="text-[10px] text-zinc-400">Pressing Enter adds a line break. Shift+Enter or ✂️ splits into a new block.</div>
+                        </div>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => updatePrefs({ enterKeyMode: 'split' })}
+                        className={`p-2 rounded-xl text-left border flex items-start gap-2 transition-all cursor-pointer ${
+                          prefs.enterKeyMode === 'split'
+                            ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300'
+                            : 'bg-zinc-800/40 border-zinc-700/50 text-zinc-400 hover:bg-zinc-800'
+                        }`}
+                      >
+                        <Scissors size={14} className="shrink-0 mt-0.5 text-amber-400" />
+                        <div>
+                          <div className="font-bold text-[11.5px] text-zinc-200">Enter = Split Block</div>
+                          <div className="text-[10px] text-zinc-400">Pressing Enter splits into two separate cards. Shift+Enter creates a new line.</div>
+                        </div>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Live Preview Box */}
+                  <div className="p-2.5 rounded-xl bg-black/40 border border-zinc-700/60">
+                    <div className="text-[10px] text-zinc-400 uppercase font-mono mb-1 font-bold">Live Preview:</div>
+                    <div className="flex items-baseline gap-1.5">
+                      <span className={`${getCharFontSizeClass(prefs.characterFontSize)} ${getCharWeightClass(prefs.characterWeight)} ${getCharColorClass(prefs.characterColor, isLight)} uppercase`}>
+                        ரங்கா :
+                      </span>
+                      <span className={`${getScriptFontSizeClass(prefs.scriptFontSize)} ${getLineSpacingClass(prefs.lineSpacing)} text-zinc-200`}>
+                        இது நம்ம ஊரு கதை தான்...
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Reset button */}
+                  <div className="flex justify-end pt-1">
+                    <button
+                      type="button"
+                      onClick={() => updatePrefs(DEFAULT_PREFS)}
+                      className="text-[10.5px] text-zinc-400 hover:text-amber-400 underline cursor-pointer"
+                    >
+                      Reset to Defaults
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* Scenes Sidebar Toggle */}
           <button
             onClick={() => setIsSceneSidebarOpen(!isSceneSidebarOpen)}
@@ -1419,6 +2006,18 @@ export const DocumentTwoColumnEditor: React.FC<DocumentTwoColumnEditorProps> = (
                             <ArrowRight size={11} className="stroke-[3]" />
                           </button>
 
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleSplitParagraph(item.id);
+                            }}
+                            className="p-1 rounded text-zinc-400 hover:text-amber-400 transition-colors"
+                            title="Split paragraph into two cards (Shift+Enter or Alt+Click)"
+                          >
+                            <Scissors size={11} />
+                          </button>
+
                           <div className="w-[1px] h-3 bg-zinc-700 mx-0.5" />
 
                           <button
@@ -1432,15 +2031,23 @@ export const DocumentTwoColumnEditor: React.FC<DocumentTwoColumnEditorProps> = (
 
                         {/* CASE A: CENTER ROW (Slugline / Transition / Heading) */}
                         {isCenter && (
-                          <div className="w-full text-center py-2 px-4 rounded bg-amber-500/5 text-amber-400 font-bold text-sm tracking-wide">
-                            <span
-                              contentEditable
-                              suppressContentEditableWarning
-                              onBlur={(e) => handleUpdateItemText(item.id, e.currentTarget.innerText)}
-                              className="outline-none"
-                            >
-                              {item.rawText || item.leftAction || item.rightDialogue || 'தலைப்பு / மாற்றம்'}
-                            </span>
+                          <div className="w-full text-center py-2 px-4 rounded bg-amber-500/5 text-amber-400 font-bold tracking-wide">
+                            <ScriptParagraphField
+                              id={item.id}
+                              initialText={item.rawText || item.leftAction || item.rightDialogue || ''}
+                              placeholder="தலைப்பு / மாற்றம்"
+                              enterKeyMode={prefs.enterKeyMode}
+                              className={`outline-none ${getScriptFontSizeClass(prefs.scriptFontSize)} font-bold tracking-wide text-center`}
+                              onChange={(newText) => handleUpdateItemText(item.id, newText)}
+                              onSplit={(beforeText, afterText) => handleSplitParagraph(item.id, beforeText, afterText)}
+                              onStartEdit={() => recordHistory()}
+                              onUndo={handleUndo}
+                              onRedo={handleRedo}
+                              onSelectBlock={(e) => handleParagraphClick(item.id, e)}
+                              onAddParagraphAbove={() => handleAddParagraphAbove(item.id, 'center')}
+                              onAddParagraphBelow={() => handleAddParagraphBelow(item.id, 'center')}
+                              title={prefs.enterKeyMode === 'newline' ? "Type to edit. Press Enter for newline, Shift+Enter to split block" : "Type to edit. Press Enter to split block, Shift+Enter for newline"}
+                            />
                           </div>
                         )}
 
@@ -1471,85 +2078,33 @@ export const DocumentTwoColumnEditor: React.FC<DocumentTwoColumnEditorProps> = (
                                         suggestions={allKnownCharacters}
                                         onChange={(val) => handleUpdateItemCharacter(item.id, val)}
                                         placeholder="கதாபாத்திரம்"
-                                        className="text-xs font-black uppercase text-right text-sky-400 bg-transparent border-b border-transparent hover:border-zinc-500 focus:border-sky-400 outline-none w-auto min-w-[70px] max-w-[240px] transition-colors"
+                                        className={`${getCharFontSizeClass(prefs.characterFontSize)} ${getCharWeightClass(prefs.characterWeight)} uppercase text-right ${getCharColorClass(prefs.characterColor, isLight)} bg-transparent border-b border-transparent hover:border-zinc-500 focus:border-sky-400 outline-none w-auto min-w-[70px] max-w-[280px] transition-colors`}
                                       />
-                                      <span className="text-sky-400 font-bold text-xs select-none">:</span>
+                                      <span className={`${getCharColorClass(prefs.characterColor, isLight)} font-bold ${getCharFontSizeClass(prefs.characterFontSize)} select-none`}>:</span>
                                     </div>
                                   );
                                 })()
                               ) : isLeft ? (
-                                <div
-                                  data-item-id={item.id}
-                                  contentEditable
-                                  suppressContentEditableWarning
-                                  onBlur={(e) => handleUpdateItemText(item.id, e.currentTarget.innerText)}
-                                  onKeyDown={(e) => {
-                                    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-                                      e.preventDefault();
-                                      if (e.shiftKey) {
-                                        handleAddParagraphAbove(item.id, 'left');
-                                      } else {
-                                        handleAddParagraphBelow(item.id, 'left');
-                                      }
-                                      return;
-                                    }
-                                    if (e.key === 'Enter' && !e.shiftKey) {
-                                      e.preventDefault();
-                                      const sel = window.getSelection();
-                                      let beforeText = '';
-                                      let afterText = '';
-
-                                      if (sel && sel.rangeCount > 0) {
-                                        const range = sel.getRangeAt(0);
-                                        const preRange = range.cloneRange();
-                                        preRange.selectNodeContents(e.currentTarget);
-                                        preRange.setEnd(range.startContainer, range.startOffset);
-                                        beforeText = preRange.toString();
-
-                                        const postRange = range.cloneRange();
-                                        postRange.selectNodeContents(e.currentTarget);
-                                        postRange.setStart(range.endContainer, range.endOffset);
-                                        afterText = postRange.toString();
-                                      } else {
-                                        beforeText = e.currentTarget.innerText || '';
-                                        afterText = '';
-                                      }
-
-                                      e.currentTarget.innerText = beforeText;
-                                      setSelectedItemIds(new Set());
-                                      handleSplitParagraph(item.id, beforeText, afterText);
-                                      return;
-                                    }
-                                  }}
-                                  onClick={(e) => {
-                                    // 1. Cmd / Ctrl + Click: Multi-select block!
-                                    if (e.metaKey || e.ctrlKey) {
-                                      e.preventDefault();
-                                      e.stopPropagation();
-                                      handleParagraphClick(item.id, e);
-                                      return;
-                                    }
-                                    // 2. Alt / Option + Click: Split into separate shot!
-                                    if (e.altKey) {
-                                      e.preventDefault();
-                                      e.stopPropagation();
-                                      const offset = getCaretOffsetFromPoint(e.nativeEvent, e.currentTarget);
-                                      setSelectedItemIds(new Set());
-                                      handleSplitParagraph(item.id, offset, e.currentTarget.innerText);
-                                      return;
-                                    }
-                                    // 3. Normal typing/editing click: Stop propagation so card is NOT selected!
-                                    e.stopPropagation();
-                                  }}
-                                  className={`min-h-[28px] text-sm leading-relaxed text-justify outline-none focus:ring-1 focus:ring-emerald-500/50 rounded p-1 transition-all ${
+                                <ScriptParagraphField
+                                  id={item.id}
+                                  initialText={item.leftAction || item.rawText || ''}
+                                  placeholder="காட்சி விவரம் எழுதவும்..."
+                                  enterKeyMode={prefs.enterKeyMode}
+                                  className={`min-h-[28px] ${getScriptFontSizeClass(prefs.scriptFontSize)} ${getLineSpacingClass(prefs.lineSpacing)} text-justify outline-none focus:ring-1 focus:ring-emerald-500/50 rounded p-1 transition-all ${
                                     !item.leftAction && !item.rawText
                                       ? 'border border-dashed border-emerald-500/40 bg-emerald-500/[0.04]'
                                       : ''
                                   }`}
-                                  title="Type to edit. Press Enter or Alt+Click to split into separate shot ending with ' -'"
-                                >
-                                  {item.leftAction || item.rawText || ''}
-                                </div>
+                                  onChange={(newText) => handleUpdateItemText(item.id, newText)}
+                                  onSplit={(beforeText, afterText) => handleSplitParagraph(item.id, beforeText, afterText)}
+                                  onStartEdit={() => recordHistory()}
+                                  onUndo={handleUndo}
+                                  onRedo={handleRedo}
+                                  onSelectBlock={(e) => handleParagraphClick(item.id, e)}
+                                  onAddParagraphAbove={() => handleAddParagraphAbove(item.id, 'left')}
+                                  onAddParagraphBelow={() => handleAddParagraphBelow(item.id, 'left')}
+                                  title={prefs.enterKeyMode === 'newline' ? "Type to edit action. Press Enter for newline, Shift+Enter to split into separate block" : "Type to edit action. Press Enter to split block, Shift+Enter for newline"}
+                                />
                               ) : null}
                             </div>
 
@@ -1567,78 +2122,26 @@ export const DocumentTwoColumnEditor: React.FC<DocumentTwoColumnEditorProps> = (
                                   }
 
                                   return (
-                                    <div
-                                      data-item-id={item.id}
-                                      contentEditable
-                                      suppressContentEditableWarning
-                                      onBlur={(e) => handleUpdateItemText(item.id, e.currentTarget.innerText)}
-                                      onKeyDown={(e) => {
-                                        if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-                                          e.preventDefault();
-                                          if (e.shiftKey) {
-                                            handleAddParagraphAbove(item.id, 'right');
-                                          } else {
-                                            handleAddParagraphBelow(item.id, 'right');
-                                          }
-                                          return;
-                                        }
-                                        if (e.key === 'Enter' && !e.shiftKey) {
-                                          e.preventDefault();
-                                          const sel = window.getSelection();
-                                          let beforeText = '';
-                                          let afterText = '';
-
-                                          if (sel && sel.rangeCount > 0) {
-                                            const range = sel.getRangeAt(0);
-                                            const preRange = range.cloneRange();
-                                            preRange.selectNodeContents(e.currentTarget);
-                                            preRange.setEnd(range.startContainer, range.startOffset);
-                                            beforeText = preRange.toString();
-
-                                            const postRange = range.cloneRange();
-                                            postRange.selectNodeContents(e.currentTarget);
-                                            postRange.setStart(range.endContainer, range.endOffset);
-                                            afterText = postRange.toString();
-                                          } else {
-                                            beforeText = e.currentTarget.innerText || '';
-                                            afterText = '';
-                                          }
-
-                                          e.currentTarget.innerText = beforeText;
-                                          setSelectedItemIds(new Set());
-                                          handleSplitParagraph(item.id, beforeText, afterText);
-                                          return;
-                                        }
-                                      }}
-                                      onClick={(e) => {
-                                        // 1. Cmd / Ctrl + Click: Multi-select block!
-                                        if (e.metaKey || e.ctrlKey) {
-                                          e.preventDefault();
-                                          e.stopPropagation();
-                                          handleParagraphClick(item.id, e);
-                                          return;
-                                        }
-                                        // 2. Alt / Option + Click: Split dialogue!
-                                        if (e.altKey) {
-                                          e.preventDefault();
-                                          e.stopPropagation();
-                                          const offset = getCaretOffsetFromPoint(e.nativeEvent, e.currentTarget);
-                                          setSelectedItemIds(new Set());
-                                          handleSplitParagraph(item.id, offset, e.currentTarget.innerText);
-                                          return;
-                                        }
-                                        // 3. Normal typing/editing click: Stop propagation so card is NOT selected!
-                                        e.stopPropagation();
-                                      }}
-                                      className={`min-h-[28px] text-sm leading-relaxed outline-none focus:ring-1 focus:ring-sky-500/50 rounded p-1 text-left transition-all ${
+                                    <ScriptParagraphField
+                                      id={item.id}
+                                      initialText={text}
+                                      placeholder="வசனம் எழுதவும்..."
+                                      enterKeyMode={prefs.enterKeyMode}
+                                      className={`min-h-[28px] ${getScriptFontSizeClass(prefs.scriptFontSize)} ${getLineSpacingClass(prefs.lineSpacing)} outline-none focus:ring-1 focus:ring-sky-500/50 rounded p-1 text-left transition-all ${
                                         !text
                                           ? 'border border-dashed border-sky-500/40 bg-sky-500/[0.04]'
                                           : ''
                                       }`}
-                                      title="Type to edit. Press Enter or Alt+Click to split this dialogue"
-                                    >
-                                      {text}
-                                    </div>
+                                      onChange={(newText) => handleUpdateItemText(item.id, newText)}
+                                      onSplit={(beforeText, afterText) => handleSplitParagraph(item.id, beforeText, afterText)}
+                                      onStartEdit={() => recordHistory()}
+                                      onUndo={handleUndo}
+                                      onRedo={handleRedo}
+                                      onSelectBlock={(e) => handleParagraphClick(item.id, e)}
+                                      onAddParagraphAbove={() => handleAddParagraphAbove(item.id, 'right')}
+                                      onAddParagraphBelow={() => handleAddParagraphBelow(item.id, 'right')}
+                                      title={prefs.enterKeyMode === 'newline' ? "Type to edit dialogue. Press Enter for newline, Shift+Enter to split" : "Type to edit dialogue. Press Enter to split block, Shift+Enter for newline"}
+                                    />
                                   );
                                 })()
                               ) : null}
