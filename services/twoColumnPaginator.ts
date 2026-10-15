@@ -42,6 +42,8 @@ export interface TwoColumnPaginationOptions {
   transitionColor?: string; // Center / Transition text color (default #f59e0b)
   scriptEdition?: string; // Running footer edition/version name (default '1st Edition')
   scriptEditionDate?: string; // Running footer edition date (e.g. '09 Oct 2026')
+  splitActionByComma?: boolean; // Split action blocks at commas into single shot paragraphs (default false)
+  splitActionIncludeDot?: boolean; // Also split action blocks at periods/dots into single shot paragraphs (default false)
 }
 
 export const DEFAULT_TWO_COLUMN_PAGINATION_OPTIONS: TwoColumnPaginationOptions = {
@@ -75,6 +77,109 @@ export const DEFAULT_TWO_COLUMN_PAGINATION_OPTIONS: TwoColumnPaginationOptions =
   endSceneCutToText: 'CUT TO:',
   scriptEdition: '1st Edition',
   scriptEditionDate: '',
+  splitActionByComma: false,
+  splitActionIncludeDot: false,
+};
+
+// Utility to split action/description text into single shot paragraphs based on commas and/or periods,
+// while strictly protecting numeral lists (e.g. "1.", "2.", "10.", "A.", etc.) from being split into standalone numbers
+export const splitActionTextIntoShots = (
+  text: string,
+  options: { includeComma?: boolean; includeDot?: boolean } = { includeComma: true, includeDot: false }
+): string[] => {
+  if (!text || !text.trim()) return [];
+  const includeComma = options.includeComma !== false;
+  const includeDot = !!options.includeDot;
+
+  // Splitting pattern:
+  // - Commas: [,\u060C\uFF0C]+
+  // - Periods/Dots: ONLY when preceded by a non-digit, non-space character: (?<=[^\d\s\(\[])\.(?:\s+|$)
+  //   This ensures "1.", "2.", "10.", "2.5" etc. are NEVER split!
+  let pattern: RegExp;
+  if (includeComma && includeDot) {
+    pattern = /[,\u060C\uFF0C]+|(?<=[^\d\s\(\[])\.(?:\s+|$)/;
+  } else if (includeDot) {
+    pattern = /(?<=[^\d\s\(\[])\.(?:\s+|$)/;
+  } else {
+    pattern = /[,\u060C\uFF0C]+/;
+  }
+
+  const rawSegments = text
+    .split(pattern)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+
+  // Post-processing guard: If any segment is purely a number or bullet (e.g. "1", "1.", "(1)", "2", "A.", "iv."),
+  // re-merge it with the immediately following segment so a numeral never forms a lone paragraph!
+  const isNumeralBullet = (s: string) => {
+    const clean = s.replace(/<[^>]+>/g, '').replace(/[\s\u00A0]+/g, ' ').trim();
+    return /^(\(?\d{1,4}[\.\)\:\-]?|\(?[a-zA-Z][\.\)\:\-]?|\(?[ivxIVX]{1,5}[\.\)\:\-]?)$/.test(clean);
+  };
+
+  const result: string[] = [];
+  for (let i = 0; i < rawSegments.length; i++) {
+    const seg = rawSegments[i];
+    if (isNumeralBullet(seg) && i + 1 < rawSegments.length) {
+      const clean = seg.replace(/<[^>]+>/g, '').trim();
+      const bullet = clean.endsWith('.') || clean.endsWith(')') || clean.endsWith(':') || clean.endsWith('-')
+        ? clean
+        : `${clean}.`;
+      rawSegments[i + 1] = `${bullet} ${rawSegments[i + 1]}`.trim();
+      continue;
+    }
+    result.push(seg);
+  }
+
+  return result;
+};
+
+// Utility to re-merge orphaned numeral rows (e.g. a card with just "1" followed by a card with the text)
+// back into a single unified action row ("1. அடர்த்தியான காட்டில்...")
+export const healOrphanedNumeralItems = (
+  items: TamilScriptItem[]
+): { items: TamilScriptItem[]; healedCount: number } => {
+  const newItems: TamilScriptItem[] = [];
+  let healedCount = 0;
+
+  const isNumeralBullet = (raw: string) => {
+    const clean = (raw || '').replace(/<[^>]+>/g, '').replace(/[\s\u00A0]+/g, ' ').trim();
+    return /^(\(?\d{1,4}[\.\)\:\-]?|\(?[a-zA-Z][\.\)\:\-]?|\(?[ivxIVX]{1,5}[\.\)\:\-]?)$/.test(clean);
+  };
+
+  for (let i = 0; i < items.length; i++) {
+    const current = items[i];
+    const text = (current.leftAction || current.rawText || '').trim();
+    const isAction = current.column === 'left' || current.type === 'action' || (!current.rightDialogue && (current.leftAction || current.rawText));
+    const isLoneNumeral = isAction && isNumeralBullet(text);
+
+    if (isLoneNumeral && i + 1 < items.length) {
+      const next = items[i + 1];
+      const nextText = (next.leftAction || next.rawText || '').trim();
+      const nextIsAction = next.column === 'left' || next.type === 'action' || (!next.rightDialogue && (next.leftAction || next.rawText));
+      const nextIsLoneNumeral = isNumeralBullet(nextText);
+
+      if (nextIsAction && !nextIsLoneNumeral && nextText.length > 0) {
+        // Merge numeral into next action block
+        const clean = text.replace(/<[^>]+>/g, '').trim();
+        const bullet = clean.endsWith('.') || clean.endsWith(')') || clean.endsWith(':') || clean.endsWith('-')
+          ? clean
+          : `${clean}.`;
+        const mergedText = `${bullet} ${nextText}`.trim();
+        newItems.push({
+          ...next,
+          leftAction: mergedText,
+          rawText: mergedText,
+        });
+        healedCount++;
+        i++; // skip next since it's merged
+        continue;
+      }
+    }
+
+    newItems.push(current);
+  }
+
+  return { items: newItems, healedCount };
 };
 
 // Paper Dimensions in CSS pixels (96 DPI standard: 1 inch = 96px, 1mm = 3.7795px)

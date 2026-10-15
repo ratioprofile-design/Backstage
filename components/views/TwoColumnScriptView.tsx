@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback, useDeferredValue } from 'react';
 import { useProject } from '../../context/ProjectContext';
 import { ProductionDocument, ViewMode, Beat } from '../../types';
 import { syncBreakdownToDepartmentsAndContinuity } from '../../utils/breakdownSync';
@@ -27,6 +27,8 @@ import {
   paginateTwoColumnScript,
   TwoColumnPage,
   TwoColumnPageElement,
+  splitActionTextIntoShots,
+  healOrphanedNumeralItems,
 } from '../../services/twoColumnPaginator';
 import { parseUniversalFile } from '../../services/documentParser';
 import { ScriptCharacterInput, SceneCharactersDropdown } from '../ScriptCharacterInput';
@@ -50,6 +52,7 @@ import {
   FileDown,
   Loader2,
   Save,
+  Cloud,
   Plus,
   Trash2,
   ZoomIn,
@@ -59,6 +62,7 @@ import {
   Settings,
   Layers,
   Scissors,
+  Combine,
   FileText,
   Printer,
   X,
@@ -306,7 +310,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
   const [selectedDocId, setSelectedDocId] = useState<string>(() => {
     if (initialDocumentId) return initialDocumentId;
     if (typeof localStorage !== 'undefined') {
-      const activeTwoCol = localStorage.getItem('active_two_column_doc_id');
+      const activeTwoCol = localStorage.getItem('active_two_column_doc_id') || localStorage.getItem('backstage_last_vault_doc_id');
       if (activeTwoCol && documents.some((d) => d.id === activeTwoCol)) {
         return activeTwoCol;
       }
@@ -493,6 +497,8 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
   const [isExportingDocx, setIsExportingDocx] = useState<boolean>(false);
   const [isExportingPdf, setIsExportingPdf] = useState<boolean>(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState<boolean>(false);
+  const [isExportMenuOpen, setIsExportMenuOpen] = useState<boolean>(false);
+  const exportMenuRef = useRef<HTMLDivElement | null>(null);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState<boolean>(false);
   const [isAutoSaving, setIsAutoSaving] = useState<boolean>(false);
   const [lastSavedAt, setLastSavedAt] = useState<Date | null>(new Date());
@@ -522,6 +528,41 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
   const [isFindReplaceOpen, setIsFindReplaceOpen] = useState<boolean>(false);
   const [showReplaceByDefault, setShowReplaceByDefault] = useState<boolean>(false);
   const [isShortcutsModalOpen, setIsShortcutsModalOpen] = useState<boolean>(false);
+  const canvasScrollerRef = useRef<HTMLDivElement | null>(null);
+
+  // Mouse Drag / Marquee Block Selection State
+  const [marqueeBox, setMarqueeBox] = useState<{
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+  } | null>(null);
+  const marqueeDragStateRef = useRef<{
+    startX: number;
+    startY: number;
+    isDragging: boolean;
+    initialSelected: Set<string>;
+  } | null>(null);
+
+  // Restore scroll position & last viewed scene on mount
+  useEffect(() => {
+    try {
+      const savedScene = localStorage.getItem('backstage_last_twocol_scene_id');
+      const savedScroll = localStorage.getItem('backstage_last_twocol_scroll_top');
+      if (savedScene) {
+        setActiveSceneId(savedScene);
+      }
+      if (savedScroll && canvasScrollerRef.current) {
+        setTimeout(() => {
+          if (canvasScrollerRef.current) {
+            canvasScrollerRef.current.scrollTop = parseInt(savedScroll, 10);
+          }
+        }, 150);
+      }
+    } catch (e) {
+      console.warn('Could not restore twocol scroll position:', e);
+    }
+  }, [selectedDocId]);
 
   // Undo & Redo History Management (fast & lightweight, capped at 50 states)
   const undoStackRef = useRef<TamilScreenplayData[]>([]);
@@ -576,7 +617,12 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
   }, [screenplayData]);
 
   useEffect(() => {
-    const handleClose = () => setActiveDropdown(null);
+    const handleClose = (e: MouseEvent) => {
+      setActiveDropdown(null);
+      if (exportMenuRef.current && !exportMenuRef.current.contains(e.target as Node)) {
+        setIsExportMenuOpen(false);
+      }
+    };
     window.addEventListener('click', handleClose);
     return () => window.removeEventListener('click', handleClose);
   }, []);
@@ -639,7 +685,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
   }, [screenplayData]);
 
   // All known characters across the screenplay (with custom approved + excluded filter)
-  const allKnownCharacters = useMemo(() => {
+  const rawAllKnownCharacters = useMemo(() => {
     const set = new Set<string>();
     customApprovedCharacters.forEach((c) => {
       if (c && !excludedCharacters.has(c)) set.add(c);
@@ -666,6 +712,16 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
     });
     return Array.from(set).sort();
   }, [screenplayData, customApprovedCharacters, excludedCharacters]);
+
+  const allKnownCharactersRef = useRef<string[]>([]);
+  const allKnownCharacters = useMemo(() => {
+    const prev = allKnownCharactersRef.current;
+    if (prev.length === rawAllKnownCharacters.length && prev.every((v, i) => v === rawAllKnownCharacters[i])) {
+      return prev;
+    }
+    allKnownCharactersRef.current = rawAllKnownCharacters;
+    return rawAllKnownCharacters;
+  }, [rawAllKnownCharacters]);
 
   // All known times across the screenplay + presets
   const allKnownTimes = useMemo(() => {
@@ -898,10 +954,13 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
     }
   };
 
+  // Defer heavy script pagination so active typing receives 100% main thread priority
+  const deferredScreenplayData = useDeferredValue(screenplayData);
+
   // Run Dedicated Pagination Engine
   const paginationResult = useMemo(() => {
-    return paginateTwoColumnScript(screenplayData, layoutOptions);
-  }, [screenplayData, layoutOptions]);
+    return paginateTwoColumnScript(deferredScreenplayData, layoutOptions);
+  }, [deferredScreenplayData, layoutOptions]);
 
   const { pages, totalPages, totalItems, totalScenes } = paginationResult;
 
@@ -921,6 +980,9 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
   // Handle scene selection from sidebar (smooth scrolls canvas directly to scene)
   const handleSelectScene = (sceneId: string, pageNumber?: number) => {
     setActiveSceneId(sceneId);
+    try {
+      localStorage.setItem('backstage_last_twocol_scene_id', sceneId);
+    } catch {}
     if (pageViewMode === 'single' && pageNumber) {
       setCurrentSinglePage(pageNumber);
     }
@@ -971,8 +1033,8 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
     showToast('📍 Jumped to character occurrence in script');
   };
 
-  // Flatten all items for selection utilities
-  const { allItemIds, orderedItemIds } = useMemo(() => {
+  // Flatten all items for selection utilities (stabilized across text edits)
+  const rawItemIds = useMemo(() => {
     const set = new Set<string>();
     const list: string[] = [];
     screenplayData.scenes.forEach((sc) => {
@@ -984,8 +1046,21 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
     return { allItemIds: set, orderedItemIds: list };
   }, [screenplayData]);
 
+  const stableItemIdsRef = useRef(rawItemIds);
+  const { allItemIds, orderedItemIds } = useMemo(() => {
+    const prev = stableItemIdsRef.current;
+    if (
+      prev.orderedItemIds.length === rawItemIds.orderedItemIds.length &&
+      prev.orderedItemIds.every((id, idx) => id === rawItemIds.orderedItemIds[idx])
+    ) {
+      return prev;
+    }
+    stableItemIdsRef.current = rawItemIds;
+    return rawItemIds;
+  }, [rawItemIds]);
+
   // Handle paragraph selection (supports Cmd+Click multiselect, Shift+Click range, and normal click)
-  const handleParagraphClick = (itemId: string, e?: React.MouseEvent) => {
+  const handleParagraphClick = useCallback((itemId: string, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
 
     // Case 1: Multi-select with Cmd (Mac) or Ctrl (Windows)
@@ -1020,15 +1095,10 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
       }
     }
 
-    // Case 3: Standard single click on card body (select ONLY this block, or toggle off if already single-selected)
-    setSelectedItemIds((prev) => {
-      if (prev.size === 1 && prev.has(itemId)) {
-        return new Set();
-      }
-      return new Set([itemId]);
-    });
+    // Case 3: Standard single click on card body (select this block)
+    setSelectedItemIds(new Set([itemId]));
     setLastSelectedId(itemId);
-  };
+  }, [orderedItemIds, lastSelectedId]);
 
   // Select all paragraphs
   const handleSelectAll = () => {
@@ -1132,14 +1202,14 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
   }, [selectedItemIds, screenplayData, pushToUndoHistory, showToast]);
 
   // Direct in-place text update
-  const handleUpdateItemText = (itemId: string, newText: string) => {
+  const handleUpdateItemText = useCallback((itemId: string, newText: string) => {
     const now = Date.now();
     localDirtyItemIdsRef.current.set(itemId, now);
     localDeletedItemIdsRef.current.delete(itemId);
 
     // Check if text actually changed before pushing undo
     let hasChanged = false;
-    for (const sc of screenplayData.scenes) {
+    for (const sc of screenplayDataRef.current.scenes) {
       const it = sc.items.find((i) => i.id === itemId);
       if (it) {
         const cur = it.column === 'left' ? it.leftAction : it.column === 'right' ? it.rightDialogue : it.rawText;
@@ -1150,7 +1220,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
     if (hasChanged) {
       // Record undo checkpoint at start of typing burst or after 1.5s pause
       if (activeTypingItemIdRef.current !== itemId || now - lastTypingUndoTimeRef.current > 1500) {
-        pushToUndoHistory(screenplayData);
+        pushToUndoHistory(screenplayDataRef.current);
         activeTypingItemIdRef.current = itemId;
         lastTypingUndoTimeRef.current = now;
       }
@@ -1188,38 +1258,44 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
     }
 
     setScreenplayData((prev) => {
+      const targetScene = prev.scenes.find((sc) => sc.items.some((it) => it.id === itemId));
+      if (!targetScene) return prev;
+
       const next = {
         ...prev,
-        scenes: prev.scenes.map((sc) => ({
-          ...sc,
-          items: sc.items.map((it) => {
-            if (it.id === itemId) {
-              return {
-                ...it,
-                updatedAt: now,
-                rawText: newText,
-                leftAction: it.column === 'left' ? newText : it.leftAction,
-                rightDialogue: it.column === 'right' ? newText : it.rightDialogue,
-              };
-            }
-            return it;
-          }),
-        })),
+        scenes: prev.scenes.map((sc) => {
+          if (sc.id !== targetScene.id) return sc;
+          return {
+            ...sc,
+            items: sc.items.map((it) => {
+              if (it.id === itemId) {
+                return {
+                  ...it,
+                  updatedAt: now,
+                  rawText: newText,
+                  leftAction: it.column === 'left' ? newText : it.leftAction,
+                  rightDialogue: it.column === 'right' ? newText : it.rightDialogue,
+                };
+              }
+              return it;
+            }),
+          };
+        }),
       };
       screenplayDataRef.current = next;
       return next;
     });
     setHasUnsavedChanges(true);
-  };
+  }, [pushToUndoHistory]);
 
   // Direct in-place character update
-  const handleUpdateItemCharacter = (itemId: string, newChar: string) => {
+  const handleUpdateItemCharacter = useCallback((itemId: string, newChar: string) => {
     const now = Date.now();
     localDirtyItemIdsRef.current.set(itemId, now);
     localDeletedItemIdsRef.current.delete(itemId);
 
     let hasChanged = false;
-    for (const sc of screenplayData.scenes) {
+    for (const sc of screenplayDataRef.current.scenes) {
       const it = sc.items.find((i) => i.id === itemId);
       if (it && (it.rightCharacter || '') !== newChar) {
         hasChanged = true;
@@ -1227,22 +1303,28 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
       }
     }
     if (hasChanged) {
-      pushToUndoHistory(screenplayData);
+      pushToUndoHistory(screenplayDataRef.current);
     }
 
     setScreenplayData((prev) => {
+      const targetScene = prev.scenes.find((sc) => sc.items.some((it) => it.id === itemId));
+      if (!targetScene) return prev;
+
       const next = {
         ...prev,
-        scenes: prev.scenes.map((sc) => ({
-          ...sc,
-          items: sc.items.map((it) => (it.id === itemId ? { ...it, rightCharacter: newChar, updatedAt: now } : it)),
-        })),
+        scenes: prev.scenes.map((sc) => {
+          if (sc.id !== targetScene.id) return sc;
+          return {
+            ...sc,
+            items: sc.items.map((it) => (it.id === itemId ? { ...it, rightCharacter: newChar, updatedAt: now } : it)),
+          };
+        }),
       };
       screenplayDataRef.current = next;
       return next;
     });
     setHasUnsavedChanges(true);
-  };
+  }, [pushToUndoHistory]);
 
   // Character Auto-Suggestion Names Management Handlers
   const handleBatchRenameCharacter = (oldName: string, newName: string) => {
@@ -1451,11 +1533,11 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
   };
 
   // Toggle Bold for single or selected items
-  const handleToggleItemBold = (itemId: string) => {
-    pushToUndoHistory(screenplayData);
+  const handleToggleItemBold = useCallback((itemId: string) => {
+    pushToUndoHistory(screenplayDataRef.current);
     const ids = selectedItemIds.has(itemId) && selectedItemIds.size > 1 ? selectedItemIds : new Set([itemId]);
     let firstState: boolean | undefined = undefined;
-    for (const sc of screenplayData.scenes) {
+    for (const sc of screenplayDataRef.current.scenes) {
       for (const it of sc.items) {
         if (ids.has(it.id)) {
           if (firstState === undefined) firstState = !!it.isBold;
@@ -1472,14 +1554,14 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
     }));
     setHasUnsavedChanges(true);
     showToast(nextBold ? `✓ Bold applied to ${ids.size} block(s)` : `Bold removed from ${ids.size} block(s)`);
-  };
+  }, [selectedItemIds, pushToUndoHistory, showToast]);
 
   // Toggle Italic for single or selected items
-  const handleToggleItemItalic = (itemId: string) => {
-    pushToUndoHistory(screenplayData);
+  const handleToggleItemItalic = useCallback((itemId: string) => {
+    pushToUndoHistory(screenplayDataRef.current);
     const ids = selectedItemIds.has(itemId) && selectedItemIds.size > 1 ? selectedItemIds : new Set([itemId]);
     let firstState: boolean | undefined = undefined;
-    for (const sc of screenplayData.scenes) {
+    for (const sc of screenplayDataRef.current.scenes) {
       for (const it of sc.items) {
         if (ids.has(it.id)) {
           if (firstState === undefined) firstState = !!it.isItalic;
@@ -1496,11 +1578,11 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
     }));
     setHasUnsavedChanges(true);
     showToast(nextItalic ? `✓ Italic applied to ${ids.size} block(s)` : `Italic removed from ${ids.size} block(s)`);
-  };
+  }, [selectedItemIds, pushToUndoHistory, showToast]);
 
   // Convert/set block to Montage
-  const handleSetMontage = (itemId: string) => {
-    pushToUndoHistory(screenplayData);
+  const handleSetMontage = useCallback((itemId: string) => {
+    pushToUndoHistory(screenplayDataRef.current);
     setScreenplayData((prev) => ({
       ...prev,
       scenes: prev.scenes.map((sc) => ({
@@ -1519,7 +1601,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
     }));
     setHasUnsavedChanges(true);
     showToast('✓ Set to மாண்டேஜ் (MONTAGE)');
-  };
+  }, [pushToUndoHistory, showToast]);
 
   // Smart Scene Number Calculation (Kollywood & Industry Standard)
   const calculateSmartSceneNumber = (
@@ -2112,7 +2194,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
   };
 
   // Split paragraph into separate lines/blocks on Enter or Alt+Click
-  const handleSplitParagraph = (
+  const handleSplitParagraph = useCallback((
     itemId: string,
     beforeOrOffset?: number | string,
     afterOrFullText?: string
@@ -2123,7 +2205,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
     localDirtyItemIdsRef.current.set(newItemId, now);
     localDeletedItemIdsRef.current.delete(newItemId);
 
-    pushToUndoHistory(screenplayData);
+    pushToUndoHistory(screenplayDataRef.current);
 
     setScreenplayData((prev) => {
       let itemFound = false;
@@ -2222,7 +2304,488 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
       }
     };
     setTimeout(() => attemptFocus(), 40);
-  };
+  }, [pushToUndoHistory]);
+
+  // Split single action block at commas (and optional dot) into separate single-shot paragraphs
+  const handleSplitActionItemByComma = useCallback((itemId: string, customText?: string) => {
+    const now = Date.now();
+    pushToUndoHistory(screenplayData);
+    let splitCount = 0;
+
+    setScreenplayData((prev) => {
+      let changed = false;
+      const nextScenes = prev.scenes.map((scene) => {
+        const itemIdx = scene.items.findIndex((it) => it.id === itemId);
+        if (itemIdx === -1) return scene;
+
+        const currentItem = scene.items[itemIdx];
+        const raw = customText !== undefined ? customText : (currentItem.leftAction || currentItem.rawText || '');
+        const segments = splitActionTextIntoShots(raw, {
+          includeComma: true,
+          includeDot: !!layoutOptions.splitActionIncludeDot,
+        });
+
+        if (segments.length <= 1) return scene;
+
+        changed = true;
+        splitCount = segments.length;
+        const newItems: TamilScriptItem[] = segments.map((seg, idx) => {
+          const id = idx === 0 ? currentItem.id : `item-${now}-${idx}-${Math.random().toString(36).substring(2, 7)}`;
+          localDirtyItemIdsRef.current.set(id, now);
+          return {
+            ...currentItem,
+            id,
+            column: 'left',
+            type: 'action',
+            leftAction: seg,
+            rawText: seg,
+            rightDialogue: undefined,
+            rightCharacter: undefined,
+            updatedAt: now,
+          };
+        });
+
+        const updatedItems = [...scene.items];
+        updatedItems.splice(itemIdx, 1, ...newItems);
+        const { items: healedItems } = healOrphanedNumeralItems(updatedItems);
+
+        return {
+          ...scene,
+          items: healedItems,
+        };
+      });
+
+      if (!changed) return prev;
+      const next = { ...prev, scenes: nextScenes };
+      screenplayDataRef.current = next;
+      return next;
+    });
+
+    setHasUnsavedChanges(true);
+    if (splitCount > 1) {
+      showToast(`✓ Split into ${splitCount} single shot paragraphs`);
+    }
+  }, [screenplayData, layoutOptions.splitActionIncludeDot, pushToUndoHistory, showToast]);
+
+  // Split all comma/dot separated action blocks across the entire script into distinct shot paragraphs
+  const handleSplitAllActionsByComma = useCallback(() => {
+    const now = Date.now();
+    pushToUndoHistory(screenplayData);
+    let totalSplits = 0;
+    let newShotsCreated = 0;
+
+    setScreenplayData((prev) => {
+      let changed = false;
+      const nextScenes = prev.scenes.map((scene) => {
+        const newItems: TamilScriptItem[] = [];
+
+        scene.items.forEach((item) => {
+          const isAction = item.column === 'left' || item.type === 'action' || (!item.rightDialogue && (item.leftAction || item.rawText));
+          const text = (item.leftAction || item.rawText || '').trim();
+
+          const hasComma = text.includes(',') || text.includes('،') || text.includes('，');
+          const hasDot = layoutOptions.splitActionIncludeDot && text.includes('.');
+
+          if (isAction && (hasComma || hasDot)) {
+            const segments = splitActionTextIntoShots(text, {
+              includeComma: true,
+              includeDot: !!layoutOptions.splitActionIncludeDot,
+            });
+
+            if (segments.length > 1) {
+              changed = true;
+              totalSplits++;
+              newShotsCreated += segments.length;
+              segments.forEach((seg, idx) => {
+                const id = idx === 0 ? item.id : `item-${now}-${idx}-${Math.random().toString(36).substring(2, 7)}`;
+                localDirtyItemIdsRef.current.set(id, now);
+                newItems.push({
+                  ...item,
+                  id,
+                  column: 'left',
+                  type: 'action',
+                  leftAction: seg,
+                  rawText: seg,
+                  rightDialogue: undefined,
+                  rightCharacter: undefined,
+                  updatedAt: now,
+                });
+              });
+              return;
+            }
+          }
+
+          newItems.push(item);
+        });
+
+        const { items: healedItems } = healOrphanedNumeralItems(newItems);
+
+        return {
+          ...scene,
+          items: healedItems,
+        };
+      });
+
+      if (!changed) return prev;
+      const next = { ...prev, scenes: nextScenes };
+      screenplayDataRef.current = next;
+      return next;
+    });
+
+    setHasUnsavedChanges(true);
+    if (totalSplits > 0) {
+      showToast(`✓ Split ${totalSplits} action blocks into ${newShotsCreated} single shot paragraphs!`);
+    } else {
+      showToast('No comma/dot separated action blocks found to split.');
+    }
+  }, [screenplayData, layoutOptions.splitActionIncludeDot, pushToUndoHistory, showToast]);
+
+  // Split only the currently highlighted action paragraphs by comma (and optional dot)
+  const handleSplitSelectedActionsByComma = useCallback(() => {
+    if (selectedItemIds.size === 0) return;
+    const now = Date.now();
+    pushToUndoHistory(screenplayData);
+    let totalSplits = 0;
+    let newShotsCreated = 0;
+
+    setScreenplayData((prev) => {
+      let changed = false;
+      const nextScenes = prev.scenes.map((scene) => {
+        const newItems: TamilScriptItem[] = [];
+
+        scene.items.forEach((item) => {
+          const isSelected = selectedItemIds.has(item.id);
+          const isAction = item.column === 'left' || item.type === 'action' || (!item.rightDialogue && (item.leftAction || item.rawText));
+          const text = (item.leftAction || item.rawText || '').trim();
+
+          const hasComma = text.includes(',') || text.includes('،') || text.includes('，');
+          const hasDot = layoutOptions.splitActionIncludeDot && text.includes('.');
+
+          if (isSelected && isAction && (hasComma || hasDot)) {
+            const segments = splitActionTextIntoShots(text, {
+              includeComma: true,
+              includeDot: !!layoutOptions.splitActionIncludeDot,
+            });
+
+            if (segments.length > 1) {
+              changed = true;
+              totalSplits++;
+              newShotsCreated += segments.length;
+              segments.forEach((seg, idx) => {
+                const id = idx === 0 ? item.id : `item-${now}-${idx}-${Math.random().toString(36).substring(2, 7)}`;
+                localDirtyItemIdsRef.current.set(id, now);
+                newItems.push({
+                  ...item,
+                  id,
+                  column: 'left',
+                  type: 'action',
+                  leftAction: seg,
+                  rawText: seg,
+                  rightDialogue: undefined,
+                  rightCharacter: undefined,
+                  updatedAt: now,
+                });
+              });
+              return;
+            }
+          }
+
+          newItems.push(item);
+        });
+
+        const { items: healedItems } = healOrphanedNumeralItems(newItems);
+
+        return {
+          ...scene,
+          items: healedItems,
+        };
+      });
+
+      if (!changed) return prev;
+      const next = { ...prev, scenes: nextScenes };
+      screenplayDataRef.current = next;
+      return next;
+    });
+
+    setHasUnsavedChanges(true);
+    if (totalSplits > 0) {
+      showToast(`✓ Split ${totalSplits} action blocks into ${newShotsCreated} single shot paragraphs!`);
+    } else {
+      showToast('No comma/dot separated action blocks selected to split.');
+    }
+  }, [selectedItemIds, screenplayData, layoutOptions.splitActionIncludeDot, pushToUndoHistory, showToast]);
+
+  // Re-merge orphaned numeral rows (e.g. "1" followed by the description) back together into single unified action rows
+  const handleHealNumeralLists = useCallback(() => {
+    const now = Date.now();
+    pushToUndoHistory(screenplayData);
+    let totalHealed = 0;
+
+    setScreenplayData((prev) => {
+      let changed = false;
+      const nextScenes = prev.scenes.map((scene) => {
+        const { items: healedItems, healedCount } = healOrphanedNumeralItems(scene.items);
+        if (healedCount > 0) {
+          changed = true;
+          totalHealed += healedCount;
+          healedItems.forEach((it) => {
+            localDirtyItemIdsRef.current.set(it.id, now);
+          });
+          return {
+            ...scene,
+            items: healedItems,
+          };
+        }
+        return scene;
+      });
+
+      if (!changed) return prev;
+      const next = { ...prev, scenes: nextScenes };
+      screenplayDataRef.current = next;
+      return next;
+    });
+
+    setHasUnsavedChanges(true);
+    if (totalHealed > 0) {
+      showToast(`✓ Re-merged ${totalHealed} numeral list items with their action blocks!`);
+    } else {
+      showToast('No orphaned numeral list items detected.');
+    }
+  }, [screenplayData, pushToUndoHistory, showToast]);
+
+  // Detect if any scenes contain orphaned numeral list items
+  const orphanedNumeralCount = useMemo(() => {
+    let count = 0;
+    const isNumeralBullet = (raw: string) => {
+      const clean = (raw || '').replace(/<[^>]+>/g, '').replace(/[\s\u00A0]+/g, ' ').trim();
+      return /^(\(?\d{1,4}[\.\)\:\-]?|\(?[a-zA-Z][\.\)\:\-]?|\(?[ivxIVX]{1,5}[\.\)\:\-]?)$/.test(clean);
+    };
+    (screenplayData.scenes || []).forEach((scene) => {
+      for (let i = 0; i < (scene.items || []).length - 1; i++) {
+        const cur = scene.items[i];
+        const curText = (cur.leftAction || cur.rawText || '').trim();
+        const curIsAction = cur.column === 'left' || cur.type === 'action' || (!cur.rightDialogue && (cur.leftAction || cur.rawText));
+        if (curIsAction && isNumeralBullet(curText)) {
+          const next = scene.items[i + 1];
+          const nextText = (next.leftAction || next.rawText || '').trim();
+          const nextIsAction = next.column === 'left' || next.type === 'action' || (!next.rightDialogue && (next.leftAction || next.rawText));
+          if (nextIsAction && !isNumeralBullet(nextText) && nextText.length > 0) {
+            count++;
+          }
+        }
+      }
+    });
+    return count;
+  }, [screenplayData]);
+
+  // Merge multiple selected action (or dialogue) blocks into a single unified paragraph
+  // (Fixes accidental comma splits or combines multiple shots into one paragraph)
+  const handleMergeSelectedActionParagraphs = useCallback(() => {
+    if (selectedItemIds.size <= 1) {
+      showToast('Select 2 or more blocks to merge them into one paragraph.');
+      return;
+    }
+    const now = Date.now();
+    pushToUndoHistory(screenplayData);
+
+    let totalMerged = 0;
+    let targetItemId: string | null = null;
+
+    setScreenplayData((prev) => {
+      let changed = false;
+
+      const nextScenes = prev.scenes.map((scene) => {
+        // Collect selected items in this scene in reading order
+        const selectedInScene = scene.items.filter((it) => selectedItemIds.has(it.id));
+        if (selectedInScene.length <= 1) return scene;
+
+        changed = true;
+        totalMerged += selectedInScene.length;
+
+        const firstItem = selectedInScene[0];
+        targetItemId = firstItem.id;
+        const absorbedIds = new Set(selectedInScene.slice(1).map((it) => it.id));
+
+        const isAction = selectedInScene.every(
+          (it) => it.column === 'left' || it.type === 'action' || (!it.rightDialogue && (it.leftAction || it.rawText))
+        );
+
+        let mergedText = '';
+        if (isAction) {
+          const actionTexts = selectedInScene
+            .map((it, idx) => {
+              let t = (it.leftAction || it.rawText || '').trim();
+              // Strip accidental trailing comma at merge boundaries to fix comma slips
+              if (idx < selectedInScene.length - 1) {
+                t = t.replace(/[,，\u060C]+$/, '').trim();
+              }
+              return t;
+            })
+            .filter(Boolean);
+          mergedText = actionTexts.join(' ').replace(/\s+/g, ' ').trim();
+        } else {
+          const texts = selectedInScene
+            .map((it, idx) => {
+              let t = (it.column === 'right' ? it.rightDialogue : it.leftAction || it.rawText || '').trim();
+              if (idx < selectedInScene.length - 1) {
+                t = t.replace(/[,，\u060C]+$/, '').trim();
+              }
+              return t;
+            })
+            .filter(Boolean);
+          mergedText = texts.join(' ').replace(/\s+/g, ' ').trim();
+        }
+
+        const updatedFirstItem: TamilScriptItem = {
+          ...firstItem,
+          leftAction: isAction ? mergedText : (firstItem.column === 'left' ? mergedText : firstItem.leftAction),
+          rawText: mergedText,
+          rightDialogue: !isAction && firstItem.column === 'right' ? mergedText : firstItem.rightDialogue,
+          updatedAt: now,
+        };
+
+        localDirtyItemIdsRef.current.set(firstItem.id, now);
+        absorbedIds.forEach((id) => {
+          localDeletedItemIdsRef.current.add(id);
+        });
+
+        const newItems: TamilScriptItem[] = [];
+        scene.items.forEach((it) => {
+          if (it.id === firstItem.id) {
+            newItems.push(updatedFirstItem);
+          } else if (!absorbedIds.has(it.id)) {
+            newItems.push(it);
+          }
+        });
+
+        return {
+          ...scene,
+          items: newItems,
+        };
+      });
+
+      if (!changed) return prev;
+      const next = { ...prev, scenes: nextScenes };
+      screenplayDataRef.current = next;
+      return next;
+    });
+
+    setHasUnsavedChanges(true);
+
+    if (totalMerged > 1) {
+      if (targetItemId) {
+        setSelectedItemIds(new Set([targetItemId]));
+      }
+      showToast(`✓ Merged ${totalMerged} blocks into 1 unified paragraph!`);
+    } else {
+      showToast('Selected blocks must belong to the same scene to merge.');
+    }
+  }, [selectedItemIds, screenplayData, pushToUndoHistory, showToast]);
+
+  // Mouse Drag / Marquee Multi-Block Selection
+  const handleCanvasMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    // Only primary left mouse button
+    if (e.button !== 0) return;
+
+    const target = e.target as HTMLElement;
+    // Don't hijack clicks on buttons, inputs, dropdowns, links, or drag handles
+    if (target.closest('button, input, select, textarea, a, [data-drag-handle], [role="menu"]')) {
+      return;
+    }
+
+    // If clicking directly into an editable text element without Shift or Alt, let standard caret placement work
+    const isInsideEditable = Boolean(target.closest('[contenteditable="true"]'));
+    if (isInsideEditable && !e.shiftKey && !e.altKey) {
+      return;
+    }
+
+    const isAccumulative = e.shiftKey || e.ctrlKey || e.metaKey;
+    marqueeDragStateRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      isDragging: false,
+      initialSelected: isAccumulative ? new Set(selectedItemIds) : new Set(),
+    };
+
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      const state = marqueeDragStateRef.current;
+      if (!state) return;
+
+      const dx = moveEvent.clientX - state.startX;
+      const dy = moveEvent.clientY - state.startY;
+
+      // Check drag movement threshold (5px)
+      if (!state.isDragging) {
+        if (Math.hypot(dx, dy) < 5) return;
+        state.isDragging = true;
+        document.body.style.userSelect = 'none';
+      }
+
+      const left = Math.min(state.startX, moveEvent.clientX);
+      const top = Math.min(state.startY, moveEvent.clientY);
+      const width = Math.abs(dx);
+      const height = Math.abs(dy);
+
+      setMarqueeBox({ left, top, width, height });
+
+      // Auto-scroll when near top or bottom edges of canvasScroller
+      if (canvasScrollerRef.current) {
+        const scrollerRect = canvasScrollerRef.current.getBoundingClientRect();
+        if (moveEvent.clientY < scrollerRect.top + 50) {
+          canvasScrollerRef.current.scrollTop -= 14;
+        } else if (moveEvent.clientY > scrollerRect.bottom - 50) {
+          canvasScrollerRef.current.scrollTop += 14;
+        }
+      }
+
+      // Hit-test all script row cards with data-item-row-id
+      const boxRect = {
+        left,
+        top,
+        right: left + width,
+        bottom: top + height,
+      };
+
+      const rows = document.querySelectorAll('[data-item-row-id]');
+      const candidateSelection = new Set<string>(state.initialSelected);
+
+      rows.forEach((row) => {
+        const r = row.getBoundingClientRect();
+        const overlaps = !(
+          r.right < boxRect.left ||
+          r.left > boxRect.right ||
+          r.bottom < boxRect.top ||
+          r.top > boxRect.bottom
+        );
+        if (overlaps) {
+          const rowId = row.getAttribute('data-item-row-id');
+          if (rowId) candidateSelection.add(rowId);
+        }
+      });
+
+      setSelectedItemIds(candidateSelection);
+    };
+
+    const handleMouseUp = () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+      document.body.style.userSelect = '';
+
+      const state = marqueeDragStateRef.current;
+      if (state) {
+        // If it was just a plain click without dragging and not accumulative, deselect
+        if (!state.isDragging && !isAccumulative && !isInsideEditable) {
+          setSelectedItemIds(new Set());
+        }
+      }
+
+      setMarqueeBox(null);
+      marqueeDragStateRef.current = null;
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+  }, [selectedItemIds]);
 
   // Focus item for keyboard editing
   const focusScriptItem = (
@@ -2257,6 +2820,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
       }
 
       if (targetEl) {
+        targetEl.dispatchEvent(new CustomEvent('start-edit', { bubbles: true, detail: { caretPosition } }));
         targetEl.focus();
         if (targetEl instanceof HTMLInputElement) {
           if (caretPosition === 'start') {
@@ -2265,7 +2829,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
             const len = targetEl.value.length;
             targetEl.setSelectionRange(len, len);
           }
-        } else if (targetEl.isContentEditable) {
+        } else {
           const sel = window.getSelection();
           if (sel) {
             const range = document.createRange();
@@ -2523,6 +3087,17 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
             return;
           }
         }
+      }
+
+      // MERGE SELECTED PARAGRAPHS: Alt + M or Shift + M (when 2 or more blocks are selected)
+      if (
+        ((e.altKey && e.key.toLowerCase() === 'm') ||
+         (!isInputFocused && e.shiftKey && e.key.toLowerCase() === 'm')) &&
+        selectedItemIds.size > 1
+      ) {
+        e.preventDefault();
+        handleMergeSelectedActionParagraphs();
+        return;
       }
 
       // 12. NON-INPUT NAVIGATION & SELECTION (ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Enter, Esc, Delete, Home, End)
@@ -2876,13 +3451,12 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
       } catch (e) {}
     }
 
-    // Trigger Cloud Project Sync so all collaborators receive the 2-column script!
-    projectContext.setHasUnsavedChanges?.(true);
-    if (projectContext.isCloudMode) {
-      projectContext.saveProject?.();
-    }
-
+    // Trigger Cloud Project Sync on manual save (Cmd+S / Save button)
     if (isManual) {
+      projectContext.setHasUnsavedChanges?.(true);
+      if (projectContext.isCloudMode) {
+        projectContext.saveProject?.();
+      }
       confetti({ particleCount: 25, spread: 50, origin: { y: 0.8 } });
       showToast('✓ Saved 2-Column Screenplay & Synced with Collaborators!');
     }
@@ -2966,6 +3540,9 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
   // Real-time synchronization from remote collaborators
   useEffect(() => {
     const handleDocsUpdated = (e: any) => {
+      if (e.detail?.senderInstanceId && e.detail.senderInstanceId === clientInstanceIdRef.current) {
+        return;
+      }
       const incoming = Array.isArray(e.detail) 
         ? e.detail 
         : (e.detail?.docs && Array.isArray(e.detail.docs) ? e.detail.docs : null);
@@ -3201,12 +3778,12 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
       {/* =========================================================================
           TOP COMMAND NAVBAR
          ========================================================================= */}
-      <header className={`px-4 py-2 border-b flex items-center justify-between gap-3 shrink-0 shadow-xs z-30 overflow-x-auto ${
+      <header className={`px-4 py-2 border-b flex items-center justify-between gap-3 shrink-0 shadow-xs z-30 ${
         isLight ? 'bg-white border-slate-200 text-slate-800' : 'bg-[#121217] border-zinc-800/90 text-zinc-100'
       }`}>
         {/* Left: Studio Brand, Document Title & Scenes / Find triggers */}
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2.5">
+          <div className="flex items-center gap-2">
             <span className={`p-1.5 rounded-lg border shrink-0 ${
               isLight
                 ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
@@ -3261,7 +3838,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
                       e.currentTarget.blur();
                     }
                   }}
-                  className={`text-sm font-bold bg-transparent px-1.5 py-0.5 -ml-1.5 rounded-md border border-transparent transition-all outline-none truncate max-w-[180px] sm:max-w-[280px] md:max-w-[360px] ${
+                  className={`text-sm font-bold bg-transparent px-1.5 py-0.5 -ml-1.5 rounded-md border border-transparent transition-all outline-none truncate max-w-[150px] sm:max-w-[220px] md:max-w-[280px] ${
                     isLight
                       ? 'hover:border-slate-300 focus:border-emerald-500 focus:bg-white text-slate-800'
                       : 'hover:border-zinc-700 focus:border-emerald-500 focus:bg-zinc-900 text-zinc-100'
@@ -3356,7 +3933,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
           {/* Scenes Sidebar Toggle */}
           <button
             onClick={() => setIsSceneSidebarOpen(!isSceneSidebarOpen)}
-            className={`px-2.5 py-1.5 text-xs font-semibold rounded-lg border flex items-center gap-1.5 transition-all cursor-pointer ${
+            className={`px-2 py-1.5 text-xs font-semibold rounded-lg border flex items-center gap-1.5 transition-all cursor-pointer ${
               isSceneSidebarOpen
                 ? 'bg-emerald-600 text-white border-emerald-500 shadow-xs'
                 : isLight
@@ -3366,7 +3943,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
             title="Toggle Scene Cards Navigator (Left side)"
           >
             <PanelLeft size={13} className={isSceneSidebarOpen ? 'text-white' : isLight ? 'text-emerald-600' : 'text-emerald-400'} />
-            <span>Scenes</span>
+            <span className="hidden md:inline">Scenes</span>
             <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono font-bold ${
               isSceneSidebarOpen
                 ? 'bg-black/30 text-white'
@@ -3384,27 +3961,22 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
               setIsFindReplaceOpen(true);
               setShowReplaceByDefault(false);
             }}
-            className={`px-2.5 py-1.5 text-xs font-semibold rounded-lg border flex items-center gap-1.5 transition-all cursor-pointer ${
+            className={`px-2 py-1.5 text-xs font-semibold rounded-lg border flex items-center gap-1.5 transition-all cursor-pointer ${
               isLight
                 ? 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'
                 : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border-zinc-700/60'
             }`}
-            title="Advanced Find & Replace in script (Cmd+F / Ctrl+F)"
+            title="Find & Replace in script (Cmd+F / Ctrl+F)"
           >
             <Search size={13} className={isLight ? 'text-amber-600' : 'text-amber-400'} />
-            <span>Find</span>
-            <span className={`hidden xl:inline text-[9.5px] font-mono px-1 py-0.2 rounded border ${
-              isLight
-                ? 'bg-white text-slate-600 border-slate-200'
-                : 'bg-black/40 text-zinc-400 border-zinc-700'
-            }`}>⌘F</span>
+            <span className="hidden lg:inline">Find</span>
           </button>
 
           {/* Back to Vault Button */}
           {onNavigateToView && (
             <button
               onClick={() => onNavigateToView('documents')}
-              className={`px-2.5 py-1.5 text-xs font-semibold rounded-lg border flex items-center gap-1.5 transition-all cursor-pointer ${
+              className={`px-2 py-1.5 text-xs font-semibold rounded-lg border flex items-center gap-1.5 transition-all cursor-pointer ${
                 isLight
                   ? 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'
                   : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border-zinc-700/60'
@@ -3412,41 +3984,22 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
               title="Return to Document Vault"
             >
               <Folder size={13} className="text-amber-400" />
-              <span>Vault</span>
+              <span className="hidden xl:inline">Vault</span>
             </button>
           )}
         </div>
 
-        {/* Right: Zoom controls, Undo/Redo, Shortcuts, Format & Style, Export Actions */}
+        {/* Center: Add Scene, Undo/Redo & Zoom Controls */}
         <div className="flex items-center gap-2">
-          {/* Zoom controls */}
-          <div className={`flex items-center gap-0.5 border rounded-lg p-0.5 ${
-            isLight ? 'bg-slate-100/80 border-slate-200' : 'bg-zinc-900 border-zinc-800'
-          }`}>
-            <button
-              onClick={() => setZoomLevel((z) => Math.max(70, z - 10))}
-              className={`p-1 rounded cursor-pointer ${
-                isLight ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-200' : 'text-zinc-400 hover:text-white'
-              }`}
-              title="Zoom out"
-            >
-              <ZoomOut size={12} />
-            </button>
-            <span className={`text-[11px] font-mono px-1.5 ${
-              isLight ? 'text-slate-800 font-semibold' : 'text-zinc-300'
-            }`}>{zoomLevel}%</span>
-            <button
-              onClick={() => setZoomLevel((z) => Math.min(150, z + 10))}
-              className={`p-1 rounded cursor-pointer ${
-                isLight ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-200' : 'text-zinc-400 hover:text-white'
-              }`}
-              title="Zoom in"
-            >
-              <ZoomIn size={12} />
-            </button>
-          </div>
-
-          <div className={`w-[1px] h-5 mx-0.5 hidden sm:block ${isLight ? 'bg-slate-200' : 'bg-zinc-700/60'}`} />
+          {/* Add Scene Button */}
+          <button
+            onClick={() => handleInsertScene(undefined, 'end')}
+            className="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-black font-extrabold text-xs flex items-center gap-1.5 shadow-sm transition-all cursor-pointer hover:scale-105 active:scale-95"
+            title="Add a new scene on a fresh page"
+          >
+            <Plus size={14} className="stroke-[3]" />
+            <span>Add Scene</span>
+          </button>
 
           {/* Undo & Redo History Controls */}
           <div
@@ -3476,36 +4029,37 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
             </button>
           </div>
 
-          <div className={`w-[1px] h-5 mx-0.5 hidden sm:block ${isLight ? 'bg-slate-200' : 'bg-zinc-700/60'}`} />
+          {/* Zoom controls */}
+          <div className={`hidden lg:flex items-center gap-0.5 border rounded-lg p-0.5 ${
+            isLight ? 'bg-slate-100/80 border-slate-200' : 'bg-zinc-900 border-zinc-800'
+          }`}>
+            <button
+              onClick={() => setZoomLevel((z) => Math.max(70, z - 10))}
+              className={`p-1 rounded cursor-pointer ${
+                isLight ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-200' : 'text-zinc-400 hover:text-white'
+              }`}
+              title="Zoom out"
+            >
+              <ZoomOut size={12} />
+            </button>
+            <span className={`text-[11px] font-mono px-1.5 ${
+              isLight ? 'text-slate-800 font-semibold' : 'text-zinc-300'
+            }`}>{zoomLevel}%</span>
+            <button
+              onClick={() => setZoomLevel((z) => Math.min(150, z + 10))}
+              className={`p-1 rounded cursor-pointer ${
+                isLight ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-200' : 'text-zinc-400 hover:text-white'
+              }`}
+              title="Zoom in"
+            >
+              <ZoomIn size={12} />
+            </button>
+          </div>
+        </div>
 
-          {/* Keyboard Shortcuts Cheatsheet */}
-          <button
-            onClick={() => setIsShortcutsModalOpen(true)}
-            className={`px-2.5 py-1.5 text-xs font-semibold rounded-lg border flex items-center gap-1.5 transition-all cursor-pointer ${
-              isLight
-                ? 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'
-                : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border-zinc-700/60'
-            }`}
-            title="Keyboard Shortcuts Cheatsheet (? / F1)"
-          >
-            <Keyboard size={13} className={isLight ? 'text-slate-500' : 'text-zinc-400'} />
-            <span className="hidden sm:inline">Shortcuts</span>
-            <span className={`text-[9.5px] font-mono px-1 py-0.2 rounded border ${
-              isLight ? 'bg-white text-slate-500 border-slate-200' : 'bg-black/40 text-zinc-400 border-zinc-700'
-            }`}>?</span>
-          </button>
-
-          {/* Add Scene Button */}
-          <button
-            onClick={() => handleInsertScene(undefined, 'end')}
-            className="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-black font-extrabold text-xs flex items-center gap-1.5 shadow-sm transition-all cursor-pointer hover:scale-105 active:scale-95"
-            title="Add a new scene on a fresh page"
-          >
-            <Plus size={14} className="stroke-[3]" />
-            <span>Add Scene</span>
-          </button>
-
-          {/* 15-Category Production Breakdown Drawer Toggle */}
+        {/* Right: Breakdown, Style, Export Dropdown, Unified Cloud Status, Shortcuts */}
+        <div className="flex items-center gap-2">
+          {/* Breakdown Drawer Toggle */}
           <button
             onClick={() => {
               setIsBreakdownDrawerOpen(!isBreakdownDrawerOpen);
@@ -3525,10 +4079,10 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
                 ? 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'
                 : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border-zinc-700/60'
             }`}
-            title="Open 15-Category Production Breakdown Drawer"
+            title="Open Production Breakdown Drawer"
           >
             <ListChecks size={13} className={isBreakdownDrawerOpen ? 'text-amber-500' : isLight ? 'text-slate-500' : 'text-zinc-400'} />
-            <span>15-Category Breakdown</span>
+            <span className="hidden sm:inline">Breakdown</span>
             {totalTwoColumnBreakdownItems > 0 && (
               <span
                 className="text-[9.5px] font-mono font-bold px-1.5 py-0.2 rounded-full"
@@ -3559,96 +4113,152 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
             title="Open Margins, Gaps & Font Styling Drawer"
           >
             <Sliders size={13} className={isStyleDrawerOpen ? 'text-amber-500' : isLight ? 'text-slate-500' : 'text-zinc-400'} />
-            <span>Format & Style</span>
+            <span className="hidden sm:inline">Style</span>
           </button>
 
-          {/* Download Word (.docx) */}
-          <button
-            onClick={handleDownloadWordDocx}
-            disabled={isExportingDocx}
-            className={`px-2.5 py-1.5 rounded-lg border text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-50 ${
-              isLight
-                ? 'bg-emerald-50 hover:bg-emerald-100/80 text-emerald-800 border-emerald-200/90'
-                : 'bg-emerald-950/40 hover:bg-emerald-900/50 text-emerald-300 border-emerald-800/50'
-            }`}
-            title="Download formatted 2-column Word document"
-          >
-            <Download size={13} className="text-emerald-500" />
-            <span>{isExportingDocx ? 'Exporting...' : 'Word (.docx)'}</span>
-          </button>
+          {/* Consolidated Export Dropdown Menu */}
+          <div className="relative" ref={exportMenuRef}>
+            <button
+              onClick={() => setIsExportMenuOpen(!isExportMenuOpen)}
+              className={`px-2.5 py-1.5 rounded-lg border text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
+                isExportMenuOpen
+                  ? 'bg-emerald-500 text-black border-emerald-400 shadow-sm'
+                  : isLight
+                  ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-200/90'
+                  : 'bg-emerald-950/40 hover:bg-emerald-900/50 text-emerald-300 border-emerald-800/50'
+              }`}
+              title="Export Screenplay (PDF, Word docx, Print)"
+            >
+              <FileDown size={13} className={isExportMenuOpen ? 'text-black' : 'text-emerald-500'} />
+              <span>Export</span>
+              <ChevronDown size={11} className={`transition-transform duration-200 ${isExportMenuOpen ? 'rotate-180' : ''}`} />
+            </button>
 
-          {/* Export PDF */}
-          <button
-            onClick={() => setIsExportModalOpen(true)}
-            className={`px-3 py-1.5 rounded-lg border text-xs font-semibold flex items-center gap-1.5 transition-all shadow-xs cursor-pointer ${
-              isLight
-                ? 'bg-slate-900 hover:bg-slate-800 text-white border-slate-800'
-                : 'bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border-rose-500/30'
-            }`}
-            title="Open 2-Column Script PDF Export Studio & Preview"
-          >
-            <FileDown size={13} className={isLight ? 'text-white' : 'text-rose-400'} />
-            <span>Export PDF</span>
-          </button>
+            {isExportMenuOpen && (
+              <div className={`absolute right-0 top-full mt-1.5 w-64 rounded-xl border shadow-2xl p-1.5 z-50 flex flex-col gap-1 backdrop-blur-md animate-in fade-in zoom-in-95 duration-100 ${
+                isLight ? 'bg-white/95 border-slate-200 text-slate-800 shadow-[0_12px_32px_rgba(0,0,0,0.12)]' : 'bg-zinc-950/95 border-zinc-800 text-zinc-100 shadow-2xl'
+              }`}>
+                <button
+                  onClick={() => {
+                    setIsExportMenuOpen(false);
+                    setIsExportModalOpen(true);
+                  }}
+                  className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-left text-xs font-medium transition-colors cursor-pointer ${
+                    isLight ? 'hover:bg-slate-100 text-slate-800' : 'hover:bg-zinc-800 text-zinc-100'
+                  }`}
+                >
+                  <div className="p-1.5 rounded-md bg-rose-500/10 text-rose-500">
+                    <FileDown size={15} />
+                  </div>
+                  <div>
+                    <div className="font-bold">Export PDF Studio</div>
+                    <div className={`text-[10px] ${isLight ? 'text-slate-500' : 'text-zinc-400'}`}>Preview & customize 2-column PDF</div>
+                  </div>
+                </button>
 
-          {/* Live Auto-Save Status & Manual Save Button */}
+                <button
+                  onClick={() => {
+                    setIsExportMenuOpen(false);
+                    handleDownloadWordDocx();
+                  }}
+                  disabled={isExportingDocx}
+                  className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-left text-xs font-medium transition-colors cursor-pointer disabled:opacity-50 ${
+                    isLight ? 'hover:bg-slate-100 text-slate-800' : 'hover:bg-zinc-800 text-zinc-100'
+                  }`}
+                >
+                  <div className="p-1.5 rounded-md bg-emerald-500/10 text-emerald-500">
+                    <Download size={15} />
+                  </div>
+                  <div>
+                    <div className="font-bold">{isExportingDocx ? 'Exporting...' : 'Word (.docx)'}</div>
+                    <div className={`text-[10px] ${isLight ? 'text-slate-500' : 'text-zinc-400'}`}>Tamil 2-column Word document</div>
+                  </div>
+                </button>
+
+                <div className={`h-[1px] my-0.5 ${isLight ? 'bg-slate-200' : 'bg-zinc-800'}`} />
+
+                <button
+                  onClick={() => {
+                    setIsExportMenuOpen(false);
+                    printTwoColumnVector(screenplayData);
+                  }}
+                  className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-left text-xs font-medium transition-colors cursor-pointer ${
+                    isLight ? 'hover:bg-slate-100 text-slate-800' : 'hover:bg-zinc-800 text-zinc-100'
+                  }`}
+                >
+                  <div className="p-1.5 rounded-md bg-sky-500/10 text-sky-500">
+                    <Printer size={15} />
+                  </div>
+                  <div>
+                    <div className="font-bold">Print Screenplay</div>
+                    <div className={`text-[10px] ${isLight ? 'text-slate-500' : 'text-zinc-400'}`}>Browser native vector print</div>
+                  </div>
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Unified Cloud Status & Manual Save Button */}
           <button
             onClick={() => saveToVault(true)}
-            className={`px-2.5 py-1.5 rounded-lg font-semibold text-xs flex items-center gap-1.5 border transition-all cursor-pointer ${
+            className={`px-2.5 py-1.5 rounded-lg border text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
               isAutoSaving
                 ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30 animate-pulse'
                 : hasUnsavedChanges
                 ? 'bg-amber-500 text-black border-amber-600 hover:bg-amber-400 shadow-xs'
                 : isLight
-                ? 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'
-                : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border-zinc-700/60'
+                ? 'bg-emerald-50/80 hover:bg-emerald-100 text-emerald-700 border-emerald-200/80'
+                : 'bg-emerald-950/25 hover:bg-emerald-900/40 text-emerald-300 border-emerald-800/40'
             }`}
             title={
               isAutoSaving
-                ? 'Auto-saving changes to Vault in background...'
+                ? 'Auto-saving changes to Vault & Cloud...'
                 : hasUnsavedChanges
-                ? 'Changes detected (click to save to Vault)'
-                : `Saved to Vault (${lastSavedAt ? lastSavedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Live'})`
+                ? 'Changes detected (Click to Save Now)'
+                : `Synced to Cloud (${lastSavedAt ? lastSavedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Live'}) • Click to force save`
             }
           >
             {isAutoSaving ? (
               <>
-                <Loader2 size={13} className="animate-spin text-amber-500" />
-                <span>Saving...</span>
+                <Loader2 size={12} className="animate-spin text-amber-500 shrink-0" />
+                <span className="text-[11px] font-bold">Syncing...</span>
               </>
             ) : hasUnsavedChanges ? (
               <>
-                <Save size={13} />
-                <span>Save</span>
+                <Save size={12} className="text-black shrink-0" />
+                <span className="text-[11px] font-bold">Save Now</span>
               </>
             ) : (
               <>
-                <Check size={13} className="stroke-[2.5] text-emerald-500" />
-                <span className="text-zinc-400 dark:text-zinc-400">Saved</span>
+                <span className="relative flex h-2 w-2 shrink-0">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                </span>
+                <span className="text-[11px] font-bold hidden sm:inline">Synced</span>
               </>
             )}
           </button>
 
-          {/* Print (Native Browser Vector Print Engine) */}
+          {/* Keyboard Shortcuts Cheatsheet */}
           <button
-            onClick={() => printTwoColumnVector(screenplayData)}
-            className={`p-1.5 rounded-lg transition-colors cursor-pointer border ${
+            onClick={() => setIsShortcutsModalOpen(true)}
+            className={`p-1.5 rounded-lg border flex items-center justify-center transition-all cursor-pointer ${
               isLight
-                ? 'hover:bg-slate-100 text-slate-600 hover:text-slate-900 border-slate-200'
-                : 'hover:bg-zinc-800 text-zinc-400 hover:text-white border-zinc-700/60'
+                ? 'bg-slate-50 hover:bg-slate-100 text-slate-600 border-slate-200'
+                : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border-zinc-700/60'
             }`}
-            title="Print Script (Vector Engine)"
+            title="Keyboard Shortcuts Cheatsheet (? / F1)"
           >
-            <Printer size={14} />
+            <Keyboard size={14} className={isLight ? 'text-slate-500' : 'text-zinc-400'} />
           </button>
         </div>
       </header>
 
       {/* =========================================================================
-          FLOATING SELECTION TOOLBAR (Subtle & compact)
+          FLOATING SELECTION TOOLBAR (Fixed Overlay HUD - Never shifts screen position)
          ========================================================================= */}
       {selectedCount > 0 && (
-        <div className="sticky top-2 z-40 mx-auto w-fit max-w-[90vw] px-2 animate-in fade-in slide-in-from-top-1 duration-150">
+        <div className="fixed top-14 left-1/2 -translate-x-1/2 z-50 w-fit max-w-[90vw] px-2 pointer-events-auto animate-in fade-in slide-in-from-top-1 duration-150 drop-shadow-2xl">
           <div
             className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border shadow-md backdrop-blur-md transition-all text-xs ${
               isLight
@@ -3705,6 +4315,36 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
                 <ArrowRight size={10} className="text-sky-500" />
               </button>
             </div>
+
+            {/* Comma Shot Splitter Button for Selected Action Blocks */}
+            <button
+              onClick={handleSplitSelectedActionsByComma}
+              className={`px-2 py-0.5 rounded text-[11px] font-medium flex items-center gap-1 transition-colors cursor-pointer border ${
+                isLight
+                  ? 'bg-amber-50/80 border-amber-200/80 text-amber-800 hover:bg-amber-100'
+                  : 'bg-amber-500/15 border-amber-500/30 text-amber-300 hover:bg-amber-500/25'
+              }`}
+              title="Split highlighted action blocks at commas/dots into single shot paragraphs (, or . = end of shot)"
+            >
+              <Scissors size={10} className="text-amber-500" />
+              <span>Split Shots</span>
+            </button>
+
+            {/* Merge Selected Blocks Button (fixes accidental comma slips or combines blocks) */}
+            {selectedCount > 1 && (
+              <button
+                onClick={handleMergeSelectedActionParagraphs}
+                className={`px-2 py-0.5 rounded text-[11px] font-semibold flex items-center gap-1 transition-colors cursor-pointer border ${
+                  isLight
+                    ? 'bg-emerald-50 border-emerald-300 text-emerald-800 hover:bg-emerald-100 shadow-xs'
+                    : 'bg-emerald-500/20 border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/30 shadow-xs'
+                }`}
+                title="Merge selected blocks into 1 single paragraph [Alt+M] (fixes accidental comma slip)"
+              >
+                <Combine size={10} className="text-emerald-500" />
+                <span>Merge ({selectedCount})</span>
+              </button>
+            )}
 
             <div className={`w-[1px] h-3.5 ${isLight ? 'bg-slate-200' : 'bg-zinc-800'}`} />
 
@@ -3835,6 +4475,24 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
         </div>
       )}
 
+      {/* Marquee Drag-Selection Box */}
+      {marqueeBox && (
+        <div
+          className="fixed pointer-events-none z-50 rounded-lg border border-amber-500/80 bg-amber-500/20 shadow-lg backdrop-blur-xs transition-none"
+          style={{
+            left: `${marqueeBox.left}px`,
+            top: `${marqueeBox.top}px`,
+            width: `${marqueeBox.width}px`,
+            height: `${marqueeBox.height}px`,
+            boxShadow: '0 0 16px rgba(245, 166, 35, 0.35)',
+          }}
+        >
+          <div className="absolute top-1 left-1.5 px-1.5 py-0.5 rounded text-[9.5px] font-mono font-bold bg-amber-500 text-black shadow-xs">
+            {selectedItemIds.size > 0 ? `${selectedItemIds.size} selected` : 'Drag to Select'}
+          </div>
+        </div>
+      )}
+
       {/* =========================================================================
           MAIN WORKSPACE: SCRIPT CANVAS & FORMAT DRAWER
          ========================================================================= */}
@@ -3871,7 +4529,42 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
         {/* =====================================================================
             PAGINATED SCRIPT SHEETS CANVAS
            ===================================================================== */}
-        <div className="flex-1 overflow-y-auto px-6 py-8 flex flex-col items-center">
+        <div
+          ref={canvasScrollerRef}
+          onMouseDown={handleCanvasMouseDown}
+          onScroll={(e) => {
+            try {
+              localStorage.setItem('backstage_last_twocol_scroll_top', String(e.currentTarget.scrollTop));
+            } catch {}
+          }}
+          className="flex-1 overflow-y-auto px-6 py-8 flex flex-col items-center"
+        >
+          {/* Automatic Helper Banner: Split Numeral Items Detected */}
+          {orphanedNumeralCount > 0 && (
+            <div className="w-full max-w-[794px] mb-4 p-3.5 rounded-xl border bg-gradient-to-r from-amber-500/15 via-sky-500/10 to-amber-500/15 border-amber-500/30 flex flex-wrap items-center justify-between gap-3 shadow-xl backdrop-blur-md animate-in fade-in slide-in-from-top-2">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-lg bg-amber-500/20 text-amber-500 shrink-0">
+                  <Sparkles size={18} />
+                </div>
+                <div>
+                  <div className={`text-xs font-bold ${isLight ? 'text-amber-950' : 'text-amber-200'}`}>
+                    Split Numeral List Items Detected ({orphanedNumeralCount})
+                  </div>
+                  <div className={`text-[11px] ${isLight ? 'text-amber-800' : 'text-amber-400/90'}`}>
+                    Standalone numbers (1, 2, 3...) were separated from their action shots. Click to re-merge them back together.
+                  </div>
+                </div>
+              </div>
+              <button
+                onClick={handleHealNumeralLists}
+                className="px-3.5 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-black text-xs font-bold flex items-center gap-1.5 shadow-md transition-all cursor-pointer shrink-0"
+              >
+                <Sparkles size={13} />
+                <span>Fix & Re-merge Numeral Lists Now</span>
+              </button>
+            </div>
+          )}
+
           <div
             style={{ transform: `scale(${zoomLevel / 100})`, transformOrigin: 'top center' }}
             className={`flex ${pageViewMode === 'spread' ? 'flex-row flex-wrap justify-center gap-8' : 'flex-col gap-10'} items-center pb-24 transition-transform`}
@@ -3916,7 +4609,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
                   contentVisibility: pageViewMode === 'stacked' ? 'auto' : undefined,
                   containIntrinsicSize: pageViewMode === 'stacked' ? `${page.widthPx}px ${page.heightPx}px` : undefined,
                 }}
-                className={`relative shadow-2xl rounded-xs transition-all border flex flex-col justify-between ${
+                className={`relative shadow-2xl rounded-xs transition-colors duration-200 border flex flex-col justify-between ${
                   isLight
                     ? 'bg-white text-zinc-900 border-slate-300'
                     : 'bg-[#18181c] text-zinc-100 border-zinc-800'
@@ -4193,6 +4886,9 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
                         onFocusNextRow={handleFocusNextRow}
                         onFocusPrevRow={handleFocusPrevRow}
                         onEscapeToCard={handleEscapeToCard}
+                        splitActionByComma={layoutOptions.splitActionByComma}
+                        splitActionIncludeDot={layoutOptions.splitActionIncludeDot}
+                        onSplitActionByComma={handleSplitActionItemByComma}
                         showToast={showToast}
                       />
                     );
@@ -4842,6 +5538,123 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
                     </button>
                   ))}
                 </div>
+              </div>
+            </div>
+
+            {/* Action Shots Split by Comma & Dot (Single Shot per Paragraph) */}
+            <div className={`space-y-3 pt-3 border-t ${isLight ? 'border-slate-200' : 'border-zinc-800'}`}>
+              <div className="flex items-center justify-between">
+                <label className={`text-xs font-bold font-mono uppercase ${isLight ? 'text-slate-500' : 'text-zinc-400'}`}>
+                  Action Shots (Single Shot per Paragraph)
+                </label>
+                <span className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded ${
+                  layoutOptions.splitActionByComma
+                    ? (isLight ? 'bg-amber-100 text-amber-800' : 'bg-amber-500/20 text-amber-300')
+                    : (isLight ? 'bg-slate-100 text-slate-500' : 'bg-zinc-800 text-zinc-500')
+                }`}>
+                  {layoutOptions.splitActionByComma ? 'ENABLED' : 'OFF (Default)'}
+                </span>
+              </div>
+              <p className={`text-[11px] leading-tight ${isLight ? 'text-slate-600' : 'text-zinc-400'}`}>
+                In the Action column (காட்சி), each comma represents the end of a shot. Enable to split action blocks into individual single-shot paragraphs.
+              </p>
+
+              <div className="space-y-2">
+                {/* 1. Comma Split Toggle (Default OFF) */}
+                <label className={`flex items-center justify-between p-2 rounded-lg border cursor-pointer transition-colors ${
+                  layoutOptions.splitActionByComma
+                    ? (isLight ? 'bg-amber-50 border-amber-300 text-amber-900' : 'bg-amber-500/10 border-amber-500/40 text-amber-300')
+                    : (isLight ? 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100' : 'bg-zinc-900/60 border-zinc-800 text-zinc-300 hover:bg-zinc-800/60')
+                }`}>
+                  <div>
+                    <div className="text-xs font-bold">Split Action Blocks by Comma ( , )</div>
+                    <div className="text-[10px] opacity-70">Each comma creates a new single-shot paragraph</div>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={!!layoutOptions.splitActionByComma}
+                    onChange={(e) => {
+                      const enabled = e.target.checked;
+                      setLayoutOptions((prev) => ({ ...prev, splitActionByComma: enabled }));
+                      try {
+                        localStorage.setItem('user_pref_two_col_split_comma', String(enabled));
+                      } catch {}
+                      setHasUnsavedChanges(true);
+                    }}
+                    className="accent-amber-500 cursor-pointer w-4 h-4 ml-2"
+                  />
+                </label>
+
+                {/* 2. Optional Dot Split Toggle (Default OFF) */}
+                <label className={`flex items-center justify-between p-2 rounded-lg border cursor-pointer transition-colors ${
+                  layoutOptions.splitActionIncludeDot
+                    ? (isLight ? 'bg-amber-50 border-amber-300 text-amber-900' : 'bg-amber-500/10 border-amber-500/40 text-amber-300')
+                    : (isLight ? 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100' : 'bg-zinc-900/60 border-zinc-800 text-zinc-300 hover:bg-zinc-800/60')
+                }`}>
+                  <div>
+                    <div className="text-xs font-bold">Also Split on Period / Dot ( . ) (Optional)</div>
+                    <div className="text-[10px] opacity-70">Treat full stops as shot boundaries</div>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={!!layoutOptions.splitActionIncludeDot}
+                    onChange={(e) => {
+                      const enabled = e.target.checked;
+                      setLayoutOptions((prev) => ({ ...prev, splitActionIncludeDot: enabled }));
+                      try {
+                        localStorage.setItem('user_pref_two_col_split_dot', String(enabled));
+                      } catch {}
+                      setHasUnsavedChanges(true);
+                    }}
+                    className="accent-amber-500 cursor-pointer w-4 h-4 ml-2"
+                  />
+                </label>
+
+                {/* 3. Batch Split Action Blocks Button */}
+                <button
+                  type="button"
+                  onClick={handleSplitAllActionsByComma}
+                  className={`w-full py-1.5 px-3 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer border shadow-xs ${
+                    isLight
+                      ? 'bg-amber-500 hover:bg-amber-600 text-black border-amber-500'
+                      : 'bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-black border-amber-500/40'
+                  }`}
+                  title="Scan entire script and split all comma/dot separated action blocks into single shot paragraphs"
+                >
+                  <Scissors size={12} />
+                  <span>Split All Existing Action Blocks Now</span>
+                </button>
+
+                {/* 4. Fix / Re-merge Numeral Lists Button */}
+                <button
+                  type="button"
+                  onClick={handleHealNumeralLists}
+                  className={`w-full py-1.5 px-3 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer border shadow-xs ${
+                    isLight
+                      ? 'bg-sky-50 hover:bg-sky-100 text-sky-800 border-sky-300'
+                      : 'bg-sky-500/15 hover:bg-sky-500/25 text-sky-300 border-sky-500/35'
+                  }`}
+                  title="Recombine standalone numeral blocks (1, 2, 3...) back into their action shot paragraphs"
+                >
+                  <Sparkles size={12} className="text-sky-500" />
+                  <span>Re-merge / Fix Numeral Lists</span>
+                </button>
+
+                {/* 5. Merge Selected Blocks Button */}
+                <button
+                  type="button"
+                  disabled={selectedItemIds.size < 2}
+                  onClick={handleMergeSelectedActionParagraphs}
+                  className={`w-full py-1.5 px-3 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer border shadow-xs disabled:opacity-40 disabled:cursor-not-allowed ${
+                    isLight
+                      ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-300'
+                      : 'bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border-emerald-500/35'
+                  }`}
+                  title="Merge currently selected blocks into 1 single paragraph [Alt+M] (fixes accidental comma slip)"
+                >
+                  <Combine size={12} className="text-emerald-500" />
+                  <span>Merge Selected Blocks {selectedItemIds.size > 1 ? `(${selectedItemIds.size})` : ''}</span>
+                </button>
               </div>
             </div>
 

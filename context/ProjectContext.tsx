@@ -16,7 +16,13 @@ import { getProductionDocuments, saveProductionDocuments, mergeProductionDocumen
 import { saveLargeProject, loadLargeProject } from '../services/largeStorage';
 import { optimizeTalentForCloud } from '../services/imageOptimizer';
 
-const ProjectContext = createContext<ProjectContextType | undefined>(undefined);
+const ProjectContext = (typeof window !== 'undefined' && (window as any).__BACKSTAGE_PROJECT_CONTEXT__)
+  ? (window as any).__BACKSTAGE_PROJECT_CONTEXT__
+  : createContext<ProjectContextType | undefined>(undefined);
+
+if (typeof window !== 'undefined') {
+  (window as any).__BACKSTAGE_PROJECT_CONTEXT__ = ProjectContext;
+}
 
 // Generate a unique ID for this specific running instance (Web vs Electron)
 const INSTANCE_ID = Math.random().toString(36).substring(2, 15);
@@ -80,6 +86,8 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isInitialLoading, setIsInitialLoading] = useState(true);
+  const [isProjectLoading, setIsProjectLoading] = useState(false);
+  const [projectLoadingMessage, setProjectLoadingMessage] = useState<string>('');
   const [schemaError, setSchemaError] = useState<string | null>(null);
   const [cloudOffline, setCloudOffline] = useState(false);
   const [cloudSyncStatus, setCloudSyncStatus] = useState<CloudSyncStatus>({
@@ -290,13 +298,19 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const setAppTheme = useCallback((theme: 'dark' | 'light' | 'system', event?: any) => {
     const updateThemeState = () => {
       setAppThemeState(theme);
-      localStorage.setItem('app_theme', theme);
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('app_theme', theme);
+      }
 
       // Synchronize screenplay paperTheme when switching app theme
       // When switching to dark mode, paper style switches to dark mode
       // When switching to light mode, paper style switches to white
       const isDark = theme === 'dark' || (theme === 'system' && typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches);
       const targetPaper: 'dark' | 'white' = isDark ? 'dark' : 'white';
+
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('user_pref_paper_theme', targetPaper);
+      }
 
       setScriptConfig(prev => ({
         ...prev,
@@ -757,6 +771,10 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
           };
         }
       });
+      const userPaper = localStorage.getItem('user_pref_paper_theme');
+      if (userPaper && ['white', 'dark', 'sepia', 'red'].includes(userPaper)) {
+        preservedScriptConfig.paperTheme = userPaper as any;
+      }
     }
     setScriptConfig(preservedScriptConfig);
     setScriptViewMode(cleanData.scriptViewMode || INITIAL_STATE.scriptViewMode);
@@ -776,7 +794,15 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setCharacterDesignLocked(cleanData.characterDesignLocked ?? INITIAL_STATE.characterDesignLocked);
     setCollaborators(cleanData.collaborators || INITIAL_STATE.collaborators || []);
     setTalentPool(Array.isArray(cleanData.talentPool) ? cleanData.talentPool : INITIAL_STATE.talentPool || []);
-    if (cleanData.appTheme) setAppThemeState(cleanData.appTheme);
+    
+    // Preserve local user theme preference so polling/sync never overrides user's chosen theme
+    const localUserTheme = typeof localStorage !== 'undefined' ? (localStorage.getItem('app_theme') as 'dark' | 'light' | 'system' | null) : null;
+    if (localUserTheme) {
+      setAppThemeState(localUserTheme);
+    } else if (cleanData.appTheme) {
+      setAppThemeState(cleanData.appTheme);
+      if (typeof localStorage !== 'undefined') localStorage.setItem('app_theme', cleanData.appTheme);
+    }
     if (cleanData.appAccentColor) setAppAccentColorState(cleanData.appAccentColor);
     if (cleanData.appLanguage) setAppLanguageState(cleanData.appLanguage);
     if (cleanData.themeAnimationStyle) {
@@ -1137,82 +1163,96 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     let resolvedName = '';
     let isInvitedProj = false;
 
-    if (supabaseUser) {
-      try {
-        const data = await fetchProjectData(id);
-        const cleanData = data || INITIAL_STATE;
-        
-        resolvedName = data?._projectName || data?.projectName || data?.name || '';
-        isInvitedProj = Boolean(data?._ownerId && data._ownerId !== supabaseUser.id);
-
-        applyProjectState(cleanData, { targetProjectId: id });
-        syncDocumentsWithCloud(id, supabaseUser.id).catch(() => {});
-
-        // Auto-register current user as an active collaborator inside project metadata
-        const currentEmail = supabaseUser.email?.toLowerCase().trim();
-        if (currentEmail) {
-          const collabs = Array.isArray(cleanData.collaborators) ? [...cleanData.collaborators] : [];
-          if (!collabs.some((c: any) => c.email.toLowerCase() === currentEmail)) {
-            collabs.push({
-              email: currentEmail,
-              name: supabaseUser.user_metadata?.name || currentEmail.split('@')[0],
-              role: 'Collaborator',
-              editAccess: 'edit',
-              allowedPages: ['board', 'script', 'casting', 'storyboard', 'shotlist', 'production']
-            });
-            setCollaborators(collabs);
-            setHasUnsavedChanges(true);
-          }
-        }
-      } catch (err: any) {
-        if (err.code === '42P01') setSchemaError("TABLE_MISSING");
-        else if (err.code === '42703' || err.message?.includes('data')) setSchemaError("COLUMN_MISSING");
-        else if (!opts?.silent) applyProjectState(INITIAL_STATE);
-      }
-    } else {
-      let localState = null;
-      try {
-        const dataStr = localStorage.getItem(`project_data_${id}`);
-        if (dataStr) localState = JSON.parse(dataStr);
-      } catch (e) {}
-
-      if (!localState) {
-        try {
-          const idbState = await loadLargeProject(id);
-          if (idbState) localState = idbState;
-        } catch (e) {}
-      }
-
-      applyProjectState(localState || INITIAL_STATE, { targetProjectId: id });
-    }
-
-    if (!resolvedName) {
+    if (!opts?.silent) {
+      setIsProjectLoading(true);
       const existingInList = projectList.find(p => p.id === id);
-      resolvedName = existingInList?.name || localStorage.getItem(`project_name_${id}`) || 'Project';
-      isInvitedProj = Boolean(existingInList?.isInvited);
+      const knownName = existingInList?.name || localStorage.getItem(`project_name_${id}`) || 'Screenplay';
+      setProjectLoadingMessage(`Syncing "${knownName}" from Backstage Cloud...`);
     }
 
-    setCurrentProjectId(id);
-    setCurrentProjectName(resolvedName);
     try {
-      localStorage.setItem('currentProjectId', id);
-      localStorage.setItem('backstage_project_closed', 'false');
-    } catch {}
-    if (resolvedName) {
-      try {
-        localStorage.setItem(`project_name_${id}`, resolvedName);
-      } catch {}
-      setProjectList(prev => {
-        const existing = prev.find(p => p.id === id);
-        const updatedItem = existing
-          ? { ...existing, name: resolvedName, lastModified: Date.now(), isInvited: existing.isInvited ?? isInvitedProj }
-          : { id, name: resolvedName, lastModified: Date.now(), created: Date.now(), isInvited: isInvitedProj };
-        const nextList = [updatedItem, ...prev.filter(p => p.id !== id)];
+      if (supabaseUser) {
         try {
-          localStorage.setItem('projectList', JSON.stringify(nextList));
+          const data = await fetchProjectData(id);
+          const cleanData = data || INITIAL_STATE;
+          
+          resolvedName = data?._projectName || data?.projectName || data?.name || '';
+          isInvitedProj = Boolean(data?._ownerId && data._ownerId !== supabaseUser.id);
+
+          applyProjectState(cleanData, { targetProjectId: id });
+          syncDocumentsWithCloud(id, supabaseUser.id).catch(() => {});
+
+          // Auto-register current user as an active collaborator inside project metadata
+          const currentEmail = supabaseUser.email?.toLowerCase().trim();
+          if (currentEmail) {
+            const collabs = Array.isArray(cleanData.collaborators) ? [...cleanData.collaborators] : [];
+            if (!collabs.some((c: any) => c.email.toLowerCase() === currentEmail)) {
+              collabs.push({
+                email: currentEmail,
+                name: supabaseUser.user_metadata?.name || currentEmail.split('@')[0],
+                role: 'Collaborator',
+                editAccess: 'edit',
+                allowedPages: ['board', 'script', 'casting', 'storyboard', 'shotlist', 'production']
+              });
+              setCollaborators(collabs);
+              setHasUnsavedChanges(true);
+            }
+          }
+        } catch (err: any) {
+          if (err.code === '42P01') setSchemaError("TABLE_MISSING");
+          else if (err.code === '42703' || err.message?.includes('data')) setSchemaError("COLUMN_MISSING");
+          else if (!opts?.silent) applyProjectState(INITIAL_STATE);
+        }
+      } else {
+        let localState = null;
+        try {
+          const dataStr = localStorage.getItem(`project_data_${id}`);
+          if (dataStr) localState = JSON.parse(dataStr);
+        } catch (e) {}
+
+        if (!localState) {
+          try {
+            const idbState = await loadLargeProject(id);
+            if (idbState) localState = idbState;
+          } catch (e) {}
+        }
+
+        applyProjectState(localState || INITIAL_STATE, { targetProjectId: id });
+      }
+
+      if (!resolvedName) {
+        const existingInList = projectList.find(p => p.id === id);
+        resolvedName = existingInList?.name || localStorage.getItem(`project_name_${id}`) || 'Project';
+        isInvitedProj = Boolean(existingInList?.isInvited);
+      }
+
+      setCurrentProjectId(id);
+      setCurrentProjectName(resolvedName);
+      try {
+        localStorage.setItem('currentProjectId', id);
+        localStorage.setItem('backstage_project_closed', 'false');
+      } catch {}
+      if (resolvedName) {
+        try {
+          localStorage.setItem(`project_name_${id}`, resolvedName);
         } catch {}
-        return nextList;
-      });
+        setProjectList(prev => {
+          const existing = prev.find(p => p.id === id);
+          const updatedItem = existing
+            ? { ...existing, name: resolvedName, lastModified: Date.now(), isInvited: existing.isInvited ?? isInvitedProj }
+            : { id, name: resolvedName, lastModified: Date.now(), created: Date.now(), isInvited: isInvitedProj };
+          const nextList = [updatedItem, ...prev.filter(p => p.id !== id)];
+          try {
+            localStorage.setItem('projectList', JSON.stringify(nextList));
+          } catch {}
+          return nextList;
+        });
+      }
+    } finally {
+      if (!opts?.silent) {
+        setIsProjectLoading(false);
+        setProjectLoadingMessage('');
+      }
     }
   };
 
@@ -1302,6 +1342,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       characterDesignLocked,
       collaborators,
       talentPool,
+      appTheme,
       themeAnimationStyle,
       documents: currentDocs,
       lastInstanceId: INSTANCE_ID // Tag the update with this instance ID
@@ -1341,7 +1382,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
         const cloudPayload = {
           ...projectData,
-          talentPool: optimizedTalent,
+          talentPool: projectData.talentPool || talentPool,
           documents: sanitizedCloudDocs
         };
 
@@ -1976,7 +2017,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   }, []);
 
   const value: ProjectContextType = {
-    beats, groups, connections, annotations, characterData, generatedShots, scratchpad, globalNotes, panX, panY, scale, nextId, nextAnnoId, activeBoardId, isTamilMode, tamilFontScale, tamilFontFamily, userDictionary, isOsInputMode, osInputShortcut, scriptConfig, scriptViewMode, scratchpadConfig, storyboardConfig, isStoryboardFeatureEnabled,     breakdownLanguage, breakdownLockedOnly, isPdfDropEnabled, isRedoEnabled, writingGoal, geminiApiKey: '', openrouterKey, setOpenrouterKey, generalAiModel, setGeneralAiModel, dailyStats, sessionStartCount, lastSessionDate, boardLayerOrder, characterDesignLocked, setCharacterDesignLocked: setCharacterDesignLockedWrapped, appTheme, appAccentColor, appLanguage, currentUser, currentProjectId, projectList, hasUnsavedChanges, schemaError, isSaving, fileHandle, filePath, setFilePath, isInitialLoading, isCloudMode: !!supabaseUser, supabaseUser, cloudOffline, login, logout, selectProject, createProject, deleteProject, renameProject, closeProject, clearSchemaError: () => { setSchemaError(null); if (supabaseUser) refreshProjectList(supabaseUser.id); }, setBeats: setBeatsWrapped, setGroups: setGroupsWrapped, setConnections: setConnectionsWrapped, setAnnotations: setAnnotationsWrapped, setCharacterData: setCharacterDataWrapped, setGeneratedShots, setScratchpad: setScratchpadWrapped, setGlobalNotes: setGlobalNotesWrapped, updateGeneratedShot: (id, u) => { setGeneratedShots(p => p.map(s => s.id === id ? { ...s, ...u } : s)); setHasUnsavedChanges(true); }, addGeneratedShot: (i) => { const n = { id: `shot-${Date.now()}`, shotSize: 'WIDE', angle: 'EYE LEVEL', description: '', subject: '', scene: '?', imageHistory: [] }; const s = [...generatedShots]; s.splice(i + 1, 0, n); setGeneratedShots(s); captureSnapshot(); }, removeGeneratedShot: (id) => { setGeneratedShots(p => p.filter(s => s.id !== id)); captureSnapshot(); }, moveGeneratedShot: (f, t) => { const s = [...generatedShots]; const [m] = s.splice(f, 1); s.splice(t, 0, m); setGeneratedShots(s); captureSnapshot(); }, setPan: (x, y) => { setPanX(x); setPanY(y); }, setScale, updateBeat, addBeat, reorderBeats, addGroup: (g) => { const id = nextId; setNextId(p => p + 1); setGroups(p => [...p, { ...g, id, boardId: activeBoardId }]); captureSnapshot(); }, updateGroup: (id, u) => { setGroups(p => p.map(g => g.id === id ? { ...g, ...u } : g)); setHasUnsavedChanges(true); }, removeGroup: (id) => { setGroups(p => p.filter(g => g.id !== id)); captureSnapshot(); }, loadProject: applyProjectState, saveProject, saveProjectAs, setActiveBoardId, setTamilMode, setTamilFontScale, setTamilFontFamily: setTamilFontFamilyWrapped, learnTamilWord: (e, t) => { setUserDictionary(p => { const c = p[e.toLowerCase()] || []; if (!c.includes(t)) return { ...p, [e.toLowerCase()]: [t, ...c] }; return p; }); }, setOsInputMode, setOsInputShortcut, setScriptConfig: setScriptConfigWrapped, setScriptViewMode, setScratchpadConfig, setStoryboardConfig, setStoryboardFeatureEnabled, setAppTheme, setAppAccentColor, setAppLanguage, setBreakdownLanguage, setBreakdownLockedOnly, setPdfDropEnabled, setRedoEnabled, setWritingGoal, setGeminiApiKey: () => {}, setBoardLayerOrder, setNextId, undo, redo, canUndo: historyIndexRef.current > 0, canRedo: historyIndexRef.current < historyRef.current.length - 1, captureSnapshot, downloadProject, autoGenerate5Scenes, autoGenerateScenes,
+    beats, groups, connections, annotations, characterData, generatedShots, scratchpad, globalNotes, panX, panY, scale, nextId, nextAnnoId, activeBoardId, isTamilMode, tamilFontScale, tamilFontFamily, userDictionary, isOsInputMode, osInputShortcut, scriptConfig, scriptViewMode, scratchpadConfig, storyboardConfig, isStoryboardFeatureEnabled,     breakdownLanguage, breakdownLockedOnly, isPdfDropEnabled, isRedoEnabled, writingGoal, geminiApiKey: '', openrouterKey, setOpenrouterKey, generalAiModel, setGeneralAiModel, dailyStats, sessionStartCount, lastSessionDate, boardLayerOrder, characterDesignLocked, setCharacterDesignLocked: setCharacterDesignLockedWrapped, appTheme, appAccentColor, appLanguage, currentUser, currentProjectId, projectList, hasUnsavedChanges, schemaError, isSaving, fileHandle, filePath, setFilePath, isInitialLoading, isProjectLoading, projectLoadingMessage, isCloudMode: !!supabaseUser, supabaseUser, cloudOffline, login, logout, selectProject, createProject, deleteProject, renameProject, closeProject, clearSchemaError: () => { setSchemaError(null); if (supabaseUser) refreshProjectList(supabaseUser.id); }, setBeats: setBeatsWrapped, setGroups: setGroupsWrapped, setConnections: setConnectionsWrapped, setAnnotations: setAnnotationsWrapped, setCharacterData: setCharacterDataWrapped, setGeneratedShots, setScratchpad: setScratchpadWrapped, setGlobalNotes: setGlobalNotesWrapped, updateGeneratedShot: (id, u) => { setGeneratedShots(p => p.map(s => s.id === id ? { ...s, ...u } : s)); setHasUnsavedChanges(true); }, addGeneratedShot: (i) => { const n = { id: `shot-${Date.now()}`, shotSize: 'WIDE', angle: 'EYE LEVEL', description: '', subject: '', scene: '?', imageHistory: [] }; const s = [...generatedShots]; s.splice(i + 1, 0, n); setGeneratedShots(s); captureSnapshot(); }, removeGeneratedShot: (id) => { setGeneratedShots(p => p.filter(s => s.id !== id)); captureSnapshot(); }, moveGeneratedShot: (f, t) => { const s = [...generatedShots]; const [m] = s.splice(f, 1); s.splice(t, 0, m); setGeneratedShots(s); captureSnapshot(); }, setPan: (x, y) => { setPanX(x); setPanY(y); }, setScale, updateBeat, addBeat, reorderBeats, addGroup: (g) => { const id = nextId; setNextId(p => p + 1); setGroups(p => [...p, { ...g, id, boardId: activeBoardId }]); captureSnapshot(); }, updateGroup: (id, u) => { setGroups(p => p.map(g => g.id === id ? { ...g, ...u } : g)); setHasUnsavedChanges(true); }, removeGroup: (id) => { setGroups(p => p.filter(g => g.id !== id)); captureSnapshot(); }, loadProject: applyProjectState, saveProject, saveProjectAs, setActiveBoardId, setTamilMode, setTamilFontScale, setTamilFontFamily: setTamilFontFamilyWrapped, learnTamilWord: (e, t) => { setUserDictionary(p => { const c = p[e.toLowerCase()] || []; if (!c.includes(t)) return { ...p, [e.toLowerCase()]: [t, ...c] }; return p; }); }, setOsInputMode, setOsInputShortcut, setScriptConfig: setScriptConfigWrapped, setScriptViewMode, setScratchpadConfig, setStoryboardConfig, setStoryboardFeatureEnabled, setAppTheme, setAppAccentColor, setAppLanguage, setBreakdownLanguage, setBreakdownLockedOnly, setPdfDropEnabled, setRedoEnabled, setWritingGoal, setGeminiApiKey: () => {}, setBoardLayerOrder, setNextId, undo, redo, canUndo: historyIndexRef.current > 0, canRedo: historyIndexRef.current < historyRef.current.length - 1, captureSnapshot, downloadProject, autoGenerate5Scenes, autoGenerateScenes,
     userRole, updateUserRole, grokKey, setGrokKey,
     collaborators, setCollaborators: setCollaboratorsWrapped,
     talentPool, setTalentPool: setTalentPoolWrapped,
@@ -1991,11 +2032,140 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setHasUnsavedChanges
   };
 
+  if (typeof window !== 'undefined') {
+    (window as any).__BACKSTAGE_PROJECT_CONTEXT_VALUE__ = value;
+  }
+
   return <ProjectContext.Provider value={value}>{children}</ProjectContext.Provider>;
 };
 
-export const useProject = () => {
+const noop = () => {};
+const fallbackProjectContextValue: ProjectContextType = {
+  ...INITIAL_STATE,
+  currentUser: 'Default User',
+  currentProjectId: 'empty-project',
+  currentProjectName: 'My Screenplay',
+  isCurrentProjectShared: false,
+  projectList: [],
+  schemaError: null,
+  isCloudMode: false,
+  supabaseUser: null,
+  isSaving: false,
+  isInitialLoading: false,
+  isProjectLoading: false,
+  projectLoadingMessage: undefined,
+  cloudOffline: true,
+  userRole: ['writer'],
+  updateUserRole: async () => {},
+  grokKey: '',
+  setGrokKey: noop,
+  collaborators: [],
+  setCollaborators: noop,
+  talentPool: [],
+  setTalentPool: noop,
+  addTalentToPool: noop,
+  updateTalentInPool: noop,
+  removeTalentFromPool: noop,
+  shortlistTalentForCharacter: noop,
+  passTalentForCharacter: noop,
+  starTalentForCharacter: noop,
+  navLayout: 'vertical',
+  setNavLayout: noop,
+  themeAnimationStyle: 'circle',
+  setThemeAnimationStyle: noop,
+  appZoomLevel: 0.8,
+  setAppZoomLevel: noop,
+  cloudSyncStatus: {
+    isUploading: false,
+    progress: 100,
+    status: 'synced',
+    message: 'Synced',
+    lastSyncedAt: null,
+  },
+  fileHandle: null,
+  filePath: null,
+  triggerCloudSync: async () => {},
+  openrouterKey: '',
+  setOpenrouterKey: noop,
+  generalAiModel: 'google/gemini-2.0-flash-exp:free',
+  setGeneralAiModel: noop,
+  characterDesignLocked: false,
+  setCharacterDesignLocked: noop,
+  hasUnsavedChanges: false,
+  setHasUnsavedChanges: noop,
+  login: async () => {},
+  logout: async () => {},
+  selectProject: async () => {},
+  createProject: async () => {},
+  deleteProject: async () => {},
+  renameProject: async () => false,
+  closeProject: noop,
+  clearSchemaError: noop,
+  setBeats: noop,
+  setGroups: noop,
+  setConnections: noop,
+  setAnnotations: noop,
+  setCharacterData: noop,
+  setGeneratedShots: noop,
+  setScratchpad: noop,
+  setGlobalNotes: noop,
+  updateGeneratedShot: noop,
+  addGeneratedShot: noop,
+  removeGeneratedShot: noop,
+  moveGeneratedShot: noop,
+  setPan: noop,
+  setScale: noop,
+  updateBeat: noop,
+  addBeat: () => 0,
+  reorderBeats: noop,
+  addGroup: noop,
+  updateGroup: noop,
+  removeGroup: noop,
+  loadProject: noop,
+  saveProject: async () => {},
+  saveProjectAs: async () => {},
+  setActiveBoardId: noop,
+  setTamilMode: noop,
+  setTamilFontScale: noop,
+  setTamilFontFamily: noop,
+  learnTamilWord: noop,
+  setOsInputMode: noop,
+  setOsInputShortcut: noop,
+  setScriptConfig: noop,
+  setScriptViewMode: noop,
+  setScratchpadConfig: noop,
+  setStoryboardConfig: noop,
+  setStoryboardFeatureEnabled: noop,
+  setAppTheme: noop,
+  setAppAccentColor: noop,
+  setAppLanguage: noop,
+  setBreakdownLanguage: noop,
+  setBreakdownLockedOnly: noop,
+  setPdfDropEnabled: noop,
+  setRedoEnabled: noop,
+  setWritingGoal: noop,
+  setGeminiApiKey: noop,
+  setBoardLayerOrder: noop,
+  setNextId: noop,
+  undo: noop,
+  redo: noop,
+  canUndo: false,
+  canRedo: false,
+  captureSnapshot: noop,
+  downloadProject: noop,
+  autoGenerate5Scenes: noop,
+  autoGenerateScenes: noop,
+  setFilePath: noop,
+};
+
+export const useProject = (): ProjectContextType => {
   const context = useContext(ProjectContext);
-  if (context === undefined) throw new Error('useProject must be used within a ProjectProvider');
+  if (context === undefined) {
+    if (typeof window !== 'undefined' && (window as any).__BACKSTAGE_PROJECT_CONTEXT_VALUE__) {
+      return (window as any).__BACKSTAGE_PROJECT_CONTEXT_VALUE__;
+    }
+    console.warn('[ProjectContext] useProject called outside of ProjectProvider or during HMR transition. Using fallback state.');
+    return fallbackProjectContextValue;
+  }
   return context;
 };

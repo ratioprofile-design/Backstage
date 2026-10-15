@@ -16,6 +16,7 @@ import { TwoColumnSceneSidebar } from '../TwoColumnSceneSidebar';
 import { TwoColumnFindReplace } from '../TwoColumnFindReplace';
 import { TwoColumnExportModal } from '../TwoColumnExportModal';
 import { printTwoColumnVector } from '../../services/twoColumnExportEngine';
+import { splitActionTextIntoShots, healOrphanedNumeralItems } from '../../services/twoColumnPaginator';
 import confetti from 'canvas-confetti';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
@@ -27,9 +28,11 @@ import {
   FileDown,
   Loader2,
   Save,
+  Cloud,
   Plus,
   Trash2,
   Scissors,
+  Combine,
   Check,
   ChevronDown,
   ZoomIn,
@@ -52,21 +55,39 @@ import {
 } from 'lucide-react';
 
 export interface TwoColumnEditorPreferences {
+  fontFamily: 'Meera Inimai' | 'Vijaya' | 'Courier Prime' | 'sans';
   characterFontSize: 'xs' | 'sm' | 'base' | 'lg' | 'xl';
   characterColor: 'sky' | 'emerald' | 'amber' | 'rose' | 'violet' | 'white';
   characterWeight: 'normal' | 'bold' | 'black';
+  characterTransform: 'uppercase' | 'none';
   scriptFontSize: 'sm' | 'base' | 'lg' | 'xl';
   lineSpacing: 'snug' | 'relaxed' | 'loose';
   enterKeyMode: 'newline' | 'split';
+  splitActionByComma: boolean;
+  splitActionIncludeDot: boolean;
 }
 
 export const DEFAULT_PREFS: TwoColumnEditorPreferences = {
+  fontFamily: 'Meera Inimai',
   characterFontSize: 'base', // 16px - clearly visible and prominent
   characterColor: 'sky',
   characterWeight: 'bold',
+  characterTransform: 'none',
   scriptFontSize: 'sm', // 14px
   lineSpacing: 'relaxed',
   enterKeyMode: 'newline', // Enter inserts new line, Shift+Enter or scissors splits!
+  splitActionByComma: false, // Default: OFF (Every comma = end of shot when enabled)
+  splitActionIncludeDot: false, // Default: OFF (Optional . dot shot separator)
+};
+
+export const getScriptFontFamilyStyle = (font?: TwoColumnEditorPreferences['fontFamily']) => {
+  switch (font) {
+    case 'Meera Inimai': return { fontFamily: "'Meera Inimai', sans-serif" };
+    case 'Vijaya': return { fontFamily: "'Vijaya', 'Meera Inimai', sans-serif" };
+    case 'Courier Prime': return { fontFamily: "'Courier Prime', monospace" };
+    case 'sans': return { fontFamily: "ui-sans-serif, system-ui, sans-serif" };
+    default: return { fontFamily: "'Meera Inimai', sans-serif" };
+  }
 };
 
 export const getCharFontSizeClass = (size: TwoColumnEditorPreferences['characterFontSize']) => {
@@ -127,6 +148,10 @@ interface ScriptParagraphFieldProps {
   className?: string;
   title?: string;
   enterKeyMode: 'newline' | 'split';
+  isActionField?: boolean;
+  splitActionByComma?: boolean;
+  splitActionIncludeDot?: boolean;
+  onSplitByComma?: (itemId: string, text: string) => void;
   onChange: (text: string) => void;
   onSplit: (before: string, after: string) => void;
   onStartEdit?: () => void;
@@ -144,6 +169,10 @@ const ScriptParagraphField: React.FC<ScriptParagraphFieldProps> = ({
   className = '',
   title,
   enterKeyMode,
+  isActionField = false,
+  splitActionByComma = false,
+  splitActionIncludeDot = false,
+  onSplitByComma,
   onChange,
   onSplit,
   onStartEdit,
@@ -179,7 +208,15 @@ const ScriptParagraphField: React.FC<ScriptParagraphFieldProps> = ({
     isFocusedRef.current = false;
     if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
     if (elRef.current) {
-      onChange(elRef.current.innerText);
+      const currentVal = elRef.current.innerText;
+      // If action comma/dot splitting is enabled and text has commas or dots, auto-split on blur
+      const hasComma = currentVal.includes(',') || currentVal.includes('،') || currentVal.includes('，');
+      const hasDot = splitActionIncludeDot && currentVal.includes('.');
+      if (isActionField && splitActionByComma && (hasComma || hasDot)) {
+        onSplitByComma?.(id, currentVal);
+        return;
+      }
+      onChange(currentVal);
     }
   };
 
@@ -215,7 +252,17 @@ const ScriptParagraphField: React.FC<ScriptParagraphFieldProps> = ({
       return;
     }
 
-    // 3. Enter key handling according to user preference
+    // 3. Comma auto-split when Enter is pressed in action field
+    if (e.key === 'Enter' && isActionField && splitActionByComma && elRef.current) {
+      const text = elRef.current.innerText;
+      if (text.includes(',') || text.includes('،') || text.includes('，')) {
+        e.preventDefault();
+        onSplitByComma?.(id, text);
+        return;
+      }
+    }
+
+    // 4. Enter key handling according to user preference
     if (e.key === 'Enter') {
       const isSplitAction = enterKeyMode === 'split' ? !e.shiftKey : e.shiftKey;
       if (isSplitAction) {
@@ -316,6 +363,8 @@ export const DocumentTwoColumnEditor: React.FC<DocumentTwoColumnEditorProps> = (
   onClose,
   isLight = false,
 }) => {
+  const documentId = doc?.id || 'default_doc';
+
   // Parse document content into Tamil screenplay structure
   const [screenplayData, setScreenplayData] = useState<TamilScreenplayData>(() => {
     const rawText = doc.textContent || (doc.htmlContent ? doc.htmlContent.replace(/<[^>]+>/g, '\n') : '');
@@ -414,6 +463,7 @@ export const DocumentTwoColumnEditor: React.FC<DocumentTwoColumnEditorProps> = (
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState<boolean>(false);
   const [lastSelectedId, setLastSelectedId] = useState<string | null>(null);
   const printCanvasRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   // Active floating dropdown state
   const [activeDropdown, setActiveDropdown] = useState<{
@@ -427,6 +477,26 @@ export const DocumentTwoColumnEditor: React.FC<DocumentTwoColumnEditorProps> = (
   const [activeSceneId, setActiveSceneId] = useState<string | null>(null);
   const [isFindReplaceOpen, setIsFindReplaceOpen] = useState<boolean>(false);
   const [showReplaceByDefault, setShowReplaceByDefault] = useState<boolean>(false);
+
+  // Restore scroll position & last viewed scene on mount
+  useEffect(() => {
+    try {
+      const savedScene = localStorage.getItem(`backstage_2col_scene_${documentId}`) || localStorage.getItem('backstage_last_2col_active_scene');
+      const savedScroll = localStorage.getItem(`backstage_2col_scroll_${documentId}`) || localStorage.getItem('backstage_last_2col_scroll');
+      if (savedScene) {
+        setActiveSceneId(savedScene);
+      }
+      if (savedScroll && scrollContainerRef.current) {
+        setTimeout(() => {
+          if (scrollContainerRef.current) {
+            scrollContainerRef.current.scrollTop = parseInt(savedScroll, 10);
+          }
+        }, 120);
+      }
+    } catch (e) {
+      console.warn('Could not restore 2-col position:', e);
+    }
+  }, [documentId]);
 
   // Global keyboard shortcuts for Undo, Redo, Find & Replace (Cmd+Z, Cmd+Y, Cmd+F, Cmd+H)
   useEffect(() => {
@@ -471,6 +541,10 @@ export const DocumentTwoColumnEditor: React.FC<DocumentTwoColumnEditorProps> = (
 
   const handleSelectScene = (sceneId: string) => {
     setActiveSceneId(sceneId);
+    try {
+      localStorage.setItem(`backstage_2col_scene_${documentId}`, sceneId);
+      localStorage.setItem('backstage_last_2col_active_scene', sceneId);
+    } catch {}
     setTimeout(() => {
       const el = document.getElementById(`scene-header-${sceneId}`);
       if (el) {
@@ -877,6 +951,314 @@ export const DocumentTwoColumnEditor: React.FC<DocumentTwoColumnEditorProps> = (
     setTimeout(() => attemptFocus(), 40);
   };
 
+  // Split a specific action item at commas (and optional dot) into separate single shot paragraphs
+  const handleSplitActionItemByComma = (itemId: string, customText?: string) => {
+    recordHistory();
+    let splitCount = 0;
+
+    setScreenplayData((prev) => {
+      let changed = false;
+      const nextScenes = prev.scenes.map((scene) => {
+        const itemIdx = scene.items.findIndex((it) => it.id === itemId);
+        if (itemIdx === -1) return scene;
+
+        const currentItem = scene.items[itemIdx];
+        const raw = customText !== undefined ? customText : (currentItem.leftAction || currentItem.rawText || '');
+        const segments = splitActionTextIntoShots(raw, {
+          includeComma: true,
+          includeDot: !!prefs.splitActionIncludeDot,
+        });
+
+        if (segments.length <= 1) return scene;
+
+        changed = true;
+        splitCount = segments.length;
+        const newItems: TamilScriptItem[] = segments.map((seg, idx) => ({
+          ...currentItem,
+          id: idx === 0 ? currentItem.id : `item-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 7)}`,
+          column: 'left',
+          type: 'action',
+          leftAction: seg,
+          rawText: seg,
+          rightDialogue: undefined,
+          rightCharacter: undefined,
+        }));
+
+        const updatedItems = [...scene.items];
+        updatedItems.splice(itemIdx, 1, ...newItems);
+        const { items: healedItems } = healOrphanedNumeralItems(updatedItems);
+
+        return {
+          ...scene,
+          items: healedItems,
+        };
+      });
+
+      if (!changed) return prev;
+      return { ...prev, scenes: nextScenes };
+    });
+
+    setHasUnsavedChanges(true);
+    if (splitCount > 1) {
+      showToast(`✓ Split into ${splitCount} single shot paragraphs`);
+    }
+  };
+
+  // Split all comma/dot separated action blocks across the entire script into distinct shot paragraphs
+  const handleSplitAllActionsByComma = () => {
+    recordHistory();
+    let totalSplits = 0;
+    let newShotsCreated = 0;
+
+    setScreenplayData((prev) => {
+      const nextScenes = prev.scenes.map((scene) => {
+        const newItems: TamilScriptItem[] = [];
+
+        scene.items.forEach((item) => {
+          const isAction = item.column === 'left' || item.type === 'action' || (!item.rightDialogue && (item.leftAction || item.rawText));
+          const text = (item.leftAction || item.rawText || '').trim();
+
+          const hasComma = text.includes(',') || text.includes('،') || text.includes('，');
+          const hasDot = prefs.splitActionIncludeDot && text.includes('.');
+
+          if (isAction && (hasComma || hasDot)) {
+            const segments = splitActionTextIntoShots(text, {
+              includeComma: true,
+              includeDot: !!prefs.splitActionIncludeDot,
+            });
+
+            if (segments.length > 1) {
+              totalSplits++;
+              newShotsCreated += segments.length;
+              segments.forEach((seg, idx) => {
+                newItems.push({
+                  ...item,
+                  id: idx === 0 ? item.id : `item-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 7)}`,
+                  column: 'left',
+                  type: 'action',
+                  leftAction: seg,
+                  rawText: seg,
+                  rightDialogue: undefined,
+                  rightCharacter: undefined,
+                });
+              });
+              return;
+            }
+          }
+
+          newItems.push(item);
+        });
+
+        const { items: healedItems } = healOrphanedNumeralItems(newItems);
+
+        return {
+          ...scene,
+          items: healedItems,
+        };
+      });
+
+      return { ...prev, scenes: nextScenes };
+    });
+
+    setHasUnsavedChanges(true);
+    if (totalSplits > 0) {
+      showToast(`✓ Split ${totalSplits} action blocks into ${newShotsCreated} single shot paragraphs!`);
+    } else {
+      showToast('No comma/dot separated action blocks found to split.');
+    }
+  };
+
+  // Split only the currently highlighted action paragraphs by comma (and optional dot)
+  const handleSplitSelectedActionsByComma = () => {
+    if (selectedItemIds.size === 0) return;
+    recordHistory();
+    let totalSplits = 0;
+    let newShotsCreated = 0;
+
+    setScreenplayData((prev) => {
+      const nextScenes = prev.scenes.map((scene) => {
+        const newItems: TamilScriptItem[] = [];
+
+        scene.items.forEach((item) => {
+          const isSelected = selectedItemIds.has(item.id);
+          const isAction = item.column === 'left' || item.type === 'action' || (!item.rightDialogue && (item.leftAction || item.rawText));
+          const text = (item.leftAction || item.rawText || '').trim();
+
+          const hasComma = text.includes(',') || text.includes('،') || text.includes('，');
+          const hasDot = prefs.splitActionIncludeDot && text.includes('.');
+
+          if (isSelected && isAction && (hasComma || hasDot)) {
+            const segments = splitActionTextIntoShots(text, {
+              includeComma: true,
+              includeDot: !!prefs.splitActionIncludeDot,
+            });
+
+            if (segments.length > 1) {
+              totalSplits++;
+              newShotsCreated += segments.length;
+              segments.forEach((seg, idx) => {
+                newItems.push({
+                  ...item,
+                  id: idx === 0 ? item.id : `item-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 7)}`,
+                  column: 'left',
+                  type: 'action',
+                  leftAction: seg,
+                  rawText: seg,
+                  rightDialogue: undefined,
+                  rightCharacter: undefined,
+                });
+              });
+              return;
+            }
+          }
+
+          newItems.push(item);
+        });
+
+        const { items: healedItems } = healOrphanedNumeralItems(newItems);
+
+        return {
+          ...scene,
+          items: healedItems,
+        };
+      });
+
+      return { ...prev, scenes: nextScenes };
+    });
+
+    setHasUnsavedChanges(true);
+    if (totalSplits > 0) {
+      showToast(`✓ Split ${totalSplits} highlighted action blocks into ${newShotsCreated} shot paragraphs!`);
+    } else {
+      showToast('Highlighted action paragraphs do not contain commas or dots.');
+    }
+  };
+
+  // Re-merge orphaned numeral rows back into their action blocks
+  const handleHealNumeralLists = () => {
+    recordHistory();
+    let totalHealed = 0;
+
+    setScreenplayData((prev) => {
+      let changed = false;
+      const nextScenes = prev.scenes.map((scene) => {
+        const { items: healedItems, healedCount } = healOrphanedNumeralItems(scene.items);
+        if (healedCount > 0) {
+          changed = true;
+          totalHealed += healedCount;
+          return {
+            ...scene,
+            items: healedItems,
+          };
+        }
+        return scene;
+      });
+
+      if (!changed) return prev;
+      return { ...prev, scenes: nextScenes };
+    });
+
+    setHasUnsavedChanges(true);
+    if (totalHealed > 0) {
+      showToast(`✓ Re-merged ${totalHealed} numeral list items with their action blocks!`);
+    } else {
+      showToast('No orphaned numeral list items detected.');
+    }
+  };
+
+  // Merge multiple selected action (or dialogue) blocks into a single unified paragraph
+  // (Fixes accidental comma splits or combines multiple shots into one paragraph)
+  const handleMergeSelectedActionParagraphs = () => {
+    if (selectedItemIds.size <= 1) {
+      showToast('Select 2 or more blocks to merge them into one paragraph.');
+      return;
+    }
+    recordHistory();
+    let totalMerged = 0;
+    let targetItemId: string | null = null;
+
+    setScreenplayData((prev) => {
+      let changed = false;
+
+      const nextScenes = prev.scenes.map((scene) => {
+        const selectedInScene = scene.items.filter((it) => selectedItemIds.has(it.id));
+        if (selectedInScene.length <= 1) return scene;
+
+        changed = true;
+        totalMerged += selectedInScene.length;
+
+        const firstItem = selectedInScene[0];
+        targetItemId = firstItem.id;
+        const absorbedIds = new Set(selectedInScene.slice(1).map((it) => it.id));
+
+        const isAction = selectedInScene.every(
+          (it) => it.column === 'left' || it.type === 'action' || (!it.rightDialogue && (it.leftAction || it.rawText))
+        );
+
+        let mergedText = '';
+        if (isAction) {
+          const actionTexts = selectedInScene
+            .map((it, idx) => {
+              let t = (it.leftAction || it.rawText || '').trim();
+              if (idx < selectedInScene.length - 1) {
+                t = t.replace(/[,，\u060C]+$/, '').trim();
+              }
+              return t;
+            })
+            .filter(Boolean);
+          mergedText = actionTexts.join(' ').replace(/\s+/g, ' ').trim();
+        } else {
+          const texts = selectedInScene
+            .map((it, idx) => {
+              let t = (it.column === 'right' ? it.rightDialogue : it.leftAction || it.rawText || '').trim();
+              if (idx < selectedInScene.length - 1) {
+                t = t.replace(/[,，\u060C]+$/, '').trim();
+              }
+              return t;
+            })
+            .filter(Boolean);
+          mergedText = texts.join(' ').replace(/\s+/g, ' ').trim();
+        }
+
+        const updatedFirstItem: TamilScriptItem = {
+          ...firstItem,
+          leftAction: isAction ? mergedText : (firstItem.column === 'left' ? mergedText : firstItem.leftAction),
+          rawText: mergedText,
+          rightDialogue: !isAction && firstItem.column === 'right' ? mergedText : firstItem.rightDialogue,
+          updatedAt: Date.now(),
+        };
+
+        const newItems: TamilScriptItem[] = [];
+        scene.items.forEach((it) => {
+          if (it.id === firstItem.id) {
+            newItems.push(updatedFirstItem);
+          } else if (!absorbedIds.has(it.id)) {
+            newItems.push(it);
+          }
+        });
+
+        return {
+          ...scene,
+          items: newItems,
+        };
+      });
+
+      if (!changed) return prev;
+      return { ...prev, scenes: nextScenes };
+    });
+
+    setHasUnsavedChanges(true);
+
+    if (totalMerged > 1) {
+      if (targetItemId) {
+        setSelectedItemIds(new Set([targetItemId]));
+      }
+      showToast(`✓ Merged ${totalMerged} blocks into 1 unified paragraph!`);
+    } else {
+      showToast('Selected blocks must belong to the same scene to merge.');
+    }
+  };
+
   // Update scene metadata
   const handleUpdateScene = (sceneId: string, updates: Partial<TamilScene>) => {
     recordHistory();
@@ -1228,24 +1610,57 @@ export const DocumentTwoColumnEditor: React.FC<DocumentTwoColumnEditorProps> = (
     }
   };
 
-  // Save changes back to document
-  const handleSaveChanges = () => {
+  // Save changes back to document & Cloud
+  const handleSaveChanges = useCallback((isAutoSave: boolean = false) => {
     const html = generateTamilLeftRightHtml(screenplayData);
     const updatedDoc: ProductionDocument = {
       ...doc,
       title: screenplayData.title || doc.title,
       htmlContent: html,
       isLeftRightFormat: true,
+      hasTwoColumnScript: true,
+      twoColumnData: screenplayData,
       lastModified: new Date().toISOString(),
     };
 
     if (onSave) {
       onSave(updatedDoc);
     }
+
+    try {
+      if (doc?.id) {
+        localStorage.setItem('active_two_column_doc_id', doc.id);
+        localStorage.setItem('backstage_last_vault_doc_id', doc.id);
+        localStorage.setItem('backstage_last_vault_mode', 'two-column');
+      }
+    } catch (e) {}
+
     setHasUnsavedChanges(false);
-    confetti({ particleCount: 30, spread: 50, origin: { y: 0.8 } });
-    showToast('✓ Saved document changes to Vault!');
-  };
+    if (!isAutoSave) {
+      confetti({ particleCount: 30, spread: 50, origin: { y: 0.8 } });
+      showToast('✓ Saved 2-Column Screenplay to Vault & Cloud!');
+    }
+  }, [doc, screenplayData, onSave]);
+
+  // Debounced Auto-Save to Cloud & Vault (1500ms after edits)
+  useEffect(() => {
+    if (!hasUnsavedChanges) return;
+    const timer = setTimeout(() => {
+      handleSaveChanges(true);
+    }, 1500);
+    return () => clearTimeout(timer);
+  }, [hasUnsavedChanges, handleSaveChanges]);
+
+  // Persist current active two-column document ID on mount
+  useEffect(() => {
+    if (doc?.id) {
+      try {
+        localStorage.setItem('active_two_column_doc_id', doc.id);
+        localStorage.setItem('backstage_last_vault_doc_id', doc.id);
+        localStorage.setItem('backstage_last_vault_mode', 'two-column');
+      } catch (e) {}
+    }
+  }, [doc?.id]);
 
   const selectedCount = selectedItemIds.size;
 
@@ -1371,6 +1786,38 @@ export const DocumentTwoColumnEditor: React.FC<DocumentTwoColumnEditorProps> = (
                 </div>
 
                 <div className="space-y-4 text-xs">
+                  {/* 0. Primary Script Font Family (Meera Inimai Recommended) */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5 font-bold">
+                      <span className="text-zinc-400">Primary Script Font:</span>
+                      <span className="text-emerald-400 font-mono font-black">{prefs.fontFamily}</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-1.5 bg-zinc-800/60 p-1.5 rounded-xl border border-zinc-700/60">
+                      {[
+                        { id: 'Meera Inimai', label: 'Meera Inimai (Tamil)', desc: 'Recommended Unicode' },
+                        { id: 'Vijaya', label: 'Vijaya (Tamil)', desc: 'Classic Script' },
+                        { id: 'Courier Prime', label: 'Courier Prime', desc: 'Monospace' },
+                        { id: 'sans', label: 'System Sans', desc: 'Modern' },
+                      ].map((f) => (
+                        <button
+                          key={f.id}
+                          type="button"
+                          onClick={() => updatePrefs({ fontFamily: f.id as any })}
+                          className={`p-2 rounded-lg text-left transition-all cursor-pointer border ${
+                            prefs.fontFamily === f.id
+                              ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300 font-bold shadow-xs'
+                              : 'border-transparent text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700/50'
+                          }`}
+                        >
+                          <div className="text-[11px] font-bold" style={{ fontFamily: f.id === 'Meera Inimai' ? "'Meera Inimai', sans-serif" : undefined }}>
+                            {f.label}
+                          </div>
+                          <div className="text-[9px] text-zinc-400">{f.desc}</div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
                   {/* 1. Character Name Font Size */}
                   <div>
                     <div className="flex items-center justify-between mb-1.5 font-bold">
@@ -1392,6 +1839,48 @@ export const DocumentTwoColumnEditor: React.FC<DocumentTwoColumnEditorProps> = (
                           {sz === 'xs' ? '12px' : sz === 'sm' ? '14px' : sz === 'base' ? '16px' : sz === 'lg' ? '18px' : '20px'}
                         </button>
                       ))}
+                    </div>
+                  </div>
+
+                  {/* Character Weight & Casing */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <span className="text-zinc-400 font-bold block mb-1">Character Weight:</span>
+                      <div className="grid grid-cols-3 gap-1 bg-zinc-800/60 p-1 rounded-xl border border-zinc-700/60">
+                        {(['normal', 'bold', 'black'] as const).map((w) => (
+                          <button
+                            key={w}
+                            type="button"
+                            onClick={() => updatePrefs({ characterWeight: w })}
+                            className={`py-1 rounded-lg font-bold text-[10px] capitalize transition-all cursor-pointer ${
+                              prefs.characterWeight === w
+                                ? 'bg-amber-500 text-black shadow-xs font-black'
+                                : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700/50'
+                            }`}
+                          >
+                            {w}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <span className="text-zinc-400 font-bold block mb-1">Character Casing:</span>
+                      <div className="grid grid-cols-2 gap-1 bg-zinc-800/60 p-1 rounded-xl border border-zinc-700/60">
+                        {(['none', 'uppercase'] as const).map((tr) => (
+                          <button
+                            key={tr}
+                            type="button"
+                            onClick={() => updatePrefs({ characterTransform: tr })}
+                            className={`py-1 rounded-lg font-bold text-[10px] transition-all cursor-pointer ${
+                              prefs.characterTransform === tr
+                                ? 'bg-amber-500 text-black shadow-xs font-black'
+                                : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700/50'
+                            }`}
+                          >
+                            {tr === 'none' ? 'Normal' : 'UPPER'}
+                          </button>
+                        ))}
+                      </div>
                     </div>
                   </div>
 
@@ -1504,11 +1993,99 @@ export const DocumentTwoColumnEditor: React.FC<DocumentTwoColumnEditorProps> = (
                     </div>
                   </div>
 
+                  {/* 6. Action / Description Shots: Split by Comma */}
+                  <div className="pt-2 border-t border-zinc-200 dark:border-zinc-800">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-zinc-400 font-bold">Action Shots (Split by Comma):</span>
+                      <span className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded ${prefs.splitActionByComma ? 'bg-amber-500/20 text-amber-300' : 'bg-zinc-800 text-zinc-400'}`}>
+                        {prefs.splitActionByComma ? 'ENABLED' : 'OFF (Default)'}
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-zinc-400 mb-2">
+                      In the Action column (காட்சி), treat every comma as the end of a single shot and split into individual shot paragraphs.
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => updatePrefs({ splitActionByComma: !prefs.splitActionByComma })}
+                        className={`flex-1 p-2 rounded-xl text-left border flex items-center justify-between transition-all cursor-pointer ${
+                          prefs.splitActionByComma
+                            ? 'bg-amber-500/15 border-amber-500/40 text-amber-300'
+                            : 'bg-zinc-800/40 border-zinc-700/50 text-zinc-400 hover:bg-zinc-800'
+                        }`}
+                      >
+                        <span className="font-bold text-[11px]">
+                          {prefs.splitActionByComma ? '✓ Comma Shot Splitting Active' : 'Enable Comma Shot Splitting'}
+                        </span>
+                        <span className={`w-8 h-4 rounded-full p-0.5 transition-colors ${prefs.splitActionByComma ? 'bg-amber-500' : 'bg-zinc-700'}`}>
+                          <span className={`block w-3 h-3 rounded-full bg-white transition-transform ${prefs.splitActionByComma ? 'translate-x-4' : 'translate-x-0'}`} />
+                        </span>
+                      </button>
+                    </div>
+
+                    {/* Optional Dot Split Toggle */}
+                    <div className="flex items-center gap-2 mt-1.5">
+                      <button
+                        type="button"
+                        onClick={() => updatePrefs({ splitActionIncludeDot: !prefs.splitActionIncludeDot })}
+                        className={`flex-1 p-2 rounded-xl text-left border flex items-center justify-between transition-all cursor-pointer ${
+                          prefs.splitActionIncludeDot
+                            ? 'bg-amber-500/15 border-amber-500/40 text-amber-300'
+                            : 'bg-zinc-800/40 border-zinc-700/50 text-zinc-400 hover:bg-zinc-800'
+                        }`}
+                      >
+                        <div>
+                          <span className="font-bold text-[11px] block">
+                            {prefs.splitActionIncludeDot ? '✓ Also Split on Period / Dot (.)' : 'Also Split on Period / Dot (.) (Optional)'}
+                          </span>
+                          <span className="text-[9.5px] opacity-70 block">Optional: Full stops mark the end of shots</span>
+                        </div>
+                        <span className={`w-8 h-4 rounded-full p-0.5 transition-colors ${prefs.splitActionIncludeDot ? 'bg-amber-500' : 'bg-zinc-700'}`}>
+                          <span className={`block w-3 h-3 rounded-full bg-white transition-transform ${prefs.splitActionIncludeDot ? 'translate-x-4' : 'translate-x-0'}`} />
+                        </span>
+                      </button>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => handleSplitAllActionsByComma()}
+                      className="mt-2 w-full py-1.5 px-2.5 rounded-lg text-[10.5px] font-bold bg-amber-500/10 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 flex items-center justify-center gap-1.5 cursor-pointer transition-all"
+                      title="Scan all scenes and convert every comma-separated action block into separate single-shot paragraphs"
+                    >
+                      <Scissors size={12} />
+                      <span>Split All Action Blocks Now</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleHealNumeralLists()}
+                      className="mt-1.5 w-full py-1.5 px-2.5 rounded-lg text-[10.5px] font-bold bg-sky-500/10 hover:bg-sky-500/25 border border-sky-500/30 text-sky-300 flex items-center justify-center gap-1.5 cursor-pointer transition-all"
+                      title="Recombine standalone numeral blocks (1, 2, 3...) back into their action shot paragraphs"
+                    >
+                      <Sparkles size={12} className="text-sky-400" />
+                      <span>Re-merge / Fix Numeral Lists</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={selectedItemIds.size < 2}
+                      onClick={() => handleMergeSelectedActionParagraphs()}
+                      className="mt-1.5 w-full py-1.5 px-2.5 rounded-lg text-[10.5px] font-bold bg-emerald-500/10 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-300 flex items-center justify-center gap-1.5 cursor-pointer transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                      title="Merge currently selected blocks into 1 single paragraph [Alt+M] (fixes accidental comma slip)"
+                    >
+                      <Combine size={12} className="text-emerald-400" />
+                      <span>Merge Selected Blocks {selectedItemIds.size > 1 ? `(${selectedItemIds.size})` : ''}</span>
+                    </button>
+                  </div>
+
                   {/* Live Preview Box */}
-                  <div className="p-2.5 rounded-xl bg-black/40 border border-zinc-700/60">
-                    <div className="text-[10px] text-zinc-400 uppercase font-mono mb-1 font-bold">Live Preview:</div>
+                  <div className="p-2.5 rounded-xl bg-black/40 border border-zinc-700/60" style={getScriptFontFamilyStyle(prefs.fontFamily)}>
+                    <div className="text-[10px] text-zinc-400 uppercase font-mono mb-1 font-bold flex items-center justify-between">
+                      <span>Live Preview:</span>
+                      <span className="text-[9px] text-emerald-400">{prefs.fontFamily}</span>
+                    </div>
                     <div className="flex items-baseline gap-1.5">
-                      <span className={`${getCharFontSizeClass(prefs.characterFontSize)} ${getCharWeightClass(prefs.characterWeight)} ${getCharColorClass(prefs.characterColor, isLight)} uppercase`}>
+                      <span className={`${getCharFontSizeClass(prefs.characterFontSize)} ${getCharWeightClass(prefs.characterWeight)} ${getCharColorClass(prefs.characterColor, isLight)} ${prefs.characterTransform === 'uppercase' ? 'uppercase' : ''}`}>
                         ரங்கா :
                       </span>
                       <span className={`${getScriptFontSizeClass(prefs.scriptFontSize)} ${getLineSpacingClass(prefs.lineSpacing)} text-zinc-200`}>
@@ -1612,32 +2189,58 @@ export const DocumentTwoColumnEditor: React.FC<DocumentTwoColumnEditorProps> = (
             <Printer size={15} />
           </button>
 
+          {/* Realtime Cloud Sync Status Pill */}
+          <div
+            className={`hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-mono select-none transition-all ${
+              hasUnsavedChanges
+                ? 'bg-amber-500/10 border-amber-500/30 text-amber-300'
+                : 'bg-emerald-500/10 border-emerald-500/25 text-emerald-300'
+            }`}
+            title="Auto-Save Active: All edits are synced in real-time to Supabase Cloud, IndexedDB & collaborators"
+          >
+            {hasUnsavedChanges ? (
+              <>
+                <Loader2 size={13} className="animate-spin text-amber-400 shrink-0" />
+                <span className="text-[11px] font-bold">Auto-saving...</span>
+              </>
+            ) : (
+              <>
+                <span className="relative flex h-2 w-2 shrink-0">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                </span>
+                <Cloud size={13} className="text-emerald-400 shrink-0" />
+                <span className="text-[11px] font-bold">Cloud Synced</span>
+              </>
+            )}
+          </div>
+
           {/* Save Changes */}
           <button
-            onClick={handleSaveChanges}
+            onClick={() => handleSaveChanges(false)}
             className={`px-3.5 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 shadow-md transition-all cursor-pointer ${
               hasUnsavedChanges
                 ? 'bg-[#f5a623] hover:bg-amber-400 text-black animate-pulse'
                 : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700'
             }`}
-            title="Save changes to Backstage Vault"
+            title="Force immediate save to Backstage Vault & Cloud"
           >
             <Save size={13} />
-            <span>Save in Vault</span>
+            <span>{hasUnsavedChanges ? 'Save Now' : 'Saved in Cloud'}</span>
           </button>
         </div>
       </header>
 
       {/* =========================================================================
-          FLOATING ARROW BAR (Appears whenever paragraphs are highlighted)
+          FLOATING ARROW BAR (Fixed Overlay HUD - Does NOT shift screen position)
          ========================================================================= */}
       {selectedCount > 0 && (
-        <div className="sticky top-2 z-40 mx-auto w-full max-w-xl px-4 animate-in fade-in slide-in-from-top-3 duration-200">
+        <div className="fixed top-14 left-1/2 -translate-x-1/2 z-50 w-full max-w-xl px-4 pointer-events-auto animate-in fade-in slide-in-from-top-2 duration-150 drop-shadow-2xl">
           <div
-            className={`flex items-center justify-between gap-3 px-4 py-2 rounded-2xl border shadow-lg backdrop-blur-md transition-all ${
+            className={`flex items-center justify-between gap-3 px-4 py-2 rounded-2xl border shadow-2xl backdrop-blur-md transition-all ${
               isLight
-                ? 'bg-white/95 border-slate-200/90 text-slate-800 shadow-[0_8px_30px_rgba(0,0,0,0.08)]'
-                : 'bg-zinc-900/95 border-zinc-700/80 text-zinc-100 shadow-[0_12px_36px_rgba(0,0,0,0.5)]'
+                ? 'bg-white/95 border-slate-200/90 text-slate-800 shadow-[0_12px_40px_rgba(0,0,0,0.15)]'
+                : 'bg-zinc-900/95 border-zinc-700/80 text-zinc-100 shadow-[0_16px_48px_rgba(0,0,0,0.7)]'
             }`}
           >
             <div
@@ -1695,6 +2298,37 @@ export const DocumentTwoColumnEditor: React.FC<DocumentTwoColumnEditorProps> = (
                 <ArrowRight size={13} className="stroke-[2.5]" />
               </button>
 
+              <div className={`w-[1px] h-5 ${isLight ? 'bg-slate-200' : 'bg-zinc-700'}`} />
+
+              {/* Comma Shot Splitter for Highlighted Action Paragraphs */}
+              <button
+                onClick={handleSplitSelectedActionsByComma}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer ${
+                  isLight
+                    ? 'bg-amber-50 text-amber-800 hover:bg-amber-100 border border-amber-300'
+                    : 'bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 border border-amber-500/40'
+                }`}
+                title="Split highlighted action blocks at commas into single shot paragraphs"
+              >
+                <Scissors size={12} className="stroke-[2.5]" />
+                <span>Split Shots (Comma)</span>
+              </button>
+
+              {/* Merge Selected Blocks Button */}
+              {selectedCount > 1 && (
+                <button
+                  onClick={handleMergeSelectedActionParagraphs}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer ${
+                    isLight
+                      ? 'bg-emerald-50 text-emerald-800 hover:bg-emerald-100 border border-emerald-300'
+                      : 'bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 border border-emerald-500/40'
+                  }`}
+                  title="Merge selected blocks into 1 single paragraph [Alt+M] (fixes accidental comma slip)"
+                >
+                  <Combine size={12} className="stroke-[2.5]" />
+                  <span>Merge ({selectedCount})</span>
+                </button>
+              )}
             </div>
 
             <button
@@ -1741,11 +2375,21 @@ export const DocumentTwoColumnEditor: React.FC<DocumentTwoColumnEditorProps> = (
           initialShowReplace={showReplaceByDefault}
         />
 
-        <div className="flex-1 overflow-y-auto px-4 py-8 flex flex-col items-center">
+        <div
+          ref={scrollContainerRef}
+          onScroll={(e) => {
+            try {
+              const top = e.currentTarget.scrollTop;
+              localStorage.setItem(`backstage_2col_scroll_${documentId}`, String(top));
+              localStorage.setItem('backstage_last_2col_scroll', String(top));
+            } catch {}
+          }}
+          className="flex-1 overflow-y-auto px-4 py-8 flex flex-col items-center"
+        >
         <div
           ref={printCanvasRef}
           id="two-column-print-canvas"
-          style={{ transform: `scale(${zoomLevel / 100})`, transformOrigin: 'top center' }}
+          style={{ transform: `scale(${zoomLevel / 100})`, transformOrigin: 'top center', ...getScriptFontFamilyStyle(prefs.fontFamily) }}
           className={`w-[840px] min-h-[1188px] p-12 relative shadow-2xl rounded-sm transition-all border ${
             isLight
               ? 'bg-white text-zinc-900 border-slate-300'
@@ -2018,6 +2662,22 @@ export const DocumentTwoColumnEditor: React.FC<DocumentTwoColumnEditorProps> = (
                             <Scissors size={11} />
                           </button>
 
+                          {/* Quick Split by Comma if action item contains commas */}
+                          {isLeft && ((item.leftAction || item.rawText || '').includes(',') || (item.leftAction || item.rawText || '').includes('،') || (item.leftAction || item.rawText || '').includes('，')) && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleSplitActionItemByComma(item.id);
+                              }}
+                              className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 hover:bg-amber-500 hover:text-black transition-colors flex items-center gap-1 cursor-pointer"
+                              title="Split action at commas into single shot paragraphs (, = end of shot)"
+                            >
+                              <Scissors size={10} />
+                              <span>Split Shots</span>
+                            </button>
+                          )}
+
                           <div className="w-[1px] h-3 bg-zinc-700 mx-0.5" />
 
                           <button
@@ -2078,7 +2738,7 @@ export const DocumentTwoColumnEditor: React.FC<DocumentTwoColumnEditorProps> = (
                                         suggestions={allKnownCharacters}
                                         onChange={(val) => handleUpdateItemCharacter(item.id, val)}
                                         placeholder="கதாபாத்திரம்"
-                                        className={`${getCharFontSizeClass(prefs.characterFontSize)} ${getCharWeightClass(prefs.characterWeight)} uppercase text-right ${getCharColorClass(prefs.characterColor, isLight)} bg-transparent border-b border-transparent hover:border-zinc-500 focus:border-sky-400 outline-none w-auto min-w-[70px] max-w-[280px] transition-colors`}
+                                        className={`${getCharFontSizeClass(prefs.characterFontSize)} ${getCharWeightClass(prefs.characterWeight)} ${prefs.characterTransform === 'uppercase' ? 'uppercase' : ''} text-right ${getCharColorClass(prefs.characterColor, isLight)} bg-transparent border-b border-transparent hover:border-zinc-500 focus:border-sky-400 outline-none w-auto min-w-[70px] max-w-[280px] transition-colors`}
                                       />
                                       <span className={`${getCharColorClass(prefs.characterColor, isLight)} font-bold ${getCharFontSizeClass(prefs.characterFontSize)} select-none`}>:</span>
                                     </div>
@@ -2090,6 +2750,10 @@ export const DocumentTwoColumnEditor: React.FC<DocumentTwoColumnEditorProps> = (
                                   initialText={item.leftAction || item.rawText || ''}
                                   placeholder="காட்சி விவரம் எழுதவும்..."
                                   enterKeyMode={prefs.enterKeyMode}
+                                  isActionField={true}
+                                  splitActionByComma={prefs.splitActionByComma}
+                                  splitActionIncludeDot={prefs.splitActionIncludeDot}
+                                  onSplitByComma={(id, text) => handleSplitActionItemByComma(id, text)}
                                   className={`min-h-[28px] ${getScriptFontSizeClass(prefs.scriptFontSize)} ${getLineSpacingClass(prefs.lineSpacing)} text-justify outline-none focus:ring-1 focus:ring-emerald-500/50 rounded p-1 transition-all ${
                                     !item.leftAction && !item.rawText
                                       ? 'border border-dashed border-emerald-500/40 bg-emerald-500/[0.04]'

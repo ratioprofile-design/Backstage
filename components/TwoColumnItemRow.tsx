@@ -19,6 +19,7 @@ import {
   Italic,
   Zap,
   Sparkles,
+  Scissors,
 } from 'lucide-react';
 
 export interface TwoColumnItemRowProps {
@@ -64,6 +65,9 @@ export interface TwoColumnItemRowProps {
   onFocusNextRow?: (currentItemId: string, targetCol?: 'auto' | 'action' | 'dialogue' | 'character') => void;
   onFocusPrevRow?: (currentItemId: string, targetCol?: 'auto' | 'action' | 'dialogue' | 'character') => void;
   onEscapeToCard?: (currentItemId: string) => void;
+  splitActionByComma?: boolean;
+  splitActionIncludeDot?: boolean;
+  onSplitActionByComma?: (itemId: string, text: string) => void;
   showToast: (msg: string) => void;
 }
 
@@ -149,6 +153,7 @@ export const EditableBlock: React.FC<EditableBlockProps> = ({
 }) => {
   const elRef = useRef<HTMLElement | null>(null);
   const isFocusedRef = useRef(false);
+  const [isEditing, setIsEditing] = useState(false);
   const lastEmittedValueRef = useRef(value || '');
   const debounceTimerRef = useRef<any>(null);
 
@@ -158,19 +163,57 @@ export const EditableBlock: React.FC<EditableBlockProps> = ({
     if (!el) return;
 
     const targetVal = value || '';
+    const currentDom = (el.innerText || '').replace(/\r?\n$/, '');
+    const cleanTarget = targetVal.replace(/\r?\n$/, '');
 
-    // If targetVal matches what this element just emitted via local typing, don't clobber DOM
-    if (targetVal === lastEmittedValueRef.current && el.innerText === targetVal) {
+    // 1. If currently focused (user is actively typing in this block):
+    // Under NO CIRCUMSTANCE clobber the active DOM if it matches what the user is typing
+    // or what was emitted by this block.
+    if (isFocusedRef.current) {
+      if (
+        cleanTarget === currentDom ||
+        cleanTarget === (lastEmittedValueRef.current || '').replace(/\r?\n$/, '')
+      ) {
+        return;
+      }
+      // If genuine external change occurred while focused (e.g. undo/redo or external split):
+      el.innerText = targetVal;
+      lastEmittedValueRef.current = targetVal;
       return;
     }
 
-    // If the prop value has changed (e.g. paragraph split, undo/redo, collaborator sync),
-    // update the DOM even if focused, and sync lastEmittedValueRef
-    if (el.innerText !== targetVal) {
+    // 2. Not focused: synchronize DOM if it differs from prop
+    if (currentDom !== cleanTarget) {
       el.innerText = targetVal;
       lastEmittedValueRef.current = targetVal;
     }
   }, [value]);
+
+  // Listen for programmatic 'start-edit' event (e.g. keyboard Enter or Arrow navigation)
+  useEffect(() => {
+    const el = elRef.current;
+    if (!el) return;
+
+    const handleStartEdit = (e: any) => {
+      setIsEditing(true);
+      el.contentEditable = 'true';
+      el.focus();
+      const caretPosition = e.detail?.caretPosition || 'end';
+      const sel = window.getSelection();
+      if (sel) {
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        range.collapse(caretPosition === 'start');
+        sel.removeAllRanges();
+        sel.addRange(range);
+      }
+    };
+
+    el.addEventListener('start-edit', handleStartEdit);
+    return () => {
+      el.removeEventListener('start-edit', handleStartEdit);
+    };
+  }, []);
 
   // Cleanup pending debounce timer on unmount
   useEffect(() => {
@@ -186,57 +229,115 @@ export const EditableBlock: React.FC<EditableBlockProps> = ({
     const el = elRef.current;
     if (el) {
       const targetVal = value || '';
-      if (el.innerText !== targetVal) {
+      if ((el.innerText || '').replace(/\r?\n$/, '') !== targetVal.replace(/\r?\n$/, '')) {
         el.innerText = targetVal;
         lastEmittedValueRef.current = targetVal;
       }
     }
   }, []);
 
-  const handleInput = (e: React.FormEvent<HTMLElement>) => {
-    const currentVal = e.currentTarget.innerText;
-    lastEmittedValueRef.current = currentVal;
+  const handleInput = () => {
+    // Zero layout reflow on keystroke! Do not read DOM .innerText synchronously while user types.
     if (debounceTimerRef.current) {
       clearTimeout(debounceTimerRef.current);
     }
     debounceTimerRef.current = setTimeout(() => {
-      onUpdateText(currentVal);
-    }, 250);
+      const el = elRef.current;
+      if (!el) return;
+      const latest = (el.innerText || '').replace(/\r?\n$/, '');
+      lastEmittedValueRef.current = latest;
+      onUpdateText(latest);
+    }, 600);
   };
 
   const handleFocus = (e: React.FocusEvent<HTMLElement>) => {
     isFocusedRef.current = true;
+    setIsEditing(true);
     onFocus?.(e);
   };
 
   const handleBlur = (e: React.FocusEvent<HTMLElement>) => {
     isFocusedRef.current = false;
+    setIsEditing(false);
+    if (elRef.current) {
+      elRef.current.contentEditable = 'false';
+    }
     if (debounceTimerRef.current) {
       clearTimeout(debounceTimerRef.current);
       debounceTimerRef.current = null;
     }
-    const finalVal = e.currentTarget.innerText;
+    const finalVal = (e.currentTarget.innerText || '').replace(/\r?\n$/, '');
     lastEmittedValueRef.current = finalVal;
-    if (finalVal !== (value || '')) {
+    if (finalVal !== (value || '').replace(/\r?\n$/, '')) {
       onUpdateText(finalVal);
     }
     onBlur?.(e);
+  };
+
+  const handleDoubleClick = (e: React.MouseEvent<HTMLElement>) => {
+    e.stopPropagation();
+    setIsEditing(true);
+    const el = elRef.current;
+    if (el) {
+      el.contentEditable = 'true';
+      el.focus();
+
+      const doc = document as any;
+      let range: Range | null = null;
+      if (doc.caretRangeFromPoint) {
+        range = doc.caretRangeFromPoint(e.clientX, e.clientY);
+      } else if (doc.caretPositionFromPoint) {
+        const pos = doc.caretPositionFromPoint(e.clientX, e.clientY);
+        if (pos) {
+          range = document.createRange();
+          range.setStart(pos.offsetNode, pos.offset);
+          range.collapse(true);
+        }
+      }
+      const sel = window.getSelection();
+      if (sel) {
+        sel.removeAllRanges();
+        if (range) {
+          sel.addRange(range);
+        } else {
+          const r = document.createRange();
+          r.selectNodeContents(el);
+          r.collapse(false);
+          sel.addRange(r);
+        }
+      }
+    }
+  };
+
+  const handleClick = (e: React.MouseEvent<HTMLElement>) => {
+    if (isEditing) {
+      // While editing, allow normal click and caret navigation inside text
+      e.stopPropagation();
+      return;
+    }
+    // When not editing, trigger onClick to select the card block
+    onClick?.(e);
   };
 
   return (
     <Component
       ref={elRef as any}
       data-item-id={dataItemId}
-      contentEditable
+      contentEditable={isEditing}
       suppressContentEditableWarning
       onInput={handleInput}
       onFocus={handleFocus}
       onBlur={handleBlur}
       onKeyDown={onKeyDown}
-      onClick={onClick}
-      className={className}
+      onClick={handleClick}
+      onDoubleClick={handleDoubleClick}
+      className={`${className || ''} ${
+        isEditing
+          ? 'outline-none ring-2 ring-emerald-500/50 rounded cursor-text'
+          : 'cursor-pointer select-none'
+      }`}
       style={style}
-      title={title}
+      title={isEditing ? title : 'Double-click to edit text'}
     />
   );
 };
@@ -285,6 +386,9 @@ export const TwoColumnItemRow: React.FC<TwoColumnItemRowProps> = React.memo(
     onFocusNextRow,
     onFocusPrevRow,
     onEscapeToCard,
+    splitActionByComma = false,
+    splitActionIncludeDot = false,
+    onSplitActionByComma,
     showToast,
   }) => {
     const [isColorPickerOpen, setIsColorPickerOpen] = useState(false);
@@ -403,7 +507,7 @@ export const TwoColumnItemRow: React.FC<TwoColumnItemRowProps> = React.memo(
           id={`script-row-card-${item.id}`}
           tabIndex={-1}
           onClick={(e) => onParagraphClick(item.id, e)}
-          className={`group relative rounded-xl p-2.5 transition-all cursor-pointer border ${
+          className={`group relative rounded-xl p-2.5 transition-colors duration-150 cursor-pointer border ${
             isDragged
               ? 'opacity-35 scale-[0.99] ring-2 ring-emerald-500/50 shadow-xl border-emerald-500/50'
               : isSelected
@@ -670,6 +774,32 @@ export const TwoColumnItemRow: React.FC<TwoColumnItemRowProps> = React.memo(
               )}
             </div>
 
+            {/* Quick Split by Comma / Dot for Action block */}
+            {isLeft && (() => {
+              const text = item.leftAction || item.rawText || '';
+              const hasComma = text.includes(',') || text.includes('،') || text.includes('，');
+              const hasDot = splitActionIncludeDot && text.includes('.');
+              if (!hasComma && !hasDot) return null;
+              return (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onSplitActionByComma?.(item.id, text);
+                  }}
+                  className={`px-1.5 py-0.5 rounded text-[10px] font-bold flex items-center gap-1 cursor-pointer transition-colors ${
+                    isLight
+                      ? 'bg-amber-100 text-amber-900 hover:bg-amber-200 border border-amber-300'
+                      : 'bg-amber-500/20 text-amber-300 hover:bg-amber-500 hover:text-black border border-amber-500/40'
+                  }`}
+                  title="Split action at commas/dots into single shot paragraphs"
+                >
+                  <Scissors size={10} />
+                  <span>Split Shots</span>
+                </button>
+              );
+            })()}
+
             <div className={`w-[1px] h-3 mx-0.5 ${isLight ? 'bg-slate-200' : 'bg-zinc-700/80'}`} />
 
             {/* 7. Delete button on hover box */}
@@ -762,13 +892,7 @@ export const TwoColumnItemRow: React.FC<TwoColumnItemRowProps> = React.memo(
                         }
                       }}
                       onClick={(e) => {
-                        if (e.metaKey || e.ctrlKey) {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          onParagraphClick(item.id, e);
-                          return;
-                        }
-                        e.stopPropagation();
+                        onParagraphClick(item.id, e);
                       }}
                       className="outline-none focus:ring-1 focus:ring-amber-500 rounded px-1"
                       title="Type to edit montage title"
@@ -829,13 +953,7 @@ export const TwoColumnItemRow: React.FC<TwoColumnItemRowProps> = React.memo(
                       }
                     }}
                     onClick={(e) => {
-                      if (e.metaKey || e.ctrlKey) {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        onParagraphClick(item.id, e);
-                        return;
-                      }
-                      e.stopPropagation();
+                      onParagraphClick(item.id, e);
                     }}
                     style={{
                       backgroundColor: `${transitionColor}18`,
@@ -902,13 +1020,7 @@ export const TwoColumnItemRow: React.FC<TwoColumnItemRowProps> = React.memo(
                       }
                     }}
                     onClick={(e) => {
-                      if (e.metaKey || e.ctrlKey) {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        onParagraphClick(item.id, e);
-                        return;
-                      }
-                      e.stopPropagation();
+                      onParagraphClick(item.id, e);
                     }}
                     style={{ color: item.textColor || transitionColor }}
                     className={`outline-none font-serif text-sm focus:ring-1 focus:ring-amber-500 rounded px-1 ${
@@ -1122,12 +1234,6 @@ export const TwoColumnItemRow: React.FC<TwoColumnItemRowProps> = React.memo(
                           }
                         }}
                         onClick={(e) => {
-                          if (e.metaKey || e.ctrlKey) {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            onParagraphClick(item.id, e);
-                            return;
-                          }
                           if (e.altKey) {
                             e.preventDefault();
                             e.stopPropagation();
@@ -1135,10 +1241,18 @@ export const TwoColumnItemRow: React.FC<TwoColumnItemRowProps> = React.memo(
                             onSplit(item.id, offset, e.currentTarget.innerText);
                             return;
                           }
-                          e.stopPropagation();
+                          onParagraphClick(item.id, e);
+                        }}
+                        onBlur={(e) => {
+                          const currentVal = e.currentTarget.innerText || '';
+                          const hasComma = currentVal.includes(',') || currentVal.includes('،') || currentVal.includes('，');
+                          const hasDot = splitActionIncludeDot && currentVal.includes('.');
+                          if (splitActionByComma && (hasComma || hasDot)) {
+                            onSplitActionByComma?.(item.id, currentVal);
+                          }
                         }}
                         style={{ textAlign: actAlign, color: item.textColor || undefined }}
-                        className={`min-h-[28px] ${alignClass} leading-relaxed outline-none focus:ring-1 focus:ring-emerald-500/50 rounded p-1 transition-all ${
+                        className={`min-h-[28px] ${alignClass} leading-relaxed outline-none focus:ring-1 focus:ring-emerald-500/50 rounded p-1 transition-colors duration-150 ${
                           item.isBold ? 'font-bold' : ''
                         } ${item.isItalic ? 'italic' : ''} ${
                           !item.leftAction && !item.rawText
@@ -1303,12 +1417,6 @@ export const TwoColumnItemRow: React.FC<TwoColumnItemRowProps> = React.memo(
                           }
                         }}
                         onClick={(e) => {
-                          if (e.metaKey || e.ctrlKey) {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            onParagraphClick(item.id, e);
-                            return;
-                          }
                           if (e.altKey) {
                             e.preventDefault();
                             e.stopPropagation();
@@ -1316,10 +1424,10 @@ export const TwoColumnItemRow: React.FC<TwoColumnItemRowProps> = React.memo(
                             onSplit(item.id, offset, e.currentTarget.innerText);
                             return;
                           }
-                          e.stopPropagation();
+                          onParagraphClick(item.id, e);
                         }}
                         style={{ textAlign: diaAlign, color: item.textColor || undefined }}
-                        className={`min-h-[28px] leading-relaxed outline-none focus:ring-1 focus:ring-sky-500/50 rounded p-1 ${alignClass} transition-all ${
+                        className={`min-h-[28px] leading-relaxed outline-none focus:ring-1 focus:ring-sky-500/50 rounded p-1 ${alignClass} transition-colors duration-150 ${
                           item.isBold ? 'font-bold' : ''
                         } ${item.isItalic ? 'italic' : ''} ${
                           !text
@@ -1425,7 +1533,11 @@ export const TwoColumnItemRow: React.FC<TwoColumnItemRowProps> = React.memo(
       prev.transitionColor === next.transitionColor &&
       prev.transitionStyle === next.transitionStyle &&
       prev.gapParagraphRowPx === next.gapParagraphRowPx &&
-      prev.allKnownCharacters === next.allKnownCharacters
+      prev.splitActionByComma === next.splitActionByComma &&
+      prev.splitActionIncludeDot === next.splitActionIncludeDot &&
+      (prev.allKnownCharacters === next.allKnownCharacters ||
+        (prev.allKnownCharacters?.length === next.allKnownCharacters?.length &&
+          prev.allKnownCharacters?.every((val, idx) => val === next.allKnownCharacters?.[idx])))
     );
   }
 );

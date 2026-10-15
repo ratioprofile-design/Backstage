@@ -44,11 +44,21 @@ export const TamilLeftRightStudioView: React.FC<TamilLeftRightStudioViewProps> =
       <DocumentTwoColumnEditor
         document={doc}
         onSave={(updatedDoc) => {
+          try {
+            localStorage.setItem('active_two_column_doc_id', updatedDoc.id);
+            localStorage.setItem('backstage_last_vault_doc_id', updatedDoc.id);
+            localStorage.setItem('backstage_last_vault_mode', 'two-column');
+          } catch (e) {}
           if (onSaveToVault) {
             onSaveToVault(updatedDoc);
           }
         }}
-        onClose={onBackToVault}
+        onClose={() => {
+          try {
+            localStorage.setItem('backstage_last_vault_mode', 'list');
+          } catch (e) {}
+          onBackToVault();
+        }}
         isLight={isLight}
       />
     </div>

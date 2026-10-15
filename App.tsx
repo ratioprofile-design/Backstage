@@ -79,9 +79,12 @@ const StyleInjector: React.FC = () => {
     const elementVars = elements.map(el => {
       const conf = scriptConfig[el];
       const baseFont = conf.fontFamily || 'Courier Prime';
-      const font = (isTamilMode && tamilFontFamily && tamilFontFamily !== baseFont)
-        ? `'${baseFont}', '${tamilFontFamily}', "Courier Prime", monospace`
-        : `'${baseFont}', "Courier Prime", monospace`;
+      const font = (baseFont === 'Meera Inimai')
+        ? `'Meera Inimai', 'Courier Prime', monospace`
+        : ((isTamilMode && tamilFontFamily && tamilFontFamily !== baseFont)
+          ? `'${baseFont}', '${tamilFontFamily}', "Courier Prime", monospace`
+          : `'${baseFont}', "Courier Prime", monospace`);
+      const transform = conf.textTransform || (el === 'character' || el === 'transition' || el === 'shot' ? 'uppercase' : 'none');
       return `
         --margin-${el}: ${conf.marginLeft}%;
         --width-${el}: ${conf.width}%;
@@ -97,6 +100,7 @@ const StyleInjector: React.FC = () => {
         --dec-${el}: ${conf.underline ? 'underline' : 'none'};
         --color-${el}: ${conf.color};
         --bg-${el}: ${conf.highlightColor || 'transparent'};
+        --transform-${el}: ${transform};
       `;
     }).join('\n');
 
@@ -197,13 +201,13 @@ const StyleInjector: React.FC = () => {
         color: var(--color-slug);
       }
 
-      .sc-action, .sc-line.sc-action { font-family: var(--font-action) !important; }
-      .sc-character, .sc-line.sc-character { font-family: var(--font-character) !important; }
-      .sc-dialogue, .sc-line.sc-dialogue { font-family: var(--font-dialogue) !important; }
-      .sc-parenthetical, .sc-line.sc-parenthetical { font-family: var(--font-parenthetical) !important; }
-      .sc-transition, .sc-line.sc-transition { font-family: var(--font-transition) !important; }
-      .sc-shot, .sc-line.sc-shot { font-family: var(--font-shot) !important; }
-      .sc-lyrics, .sc-line.sc-lyrics { font-family: var(--font-lyrics) !important; }
+      .sc-action, .sc-line.sc-action { font-family: var(--font-action) !important; text-transform: var(--transform-action, none); }
+      .sc-character, .sc-line.sc-character { font-family: var(--font-character) !important; text-transform: var(--transform-character, uppercase); }
+      .sc-dialogue, .sc-line.sc-dialogue { font-family: var(--font-dialogue) !important; text-transform: var(--transform-dialogue, none); }
+      .sc-parenthetical, .sc-line.sc-parenthetical { font-family: var(--font-parenthetical) !important; text-transform: var(--transform-parenthetical, none); }
+      .sc-transition, .sc-line.sc-transition { font-family: var(--font-transition) !important; text-transform: var(--transform-transition, uppercase); }
+      .sc-shot, .sc-line.sc-shot { font-family: var(--font-shot) !important; text-transform: var(--transform-shot, uppercase); }
+      .sc-lyrics, .sc-line.sc-lyrics { font-family: var(--font-lyrics) !important; text-transform: var(--transform-lyrics, none); }
     `;
   }, [scriptConfig, scratchpadConfig, appTheme, appAccentColor, isTamilMode, tamilFontFamily]);
 
@@ -212,7 +216,7 @@ const StyleInjector: React.FC = () => {
 
 const AppContent: React.FC = () => {
   console.log('[probe] AppContent mounted, supabase user =', useProject ? 'n/a' : 'n/a');
-  const { currentUser, currentProjectId, undo, redo, isInitialLoading, saveProject, saveProjectAs, loadProject, closeProject, setAppTheme, filePath, setFilePath, supabaseUser, isCloudMode, logout, selectProject, deleteProject, projectList, userRole, updateUserRole, navLayout = 'horizontal', beats, appTheme } = useProject();
+  const { currentUser, currentProjectId, undo, redo, isInitialLoading, isProjectLoading, projectLoadingMessage, saveProject, saveProjectAs, loadProject, closeProject, setAppTheme, filePath, setFilePath, supabaseUser, isCloudMode, logout, selectProject, deleteProject, projectList, userRole, updateUserRole, navLayout = 'horizontal', beats, appTheme } = useProject();
   const [currentView, setCurrentView] = useState<ViewMode>(() => {
     try {
       const saved = localStorage.getItem('backstage_last_view');
@@ -220,6 +224,64 @@ const AppContent: React.FC = () => {
     } catch {}
     return 'board';
   });
+
+  const [pageLoadingMessage, setPageLoadingMessage] = useState<string | null>(null);
+  const pageLoadingTimerRef = useRef<any>(null);
+
+  const VIEW_NAMES: Record<string, string> = {
+    script: 'Screenplay Editor',
+    'two-column-script': 'Two-Column Script Studio',
+    documents: 'Document Vault',
+    breakdown: 'Scene Breakdown',
+    board: 'Storyboard & Beats Canvas',
+    casting: 'Casting & Talent Hub',
+    characterdesign: 'Character Design Studio',
+    continuity: 'Costume & Continuity Tracker',
+    crew: 'Crew & Departments',
+    shotlist: 'Director Shot List',
+    storyboard: 'Visual Storyboard Grid',
+    schedule: 'Production Shooting Schedule',
+    dood: 'Day-out-of-Days Matrix',
+    callsheet: 'Daily Call Sheet Creator',
+    statistics: 'Script Analytics & Stats',
+    backstage: 'Backstage Dashboard',
+    goals: 'Production Goals & Milestones',
+    inbox: 'Production Inbox & Tasks',
+    excalidraw: 'Whiteboard & Floorplans',
+  };
+
+  const handleNavigateView = useCallback((nextView: ViewMode) => {
+    if (nextView === currentView) return;
+    const viewName = VIEW_NAMES[nextView] || nextView;
+    setPageLoadingMessage(`Loading ${viewName}...`);
+    if (pageLoadingTimerRef.current) clearTimeout(pageLoadingTimerRef.current);
+    
+    setCurrentView(nextView);
+
+    pageLoadingTimerRef.current = setTimeout(() => {
+      setPageLoadingMessage(null);
+    }, 450);
+  }, [currentView]);
+
+  // Global listener for async tasks or heavy views that take time to load
+  useEffect(() => {
+    const handleLoadingEvent = (e: any) => {
+      const msg = e.detail?.message;
+      if (msg) {
+        setPageLoadingMessage(msg);
+        if (e.detail?.autoDismiss !== false) {
+          if (pageLoadingTimerRef.current) clearTimeout(pageLoadingTimerRef.current);
+          pageLoadingTimerRef.current = setTimeout(() => {
+            setPageLoadingMessage(null);
+          }, e.detail?.duration || 2500);
+        }
+      } else {
+        setPageLoadingMessage(null);
+      }
+    };
+    window.addEventListener('backstage_page_loading', handleLoadingEvent);
+    return () => window.removeEventListener('backstage_page_loading', handleLoadingEvent);
+  }, []);
 
   // Automatically remember every visited page across browser reloads
   useEffect(() => {
@@ -726,23 +788,34 @@ const AppContent: React.FC = () => {
     isSettingsOpen, isImportModalOpen, isInboxOpen, openBeatIds
   ]);
 
-  if (isInitialLoading && !loadingTimedOut) {
+  if ((isInitialLoading && !loadingTimedOut) || isProjectLoading) {
       return (
           <div 
             onClick={() => setLoadingTimedOut(true)}
-            className="fixed inset-0 bg-[#050505] flex flex-col items-center justify-center font-sans cursor-pointer select-none"
-            title="Click to enter workspace immediately"
+            className="fixed inset-0 bg-[#060609] flex flex-col items-center justify-center font-sans cursor-pointer select-none z-[9999]"
+            title="Click to enter workspace"
           >
-              <div className="relative mb-8">
-                  <div className="w-16 h-16 bg-[#111] border border-white/10 rounded-2xl flex items-center justify-center animate-pulse">
-                      <Film className="text-[#f5a623]" size={32} />
+              <div className="relative mb-6 flex flex-col items-center">
+                  <div className="w-20 h-20 bg-gradient-to-br from-zinc-800 to-zinc-950 border border-amber-500/30 rounded-3xl flex items-center justify-center shadow-[0_0_50px_rgba(245,166,35,0.18)] animate-pulse">
+                      <Film className="text-[#f5a623]" size={36} />
+                  </div>
+                  <div className="absolute -bottom-2.5 px-3 py-0.5 rounded-full bg-amber-500 text-black text-[9px] font-black tracking-widest uppercase shadow-md flex items-center gap-1.5">
+                      <Cloud size={10} className="stroke-[3]" />
+                      <span>CLOUD SYNC</span>
                   </div>
               </div>
-              <div className="flex items-center gap-3">
-                  <Loader2 className="animate-spin text-gray-600" size={14} />
-                  <span className="text-[10px] font-black text-gray-500 uppercase tracking-[0.4em]">Restoring Session...</span>
+              <div className="flex flex-col items-center gap-2 max-w-sm text-center px-4">
+                  <div className="flex items-center gap-2.5">
+                      <Loader2 className="animate-spin text-amber-400" size={16} />
+                      <span className="text-sm font-bold text-zinc-100 tracking-wide">
+                        {projectLoadingMessage || 'Loading Project from Backstage Cloud...'}
+                      </span>
+                  </div>
+                  <p className="text-xs text-zinc-400 leading-relaxed">
+                    Syncing your screenplay, two-column scripts, breakdown elements, and characters in real-time.
+                  </p>
               </div>
-              <span className="text-[10px] text-gray-600 hover:text-amber-400 mt-4 underline decoration-gray-800 transition-colors">
+              <span className="text-[10px] text-zinc-500 hover:text-amber-400 mt-6 underline decoration-zinc-700 transition-colors">
                   Click to continue immediately
               </span>
           </div>
@@ -813,7 +886,7 @@ const AppContent: React.FC = () => {
         {navLayout === 'vertical' && (
           <AppSidebar
             currentView={currentView}
-            onViewChange={setCurrentView}
+            onViewChange={handleNavigateView}
             isCollapsed={isSidebarCollapsed}
             onToggleCollapse={handleToggleSidebar}
             onOpenSettings={() => setIsSettingsOpen(true)}
@@ -827,11 +900,26 @@ const AppContent: React.FC = () => {
 
         {/* MAIN COLUMN (HEADER [HORIZONTAL ONLY] + ACTIVE VIEW CONTENT) */}
         <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden relative">
+          {pageLoadingMessage && (
+            <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-amber-500 via-emerald-400 to-amber-500 animate-pulse z-[9999]" />
+          )}
+
+          {/* Real-time Responsive Page Loading Pill */}
+          {pageLoadingMessage && (
+            <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[9999] pointer-events-none animate-in fade-in slide-in-from-top-2 duration-150">
+              <div className="flex items-center gap-2.5 px-4 py-2 rounded-2xl bg-zinc-950/95 border border-amber-500/50 shadow-[0_12px_40px_rgba(0,0,0,0.8)] backdrop-blur-md text-zinc-100 text-xs font-medium">
+                <Loader2 size={14} className="animate-spin text-amber-400 shrink-0" />
+                <span className="font-bold text-amber-300">{pageLoadingMessage}</span>
+                <span className="text-[10.5px] text-zinc-400 font-mono">(App responsive & syncing)</span>
+              </div>
+            </div>
+          )}
+
           {navLayout === 'horizontal' && (
             <div className="print:hidden shrink-0">
               <AppHeader 
                   currentView={currentView} 
-                  onViewChange={setCurrentView}
+                  onViewChange={handleNavigateView}
                   onRefresh={handleRefresh}
                   onPrint={() => setShowPrintPreview(true)}
                   onOpenInbox={() => setIsInboxOpen(true)}
@@ -845,10 +933,10 @@ const AppContent: React.FC = () => {
           
           <main className="flex-1 w-full h-full min-h-0 relative print:hidden print:mt-0 print:h-auto overflow-hidden">
             {currentView === 'board' && <div className="w-full h-full"><BoardView key={`board-${refreshKey}`} onEditBeat={handleEditBeat} /></div>}
-            {currentView === 'excalidraw' && <div className="w-full h-full"><ExcalidrawView key={`excalidraw-${refreshKey}`} onEditBeat={handleEditBeat} onNavigateToView={(v) => setCurrentView(v)} /></div>}
-            {currentView === 'script' && <div className="w-full h-full"><ScriptView key={`script-${refreshKey}`} onNavigateToView={(v) => setCurrentView(v)} /></div>}
-            {currentView === 'casting' && <div className="w-full h-full"><CastingView key={`casting-${refreshKey}`} onNavigateToView={(v) => setCurrentView(v)} /></div>}
-            {currentView === 'characterdesign' && <div className="w-full h-full"><CharacterDesignView key={`characterdesign-${refreshKey}`} onNavigateToView={(v) => setCurrentView(v)} /></div>}
+            {currentView === 'excalidraw' && <div className="w-full h-full"><ExcalidrawView key={`excalidraw-${refreshKey}`} onEditBeat={handleEditBeat} onNavigateToView={handleNavigateView} /></div>}
+            {currentView === 'script' && <div className="w-full h-full"><ScriptView key={`script-${refreshKey}`} onNavigateToView={handleNavigateView} /></div>}
+            {currentView === 'casting' && <div className="w-full h-full"><CastingView key={`casting-${refreshKey}`} onNavigateToView={handleNavigateView} /></div>}
+            {currentView === 'characterdesign' && <div className="w-full h-full"><CharacterDesignView key={`characterdesign-${refreshKey}`} onNavigateToView={handleNavigateView} /></div>}
             {currentView === 'breakdown' && (
               <div className="w-full h-full">
                 <BreakdownView 
@@ -856,7 +944,7 @@ const AppContent: React.FC = () => {
                   allTasks={inboxTasks}
                   onUpdateTask={handleUpdateTask}
                   onAddTask={handleAddTask}
-                  onNavigateToView={(v: any) => setCurrentView(v)}
+                  onNavigateToView={handleNavigateView}
                 />
               </div>
             )}
@@ -872,17 +960,17 @@ const AppContent: React.FC = () => {
                 />
               </div>
             )}
-            {currentView === 'shotlist' && <div className="w-full h-full"><ShotListView key={`shotlist-${refreshKey}`} onNavigateToStoryboard={() => setCurrentView('storyboard')} /></div>}
+            {currentView === 'shotlist' && <div className="w-full h-full"><ShotListView key={`shotlist-${refreshKey}`} onNavigateToStoryboard={() => handleNavigateView('storyboard')} /></div>}
             {currentView === 'storyboard' && <div className="w-full h-full"><StoryboardView key={`story-${refreshKey}`} /></div>}
-            {currentView === 'schedule' && <div className="w-full h-full"><ScheduleView key={`schedule-${refreshKey}`} onNavigateToView={setCurrentView} /></div>}
+            {currentView === 'schedule' && <div className="w-full h-full"><ScheduleView key={`schedule-${refreshKey}`} onNavigateToView={handleNavigateView} /></div>}
             {currentView === 'dood' && <div className="w-full h-full"><DoodMatrixView key={`dood-${refreshKey}`} /></div>}
-            {currentView === 'documents' && <div className="w-full h-full"><DocumentVaultView key={`documents-${refreshKey}`} onNavigateToView={setCurrentView} /></div>}
-            {currentView === 'two-column-script' && <div className="w-full h-full"><TwoColumnScriptView key={`two-col-${refreshKey}`} onNavigateToView={setCurrentView} /></div>}
+            {currentView === 'documents' && <div className="w-full h-full"><DocumentVaultView key={`documents-${refreshKey}`} onNavigateToView={handleNavigateView} /></div>}
+            {currentView === 'two-column-script' && <div className="w-full h-full"><TwoColumnScriptView key={`two-col-${refreshKey}`} onNavigateToView={handleNavigateView} /></div>}
             {currentView === 'callsheet' && <div className="w-full h-full"><CallSheetView key={`callsheet-${refreshKey}`} /></div>}
             {currentView === 'statistics' && <div className="w-full h-full"><StatisticsView key={`stats-${refreshKey}`} /></div>}
-            {currentView === 'backstage' && <div className="w-full h-full"><BackstageView key={`backstage-${refreshKey}`} onNavigateToBoard={() => setCurrentView('board')} /></div>}
+            {currentView === 'backstage' && <div className="w-full h-full"><BackstageView key={`backstage-${refreshKey}`} onNavigateToBoard={() => handleNavigateView('board')} /></div>}
             {currentView === 'goals' && <div className="w-full h-full"><GoalView key={`goals-${refreshKey}`} /></div>}
-            {currentView === 'inbox' && <div className="w-full h-full"><InboxView key={`inbox-${refreshKey}`} tasks={inboxTasks} onNavigateToView={setCurrentView} onUpdateTask={handleUpdateTask} onAddTask={handleAddTask} onDeleteTask={handleDeleteTask} /></div>}
+            {currentView === 'inbox' && <div className="w-full h-full"><InboxView key={`inbox-${refreshKey}`} tasks={inboxTasks} onNavigateToView={handleNavigateView} onUpdateTask={handleUpdateTask} onAddTask={handleAddTask} onDeleteTask={handleDeleteTask} /></div>}
             {!['board', 'excalidraw', 'script', 'casting', 'characterdesign', 'characters', 'breakdown', 'continuity', 'crew', 'shotlist', 'storyboard', 'schedule', 'statistics', 'backstage', 'inbox', 'goals', 'dood', 'documents', 'callsheet', 'two-column-script'].includes(currentView) && (
               <div className="w-full h-full"><BoardView key={`fallback-${refreshKey}`} onEditBeat={handleEditBeat} /></div>
             )}

@@ -393,6 +393,8 @@ export interface ProjectContextType extends ProjectState {
   supabaseUser: any;
   isSaving: boolean;
   isInitialLoading: boolean;
+  isProjectLoading?: boolean;
+  projectLoadingMessage?: string;
   cloudOffline: boolean;
   userRole: ('writer' | 'director' | 'producer' | 'ad' | 'cinematographer')[] | null;
   updateUserRole: (roles: ('writer' | 'director' | 'producer' | 'ad' | 'cinematographer')[]) => Promise<void>;
@@ -555,6 +557,7 @@ export interface ScriptElementConfig {
   color: string; // Hex color for text
   highlightColor: string | null; // Background color
   useMusicDecorations?: boolean; // For Lyrics: add ♫ symbols
+  textTransform?: 'uppercase' | 'none' | 'capitalize'; // Text casing / transform
 }
 
 export interface SluglineConfig {

@@ -12,19 +12,20 @@ import {
   Check, Clock, MoreHorizontal, MousePointer2, Layers, Link2, AlertCircle, 
   ChevronRight, ChevronDown, Settings, Copy, PlusSquare, ArrowUp, ArrowDown,
   Highlighter, Tag, Scissors, ExternalLink, RefreshCw, FileText, ArrowRight,
-  Volume2, Square, Hash, BookOpen, Scroll, UserCheck, Car, Cat, Home, TreePine, Zap, AlertTriangle
+  Volume2, Square, Hash, BookOpen, Scroll, UserCheck, Car, Cat, Home, TreePine, Zap, AlertTriangle, Sliders
 } from 'lucide-react';
 import { ScriptEditor, ScriptEditorHandle } from '../ScriptEditor';
 import { SlugInput } from '../SlugInput';
 import { generateBreakdown } from '../../services/gemini';
-import { BreakdownData, BreakdownItem, BreakdownCategory, CategoryMeta, CATEGORY_REGISTRY, BeatVersion, Note, Beat, Group, Connection, BeatStatus } from '../../types';
-import { STORYLINE_COLORS, SUPPORTED_LANGUAGES } from '../../constants';
+import { BreakdownData, BreakdownItem, BreakdownCategory, CategoryMeta, CATEGORY_REGISTRY, BeatVersion, Note, Beat, Group, Connection, BeatStatus, ScriptElementConfig } from '../../types';
+import { STORYLINE_COLORS, SUPPORTED_LANGUAGES, AVAILABLE_ENGLISH_FONTS } from '../../constants';
 import { extractScriptCharacterSuggestions } from '../../utils/characterUtils';
 import { syncBreakdownToDepartmentsAndContinuity } from '../../utils/breakdownSync';
 import { BlockEditor } from '../BlockEditor';
 import DiffModal from '../DiffModal';
 import ScriptArchiveModal from '../ScriptArchiveModal';
 import TamilTranscoderModal from '../TamilTranscoderModal';
+import { CharacterStyleModal } from '../CharacterStyleModal';
 import { Archive } from 'lucide-react';
 // Trigger pagination pass with actualDomTop
 import { runLinePaginationPass, estimateBeatHeight, A4_PAGE_WRITABLE_HEIGHT } from '../../utils/screenplayPaginationEngine';
@@ -853,7 +854,16 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: any) => void }> = ({ onNa
   const [searchTerm, setSearchTerm] = useState('');
   const [zoom, setZoom] = useState(1.0);
   const [scriptToast, setScriptToast] = useState<string | null>(null);
-  const [activeBeatId, setActiveBeatId] = useState<number | null>(null);
+  const [activeBeatId, setActiveBeatId] = useState<number | null>(() => {
+    try {
+      const saved = localStorage.getItem('backstage_last_script_beat_id');
+      if (saved) {
+        const parsed = parseInt(saved, 10);
+        if (!isNaN(parsed)) return parsed;
+      }
+    } catch {}
+    return null;
+  });
   const [activeFormat, setActiveFormat] = useState('action');
   const [showNav, setShowNav] = useState(true);
   const [navMode, setNavMode] = useState<'list' | 'board'>('board');
@@ -869,7 +879,83 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: any) => void }> = ({ onNa
   const [showLanguageConfig, setShowLanguageConfig] = useState(false);
   const [showArchiveModal, setShowArchiveModal] = useState(false);
   const [showTranscoderModal, setShowTranscoderModal] = useState(false);
+  const [showCharacterStyleModal, setShowCharacterStyleModal] = useState(false);
   const [diffVersion, setDiffVersion] = useState<BeatVersion | null>(null);
+
+  // Automatically remember active beat ID
+  useEffect(() => {
+    if (activeBeatId !== null) {
+      try {
+        localStorage.setItem('backstage_last_script_beat_id', String(activeBeatId));
+      } catch {}
+    }
+  }, [activeBeatId]);
+
+  // Restore scroll position & active beat on mount
+  const hasRestoredScriptScrollRef = useRef(false);
+  useEffect(() => {
+    if (hasRestoredScriptScrollRef.current) return;
+    if (!beats || beats.length === 0) return;
+    hasRestoredScriptScrollRef.current = true;
+
+    try {
+      const savedBeatId = localStorage.getItem('backstage_last_script_beat_id');
+      const savedScrollTop = localStorage.getItem('backstage_last_script_scroll_top');
+      if (savedBeatId) {
+        const bId = parseInt(savedBeatId, 10);
+        if (!isNaN(bId) && beats.some(b => b.id === bId)) {
+          setActiveBeatId(bId);
+          setTimeout(() => {
+            const el = document.getElementById(`beat-${bId}`);
+            if (el) {
+              el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            } else if (savedScrollTop && scrollerRef.current) {
+              scrollerRef.current.scrollTop = parseInt(savedScrollTop, 10);
+            }
+          }, 250);
+          return;
+        }
+      }
+      if (savedScrollTop && scrollerRef.current) {
+        setTimeout(() => {
+          if (scrollerRef.current) {
+            scrollerRef.current.scrollTop = parseInt(savedScrollTop, 10);
+          }
+        }, 200);
+      }
+    } catch (e) {
+      console.warn('Could not restore script scroll position:', e);
+    }
+  }, [beats]);
+
+  const handleSetGlobalScriptFont = (font: string) => {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('user_pref_script_font', font);
+    }
+    const elements = ['action', 'character', 'dialogue', 'parenthetical', 'transition', 'shot', 'lyrics'] as const;
+    setScriptConfig(prev => {
+      const updated = { ...prev };
+      elements.forEach(elm => {
+        if (updated[elm]) {
+          updated[elm] = { ...updated[elm], fontFamily: font };
+        }
+      });
+      if (updated.slugline) {
+        updated.slugline = { ...updated.slugline, fontFamily: font };
+      }
+      return updated;
+    });
+  };
+
+  const handleUpdateCharacterConfig = (updates: Partial<ScriptElementConfig>) => {
+    setScriptConfig(prev => ({
+      ...prev,
+      character: {
+        ...prev.character,
+        ...updates
+      }
+    }));
+  };
   const isConstrained = activeSidebar !== 'none' || (showNav && sidebarWidth >= 300);
   
   const [scriptContextMenu, setScriptContextMenu] = useState<{ x: number, y: number, beatId: number, selectionText?: string } | null>(null);
@@ -1596,7 +1682,7 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: any) => void }> = ({ onNa
     ); 
   };
 
-  const BreakdownSection = ({ category }: { category: BreakdownCategory }) => { 
+  const BreakdownSection: React.FC<{ category: BreakdownCategory }> = ({ category }) => { 
     const meta = CATEGORY_REGISTRY[category] || {
       key: category,
       nameEn: category,
@@ -1823,6 +1909,17 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: any) => void }> = ({ onNa
                                 </button>
                             );
                         })}
+                        <div className={`w-px h-4 mx-0.5 ${isLight ? 'bg-slate-300' : 'bg-[#333]'}`}></div>
+                        <button 
+                            type="button"
+                            onClick={() => setShowCharacterStyleModal(true)}
+                            className={`px-2 py-1.5 text-[10px] font-bold uppercase rounded-xs transition-all duration-200 flex items-center gap-1.5 min-w-[28px] justify-center cursor-pointer ${showCharacterStyleModal ? 'shadow-xs font-bold' : (isLight ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-200' : 'text-gray-400 hover:text-white hover:bg-[#222]')}`}
+                            style={showCharacterStyleModal ? { backgroundColor: appAccentColor, color: '#000000' } : undefined}
+                            title="Style Character Element (Font, Color, Casing, Indent)"
+                        >
+                            <Sliders size={12} strokeWidth={2.5} style={!showCharacterStyleModal ? { color: appAccentColor } : undefined} />
+                            <span className={`font-black opacity-90 ${isConstrained ? 'hidden 2xl:inline' : 'hidden md:inline'}`}>Style Char</span>
+                        </button>
                         <div className={`w-px h-4 mx-1 ${isLight ? 'bg-slate-300' : 'bg-[#333]'}`}></div>
                         <button 
                             onClick={() => setShowLanguageConfig(!showLanguageConfig)}
@@ -1941,6 +2038,27 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: any) => void }> = ({ onNa
                         </button>
                     </div>
 
+                    {/* Primary Script Font Selector (Meera Inimai Tamil / Courier Prime) */}
+                    <div className={`flex items-center rounded-lg border px-2 py-0.5 gap-1.5 shadow-2xs ${
+                        isLight ? 'bg-slate-100 border-slate-200' : 'bg-white/[0.04] border-white/10'
+                    }`} title="Screenplay Primary Font (Meera Inimai Tamil / Courier Prime)">
+                        <Type size={12} style={{ color: appAccentColor }} className="shrink-0 opacity-80" />
+                        <select
+                            value={scriptConfig.action?.fontFamily || 'Courier Prime'}
+                            onChange={(e) => handleSetGlobalScriptFont(e.target.value)}
+                            className={`bg-transparent text-[11px] font-semibold border-none outline-none cursor-pointer max-w-[130px] truncate ${
+                                isLight ? 'text-slate-800' : 'text-slate-200'
+                            }`}
+                            title="Screenplay Font Family"
+                        >
+                            {AVAILABLE_ENGLISH_FONTS.map(f => (
+                                <option key={f.value} value={f.value} className={isLight ? 'bg-white text-black' : 'bg-zinc-900 text-white'}>
+                                    {f.label}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+
                     {/* Paper Theme Icons (Sun, Coffee, Moon, Eye) */}
                     <div className={`flex items-center rounded-lg border p-0.5 gap-0.5 ${
                         isLight ? 'bg-slate-100 border-slate-200' : 'bg-white/[0.04] border-white/10'
@@ -2033,7 +2151,15 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: any) => void }> = ({ onNa
         </div>
 
         <div className="flex-1 flex overflow-hidden">
-            <div ref={scrollerRef} className={`flex-1 overflow-y-auto relative flex flex-col items-center pb-96 custom-scrollbar ${isLight ? 'bg-slate-200/80' : 'bg-[#121212]'}`}>
+            <div 
+              ref={scrollerRef} 
+              onScroll={(e) => {
+                try {
+                  localStorage.setItem('backstage_last_script_scroll_top', String(e.currentTarget.scrollTop));
+                } catch {}
+              }}
+              className={`flex-1 overflow-y-auto relative flex flex-col items-center pb-96 custom-scrollbar ${isLight ? 'bg-slate-200/80' : 'bg-[#121212]'}`}
+            >
                 <div className="transition-transform duration-200 origin-top py-10" style={{ transform: `scale(${zoom})` }}>
                     <div className="flex flex-col items-center">
                         <style>{`
@@ -2051,7 +2177,7 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: any) => void }> = ({ onNa
                                 --style-action: ${scriptConfig.action.italic ? 'italic' : 'normal'};
                                 --dec-action: ${scriptConfig.action.underline ? 'underline' : 'none'};
                                 /* Character */
-                                --font-character: ${isTamilMode && tamilFontFamily && tamilFontFamily !== scriptConfig.character.fontFamily ? `'${scriptConfig.character.fontFamily}', '${tamilFontFamily}', Courier, monospace` : `'${scriptConfig.character.fontFamily}', Courier, monospace`};
+                                --font-character: ${scriptConfig.character.fontFamily === 'Meera Inimai' ? `'Meera Inimai', 'Courier Prime', monospace` : (isTamilMode && tamilFontFamily && tamilFontFamily !== scriptConfig.character.fontFamily ? `'${scriptConfig.character.fontFamily}', '${tamilFontFamily}', Courier, monospace` : `'${scriptConfig.character.fontFamily}', Courier, monospace`)};
                                 --size-character: ${scriptConfig.character.fontSize}px;
                                 --lh-character: ${scriptConfig.character.lineHeight};
                                 --margin-character: ${scriptConfig.character.marginLeft}%;
@@ -2062,6 +2188,9 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: any) => void }> = ({ onNa
                                 --weight-character: ${scriptConfig.character.bold ? 'bold' : 'normal'};
                                 --style-character: ${scriptConfig.character.italic ? 'italic' : 'normal'};
                                 --dec-character: ${scriptConfig.character.underline ? 'underline' : 'none'};
+                                --ls-character: ${scriptConfig.character.letterSpacing || 0}px;
+                                --transform-character: ${(scriptConfig.character as any).textTransform || 'uppercase'};
+                                --color-character: ${scriptConfig.character.color && scriptConfig.character.color !== '#000000' && scriptConfig.character.color !== '#ffffff' ? scriptConfig.character.color : theme.text};
                                 /* Dialogue */
                                 --font-dialogue: ${isTamilMode && tamilFontFamily && tamilFontFamily !== scriptConfig.dialogue.fontFamily ? `'${scriptConfig.dialogue.fontFamily}', '${tamilFontFamily}', Courier, monospace` : `'${scriptConfig.dialogue.fontFamily}', Courier, monospace`};
                                 --size-dialogue: ${scriptConfig.dialogue.fontSize}px;
@@ -2176,8 +2305,10 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: any) => void }> = ({ onNa
                                 font-weight: var(--weight-character);
                                 font-style: var(--style-character);
                                 text-decoration: var(--dec-character);
-                                text-transform: uppercase;
-                                color: ${theme.text};
+                                letter-spacing: var(--ls-character, 0px);
+                                text-transform: var(--transform-character, uppercase);
+                                color: var(--color-character, ${theme.text});
+                                background-color: ${scriptConfig.character.highlightColor || 'transparent'};
                             }
 
                             .screenplay-a4-sheet .sc-dialogue,
@@ -2930,6 +3061,14 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: any) => void }> = ({ onNa
           }
         }
       }} />
+      <CharacterStyleModal
+        isOpen={showCharacterStyleModal}
+        onClose={() => setShowCharacterStyleModal(false)}
+        scriptConfig={scriptConfig}
+        onUpdateCharacterConfig={handleUpdateCharacterConfig}
+        appAccentColor={appAccentColor}
+        isLight={isLight}
+      />
     </div>
   );
 };

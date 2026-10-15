@@ -59,10 +59,13 @@ export const ScreenplayPageSheet: React.FC<ScreenplayPageSheetProps> = ({
           margin-left: var(--margin-character, 37%);
           width: var(--width-character, 45%);
           font-weight: var(--weight-character, bold);
-          text-transform: uppercase;
+          text-transform: var(--transform-character, uppercase);
           margin-top: var(--mt-character, 0.85em);
           margin-bottom: var(--mb-character, 0.1em);
+          font-size: var(--size-character, 13px);
           font-family: var(--font-character, 'Courier Prime', Courier, monospace) !important;
+          letter-spacing: var(--ls-character, 0px);
+          color: var(--color-character, inherit);
         }
         .screenplay-page-sheet .sc-dialogue {
           margin-left: var(--margin-dialogue, 20%);

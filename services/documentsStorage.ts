@@ -504,7 +504,7 @@ export function saveProductionDocuments(
   // 4. Dispatch custom window event
   try {
     if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('backstage_documents_updated', { detail: { docs, projectId: activeProjId } }));
+      window.dispatchEvent(new CustomEvent('backstage_documents_updated', { detail: { docs, projectId: activeProjId, senderInstanceId } }));
     }
   } catch (evErr) {
     console.warn('[DocVault] Window dispatch event error:', evErr);

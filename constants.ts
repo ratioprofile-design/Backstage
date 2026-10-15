@@ -78,9 +78,9 @@ export const AVAILABLE_TAMIL_FONTS = [
 ];
 
 export const AVAILABLE_ENGLISH_FONTS = [
-    { label: 'Courier Prime', value: 'Courier Prime' },
-    { label: 'Meera Inimai', value: 'Meera Inimai' },
-    { label: 'Vijaya', value: 'Vijaya' },
+    { label: 'Courier Prime (Screenplay)', value: 'Courier Prime' },
+    { label: 'Meera Inimai (Tamil / Unicode)', value: 'Meera Inimai' },
+    { label: 'Vijaya (Tamil)', value: 'Vijaya' },
     { label: 'Courier New', value: 'Courier New' },
     { label: 'Helvetica Neue', value: 'Helvetica Neue' },
     { label: 'Arial', value: 'Arial' },
@@ -209,7 +209,7 @@ export const INITIAL_STATE: ProjectState = {
     // Action set to NOT italic by default
     action: { marginLeft: 0, width: 100, marginTop: 0.2, marginBottom: 1.0, fontSize: 13, fontFamily: 'Courier Prime', textAlign: 'left', lineHeight: 1.2, letterSpacing: 0, bold: false, italic: false, underline: false, color: '#000000', highlightColor: null },
     dialogue: { marginLeft: 20, width: 60, marginTop: 0, marginBottom: 0.2, fontSize: 13, fontFamily: 'Courier Prime', textAlign: 'left', lineHeight: 1.2, letterSpacing: 0, bold: false, italic: false, underline: false, color: '#000000', highlightColor: null },
-    character: { marginLeft: 35, width: 40, marginTop: 0.4, marginBottom: 0, fontSize: 13, fontFamily: 'Courier Prime', textAlign: 'left', lineHeight: 1.2, letterSpacing: 0, bold: true, italic: false, underline: false, color: '#000000', highlightColor: null },
+    character: { marginLeft: 35, width: 40, marginTop: 0.4, marginBottom: 0, fontSize: 13, fontFamily: 'Courier Prime', textAlign: 'left', lineHeight: 1.2, letterSpacing: 0, bold: true, italic: false, underline: false, color: '#000000', highlightColor: null, textTransform: 'uppercase' },
     parenthetical: { marginLeft: 28, width: 35, marginTop: 0, marginBottom: 0, fontSize: 13, fontFamily: 'Courier Prime', textAlign: 'left', lineHeight: 1.2, letterSpacing: 0, bold: false, italic: true, underline: false, color: '#000000', highlightColor: null },
     transition: { marginLeft: 70, width: 30, marginTop: 0, marginBottom: 0, fontSize: 13, fontFamily: 'Courier Prime', textAlign: 'right', lineHeight: 1.2, letterSpacing: 0, bold: true, italic: false, underline: false, color: '#000000', highlightColor: null },
     shot: { marginLeft: 0, width: 100, marginTop: 0.1, marginBottom: 0.1, fontSize: 13, fontFamily: 'Courier Prime', textAlign: 'left', lineHeight: 1.2, letterSpacing: 0, bold: true, italic: false, underline: false, color: '#000000', highlightColor: null },

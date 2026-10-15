@@ -108,6 +108,7 @@ import {
   Save,
   Archive,
   ArchiveRestore,
+  AlertTriangle,
   Mic,
   MicOff,
   Play,
@@ -220,7 +221,17 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
 
   // Core Document State
   const [documents, setDocuments] = useState<ProductionDocument[]>(() => getProductionDocuments(currentProjectId || undefined));
-  const [selectedDocId, setSelectedDocId] = useState<string>(() => documents[0]?.id || '');
+  const [selectedDocId, setSelectedDocId] = useState<string>(() => {
+    if (typeof localStorage !== 'undefined') {
+      const savedDocId = localStorage.getItem('backstage_last_vault_doc_id') || localStorage.getItem('active_two_column_doc_id');
+      const current = getProductionDocuments(currentProjectId || undefined);
+      if (savedDocId && current.some((d) => d.id === savedDocId)) {
+        return savedDocId;
+      }
+    }
+    const current = getProductionDocuments(currentProjectId || undefined);
+    return current[0]?.id || '';
+  });
   const [isCloudSyncing, setIsCloudSyncing] = useState<boolean>(false);
 
   // Synchronize documents with current project, IndexedDB, and Supabase Cloud
@@ -228,7 +239,10 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
     let isMounted = true;
     const local = getProductionDocuments(currentProjectId || undefined);
     setDocuments(local);
-    if (!selectedDocId || !local.some(d => d.id === selectedDocId)) {
+    const savedDocId = typeof localStorage !== 'undefined' ? (localStorage.getItem('backstage_last_vault_doc_id') || localStorage.getItem('active_two_column_doc_id')) : null;
+    if (savedDocId && local.some((d) => d.id === savedDocId)) {
+      setSelectedDocId(savedDocId);
+    } else if (!selectedDocId || !local.some(d => d.id === selectedDocId)) {
       setSelectedDocId(local[0]?.id || '');
     }
 
@@ -272,14 +286,25 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
   const [isGeneratingDocx, setIsGeneratingDocx] = useState<boolean>(false);
   const [tamilViewTab, setTamilViewTab] = useState<'visual' | 'typewriter'>('visual');
   const [inLeftRightStudio, setInLeftRightStudio] = useState<boolean>(false);
+  const [studioInitialDoc, setStudioInitialDoc] = useState<ProductionDocument | undefined>(undefined);
   // YouTube & Video Web Link Embed State
   const [isAddYouTubeModalOpen, setIsAddYouTubeModalOpen] = useState<boolean>(false);
   const [youtubeUrlInput, setYoutubeUrlInput] = useState<string>('');
   const [youtubeTitleInput, setYoutubeTitleInput] = useState<string>('');
   const [youtubeNotesInput, setYoutubeNotesInput] = useState<string>('');
 
-  // Gallery Hub vs. Studio Mode
-  const [inStudioMode, setInStudioMode] = useState<boolean>(false);
+  // Gallery Hub vs. Studio Mode (Automatically resumes where the user left off)
+  const [inStudioMode, setInStudioMode] = useState<boolean>(() => {
+    if (typeof localStorage !== 'undefined') {
+      const savedMode = localStorage.getItem('backstage_last_vault_mode');
+      const savedDocId = localStorage.getItem('backstage_last_vault_doc_id') || localStorage.getItem('active_two_column_doc_id');
+      const current = getProductionDocuments(currentProjectId || undefined);
+      if (savedMode === 'two-column' && savedDocId && current.some((d) => d.id === savedDocId)) {
+        return true;
+      }
+    }
+    return false;
+  });
   const [galleryViewMode, setGalleryViewMode] = useState<'gallery' | 'table' | 'kanban' | 'timeline'>('gallery');
   const [selectedCategory, setSelectedCategory] = useState<string>('ALL');
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
@@ -288,7 +313,13 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
   const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'title' | 'size' | 'comments'>('newest');
 
   // Breakdown Studio Table Mode & Filter State
-  const [studioViewMode, setStudioViewMode] = useState<'table' | 'page' | 'two-column'>('page');
+  const [studioViewMode, setStudioViewMode] = useState<'table' | 'page' | 'two-column'>(() => {
+    if (typeof localStorage !== 'undefined') {
+      const savedMode = localStorage.getItem('backstage_last_vault_mode');
+      if (savedMode === 'two-column') return 'two-column';
+    }
+    return 'page';
+  });
   const [breakdownCategoryFilter, setBreakdownCategoryFilter] = useState<string>('ALL');
   const [breakdownSearchQuery, setBreakdownSearchQuery] = useState<string>('');
   const [breakdownStatusFilter, setBreakdownStatusFilter] = useState<string>('ALL');
@@ -1013,8 +1044,8 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
     setSelectedCommentId(null);
     const initialContent = doc?.htmlContent || (doc?.textContent ? `<p>${doc.textContent.replace(/\n/g, '<br/>')}</p>` : '');
     setEditedHtmlContent(initialContent);
-    setHasUnsavedChanges(false);
-    setStudioViewMode(doc?.isLeftRightFormat ? 'two-column' : 'page');
+    const mode = (doc?.isLeftRightFormat || doc?.hasTwoColumnScript) ? 'two-column' : 'page';
+    setStudioViewMode(mode);
     setIsEditMode(false); // Default to authentic Paginated A4 View!
     if (doc?.fileType === 'docx' || doc?.fileName?.endsWith('.docx')) {
       setDocFontFamily('calibri');
@@ -1026,6 +1057,12 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
     setBreakdownCategoryFilter('ALL');
     setBreakdownSearchQuery('');
     setInStudioMode(true);
+
+    try {
+      localStorage.setItem('backstage_last_vault_doc_id', docId);
+      localStorage.setItem('active_two_column_doc_id', docId);
+      localStorage.setItem('backstage_last_vault_mode', mode);
+    } catch (e) {}
   };
 
   // ARCHIVE DOCUMENT (NO DELETION GUARANTEE)
@@ -1557,7 +1594,7 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
   };
 
   const handleUniversalUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const fileList = Array.from(e.target.files || []);
+    const fileList = Array.from(e.target.files || []) as File[];
     if (fileList.length === 0) return;
     e.target.value = '';
     await processFilesUpload(fileList);
@@ -2265,7 +2302,7 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
         e.preventDefault();
         e.stopPropagation();
         setIsDraggingOver(false);
-        const droppedFiles = Array.from(e.dataTransfer.files || []);
+        const droppedFiles = Array.from(e.dataTransfer.files || []) as File[];
         if (droppedFiles.length > 0) {
           processFilesUpload(droppedFiles);
         }
@@ -2320,6 +2357,9 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
             <button
               onClick={() => {
                 setInStudioMode(false);
+                try {
+                  localStorage.setItem('backstage_last_vault_mode', 'list');
+                } catch (e) {}
                 if (playingDocId) {
                   audioRef.current?.pause();
                   setPlayingDocId(null);
@@ -2349,15 +2389,15 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                   </span>
                   {currentProjectId && (
                     <span 
-                      title={isCloudSyncing ? "Syncing files with Supabase Cloud..." : "Project documents synced with Cloud"}
-                      className={`inline-flex items-center gap-1 px-1.5 py-0.5 text-[9px] font-semibold rounded-md transition-all ${
+                      title="Realtime Cloud Sync Active: All 2-Column scripts, Word files, breakdowns, and annotations are automatically saved to Supabase Cloud & IndexedDB in real-time."
+                      className={`inline-flex items-center gap-1 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider rounded-md transition-all ${
                         isCloudSyncing 
                           ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30 animate-pulse' 
-                          : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                          : 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
                       }`}
                     >
-                      <Cloud size={10} />
-                      <span>{isCloudSyncing ? 'Syncing...' : 'Cloud Synced'}</span>
+                      <Cloud size={10} className="stroke-[2.5]" />
+                      <span>{isCloudSyncing ? 'Syncing...' : 'Realtime Cloud Active'}</span>
                     </span>
                   )}
                 </div>
@@ -3048,6 +3088,42 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
               </div>
             ) : (
               <>
+                {/* RESUME WHERE YOU LEFT OFF BANNER */}
+                {(() => {
+                  const savedDocId = typeof localStorage !== 'undefined' ? (localStorage.getItem('backstage_last_vault_doc_id') || localStorage.getItem('active_two_column_doc_id')) : null;
+                  const recentDoc = savedDocId ? documents.find(d => d.id === savedDocId) : null;
+                  if (!recentDoc) return null;
+                  return (
+                    <div className="mb-6 p-4 rounded-2xl border border-emerald-500/30 bg-gradient-to-r from-emerald-500/10 via-emerald-500/5 to-transparent flex flex-wrap items-center justify-between gap-4 shadow-lg backdrop-blur-md">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-xl bg-emerald-500 text-black flex items-center justify-center font-bold shadow-md">
+                          <Columns size={20} />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] font-mono font-black uppercase tracking-wider px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                              Resume Where You Left Off
+                            </span>
+                            <span className="text-[11px] text-zinc-400 flex items-center gap-1 font-mono">
+                              <Cloud size={11} className="text-emerald-400" /> Realtime Cloud Synced
+                            </span>
+                          </div>
+                          <h3 className="text-sm font-bold text-zinc-100 mt-0.5">
+                            {recentDoc.title}
+                          </h3>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => handleOpenDocInStudio(recentDoc.id)}
+                        className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-bold text-xs flex items-center gap-2 shadow-md transition-all cursor-pointer"
+                      >
+                        <span>Continue 2-Column Script</span>
+                        <ChevronRight size={14} />
+                      </button>
+                    </div>
+                  );
+                })()}
+
                 {/* -------------------------------------------------------------
                     LAYOUT 1: VISUAL CARD GALLERY VIEW
                    ------------------------------------------------------------- */}
@@ -3433,6 +3509,10 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                               </div>
 
                               <div className="flex items-center gap-2 font-mono text-[11px]">
+                                <span className="flex items-center gap-1 text-emerald-400 text-[10px] font-bold" title="Document auto-synced to Supabase Cloud & IndexedDB">
+                                  <Cloud size={11} className="text-emerald-400" />
+                                  <span>Cloud Synced</span>
+                                </span>
                                 {doc.annotations && doc.annotations.length > 0 && (
                                   <span className="flex items-center gap-1 text-[#f5a623]" title={`${doc.annotations.length} Annotations & Comments`}>
                                     <MessageSquare size={12} />
@@ -4618,7 +4698,12 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                       updateDocuments(updatedList);
                       showToast('✓ Saved 2-Column Screenplay to Vault & Synced with Collaborators!');
                     }}
-                    onClose={() => setStudioViewMode('page')}
+                    onClose={() => {
+                      setStudioViewMode('page');
+                      try {
+                        localStorage.setItem('backstage_last_vault_mode', 'page');
+                      } catch (e) {}
+                    }}
                     isLight={isLight}
                   />
                 </div>
