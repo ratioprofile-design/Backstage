@@ -599,9 +599,29 @@ export async function syncDocumentsWithCloud(
   projectId: string,
   userId?: string
 ): Promise<ProductionDocument[]> {
-  const localDocs = await loadProductionDocumentsAsync(projectId);
+  let localDocs = await loadProductionDocumentsAsync(projectId);
   if (!isSupabaseConfigured || !projectId) {
     return localDocs;
+  }
+
+  // If local docs for this project is empty, check if user had documents under 'empty-project' or 'default'
+  if ((!localDocs || localDocs.length === 0) && projectId !== 'empty-project' && projectId !== 'default') {
+    const fallbackEmpty = getProductionDocuments('empty-project');
+    const fallbackDefault = getProductionDocuments('default');
+    const orphaned = fallbackEmpty.length > 0 ? fallbackEmpty : (fallbackDefault.length > 0 ? fallbackDefault : []);
+    if (orphaned.length > 0) {
+      localDocs = orphaned.map(d => ({ ...d, projectId }));
+      saveProductionDocuments(localDocs, projectId, true);
+    }
+  }
+
+  // Resolve user id if not explicitly passed
+  let resolvedUserId = userId;
+  if (!resolvedUserId) {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      resolvedUserId = session?.user?.id;
+    } catch {}
   }
 
   try {
@@ -617,10 +637,10 @@ export async function syncDocumentsWithCloud(
     }
 
     if (!cloudDocs || cloudDocs.length === 0) {
-      // If cloud has no documents yet, push local documents to cloud so collaborators can collaborate!
+      // If cloud has no documents yet, push local documents to cloud so other computers and collaborators get them!
       if (localDocs && localDocs.length > 0) {
         localDocs.forEach((doc) => {
-          saveProjectDocumentToCloud(projectId, doc, userId).catch(() => {});
+          saveProjectDocumentToCloud(projectId, doc, resolvedUserId).catch(() => {});
         });
       }
       return localDocs;
@@ -633,11 +653,11 @@ export async function syncDocumentsWithCloud(
     const cloudIds = new Set((cloudDocs || []).map((cd) => cd.id));
     localDocs.forEach((doc) => {
       if (!cloudIds.has(doc.id)) {
-        saveProjectDocumentToCloud(projectId, doc, userId).catch(() => {});
+        saveProjectDocumentToCloud(projectId, doc, resolvedUserId).catch(() => {});
       }
     });
 
-    saveProductionDocuments(merged, projectId, true);
+    saveProductionDocuments(merged, projectId, true, true);
     return merged;
   } catch (err) {
     console.warn("syncDocumentsWithCloud failed:", err);

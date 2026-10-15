@@ -51,11 +51,13 @@ const AppHeader: React.FC<AppHeaderProps> = ({
       currentProjectName,
       isCurrentProjectShared,
       renameProject,
-      closeProject
+      closeProject,
+      selectProject
   } = useProject();
 
   const [isRenamingProject, setIsRenamingProject] = useState(false);
   const [newProjectNameInput, setNewProjectNameInput] = useState('');
+  const [showProjectDropdown, setShowProjectDropdown] = useState(false);
 
   const { aiAvailable, router, gemini, testing } = useAiKeyStatus();
   const aiStatusTitle = testing
@@ -69,6 +71,13 @@ const AppHeader: React.FC<AppHeaderProps> = ({
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
+
+  useEffect(() => {
+    if (!showProjectDropdown) return;
+    const handleOutside = () => setShowProjectDropdown(false);
+    window.addEventListener('click', handleOutside);
+    return () => window.removeEventListener('click', handleOutside);
+  }, [showProjectDropdown]);
 
   useEffect(() => {
     const handleOnline = () => setIsOnline(true);
@@ -209,62 +218,125 @@ const AppHeader: React.FC<AppHeaderProps> = ({
               </div>
           </div>
 
-          {/* Prominent Active Project Display with Owner-Only Rename and Shared Project Badge */}
-          <div 
-              className="flex items-center gap-2 px-2.5 py-1 bg-[#191922] border border-[#383844] hover:border-amber-500/50 rounded-lg shadow-sm max-w-[280px] transition-all"
-              title={isShared ? `Shared Project: ${fileHandle ? fileHandle.name : activeProjectName} (Only owner can rename)` : (fileHandle ? fileHandle.name : `${activeProjectName} (Click pencil to rename)`)}
-          >
-              <Folder size={13} className="text-amber-400 shrink-0" />
-              {isRenamingProject ? (
-                  <input
-                      type="text"
-                      autoFocus
-                      value={newProjectNameInput}
-                      onChange={(e) => setNewProjectNameInput(e.target.value)}
-                      onBlur={async () => {
-                          setIsRenamingProject(false);
-                          const trimmed = newProjectNameInput.trim();
-                          if (trimmed && trimmed !== activeProjectName && currentProjectId) {
-                              await renameProject(currentProjectId, trimmed);
-                          }
-                      }}
-                      onKeyDown={async (e) => {
-                          if (e.key === 'Enter') {
+          {/* Prominent Active Project Display with Project Switcher Dropdown, Owner-Only Rename and Shared Project Badge */}
+          <div className="relative">
+              <div 
+                  className="flex items-center gap-2 px-2.5 py-1 bg-[#191922] border border-[#383844] hover:border-amber-500/50 rounded-lg shadow-sm max-w-[280px] transition-all cursor-pointer group"
+                  onClick={() => {
+                    if (!isRenamingProject) setShowProjectDropdown(prev => !prev);
+                  }}
+                  title={isShared ? `Shared Project: ${fileHandle ? fileHandle.name : activeProjectName}` : `${activeProjectName} (Click to switch project)`}
+              >
+                  <Folder size={13} className="text-amber-400 shrink-0" />
+                  {isRenamingProject ? (
+                      <input
+                          type="text"
+                          autoFocus
+                          value={newProjectNameInput}
+                          onClick={(e) => e.stopPropagation()}
+                          onChange={(e) => setNewProjectNameInput(e.target.value)}
+                          onBlur={async () => {
                               setIsRenamingProject(false);
                               const trimmed = newProjectNameInput.trim();
                               if (trimmed && trimmed !== activeProjectName && currentProjectId) {
                                   await renameProject(currentProjectId, trimmed);
                               }
-                          } else if (e.key === 'Escape') {
-                              setIsRenamingProject(false);
-                          }
-                      }}
-                      className="bg-black/80 border border-amber-500 text-xs font-bold text-white px-1.5 py-0.5 rounded outline-none w-28 truncate"
-                  />
-              ) : (
-                  <span className="text-xs font-bold text-white tracking-wide truncate">
-                      {fileHandle ? fileHandle.name : activeProjectName}
-                  </span>
-              )}
-              {isShared ? (
-                  <span className="px-1.5 py-0.2 text-[8px] font-black uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/40 rounded-full shrink-0" title="Collaborator View: Only the project owner can rename this project">
-                      Shared
-                  </span>
-              ) : (
-                  !isRenamingProject && (
-                      <button
-                          type="button"
-                          onClick={(e) => {
-                              e.stopPropagation();
-                              setNewProjectNameInput(fileHandle ? fileHandle.name : activeProjectName);
-                              setIsRenamingProject(true);
                           }}
-                          className="opacity-40 hover:opacity-100 hover:text-amber-400 p-0.5 rounded transition-all cursor-pointer"
-                          title="Rename Cloud Project (Owner only)"
-                      >
-                          <Pencil size={11} />
-                      </button>
-                  )
+                          onKeyDown={async (e) => {
+                              if (e.key === 'Enter') {
+                                  setIsRenamingProject(false);
+                                  const trimmed = newProjectNameInput.trim();
+                                  if (trimmed && trimmed !== activeProjectName && currentProjectId) {
+                                      await renameProject(currentProjectId, trimmed);
+                                  }
+                              } else if (e.key === 'Escape') {
+                                  setIsRenamingProject(false);
+                              }
+                          }}
+                          className="bg-black/80 border border-amber-500 text-xs font-bold text-white px-1.5 py-0.5 rounded outline-none w-28 truncate"
+                      />
+                  ) : (
+                      <span className="text-xs font-bold text-white tracking-wide truncate max-w-[130px]">
+                          {fileHandle ? fileHandle.name : activeProjectName}
+                      </span>
+                  )}
+                  {isShared ? (
+                      <span className="px-1.5 py-0.2 text-[8px] font-black uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/40 rounded-full shrink-0" title="Collaborator View">
+                          Shared
+                      </span>
+                  ) : (
+                      !isRenamingProject && (
+                          <button
+                              type="button"
+                              onClick={(e) => {
+                                  e.stopPropagation();
+                                  setNewProjectNameInput(fileHandle ? fileHandle.name : activeProjectName);
+                                  setIsRenamingProject(true);
+                              }}
+                              className="opacity-40 hover:opacity-100 hover:text-amber-400 p-0.5 rounded transition-all cursor-pointer"
+                              title="Rename Cloud Project (Owner only)"
+                          >
+                              <Pencil size={11} />
+                          </button>
+                      )
+                  )}
+                  <ChevronDown size={12} className={`text-gray-400 group-hover:text-amber-400 transition-transform ${showProjectDropdown ? 'rotate-180 text-amber-400' : ''}`} />
+              </div>
+
+              {/* Projects Dropdown Menu */}
+              {showProjectDropdown && (
+                  <div 
+                      className="absolute left-0 top-full mt-1.5 w-64 bg-[#14141a] border border-[#333] rounded-xl shadow-2xl py-1.5 z-50 text-left backdrop-blur-md"
+                      onClick={(e) => e.stopPropagation()}
+                  >
+                      <div className="px-3 py-1.5 border-b border-[#282834] flex items-center justify-between">
+                          <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Cloud Projects</span>
+                          <span className="text-[10px] text-amber-400 font-semibold">{projectList.length} total</span>
+                      </div>
+                      <div className="max-h-60 overflow-y-auto py-1">
+                          {projectList.length === 0 ? (
+                              <div className="px-3 py-2 text-xs text-gray-400 text-center">No other projects found</div>
+                          ) : (
+                              projectList.map((p) => {
+                                  const isCurrent = p.id === currentProjectId;
+                                  return (
+                                      <button
+                                          key={p.id}
+                                          type="button"
+                                          onClick={() => {
+                                              setShowProjectDropdown(false);
+                                              if (!isCurrent) selectProject(p.id);
+                                          }}
+                                          className={`w-full px-3 py-2 text-left flex items-center justify-between gap-2 hover:bg-white/5 transition-colors cursor-pointer ${
+                                              isCurrent ? 'bg-amber-500/10 text-amber-300 font-bold' : 'text-gray-300'
+                                          }`}
+                                      >
+                                          <div className="truncate flex-1">
+                                              <div className="text-xs truncate">{p.name || 'Untitled Screenplay'}</div>
+                                              <div className="text-[9px] text-gray-400">
+                                                  {p.isInvited ? `Shared by ${p.invitedBy || 'Team'}` : 'Cloud Project'}
+                                              </div>
+                                          </div>
+                                          {isCurrent && <Check size={13} className="text-amber-400 shrink-0" />}
+                                      </button>
+                                  );
+                              })
+                          )}
+                      </div>
+                      <div className="px-2 pt-1 border-t border-[#282834]">
+                          <button
+                              type="button"
+                              onClick={() => {
+                                  setShowProjectDropdown(false);
+                                  closeProject();
+                                  window.dispatchEvent(new CustomEvent('backstage:show-welcome'));
+                              }}
+                              className="w-full px-2.5 py-1.5 text-center text-[11px] font-semibold text-gray-400 hover:text-white hover:bg-white/5 rounded-lg transition-colors cursor-pointer"
+                          >
+                              Open Studio Hub / New Project...
+                          </button>
+                      </div>
+                  </div>
               )}
           </div>
 

@@ -383,10 +383,18 @@ export const saveProjectDocumentToCloud = async (
   if (!isSupabaseConfigured || !projectId) return false;
 
   try {
+    let resolvedUserId = userId;
+    if (!resolvedUserId) {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        resolvedUserId = session?.user?.id;
+      } catch {}
+    }
+
     const row: any = {
       id: doc.id,
       project_id: projectId,
-      user_id: userId || null,
+      user_id: resolvedUserId || null,
       title: doc.title || 'Untitled Document',
       title_ta: doc.titleTa || null,
       category: doc.category || 'SCRIPT',

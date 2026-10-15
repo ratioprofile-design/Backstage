@@ -944,6 +944,8 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     };
   }, [currentProjectId, supabaseUser, applyProjectState]);
 
+  const selectProjectRef = useRef<((id: string, opts?: { silent?: boolean }) => Promise<void>) | null>(null);
+
   const refreshProjectList = async (userId: string) => {
     try {
       // Check for unsynced local offline projects to migrate to Supabase
@@ -999,6 +1001,25 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       });
 
       setProjectList(combined);
+
+      // CRITICAL FOR CROSS-DEVICE SYNC:
+      // When opening on a second computer or after sign-in, automatically select and hydrate
+      // the user's active cloud project so beats, 2-column scripts, and vault documents are immediately loaded.
+      if (combined.length > 0 && selectProjectRef.current) {
+        const curId = currentProjectId || (typeof localStorage !== 'undefined' ? localStorage.getItem('currentProjectId') : null);
+        const isValidCurrent = curId && curId !== 'empty-project' && combined.some(p => p.id === curId);
+
+        if (isValidCurrent && curId) {
+          // Hydrate active project state from cloud to ensure latest files from Computer A appear on Computer B
+          console.log('[ctx] Cross-device sync: Hydrating active cloud project:', curId);
+          await selectProjectRef.current(curId, { silent: true });
+        } else {
+          // Second computer has no active project or is stuck on empty-project: auto-load top cloud project!
+          const targetProj = combined[0];
+          console.log('[ctx] Cross-device sync: Auto-selecting latest cloud project on new computer:', targetProj.id, targetProj.name);
+          await selectProjectRef.current(targetProj.id);
+        }
+      }
     } catch (err: any) {
       if (err.code === '42P01') setSchemaError("TABLE_MISSING");
       else if (err.code === '42703' || err.message?.includes('data')) setSchemaError("COLUMN_MISSING");
@@ -1255,6 +1276,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       }
     }
   };
+  selectProjectRef.current = selectProject;
 
   // Sync on window focus (cloud mode only — the local window is the sole writer otherwise,
   // and re-fetching can overwrite in-progress work with stale storage/file data)

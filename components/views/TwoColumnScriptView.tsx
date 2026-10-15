@@ -6,6 +6,7 @@ import {
   getProductionDocuments,
   saveProductionDocuments,
   mergeProductionDocuments,
+  syncDocumentsWithCloud,
 } from '../../services/documentsStorage';
 import {
   TamilScreenplayData,
@@ -332,6 +333,33 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
       }
     }
   }, [initialDocumentId, documents]);
+
+  // Synchronize documents with current project and Supabase Cloud
+  useEffect(() => {
+    const projId = projectContext.currentProjectId || undefined;
+    const latestDocs = getProductionDocuments(projId);
+    setDocuments(latestDocs);
+    if (!selectedDocId || !latestDocs.some(d => d.id === selectedDocId)) {
+      const best = latestDocs.find(d => d.isStagedToScript) 
+        || latestDocs.find(d => d.isLeftRightFormat || d.hasTwoColumnScript || d.category === 'SCRIPT')
+        || latestDocs[0];
+      if (best) setSelectedDocId(best.id);
+    }
+
+    if (projId && isSupabaseConfigured && projectContext.supabaseUser?.id) {
+      syncDocumentsWithCloud(projId, projectContext.supabaseUser.id).then((syncedDocs) => {
+        if (syncedDocs && syncedDocs.length > 0) {
+          setDocuments(syncedDocs);
+          if (!selectedDocId || !syncedDocs.some(d => d.id === selectedDocId)) {
+            const best = syncedDocs.find(d => d.isStagedToScript) 
+              || syncedDocs.find(d => d.isLeftRightFormat || d.hasTwoColumnScript || d.category === 'SCRIPT')
+              || syncedDocs[0];
+            if (best) setSelectedDocId(best.id);
+          }
+        }
+      }).catch(() => {});
+    }
+  }, [projectContext.currentProjectId, projectContext.supabaseUser?.id]);
 
   const activeDoc = useMemo(() => {
     return documents.find((d) => d.id === selectedDocId) || documents.find((d) => d.isStagedToScript) || documents.find((d) => d.isLeftRightFormat || d.hasTwoColumnScript || d.category === 'SCRIPT');

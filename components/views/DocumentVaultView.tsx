@@ -1929,17 +1929,16 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
 
         const beatContent = `${actionContent}${dialogueContent}` || `<p class="sc-action">${sc.sluglineText}</p>`;
         
-        projectContext.addBeat(
-          100 + idx * 300,
-          150,
-          `காட்சி ${sc.sceneNumber} (${sc.location})`,
-          {
+        const newBeatId = projectContext.addBeat(100 + idx * 300, 150);
+        projectContext.updateBeat(newBeatId, {
+          title: `காட்சி ${sc.sceneNumber} (${sc.location})`,
+          slug: {
             prefix: 'EXT.',
             location: sc.location,
             time: sc.timeOfDay,
           },
-          beatContent
-        );
+          content: beatContent
+        });
       });
 
       setIsTamilLeftRightModalOpen(false);
