@@ -266,571 +266,6 @@ export function buildBreakdownSheetDataFromBeat(b: any): any[][] {
   return rows;
 }
 
-export const ALL_BREAKDOWN_CATEGORIES = [
-  'CAST', 'EXTRAS', 'STUNTS', 'VEHICLES', 'PROPS', 'SFX', 'VFX',
-  'WARDROBE', 'MAKEUP', 'ANIMALS', 'SOUND', 'SET_DRESSING',
-  'GREENERY', 'SPECIAL_EQUIPMENT', 'LIGHTING_GRIP', 'SAFETY'
-] as const;
-
-export function extractItemsFromBeat(beat: any, category: string): any[] {
-  const bd = beat?.breakdown || beat?.breakdownData;
-  if (!bd) return [];
-
-  const catUpper = category.toUpperCase();
-  const direct = bd[catUpper] || bd[category.toLowerCase()];
-  if (Array.isArray(direct) && direct.length > 0) {
-    return direct.map((item: any, idx: number) => {
-      if (typeof item === 'string') return { name: item, count: 1, departmentId: catUpper };
-      return {
-        name: item.name || 'Unknown Item',
-        count: item.count || 1,
-        description: item.description || '',
-        departmentId: item.departmentId || catUpper,
-        source: item.source || ''
-      };
-    });
-  }
-
-  if (Array.isArray(bd.items)) {
-    const matched = bd.items.filter((i: any) => (i.category || '').toUpperCase() === catUpper);
-    if (matched.length > 0) return matched;
-  }
-
-  if (catUpper === 'PROPS' && Array.isArray(bd.props)) return bd.props.map((i: any) => typeof i === 'string' ? { name: i, count: 1 } : i);
-  if (catUpper === 'SOUND' && Array.isArray(bd.sound)) return bd.sound.map((i: any) => typeof i === 'string' ? { name: i, count: 1 } : i);
-  if (catUpper === 'WARDROBE' && Array.isArray(bd.costume)) return bd.costume.map((i: any) => typeof i === 'string' ? { name: i, count: 1 } : i);
-  if (catUpper === 'SFX' && (Array.isArray(bd.vfx) || Array.isArray(bd.practical))) {
-    return [...(bd.vfx || []), ...(bd.practical || [])].map((i: any) => typeof i === 'string' ? { name: i, count: 1 } : i);
-  }
-  if (catUpper === 'CAST' && Array.isArray(bd.cast)) return bd.cast.map((i: any) => typeof i === 'string' ? { name: i, count: 1 } : i);
-
-  return [];
-}
-
-/**
- * Builds a unified master spreadsheet with all scene breakdown elements.
- * Rows have 7 columns: ['#', 'Scene', 'Category', 'Element / Item Name', 'Department', 'Notes / Specifications', 'Status']
- */
-export function buildMasterBreakdownSheetData(beats: any[] = []): any[][] {
-  const rows: any[][] = [
-    ['#', 'Scene', 'Category', 'Element / Item Name', 'Department', 'Notes / Specifications', 'Status']
-  ];
-
-  let counter = 1;
-  const validBeats = Array.isArray(beats) && beats.length > 0 ? beats : [];
-
-  validBeats.forEach((b: any, bIdx: number) => {
-    const sceneNum = b.sceneNumber || String(bIdx + 1);
-    const sceneLabel = `Scene ${sceneNum}`;
-    const bd = b.breakdown || b.breakdownData;
-
-    let sceneItemCount = 0;
-    if (bd && Object.keys(bd).length > 0) {
-      ALL_BREAKDOWN_CATEGORIES.forEach((cat) => {
-        const items = extractItemsFromBeat(b, cat);
-        items.forEach((item: any) => {
-          const name = typeof item === 'string' ? item : item.name || '';
-          if (!name) return;
-          const dept = typeof item === 'object' && item.departmentId ? item.departmentId : cat;
-          const notes = typeof item === 'object'
-            ? (item.description || item.source || (item.count && item.count > 1 ? `Qty: ${item.count}` : ''))
-            : '';
-          const status = 'Confirmed';
-          rows.push([
-            String(counter++),
-            sceneLabel,
-            cat,
-            name,
-            dept,
-            notes,
-            status
-          ]);
-          sceneItemCount++;
-        });
-      });
-    }
-
-    if (sceneItemCount === 0) {
-      const loc = `${b.slug?.prefix || 'INT.'} ${b.slug?.location || b.title || 'LOCATION'} - ${b.slug?.time || 'DAY'}`;
-      rows.push([
-        String(counter++),
-        sceneLabel,
-        'SET_DRESSING',
-        loc,
-        'Art Department',
-        b.content ? b.content.replace(/<[^>]*>/g, ' ').slice(0, 75).trim() : 'Primary scene set',
-        'Scheduled'
-      ]);
-      if (Array.isArray(b.characters) && b.characters.length > 0) {
-        b.characters.forEach((char: any) => {
-          const charName = typeof char === 'string' ? char : char.name || '';
-          if (charName) {
-            rows.push([
-              String(counter++),
-              sceneLabel,
-              'CAST',
-              charName,
-              'Cast',
-              'Key Scene Character',
-              'Confirmed'
-            ]);
-          }
-        });
-      }
-    }
-  });
-
-  // If no beats were provided, supply baseline rich multi-scene sample
-  if (rows.length <= 1) {
-    const sampleScenes = [
-      { scene: 'Scene 1', rows: [
-        ['CAST', 'Maya (Lead)', 'Cast', 'Wired earpiece, undercover civilian dress', 'Confirmed'],
-        ['CAST', 'Informant Raju', 'Cast', 'Shabby raincoat, vintage wrist watch', 'Confirmed'],
-        ['PROPS', 'Encrypted Datapad', 'Props', 'Hero Prop: Foldable transparent OLED tablet', 'Confirmed'],
-        ['SOUND', 'Heavy Rain & Distant Sirens', 'Sound Design', 'Exterior city ambience, gutter splash', 'Pre-recorded'],
-        ['SET_DRESSING', 'Harbor Cafe Corner Booth', 'Set Dressing', 'Flickering neon sign, steaming teapot', 'Dressed']
-      ]},
-      { scene: 'Scene 2', rows: [
-        ['CAST', 'Maya (Lead)', 'Cast', 'Tactical stealth jumpsuit with harness', 'Confirmed'],
-        ['CAST', 'Sterling', 'Cast', 'Vault Security Director in bespoke suit', 'Confirmed'],
-        ['STUNTS', 'Catwalk Drop & Decelerator Rig', 'Stunts & Action', '15ft drop onto steel catwalk', 'Rigged & Tested'],
-        ['PROPS', 'Optical Core Access Key', 'Props', 'Amber cryo-key with illuminated laser etching', 'Hero Prop Ready'],
-        ['SFX', 'Severed Conduit Spark Discharge', 'SFX / Practical', 'Controlled pyrotechnic electrical arc box', 'Rigged by SFX'],
-        ['VFX', 'Golden Holographic Data Stream', 'VFX / Post', 'Volumetric holographic stream from pedestal', 'Post Plate'],
-        ['SAFETY', 'Fire Safety Marshals (x2)', 'Safety & Medic', 'Class C fire suppression adjacent to set', 'Standby Confirmed']
-      ]},
-      { scene: 'Scene 3', rows: [
-        ['CAST', 'Sterling', 'Cast', 'Bloodied cuffs, disheveled tie', 'Confirmed'],
-        ['CAST', 'Security Officers (x4)', 'Extras / Atmosphere', 'Tactical gear, Kevlar vests', 'Scheduled'],
-        ['VEHICLES', 'Black Armored Tactical Van', 'Vehicles', 'Hero getaway vehicle with tinted glass', 'On Set'],
-        ['PROPS', 'Satellite Phone', 'Props', 'Rugged military satphone with blinking antenna', 'Checked'],
-        ['SOUND', 'Helicopter Rotor Blade Wash', 'Sound FX', 'Low frequency downdraft resonance', 'Mastered']
-      ]}
-    ];
-
-    sampleScenes.forEach((sc) => {
-      sc.rows.forEach((r) => {
-        rows.push([String(counter++), sc.scene, r[0], r[1], r[2], r[3], r[4]]);
-      });
-    });
-  }
-
-  return rows;
-}
-
-/**
- * Generates an executive studio-grade multi-scene Master Breakdown HTML document.
- */
-export function generateMasterBreakdownHtml(
-  projectName = 'Feature Film Production',
-  beats: any[] = [],
-  sheetRows?: any[][]
-): string {
-  const masterData = sheetRows || buildMasterBreakdownSheetData(beats);
-  const dataRows = masterData.length > 1 ? masterData.slice(1) : [];
-  const totalElements = dataRows.length;
-
-  const categoryColorMap: Record<string, { bg: string; text: string; border: string }> = {
-    CAST: { bg: '#fee2e2', text: '#991b1b', border: '#fca5a5' },
-    EXTRAS: { bg: '#fef9c3', text: '#854d0e', border: '#fde047' },
-    STUNTS: { bg: '#ffedd5', text: '#9a3412', border: '#fdba74' },
-    VEHICLES: { bg: '#fce7f3', text: '#9d174d', border: '#f472b6' },
-    PROPS: { bg: '#f3e8ff', text: '#6b21a8', border: '#d8b4fe' },
-    SFX: { bg: '#e0f2fe', text: '#075985', border: '#7dd3fc' },
-    VFX: { bg: '#ede9fe', text: '#5b21b6', border: '#c4b5fd' },
-    WARDROBE: { bg: '#fce7f3', text: '#831843', border: '#f472b6' },
-    MAKEUP: { bg: '#ffe4e6', text: '#9f1239', border: '#fda4af' },
-    ANIMALS: { bg: '#d1fae5', text: '#065f46', border: '#6ee7b7' },
-    SOUND: { bg: '#dbeafe', text: '#1e40af', border: '#93c5fd' },
-    SET_DRESSING: { bg: '#fef3c7', text: '#92400e', border: '#fcd34d' },
-    GREENERY: { bg: '#dcfce7', text: '#166534', border: '#86efac' },
-    SPECIAL_EQUIPMENT: { bg: '#e0e7ff', text: '#3730a3', border: '#a5b4fc' },
-    LIGHTING_GRIP: { bg: '#fef3c7', text: '#78350f', border: '#fcd34d' },
-    SAFETY: { bg: '#fee2e2', text: '#b91c1c', border: '#f87171' },
-    LOCATION: { bg: '#e0f2fe', text: '#0369a1', border: '#7dd3fc' },
-  };
-
-  // Group items by Scene
-  const scenesMap: Record<string, any[]> = {};
-  dataRows.forEach((r) => {
-    const sc = String(r[1] || 'Scene 1');
-    if (!scenesMap[sc]) scenesMap[sc] = [];
-    scenesMap[sc].push(r);
-  });
-
-  const sceneKeys = Object.keys(scenesMap);
-  const totalScenes = sceneKeys.length;
-
-  // KPI calculations
-  const countCategory = (cat: string) => dataRows.filter((r) => String(r[2]).toUpperCase() === cat).length;
-  const castCount = countCategory('CAST') + countCategory('EXTRAS');
-  const propsCount = countCategory('PROPS') + countCategory('SET_DRESSING');
-  const stuntsCount = countCategory('STUNTS');
-  const sfxCount = countCategory('SFX');
-  const vfxCount = countCategory('VFX');
-  const vehiclesCount = countCategory('VEHICLES');
-  const soundCount = countCategory('SOUND');
-  const uniqueDepts = new Set(dataRows.map((r) => String(r[4] || '').trim().toLowerCase())).size;
-
-  // Cross-Scene Character Roster
-  const castRoster: Record<string, Set<string>> = {};
-  dataRows.forEach((r) => {
-    if (String(r[2]).toUpperCase() === 'CAST') {
-      const charName = String(r[3] || '').trim();
-      const sc = String(r[1] || '');
-      if (charName) {
-        if (!castRoster[charName]) castRoster[charName] = new Set();
-        castRoster[charName].add(sc);
-      }
-    }
-  });
-
-  // Cross-Scene Key Props Roster
-  const propsRoster: Record<string, { dept: string; scenes: Set<string>; notes: string }> = {};
-  dataRows.forEach((r) => {
-    if (['PROPS', 'VEHICLES', 'STUNTS', 'SFX'].includes(String(r[2]).toUpperCase())) {
-      const itemName = String(r[3] || '').trim();
-      const sc = String(r[1] || '');
-      if (itemName) {
-        if (!propsRoster[itemName]) {
-          propsRoster[itemName] = { dept: String(r[4] || r[2]), scenes: new Set(), notes: String(r[5] || '') };
-        }
-        propsRoster[itemName].scenes.add(sc);
-      }
-    }
-  });
-
-  // Render Scene Quick-Jump Navbar
-  const quickJumpNav = sceneKeys.map((sc) => {
-    const scId = sc.toLowerCase().replace(/[^a-z0-9]/g, '-');
-    const count = scenesMap[sc].length;
-    return `
-      <a href="#${scId}" style="display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border-radius: 6px; background: rgba(245, 166, 35, 0.12); color: #f5a623; border: 1px solid rgba(245, 166, 35, 0.35); text-decoration: none; font-size: 11px; font-weight: 700; margin: 3px; font-family: 'JetBrains Mono', monospace; transition: all 0.15s ease;">
-        <span>${sc}</span>
-        <span style="opacity: 0.7; font-size: 10px;">(${count})</span>
-      </a>
-    `;
-  }).join('');
-
-  // Render Each Scene Breakdown Section
-  const sceneSectionsHtml = sceneKeys.map((sc, scIdx) => {
-    const scId = sc.toLowerCase().replace(/[^a-z0-9]/g, '-');
-    const items = scenesMap[sc];
-    const matchingBeat = Array.isArray(beats) ? beats.find((b) => `Scene ${b.sceneNumber || b.id}` === sc || b.id === sc.replace(/\D/g, '')) : null;
-    const sceneHeading = matchingBeat
-      ? `${matchingBeat.slug?.prefix || 'INT.'} ${matchingBeat.slug?.location || matchingBeat.title || 'LOCATION'} - ${matchingBeat.slug?.time || 'DAY'}`
-      : `PRODUCTION LOCATION • SCENE SETUP`;
-    const synopsis = matchingBeat?.content ? matchingBeat.content.replace(/<[^>]*>/g, ' ').slice(0, 180).trim() : '';
-
-    const tableRowsHtml = items.map((r, itemIdx) => {
-      const num = r[0] || itemIdx + 1;
-      const cat = String(r[2] || 'PROPS').toUpperCase();
-      const name = r[3] || '';
-      const dept = r[4] || cat;
-      const notes = r[5] || '';
-      const status = r[6] || 'Confirmed';
-      const style = categoryColorMap[cat] || { bg: '#f1f5f9', text: '#334155', border: '#cbd5e1' };
-      const zebraBg = itemIdx % 2 === 0 ? '#ffffff' : '#f8fafc';
-
-      const statusLower = String(status).toLowerCase();
-      const statusColor = statusLower.includes('confirm') || statusLower.includes('ready') || statusLower.includes('approved')
-        ? 'background: #dcfce7; color: #166534; border: 1px solid #86efac;'
-        : statusLower.includes('rig') || statusLower.includes('rehears')
-        ? 'background: #e0f2fe; color: #0369a1; border: 1px solid #7dd3fc;'
-        : 'background: #fef3c7; color: #92400e; border: 1px solid #fcd34d;';
-
-      return `
-        <tr style="background: ${zebraBg}; border-bottom: 1px solid #e2e8f0;" class="doc-table-row">
-          <td style="padding: 9px 12px; font-weight: 700; color: #64748b; font-family: 'JetBrains Mono', monospace; text-align: center; width: 44px;">${num}</td>
-          <td style="padding: 9px 12px; width: 110px;">
-            <span style="display: inline-block; padding: 2px 7px; border-radius: 5px; font-size: 10px; font-weight: 800; text-transform: uppercase; background: ${style.bg}; color: ${style.text}; border: 1px solid ${style.border};">
-              ${cat}
-            </span>
-          </td>
-          <td style="padding: 9px 12px; font-weight: 700; color: #0f172a; font-size: 13px;">${name}</td>
-          <td style="padding: 9px 12px; color: #475569; font-size: 12px;">
-            <span style="background: #e2e8f0; color: #334155; padding: 2px 6px; border-radius: 4px; font-size: 10.5px; font-weight: 600;">${dept}</span>
-          </td>
-          <td style="padding: 9px 12px; color: #334155; font-size: 12px; line-height: 1.4;">${notes || '—'}</td>
-          <td style="padding: 9px 12px; text-align: center; width: 100px;">
-            <span style="display: inline-block; padding: 2px 8px; border-radius: 9999px; font-size: 9.5px; font-weight: 700; text-transform: uppercase; ${statusColor}">${status}</span>
-          </td>
-          <td style="padding: 8px 6px; text-align: center; width: 40px;" class="doc-action-cell">
-            <button type="button" class="doc-delete-row-btn" data-delete-row="true" style="background: rgba(239,68,68,0.12); color: #dc2626; border: 1px solid rgba(239,68,68,0.35); border-radius: 5px; width: 22px; height: 22px; line-height: 20px; font-size: 11px; cursor: pointer; font-weight: bold; display: inline-flex; align-items: center; justify-content: center;" title="Remove element">✕</button>
-          </td>
-        </tr>
-      `;
-    }).join('');
-
-    return `
-      <div id="${scId}" class="doc-scene-card" style="margin-bottom: 28px; border: 1px solid #cbd5e1; border-radius: 12px; overflow: hidden; background: #ffffff; box-shadow: 0 4px 15px rgba(0,0,0,0.03);">
-        <!-- Scene Header Strip -->
-        <div style="background: #0f172a; color: #ffffff; padding: 12px 18px; display: flex; align-items: center; justify-content: space-between; flex-wrap: gap; gap: 10px;">
-          <div>
-            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
-              <span style="background: #f5a623; color: #000000; font-size: 10px; font-weight: 900; padding: 2px 8px; border-radius: 4px; text-transform: uppercase; letter-spacing: 0.05em;">${sc}</span>
-              <span style="font-size: 11px; color: #94a3b8; font-family: 'JetBrains Mono', monospace;">SHOOT DAY ${Math.ceil((scIdx + 1) / 2)} &bull; ${items.length} PRODUCTION ELEMENTS</span>
-            </div>
-            <h2 style="margin: 0; font-size: 17px; font-weight: 800; letter-spacing: -0.01em; color: #f8fafc;">${sceneHeading}</h2>
-          </div>
-          <a href="#master-overview" style="color: #94a3b8; font-size: 11px; text-decoration: none; border: 1px solid #334155; padding: 4px 8px; border-radius: 6px;">↑ Back to Top</a>
-        </div>
-
-        ${synopsis ? `
-          <div style="background: #fffbeb; border-left: 4px solid #f5a623; padding: 10px 16px; font-size: 12.5px; color: #78350f; line-height: 1.45;">
-            <strong style="text-transform: uppercase; font-size: 9.5px; letter-spacing: 0.05em; display: block; margin-bottom: 2px;">Scene Synopsis & Dramatic Scope:</strong>
-            ${synopsis}
-          </div>
-        ` : ''}
-
-        <!-- Scene Table -->
-        <div style="overflow-x: auto;">
-          <table style="width: 100%; border-collapse: collapse; font-size: 12px; text-align: left;">
-            <thead>
-              <tr style="background: #f1f5f9; border-bottom: 2px solid #cbd5e1; font-size: 10.5px; font-weight: 800; text-transform: uppercase; color: #475569; letter-spacing: 0.04em;">
-                <th style="padding: 9px 12px; text-align: center; width: 44px;">#</th>
-                <th style="padding: 9px 12px; width: 110px;">Category</th>
-                <th style="padding: 9px 12px; width: 220px;">Element / Item Name</th>
-                <th style="padding: 9px 12px; width: 120px;">Department</th>
-                <th style="padding: 9px 12px;">Notes & Specifications</th>
-                <th style="padding: 9px 12px; text-align: center; width: 100px;">Status</th>
-                <th style="padding: 9px 6px; text-align: center; width: 40px;">Edit</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${tableRowsHtml}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    `;
-  }).join('');
-
-  // Cross-Scene Cast Roster Table
-  const castRosterRows = Object.entries(castRoster).map(([char, scenes]) => `
-    <tr style="border-bottom: 1px solid #e2e8f0;">
-      <td style="padding: 8px 12px; font-weight: 700; color: #0f172a; font-size: 12.5px;">${char}</td>
-      <td style="padding: 8px 12px; color: #475569; font-size: 12px;">Principal / Lead Role</td>
-      <td style="padding: 8px 12px; font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: #f5a623; font-weight: 600;">${Array.from(scenes).join(', ')}</td>
-      <td style="padding: 8px 12px; text-align: center; font-weight: 700; color: #0f172a;">${scenes.size} Scenes</td>
-    </tr>
-  `).join('');
-
-  // Cross-Scene Props & Gear Table
-  const propsRosterRows = Object.entries(propsRoster).slice(0, 15).map(([item, info]) => `
-    <tr style="border-bottom: 1px solid #e2e8f0;">
-      <td style="padding: 8px 12px; font-weight: 700; color: #0f172a; font-size: 12.5px;">${item}</td>
-      <td style="padding: 8px 12px; color: #475569; font-size: 11.5px;"><span style="background: #e2e8f0; padding: 2px 6px; border-radius: 4px;">${info.dept}</span></td>
-      <td style="padding: 8px 12px; font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: #0284c7; font-weight: 600;">${Array.from(info.scenes).join(', ')}</td>
-      <td style="padding: 8px 12px; color: #64748b; font-size: 11.5px;">${info.notes || 'Hero continuity item'}</td>
-    </tr>
-  `).join('');
-
-  return `
-<div id="master-overview" class="doc-document-wrapper master-breakdown-document" style="font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #0f172a; width: 100%; line-height: 1.5;">
-
-  <!-- Executive Document Header -->
-  <div style="margin-bottom: 24px; border-bottom: 2px solid #cbd5e1; padding-bottom: 18px;">
-    <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; flex-wrap: wrap;">
-      <div style="display: flex; align-items: center; gap: 8px;">
-        <span style="background: #f5a623; color: #000000; font-weight: 900; font-size: 10.5px; padding: 3px 9px; border-radius: 4px; letter-spacing: 0.06em; text-transform: uppercase;">1ST AD MASTER PRODUCTION BREAKDOWN</span>
-        <span style="background: #e2e8f0; color: #334155; font-size: 10.5px; padding: 2px 8px; border-radius: 4px; font-weight: 700;">COMPLETE SCRIPT LEDGER</span>
-      </div>
-      <span style="font-size: 11px; font-family: 'JetBrains Mono', monospace; color: #64748b; text-transform: uppercase;">ALL SCENES CONSOLIDATED &bull; CONFIDENTIAL</span>
-    </div>
-    <h1 style="margin: 0 0 4px 0; font-size: 26px; font-weight: 900; letter-spacing: -0.02em; color: #0f172a;">${projectName}: Master Script Breakdown & Elements</h1>
-    <p style="margin: 0; font-size: 13px; color: #64748b;">Consolidated 1st AD Pre-Production Roster across all scenes, departments, action stunts, and hero continuity assets.</p>
-  </div>
-
-  <!-- Executive Metric KPI Cards -->
-  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; margin-bottom: 24px;">
-    <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 12px; text-align: center;">
-      <span style="font-size: 10px; text-transform: uppercase; font-weight: 700; color: #64748b; display: block; font-family: 'JetBrains Mono', monospace;">Total Scenes</span>
-      <span style="font-size: 22px; font-weight: 900; color: #f5a623; font-family: 'JetBrains Mono', monospace;">${totalScenes}</span>
-    </div>
-    <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 12px; text-align: center;">
-      <span style="font-size: 10px; text-transform: uppercase; font-weight: 700; color: #64748b; display: block; font-family: 'JetBrains Mono', monospace;">Total Elements</span>
-      <span style="font-size: 22px; font-weight: 900; color: #0284c7; font-family: 'JetBrains Mono', monospace;">${totalElements}</span>
-    </div>
-    <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 12px; text-align: center;">
-      <span style="font-size: 10px; text-transform: uppercase; font-weight: 700; color: #64748b; display: block; font-family: 'JetBrains Mono', monospace;">Cast & Extras</span>
-      <span style="font-size: 22px; font-weight: 900; color: #dc2626; font-family: 'JetBrains Mono', monospace;">${castCount}</span>
-    </div>
-    <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 12px; text-align: center;">
-      <span style="font-size: 10px; text-transform: uppercase; font-weight: 700; color: #64748b; display: block; font-family: 'JetBrains Mono', monospace;">Props & Dressing</span>
-      <span style="font-size: 22px; font-weight: 900; color: #9333ea; font-family: 'JetBrains Mono', monospace;">${propsCount}</span>
-    </div>
-    <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 12px; text-align: center;">
-      <span style="font-size: 10px; text-transform: uppercase; font-weight: 700; color: #64748b; display: block; font-family: 'JetBrains Mono', monospace;">Stunts & Action</span>
-      <span style="font-size: 22px; font-weight: 900; color: #ea580c; font-family: 'JetBrains Mono', monospace;">${stuntsCount}</span>
-    </div>
-    <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 12px; text-align: center;">
-      <span style="font-size: 10px; text-transform: uppercase; font-weight: 700; color: #64748b; display: block; font-family: 'JetBrains Mono', monospace;">SFX & VFX</span>
-      <span style="font-size: 22px; font-weight: 900; color: #0891b2; font-family: 'JetBrains Mono', monospace;">${sfxCount + vfxCount}</span>
-    </div>
-    <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 12px; text-align: center;">
-      <span style="font-size: 10px; text-transform: uppercase; font-weight: 700; color: #64748b; display: block; font-family: 'JetBrains Mono', monospace;">Depts Involved</span>
-      <span style="font-size: 22px; font-weight: 900; color: #16a34a; font-family: 'JetBrains Mono', monospace;">${uniqueDepts || 10}</span>
-    </div>
-  </div>
-
-  <!-- Interactive Quick-Jump Scene Navbar -->
-  <div style="background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 10px; padding: 12px 16px; margin-bottom: 28px;">
-    <div style="font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; color: #475569; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between;">
-      <span>⚡ Quick Scene Jump Directory (Click to Review Individual Scene Breakdown):</span>
-      <span style="font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #64748b;">${totalScenes} SCENES INDEXED</span>
-    </div>
-    <div style="display: flex; flex-wrap: wrap; gap: 4px;">
-      ${quickJumpNav}
-    </div>
-  </div>
-
-  <!-- INDIVIDUAL SCENES BREAKDOWN (ALL SCENES CONSOLIDATED) -->
-  <div style="margin-bottom: 36px;">
-    <h2 style="font-size: 18px; font-weight: 900; color: #0f172a; margin: 0 0 16px 0; border-left: 4px solid #f5a623; padding-left: 10px; text-transform: uppercase; letter-spacing: 0.02em;">
-      Part 1: Scene-by-Scene Breakdown Ledger
-    </h2>
-    ${sceneSectionsHtml}
-  </div>
-
-  <!-- PART 2: CROSS-SCENE EXECUTIVE LOGISTICS & ROSTERS ("and stuff") -->
-  <div style="margin-top: 36px; padding-top: 24px; border-top: 2px solid #cbd5e1;">
-    <h2 style="font-size: 18px; font-weight: 900; color: #0f172a; margin: 0 0 16px 0; border-left: 4px solid #0284c7; padding-left: 10px; text-transform: uppercase; letter-spacing: 0.02em;">
-      Part 2: Cross-Scene Department Directory & Logistics ("and stuff")
-    </h2>
-
-    <!-- Cross-Scene Cast Table -->
-    <div style="margin-bottom: 24px; border: 1px solid #cbd5e1; border-radius: 10px; overflow: hidden; background: #ffffff;">
-      <div style="background: #f8fafc; padding: 10px 16px; border-bottom: 1px solid #e2e8f0; font-weight: 800; font-size: 12px; color: #334155; text-transform: uppercase;">
-        🎭 Master Cast Appearance Ledger Across Scenes
-      </div>
-      <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
-        <thead>
-          <tr style="background: #f1f5f9; border-bottom: 1px solid #cbd5e1; font-size: 10.5px; font-weight: 700; color: #475569; text-transform: uppercase;">
-            <th style="padding: 8px 12px; text-align: left;">Character Name</th>
-            <th style="padding: 8px 12px; text-align: left;">Role Classification</th>
-            <th style="padding: 8px 12px; text-align: left;">Scenes Required</th>
-            <th style="padding: 8px 12px; text-align: center;">Total Scenes</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${castRosterRows || '<tr><td colspan="4" style="padding: 12px; text-align: center; color: #94a3b8;">No character roles logged yet.</td></tr>'}
-        </tbody>
-      </table>
-    </div>
-
-    <!-- Cross-Scene Key Props & Stunts Table -->
-    <div style="margin-bottom: 24px; border: 1px solid #cbd5e1; border-radius: 10px; overflow: hidden; background: #ffffff;">
-      <div style="background: #f8fafc; padding: 10px 16px; border-bottom: 1px solid #e2e8f0; font-weight: 800; font-size: 12px; color: #334155; text-transform: uppercase;">
-        📦 Hero Props, Vehicles, Stunts & Action Directory
-      </div>
-      <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
-        <thead>
-          <tr style="background: #f1f5f9; border-bottom: 1px solid #cbd5e1; font-size: 10.5px; font-weight: 700; color: #475569; text-transform: uppercase;">
-            <th style="padding: 8px 12px; text-align: left;">Item / Asset Name</th>
-            <th style="padding: 8px 12px; text-align: left;">Department</th>
-            <th style="padding: 8px 12px; text-align: left;">Scenes Required</th>
-            <th style="padding: 8px 12px; text-align: left;">Continuity & Handling Notes</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${propsRosterRows || '<tr><td colspan="4" style="padding: 12px; text-align: center; color: #94a3b8;">No props or stunt assets logged yet.</td></tr>'}
-        </tbody>
-      </table>
-    </div>
-
-    <!-- Production Safety Protocols & Staging Directives -->
-    <div style="background: #fef2f2; border: 1px solid #fecaca; border-radius: 10px; padding: 16px; margin-bottom: 24px; font-size: 12.5px; color: #991b1b; line-height: 1.6;">
-      <h3 style="margin: 0 0 8px 0; font-size: 13.5px; font-weight: 800; text-transform: uppercase; color: #b91c1c;">
-        ⚠️ Production Safety Standby & Turnaround Directives
-      </h3>
-      <p style="margin: 0 0 6px 0;">1. <strong>Class C Fire Marshals:</strong> Mandatory for all scenes involving pyrotechnic conduit sparks, incinerator burns, or atmospheric haze generators.</p>
-      <p style="margin: 0 0 6px 0;">2. <strong>Stunt Decelerator Inspections:</strong> All overhead rigging, catwalk wire rigs, and breakaway glass panels must be proof-tested by the Stunt Coordinator 90 minutes prior to first call.</p>
-      <p style="margin: 0 0 6px 0;">3. <strong>Hero Props Security:</strong> Optical core cryo-keys and classified dossiers are stored in the Production Armory safe between takes.</p>
-      <p style="margin: 0;">4. <strong>Actor Turnaround & Medical:</strong> 12-hour rest turnaround guaranteed between night shoots and day unit calls. On-set paramedic stationed at Basecamp.</p>
-    </div>
-  </div>
-
-</div>
-  `.trim();
-}
-
-export const MASTER_BREAKDOWN_DOC_ID = 'harvest-master-breakdown';
-
-/**
- * Generates a single complete ProductionDocument containing all scene breakdown data and cross-scene logistics.
- */
-export function generateMasterBreakdownDocument(
-  projectName = 'Feature Film Production',
-  beats: any[] = []
-): ProductionDocument {
-  const sheetData = buildMasterBreakdownSheetData(beats);
-  const dataRows = sheetData.slice(1);
-  const totalElements = dataRows.length;
-  const uniqueScenes = Array.from(new Set(dataRows.map((r) => r[1]))).length;
-
-  const htmlContent = generateMasterBreakdownHtml(projectName, beats, sheetData);
-
-  // Structured searchable text representation for Myers diff and BM25 search
-  let textSummary = `MASTER SCRIPT BREAKDOWN & PRODUCTION ELEMENTS (ALL SCENES)\nProject: ${projectName}\nTotal Scenes: ${uniqueScenes} • Total Elements: ${totalElements} across ${beats.length || 1} script scenes.\n\n`;
-
-  const sceneGroups: Record<string, any[]> = {};
-  dataRows.forEach((r) => {
-    const sc = r[1];
-    if (!sceneGroups[sc]) sceneGroups[sc] = [];
-    sceneGroups[sc].push(r);
-  });
-
-  Object.entries(sceneGroups).forEach(([sceneName, rows]) => {
-    textSummary += `=== ${String(sceneName).toUpperCase()} (${rows.length} Elements) ===\n`;
-    rows.forEach((r) => {
-      textSummary += `[${r[2]}] ${r[3]} (${r[4]}): ${r[5]} [${r[6]}]\n`;
-    });
-    textSummary += '\n';
-  });
-
-  return {
-    id: MASTER_BREAKDOWN_DOC_ID,
-    title: 'Master Script Breakdown & Production Elements (All Scenes)',
-    titleTa: 'முழுமையான திரைக்கதை தயாரிப்பு குறிப்பு தாள்',
-    category: 'BREAKDOWN',
-    fileType: 'breakdown',
-    fileName: 'Master_Script_Breakdown_All_Scenes.pdf',
-    fileSize: `${Math.max(480, totalElements * 45)} KB`,
-    pageCount: Math.max(1, Math.ceil(uniqueScenes * 1.5)),
-    builtInType: 'breakdown',
-    sheetData,
-    htmlContent,
-    textContent: textSummary,
-    author: '1st AD & Production Unit',
-    status: 'approved',
-    uploadedAt: new Date().toISOString(),
-    tags: ['Master Breakdown', 'All Scenes', '1st AD', 'Production', 'Stripboard', 'Department Sync'],
-    annotations: [],
-  };
-}
-
-/**
- * Save or update the single Master All-Scenes Breakdown Sheet directly to the Vault.
- */
-export function saveMasterBreakdownToVault(
-  beats: any[] = [],
-  projectName = 'Feature Film Production',
-  explicitProjectId?: string
-): ProductionDocument {
-  const masterDoc = generateMasterBreakdownDocument(projectName, beats);
-  const projId = explicitProjectId || (typeof localStorage !== 'undefined' ? localStorage.getItem('currentProjectId') || 'default' : 'default');
-  const existingDocs = getProductionDocuments(projId);
-
-  // Non-destructively consolidate: filter out legacy single-scene fragmented breakdown docs
-  const filtered = existingDocs.filter(
-    (d) => d.id !== MASTER_BREAKDOWN_DOC_ID && !d.id.startsWith('harvest-breakdown-')
-  );
-  const updated = [masterDoc, ...filtered];
-  saveProductionDocuments(updated, projId, true, true);
-  return masterDoc;
-}
-
 export const INITIAL_DOCUMENTS: ProductionDocument[] = [];
 
 export function getProductionDocuments(projectId?: string): ProductionDocument[] {
@@ -856,21 +291,9 @@ export function getProductionDocuments(projectId?: string): ProductionDocument[]
         !(doc.title && doc.title.includes('பைலட் ரங்கா'))
     );
 
-    // Auto-migration & Consolidation:
-    // If fragmented single-scene breakdown documents exist, consolidate them into a single Master Breakdown Document!
-    let hasMigrated = filtered.length !== parsed.length;
-    let consolidated = filtered;
-    const hasFragmentedBreakdowns = filtered.some((d: ProductionDocument) => d.id.startsWith('harvest-breakdown-'));
-    if (hasFragmentedBreakdowns) {
-      hasMigrated = true;
-      consolidated = filtered.filter((d: ProductionDocument) => !d.id.startsWith('harvest-breakdown-'));
-      if (!consolidated.some((d: ProductionDocument) => d.id === MASTER_BREAKDOWN_DOC_ID)) {
-        consolidated.unshift(generateMasterBreakdownDocument());
-      }
-    }
-
     // Auto-migration: ensure doc-bd-1 breakdown document has sheetData if present
-    const migrated = consolidated.map((doc: ProductionDocument) => {
+    let hasMigrated = filtered.length !== parsed.length;
+    const migrated = filtered.map((doc: ProductionDocument) => {
       if (doc.id === 'doc-bd-1') {
         if (!doc.sheetData || doc.sheetData.length <= 1 || !doc.htmlContent || !doc.htmlContent.includes('doc-delete-row-btn')) {
           hasMigrated = true;
@@ -1846,16 +1269,48 @@ export function harvestProjectArtifacts(project: any, explicitProjectId?: string
           }
         });
       }
-    });
 
-    // 3. Harvest Consolidated Master Script Breakdown Document (All scenes in ONE single document!)
-    if (Array.isArray(project.beats) && project.beats.length > 0) {
-      if (!existingIds.has(MASTER_BREAKDOWN_DOC_ID)) {
-        const masterDoc = generateMasterBreakdownDocument(project.title || project.name || 'Feature Film Production', project.beats);
-        newDocs.push(masterDoc);
-        existingIds.add(MASTER_BREAKDOWN_DOC_ID);
+      // 3. Harvest breakdowns from beats
+      const beatBd = b.breakdown || b.breakdownData;
+      if (beatBd && Object.keys(beatBd).length > 0) {
+        const breakdownDocId = `harvest-breakdown-${b.id}`;
+        if (!existingIds.has(breakdownDocId)) {
+          const sheetData = buildBreakdownSheetDataFromBeat(b);
+          const breakdownHtml = generateBreakdownHtmlTable(
+            b.sceneNumber || b.id,
+            b.title || `${b.slug?.prefix || 'INT.'} ${b.slug?.location || 'LOCATION'} - ${b.slug?.time || 'DAY'}`,
+            sheetData,
+            b.content ? b.content.replace(/<[^>]*>/g, ' ').slice(0, 160) : undefined,
+            'DAY 1',
+            b.pages || '1 PG'
+          );
+          const breakdownSummary = Object.entries(beatBd)
+            .map(([cat, items]: [string, any]) => `${cat.toUpperCase()}: ${Array.isArray(items) ? items.join(', ') : items}`)
+            .join('\n');
+
+          newDocs.push({
+            id: breakdownDocId,
+            title: `Sc. ${b.sceneNumber || b.id} Breakdown Sheet (${b.title || 'Scene'})`,
+            titleTa: `காட்சி ${b.sceneNumber} குறிப்பு தாள்`,
+            category: 'BREAKDOWN',
+            fileType: 'breakdown',
+            fileName: `Breakdown_Sc${b.sceneNumber || b.id}.pdf`,
+            fileSize: '380 KB',
+            pageCount: 1,
+            uploadedAt: new Date().toISOString(),
+            builtInType: 'breakdown',
+            author: '1st AD Breakdown Supervisor',
+            sheetData,
+            htmlContent: breakdownHtml,
+            textContent: `SCENE ${b.sceneNumber || b.id} BREAKDOWN:\n${breakdownSummary}`,
+            status: 'approved',
+            tags: [`Scene ${b.sceneNumber}`, 'Breakdown', '1st AD'],
+            annotations: [],
+          });
+          existingIds.add(breakdownDocId);
+        }
       }
-    }
+    });
   }
 
   // 4. Harvest Storyboard Shots (Pictures)
@@ -1918,12 +1373,8 @@ export function harvestProjectArtifacts(project: any, explicitProjectId?: string
     });
   }
 
-  // Prune any legacy fragmented single-scene breakdown files so the Document Vault stays clean!
-  const consolidatedExisting = existingDocs.filter((d) => !d.id.startsWith('harvest-breakdown-'));
-  const hasConsolidated = consolidatedExisting.length !== existingDocs.length;
-
-  if (newDocs.length > 0 || hasConsolidated) {
-    const updated = [...newDocs, ...consolidatedExisting];
+  if (newDocs.length > 0) {
+    const updated = [...newDocs, ...existingDocs];
     saveProductionDocuments(updated, projId, false, true);
     return { addedCount: newDocs.length, documents: updated };
   }
