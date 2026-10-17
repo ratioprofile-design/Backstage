@@ -54,7 +54,6 @@ import { TamilLeftRightStudioView } from './TamilLeftRightStudioView';
 import { DocumentTwoColumnEditor } from './DocumentTwoColumnEditor';
 import { MarkdownDocEditor } from './vault/MarkdownDocEditor';
 import { ScriptRevisionDiffModal } from './vault/ScriptRevisionDiffModal';
-import { NotionDocPreview } from './vault/NotionDocPreview';
 import { vaultBridge } from '../../services/vault/VaultBridge';
 import { markdownToHtml, htmlToMarkdown } from '../../services/markdownEngine';
 import confetti from 'canvas-confetti';
@@ -368,7 +367,6 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [zoomLevel, setZoomLevel] = useState<number>(100);
   const [readerViewMode, setReaderViewMode] = useState<'stacked' | 'single' | 'spread'>('stacked');
-  const [readerLayout, setReaderLayout] = useState<'notion' | 'paginated'>('notion');
   const [isBaminiDetected, setIsBaminiDetected] = useState<boolean>(false);
   const [isDraggingOver, setIsDraggingOver] = useState<boolean>(false);
   const [uploadState, setUploadState] = useState<{
@@ -1432,7 +1430,6 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
     const isMd = doc?.fileType === 'md' || doc?.fileName?.endsWith('.md');
     const mode = (doc?.isLeftRightFormat || doc?.hasTwoColumnScript) ? 'two-column' : isMd ? 'markdown' : 'page';
     setStudioViewMode(mode);
-    setReaderLayout('notion');
     setIsEditMode(false); // Default to authentic Paginated A4 View!
     if (doc?.fileType === 'docx' || doc?.fileName?.endsWith('.docx')) {
       setDocFontFamily('calibri');
@@ -4838,26 +4835,6 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                   <span className="hidden sm:inline">{studioViewMode === 'markdown' ? 'Doc Canvas' : 'Notion / Doc'}</span>
                 </button>
 
-                {/* Notion View vs A4 Print View Switcher */}
-                {studioViewMode === 'page' && (
-                  <button
-                    onClick={() => setReaderLayout(readerLayout === 'notion' ? 'paginated' : 'notion')}
-                    className={`px-2.5 py-1 rounded-lg text-xs font-bold border flex items-center gap-1.5 transition-all shadow-xs ${
-                      readerLayout === 'notion'
-                        ? isLight
-                          ? 'bg-amber-100 border-amber-300 text-amber-900'
-                          : 'bg-[#f5a623]/20 border-[#f5a623]/40 text-[#f5a623]'
-                        : isLight
-                        ? 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
-                        : 'bg-zinc-800/80 border-zinc-700/60 text-zinc-300 hover:bg-zinc-800'
-                    }`}
-                    title={readerLayout === 'notion' ? 'Switch to Classic A4 Print View' : 'Switch to Modern Notion Document View'}
-                  >
-                    <FileText size={13} />
-                    <span className="hidden sm:inline">{readerLayout === 'notion' ? 'Notion View' : 'A4 Print'}</span>
-                  </button>
-                )}
-
                 {/* Toggle Comments / Inspector Side Panel */}
                 <button
                   onClick={() => setShowCommentsPanel(!showCommentsPanel)}
@@ -4984,17 +4961,39 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                     className="w-full mt-2"
                   />
                 </div>
-              ) : ((Boolean(selectedDoc?.pdfDataUrl) || (Boolean(selectedDoc?.originalFileDataUrl) && String(selectedDoc.originalFileDataUrl).startsWith('data:application/pdf'))) && !selectedDoc?.htmlContent && !selectedDoc?.sheetData) ? (
+              ) : (selectedDoc?.pdfDataUrl || selectedDoc?.fileType === 'pdf' || (selectedDoc?.fileName && selectedDoc.fileName.toLowerCase().endsWith('.pdf'))) ? (
                 /* DEDICATED PDF VIEWER STUDIO */
                 <div
                   className="relative rounded-2xl border border-zinc-700/80 shadow-2xl overflow-hidden bg-zinc-900 w-full max-w-5xl h-[85vh] flex flex-col"
                   style={{ transform: `scale(${zoomLevel / 100})`, transformOrigin: 'top center' }}
                 >
-                  <iframe
-                    src={selectedDoc.pdfDataUrl || selectedDoc.originalFileDataUrl}
-                    className="w-full h-full border-0 rounded-2xl bg-white"
-                    title={selectedDoc.title}
-                  />
+                  {selectedDoc.pdfDataUrl || selectedDoc.originalFileDataUrl ? (
+                    <iframe
+                      src={selectedDoc.pdfDataUrl || selectedDoc.originalFileDataUrl}
+                      className="w-full h-full border-0 rounded-2xl bg-white"
+                      title={selectedDoc.title}
+                    />
+                  ) : (
+                    <div className="w-full h-full flex flex-col items-center justify-center p-8 bg-zinc-900 text-zinc-300 gap-4 text-center">
+                      <div className="w-16 h-16 rounded-2xl bg-rose-500/10 border border-rose-500/30 flex items-center justify-center text-rose-400 shadow-xl">
+                        <FileText size={32} />
+                      </div>
+                      <div>
+                        <h3 className="text-lg font-bold text-white mb-1">{selectedDoc.title}</h3>
+                        <p className="text-xs font-mono text-zinc-400">{selectedDoc.fileName} • {selectedDoc.fileSize || 'PDF Document'}</p>
+                      </div>
+                      <div className="p-3 bg-zinc-800/80 border border-zinc-700 rounded-xl text-xs text-zinc-400 max-w-md">
+                        {selectedDoc.textContent || 'PDF Document indexed in Production Vault.'}
+                      </div>
+                      <button
+                        onClick={() => handleDownloadOriginalFile(selectedDoc)}
+                        className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-bold text-xs flex items-center gap-2 shadow-lg transition-all"
+                      >
+                        <Download size={14} />
+                        <span>Download Original File</span>
+                      </button>
+                    </div>
+                  )}
                 </div>
               ) : isBreakdownDoc && studioViewMode === 'table' ? (
                 /* =========================================================================
@@ -5390,34 +5389,11 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                   />
                 </div>
               ) : (
-                /* NOTION DOCUMENT PREVIEW (DEFAULT) vs UNIVERSAL PAGINATED A4 PRINT VIEW */
-                readerLayout === 'notion' && selectedDoc ? (
-                  <NotionDocPreview
-                    document={selectedDoc}
-                    isLight={isLight}
-                    rawTableRows={rawTableRows}
-                    hasSceneColumn={hasSceneColumn}
-                    availableScenes={availableScenes}
-                    availableCategories={availableCategories}
-                    uniqueDepartmentsCount={uniqueDepartmentsCount}
-                    projectBeats={projectContext?.beats || []}
-                    onSwitchToTableMode={() => setStudioViewMode('table')}
-                    onSwitchToMarkdownMode={() => setStudioViewMode('markdown')}
-                    onSwitchToTwoColumnMode={() => setStudioViewMode('two-column')}
-                    onDownloadOriginal={handleDownloadOriginalFile}
-                    onSaveDocument={(updatedDoc) => {
-                      const updatedList = documents.map((d) => (d.id === updatedDoc.id ? updatedDoc : d));
-                      setEditedHtmlContent(updatedDoc.htmlContent || '');
-                      updateDocuments(updatedList, new Set([updatedDoc.id]));
-                    }}
-                    showToast={showToast}
-                  />
-                ) : (
-                  /* UNIVERSAL PAGINATED DOCUMENT READER */
-                  <div
-                    className="flex flex-col gap-8 items-center pb-24"
-                    style={{ transform: `scale(${zoomLevel / 100})`, transformOrigin: 'top center' }}
-                  >
+                /* UNIVERSAL PAGINATED DOCUMENT READER */
+                <div
+                  className="flex flex-col gap-8 items-center pb-24"
+                  style={{ transform: `scale(${zoomLevel / 100})`, transformOrigin: 'top center' }}
+                >
                   {/* On-Request Bamini to Unicode Conversion Banner */}
                   {isBaminiDetected && !selectedDoc?.isBaminiConverted && (
                     <div className="w-[794px] p-3.5 rounded-xl border border-amber-500/50 bg-amber-500/10 backdrop-blur-md flex items-center justify-between gap-3 text-xs shadow-lg animate-in fade-in slide-in-from-top-1">
@@ -5633,8 +5609,7 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                   })
                 )}
               </div>
-            )
-          )}
+            )}
             </div>
           </div>
 
