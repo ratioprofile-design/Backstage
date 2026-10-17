@@ -10,10 +10,9 @@ import { INITIAL_STATE } from '../constants';
 import { supabase, upsertProject, fetchProjectData, fetchUserProjects, fetchInvitedProjects, isSupabaseConfigured, renameCloudProject } from '../services/supabase';
 import { createAuto5ScenesDataset, createAutoScenesDataset } from '../services/sampleGenerator';
 import { isTauri, getTauriFs, getTauriDialog, getTauriWindow } from '../utils/desktop';
-import { addRecentFile } from '../utils/recentFiles';
 import { isCausalityData, parseCausalityProject } from '../services/causalityParser';
 import { getProductionDocuments, saveProductionDocuments, mergeProductionDocuments, syncDocumentsWithCloud } from '../services/documentsStorage';
-import { saveLargeProject, loadLargeProject } from '../services/largeStorage';
+import { saveLargeProject, loadLargeProject, loadLargeDocuments } from '../services/largeStorage';
 import { optimizeTalentForCloud } from '../services/imageOptimizer';
 
 const ProjectContext = (typeof window !== 'undefined' && (window as any).__BACKSTAGE_PROJECT_CONTEXT__)
@@ -266,13 +265,13 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   }, []);
 
   const [appZoomLevel, setAppZoomLevelState] = useState<number>(() => {
-    if (typeof localStorage === 'undefined') return 0.8;
+    if (typeof localStorage === 'undefined') return 1.0;
     const saved = localStorage.getItem('app_zoom_level');
     if (saved) {
       const parsed = parseFloat(saved);
-      if (!isNaN(parsed) && parsed >= 0.5 && parsed <= 1.5) return parsed;
+      if (!isNaN(parsed) && parsed >= 0.5 && parsed <= 1.5 && parsed !== 0.8) return parsed;
     }
-    return INITIAL_STATE.appZoomLevel || 0.8;
+    return INITIAL_STATE.appZoomLevel || 1.0;
   });
 
   const setAppZoomLevel = useCallback((zoom: number) => {
@@ -280,8 +279,12 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setAppZoomLevelState(clamped);
     if (typeof window !== 'undefined') {
       localStorage.setItem('app_zoom_level', String(clamped));
-      const basePx = Math.round(16 * clamped * 10) / 10;
-      document.documentElement.style.fontSize = `${basePx}px`;
+      if (clamped === 1.0) {
+        document.documentElement.style.fontSize = '';
+      } else {
+        const basePx = Math.round(16 * clamped * 10) / 10;
+        document.documentElement.style.fontSize = `${basePx}px`;
+      }
       document.documentElement.style.zoom = '';
     }
     setHasUnsavedChanges(true);
@@ -289,8 +292,12 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      const basePx = Math.round(16 * appZoomLevel * 10) / 10;
-      document.documentElement.style.fontSize = `${basePx}px`;
+      if (appZoomLevel === 1.0) {
+        document.documentElement.style.fontSize = '';
+      } else {
+        const basePx = Math.round(16 * appZoomLevel * 10) / 10;
+        document.documentElement.style.fontSize = `${basePx}px`;
+      }
       document.documentElement.style.zoom = '';
     }
   }, [appZoomLevel]);
@@ -891,19 +898,6 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       )
       .on(
         'broadcast',
-        { event: 'vault_documents_updated' },
-        (payload: any) => {
-          const docs = payload.payload?.documents || payload.documents;
-          const remoteInstance = payload.payload?.senderInstanceId || payload.senderInstanceId;
-          if (!docs || remoteInstance === INSTANCE_ID) return;
-          console.log("Realtime broadcast: Vault documents updated by collaborator.");
-          const currentDocs = getProductionDocuments(currentProjectId);
-          const merged = mergeProductionDocuments(currentDocs, docs);
-          saveProductionDocuments(merged, currentProjectId, true);
-        }
-      )
-      .on(
-        'broadcast',
         { event: 'project_renamed' },
         (payload: any) => {
           const data = payload.payload || payload.data || payload;
@@ -1216,7 +1210,6 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
                 allowedPages: ['board', 'script', 'casting', 'storyboard', 'shotlist', 'production']
               });
               setCollaborators(collabs);
-              setHasUnsavedChanges(true);
             }
           }
         } catch (err: any) {
@@ -1351,7 +1344,16 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       lastSyncedAt: prev.lastSyncedAt
     }));
 
-    const currentDocs = getProductionDocuments(currentProjectId || undefined);
+    let currentDocs = getProductionDocuments(currentProjectId || undefined);
+    if (currentProjectId) {
+      try {
+        const idbDocs = await loadLargeDocuments(currentProjectId);
+        if (idbDocs && Array.isArray(idbDocs) && idbDocs.length > 0) {
+          currentDocs = mergeProductionDocuments(currentDocs, idbDocs);
+        }
+      } catch (e) {}
+    }
+
     const projectData: ProjectState & { lastInstanceId?: string; documents?: any[] } = {
       beats, groups, connections, annotations, characterData, generatedShots, 
       scratchpad, globalNotes, panX, panY, scale, nextId, nextAnnoId, activeBoardId,
@@ -1394,13 +1396,25 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
           progress: 55,
           message: 'Optimizing headshots for Supabase...'
         }));
-        const sanitizedCloudDocs = (currentDocs || []).map((doc: any) => ({
-          ...doc,
-          pdfDataUrl: doc.pdfDataUrl && doc.pdfDataUrl.length > 50000 ? undefined : doc.pdfDataUrl,
-          originalFileDataUrl: doc.originalFileDataUrl && doc.originalFileDataUrl.length > 50000 ? undefined : doc.originalFileDataUrl,
-          convertedDocxDataUrl: doc.convertedDocxDataUrl && doc.convertedDocxDataUrl.length > 50000 ? undefined : doc.convertedDocxDataUrl,
-          imageDataUrl: doc.imageDataUrl && doc.imageDataUrl.length > 50000 ? undefined : doc.imageDataUrl,
-        }));
+        // Deduplicate and sanitize cloud documents so cloud payload is under 3.5MB:
+        // 1. If pdfDataUrl exists, drop duplicate originalFileDataUrl
+        // 2. If image, drop raw camera originalFileDataUrl and keep thumbnailDataUrl + optimized imageDataUrl
+        // 3. Keep thumbnailDataUrl always intact for instant visual rendering across laptops
+        const MAX_INLINE_BINARY_CHARS = 2800000;
+        const sanitizedCloudDocs = (currentDocs || []).map((doc: any) => {
+          if (!doc) return doc;
+          const clean = { ...doc };
+          if (clean.pdfDataUrl) clean.originalFileDataUrl = undefined;
+          if (clean.fileType === 'image') clean.originalFileDataUrl = undefined;
+          if (clean.convertedDocxDataUrl && clean.convertedDocxDataUrl === clean.originalFileDataUrl) clean.originalFileDataUrl = undefined;
+          if (clean.pdfDataUrl && !clean.pdfDataUrl.startsWith('http') && clean.pdfDataUrl.length > MAX_INLINE_BINARY_CHARS) clean.pdfDataUrl = undefined;
+          if (clean.originalFileDataUrl && !clean.originalFileDataUrl.startsWith('http') && clean.originalFileDataUrl.length > MAX_INLINE_BINARY_CHARS) clean.originalFileDataUrl = undefined;
+          if (clean.convertedDocxDataUrl && !clean.convertedDocxDataUrl.startsWith('http') && clean.convertedDocxDataUrl.length > MAX_INLINE_BINARY_CHARS) clean.convertedDocxDataUrl = undefined;
+          if (clean.imageDataUrl && !clean.imageDataUrl.startsWith('http') && clean.imageDataUrl.length > 800000) clean.imageDataUrl = clean.thumbnailDataUrl || undefined;
+          if (!clean.thumbnailDataUrl && clean.imageDataUrl && clean.imageDataUrl.length < 50000) clean.thumbnailDataUrl = clean.imageDataUrl;
+          if (clean.htmlContent && clean.htmlContent.length > 30000 && clean.htmlContent.includes('Sign in - Google Accounts')) clean.htmlContent = '<p>Production Spreadsheet Data</p>';
+          return clean;
+        });
 
         const cloudPayload = {
           ...projectData,
@@ -2095,7 +2109,7 @@ const fallbackProjectContextValue: ProjectContextType = {
   setNavLayout: noop,
   themeAnimationStyle: 'circle',
   setThemeAnimationStyle: noop,
-  appZoomLevel: 0.8,
+  appZoomLevel: 1.0,
   setAppZoomLevel: noop,
   cloudSyncStatus: {
     isUploading: false,

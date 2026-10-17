@@ -51,6 +51,12 @@ export const TAMIL_UI_DICTIONARY: Record<string, string> = {
   'Goals': 'எழுத்து இலக்குகள்',
   'Goals & Deadlines': 'இலக்குகள் & காலக்கெடு',
   'Inbox': 'உள்வரும் பெட்டி',
+  'Writing': 'எழுதுதல்',
+  'Pre-Production': 'தயாரிப்புக்கு முந்தைய நிலை',
+  'Pre-Pro': 'தயாரிப்பு முன்',
+  'Visuals': 'காட்சிகள் & படமாக்கல்',
+  'Production': 'தயாரிப்பு & படப்பிடிப்பு',
+  'Studio': 'ஸ்டுடியோ & ஆவணங்கள்',
 
   // --- HEADER & TOOLBAR ACTIONS ---
   'Active View:': 'செயலில் உள்ள பார்வை:',

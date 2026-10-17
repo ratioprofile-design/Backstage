@@ -3453,29 +3453,29 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
     if (isSupabaseConfigured && projId) {
       try {
         const chan = supabase.channel(`project_changes_${projId}`);
-        chan.send({
-          type: 'broadcast',
-          event: 'two_column_script_synced',
-          payload: {
-            projectId: projId,
-            docId: targetDoc.id,
-            twoColumnData: currentData,
-            senderId: projectContext.currentUser || 'user',
-            senderInstanceId: clientInstanceIdRef.current,
-          }
-        }).catch(() => {});
+        const vaultChan = supabase.channel(`vault_realtime_${projId}`);
 
-        chan.send({
-          type: 'broadcast',
-          event: 'vault_documents_updated',
-          payload: {
-            projectId: projId,
-            documents: nextList,
-            senderId: projectContext.currentUser || 'user',
-            senderInstanceId: clientInstanceIdRef.current,
-            timestamp: Date.now()
-          }
-        }).catch(() => {});
+        const twoColPayload = {
+          projectId: projId,
+          docId: targetDoc.id,
+          twoColumnData: currentData,
+          senderId: projectContext.currentUser || 'user',
+          senderInstanceId: clientInstanceIdRef.current,
+        };
+
+        const docsPayload = {
+          projectId: projId,
+          documents: nextList,
+          senderId: projectContext.currentUser || 'user',
+          senderInstanceId: clientInstanceIdRef.current,
+          timestamp: Date.now()
+        };
+
+        chan.send({ type: 'broadcast', event: 'two_column_script_synced', payload: twoColPayload }).catch(() => {});
+        vaultChan.send({ type: 'broadcast', event: 'two_column_script_synced', payload: twoColPayload }).catch(() => {});
+
+        chan.send({ type: 'broadcast', event: 'vault_documents_updated', payload: docsPayload }).catch(() => {});
+        vaultChan.send({ type: 'broadcast', event: 'vault_documents_updated', payload: docsPayload }).catch(() => {});
       } catch (e) {}
     }
 
@@ -3692,7 +3692,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
 
       const updatedList = [newDoc, ...documents];
       setDocuments(updatedList);
-      saveProductionDocuments(updatedList);
+      saveProductionDocuments(updatedList, projectContext.currentProjectId || undefined, false, true);
       setSelectedDocId(newDoc.id);
       showToast(`✓ Imported "${file.name}" into 2-Column Studio!`);
     } catch (err) {

@@ -44,7 +44,6 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
     undo, redo, canUndo, canRedo,
     appTheme, setAppTheme, appAccentColor = '#f5a623',
     appLanguage,
-    appZoomLevel = 0.8, setAppZoomLevel,
     navLayout, setNavLayout,
     hasUnsavedChanges, isSaving, currentUser, isCloudMode,
     cloudOffline, supabaseUser, logout
@@ -84,25 +83,50 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
 
   const isCloudActive = isCloudMode;
 
-  const navItems = useMemo(() => {
+  const navSections = useMemo(() => {
     const list = [
-      { id: 'board' as ViewMode, label: translateUi('Causality', appLanguage), icon: Workflow },
-      { id: 'excalidraw' as ViewMode, label: translateUi('Excalidraw', appLanguage), icon: PenTool },
-      { id: 'script' as ViewMode, label: translateUi('Screenplay', appLanguage), icon: FileText },
-      { id: 'two-column-script' as ViewMode, label: translateUi('Script', appLanguage), icon: Columns },
-      { id: 'casting' as ViewMode, label: translateUi('Casting & Roster', appLanguage), icon: Users },
-      { id: 'breakdown' as ViewMode, label: translateUi('Breakdown', appLanguage), icon: Layers },
-      { id: 'continuity' as ViewMode, label: translateUi('Continuity', appLanguage), icon: Clock },
-      { id: 'crew' as ViewMode, label: translateUi('Crew', appLanguage), icon: Users },
-      { id: 'shotlist' as ViewMode, label: translateUi('Shot Division', appLanguage), icon: Video },
-      { id: 'storyboard' as ViewMode, label: translateUi('Storyboard', appLanguage), icon: ImageIcon, hidden: !isStoryboardFeatureEnabled },
-      { id: 'schedule' as ViewMode, label: translateUi('Production Plan', appLanguage), icon: Calendar },
-      { id: 'dood' as ViewMode, label: translateUi('DOOD', appLanguage), icon: CalendarCheck },
-      { id: 'documents' as ViewMode, label: translateUi('Vault', appLanguage), icon: Files },
-      { id: 'callsheet' as ViewMode, label: translateUi('Call Sheet', appLanguage), icon: ClipboardList },
-      { id: 'statistics' as ViewMode, label: translateUi('Statistics', appLanguage), icon: TrendingUp },
+      {
+        title: translateUi('Writing', appLanguage),
+        items: [
+          { id: 'board' as ViewMode, label: translateUi('Causality', appLanguage), icon: Workflow },
+          { id: 'excalidraw' as ViewMode, label: translateUi('Excalidraw', appLanguage), icon: PenTool },
+          { id: 'script' as ViewMode, label: translateUi('Screenplay', appLanguage), icon: FileText },
+          { id: 'two-column-script' as ViewMode, label: translateUi('Script', appLanguage), icon: Columns },
+        ]
+      },
+      {
+        title: translateUi('Pre-Production', appLanguage),
+        items: [
+          { id: 'breakdown' as ViewMode, label: translateUi('Breakdown', appLanguage), icon: Layers },
+          { id: 'casting' as ViewMode, label: translateUi('Casting & Roster', appLanguage), icon: Users },
+          { id: 'continuity' as ViewMode, label: translateUi('Continuity', appLanguage), icon: Clock },
+          { id: 'crew' as ViewMode, label: translateUi('Crew', appLanguage), icon: Users },
+        ]
+      },
+      {
+        title: translateUi('Visuals', appLanguage),
+        items: [
+          { id: 'shotlist' as ViewMode, label: translateUi('Shot Division', appLanguage), icon: Video },
+          { id: 'storyboard' as ViewMode, label: translateUi('Storyboard', appLanguage), icon: ImageIcon, hidden: !isStoryboardFeatureEnabled },
+        ].filter(item => !item.hidden)
+      },
+      {
+        title: translateUi('Production', appLanguage),
+        items: [
+          { id: 'schedule' as ViewMode, label: translateUi('Production Plan', appLanguage), icon: Calendar },
+          { id: 'dood' as ViewMode, label: translateUi('DOOD', appLanguage), icon: CalendarCheck },
+          { id: 'callsheet' as ViewMode, label: translateUi('Call Sheet', appLanguage), icon: ClipboardList },
+        ]
+      },
+      {
+        title: translateUi('Studio', appLanguage),
+        items: [
+          { id: 'documents' as ViewMode, label: translateUi('Vault', appLanguage), icon: Files },
+          { id: 'statistics' as ViewMode, label: translateUi('Statistics', appLanguage), icon: TrendingUp },
+        ]
+      }
     ];
-    return list.filter(item => !item.hidden);
+    return list;
   }, [isStoryboardFeatureEnabled, appLanguage]);
 
   // Live Goal Progress Calculation
@@ -216,60 +240,71 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
         )}
 
         {/* Main Navigation List */}
-        <nav className="flex-1 overflow-y-auto py-2 px-1.5 space-y-0.5 custom-scrollbar">
-          {navItems.map(item => {
-            const Icon = item.icon;
-            const isActive = currentView === item.id;
+        <nav className="flex-1 overflow-y-auto py-2 px-1.5 space-y-2 custom-scrollbar">
+          {navSections.map((section, idx) => (
+            <div key={section.title || idx} className="space-y-0.5">
+              {!isCollapsed ? (
+                <div className="px-2 pt-1 pb-0.5 text-[9px] font-black uppercase tracking-wider text-gray-500 select-none">
+                  {section.title}
+                </div>
+              ) : (
+                idx > 0 && <div className="my-1.5 border-t border-[#26262a]/60 mx-1" />
+              )}
+              {section.items.map(item => {
+                const Icon = item.icon;
+                const isActive = currentView === item.id;
 
-            return (
-              <button
-                key={item.id}
-                onClick={() => onViewChange(item.id)}
-                title={isCollapsed ? item.label : undefined}
-                className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-md transition-all duration-150 relative group ${
-                  isCollapsed ? 'justify-center' : 'justify-start text-left'
-                } ${
-                  isActive
-                    ? isLight
-                      ? 'bg-amber-50 font-bold shadow-sm'
-                      : 'font-bold shadow-sm'
-                    : isLight
-                      ? 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
-                      : 'text-gray-400 hover:text-gray-100 hover:bg-[#1a1a1e]'
-                }`}
-                style={
-                  isActive
-                    ? {
-                        backgroundColor: isLight ? `${appAccentColor}18` : `${appAccentColor}18`,
-                        color: appAccentColor
-                      }
-                    : {}
-                }
-              >
-                {/* Active Left Indicator Pill */}
-                {isActive && (
-                  <div
-                    className="absolute left-0 top-1.5 bottom-1.5 w-1 rounded-r"
-                    style={{ backgroundColor: appAccentColor }}
-                  />
-                )}
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => onViewChange(item.id)}
+                    title={isCollapsed ? item.label : undefined}
+                    className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-md transition-all duration-150 relative group cursor-pointer ${
+                      isCollapsed ? 'justify-center' : 'justify-start text-left'
+                    } ${
+                      isActive
+                        ? isLight
+                          ? 'bg-amber-50 font-bold shadow-sm'
+                          : 'font-bold shadow-sm'
+                        : isLight
+                          ? 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+                          : 'text-gray-400 hover:text-gray-100 hover:bg-[#1a1a1e]'
+                    }`}
+                    style={
+                      isActive
+                        ? {
+                            backgroundColor: isLight ? `${appAccentColor}18` : `${appAccentColor}18`,
+                            color: appAccentColor
+                          }
+                        : {}
+                    }
+                  >
+                    {/* Active Left Indicator Pill */}
+                    {isActive && (
+                      <div
+                        className="absolute left-0 top-1.5 bottom-1.5 w-1 rounded-r"
+                        style={{ backgroundColor: appAccentColor }}
+                      />
+                    )}
 
-                <Icon
-                  size={14}
-                  className={`shrink-0 transition-transform ${
-                    isActive ? 'scale-105' : 'group-hover:scale-105'
-                  }`}
-                  style={isActive ? { color: appAccentColor } : {}}
-                />
+                    <Icon
+                      size={14}
+                      className={`shrink-0 transition-transform ${
+                        isActive ? 'scale-105' : 'group-hover:scale-105'
+                      }`}
+                      style={isActive ? { color: appAccentColor } : {}}
+                    />
 
-                {!isCollapsed && (
-                  <span className="text-[10.5px] uppercase font-semibold tracking-wide truncate flex-1">
-                    {item.label}
-                  </span>
-                )}
-              </button>
-            );
-          })}
+                    {!isCollapsed && (
+                      <span className="text-[10.5px] uppercase font-semibold tracking-wide truncate flex-1">
+                        {item.label}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          ))}
         </nav>
 
         {/* Bottom Utility Bar */}
@@ -333,23 +368,6 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
               )}
             </button>
 
-            {/* ZOOM SCALE CYCLER BUTTON */}
-            {!isCollapsed && (
-              <button
-                onClick={() => {
-                  const nextZoom = (appZoomLevel || 0.8) === 0.8 ? 0.9 : (appZoomLevel || 0.8) === 0.9 ? 1.0 : 0.8;
-                  setAppZoomLevel(nextZoom);
-                }}
-                className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold tracking-tight border transition-all ${
-                  isLight
-                    ? 'border-gray-300 text-gray-700 hover:bg-gray-200'
-                    : 'border-[#333] text-gray-300 hover:border-[#555] hover:text-white hover:bg-[#1e1e24]'
-                }`}
-                title={`Studio Zoom: ${Math.round((appZoomLevel || 0.8) * 100)}% (Click to toggle 80% / 90% / 100%)`}
-              >
-                {Math.round((appZoomLevel || 0.8) * 100)}%
-              </button>
-            )}
 
             {/* THEME TOGGLE */}
             <ThemeToggleButton variant="sidebar" size={15} />

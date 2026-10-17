@@ -254,7 +254,7 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard, onClos
     breakdownLanguage = 'english', setBreakdownLanguage,
     isPdfDropEnabled, setPdfDropEnabled,
     isRedoEnabled, setRedoEnabled,
-    appZoomLevel = 0.8, setAppZoomLevel
+    appZoomLevel = 1.0, setAppZoomLevel
   } = useProject();
 
   const { aiAvailable, router: routerStatus, gemini: geminiStatus, testing: keysTesting, refresh: refreshKeyStatus } = useAiKeyStatus();
@@ -1057,18 +1057,18 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard, onClos
                                 </p>
                               </div>
                               <span className="text-[10px] font-mono uppercase px-2 py-1 rounded bg-[#222] text-gray-300 border border-[#333]">
-                                Active: {Math.round((appZoomLevel || 0.8) * 100)}% {Math.abs((appZoomLevel || 0.8) - 0.8) < 0.01 ? '(DEFAULT)' : ''}
+                                Active: {Math.round((appZoomLevel || 1.0) * 100)}% {Math.abs((appZoomLevel || 1.0) - 1.0) < 0.01 ? '(DEFAULT)' : ''}
                               </span>
                             </div>
 
                             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-6">
                               {[
-                                { zoom: 0.8, label: '80% Compact', badge: 'Default & Crisp', desc: 'Sleek, maximum screen space, razor-sharp density' },
-                                { zoom: 0.85, label: '85% Balanced', badge: '', desc: 'Slightly enlarged compact view with high crispness' },
+                                { zoom: 1.0, label: '100% Standard', badge: 'Default', desc: 'Unscaled standard 1:1 original size' },
                                 { zoom: 0.9, label: '90% Comfortable', badge: '', desc: 'Moderate scale for smaller laptop displays' },
-                                { zoom: 1.0, label: '100% Standard', badge: '1:1 Original', desc: 'Unscaled standard size' },
+                                { zoom: 0.85, label: '85% Balanced', badge: '', desc: 'Slightly enlarged compact view with high crispness' },
+                                { zoom: 0.8, label: '80% Compact', badge: 'Ultra-Compact', desc: 'Sleek, maximum screen space, razor-sharp density' },
                               ].map((opt) => {
-                                const isSelected = Math.abs((appZoomLevel || 0.8) - opt.zoom) < 0.01;
+                                const isSelected = Math.abs((appZoomLevel || 1.0) - opt.zoom) < 0.01;
                                 return (
                                   <div
                                     key={opt.zoom}

@@ -313,7 +313,7 @@ export const INITIAL_STATE: ProjectState = {
   characterDesignLocked: false,
   collaborators: [],
   talentPool: [],
-  appZoomLevel: 0.8
+  appZoomLevel: 1.0
 };
 
 export const SCRIPT_FORMATS = [

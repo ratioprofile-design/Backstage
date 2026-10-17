@@ -24,10 +24,11 @@ import {
   generateBreakdownHtmlTable,
   syncDocumentsWithCloud,
   mergeProductionDocuments,
+  broadcastDocumentsUpdated,
   SCENE_4_BREAKDOWN_SHEET_DATA
 } from '../../services/documentsStorage';
 import { loadLargeDocuments } from '../../services/largeStorage';
-import { supabase, isSupabaseConfigured } from '../../services/supabase';
+import { supabase, isSupabaseConfigured, saveProjectDocumentsToProjectData } from '../../services/supabase';
 import * as XLSX from 'xlsx';
 import { parseUniversalFile } from '../../services/documentParser';
 import { generateText } from '../../services/gemini';
@@ -48,6 +49,8 @@ import {
 } from '../../services/docxBaminiTranscoder';
 import { TamilLeftRightStudioView } from './TamilLeftRightStudioView';
 import { DocumentTwoColumnEditor } from './DocumentTwoColumnEditor';
+import { MarkdownDocEditor } from './vault/MarkdownDocEditor';
+import { markdownToHtml, htmlToMarkdown } from '../../services/markdownEngine';
 import confetti from 'canvas-confetti';
 import {
   FileText,
@@ -60,6 +63,7 @@ import {
   Printer,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   ZoomIn,
   ZoomOut,
   Folder,
@@ -312,14 +316,24 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'title' | 'size' | 'comments'>('newest');
 
-  // Breakdown Studio Table Mode & Filter State
-  const [studioViewMode, setStudioViewMode] = useState<'table' | 'page' | 'two-column'>(() => {
+  // Breakdown & Studio View Mode & Filter State
+  const [studioViewMode, setStudioViewMode] = useState<'table' | 'page' | 'two-column' | 'markdown'>(() => {
     if (typeof localStorage !== 'undefined') {
       const savedMode = localStorage.getItem('backstage_last_vault_mode');
       if (savedMode === 'two-column') return 'two-column';
+      if (savedMode === 'markdown') return 'markdown';
     }
     return 'page';
   });
+
+  // Right-Click Context Menu & New Document Dropdown State
+  const [contextMenu, setContextMenu] = useState<{
+    isOpen: boolean;
+    x: number;
+    y: number;
+    targetDoc?: ProductionDocument;
+  }>({ isOpen: false, x: 0, y: 0 });
+  const [isNewDocMenuOpen, setIsNewDocMenuOpen] = useState<boolean>(false);
   const [breakdownCategoryFilter, setBreakdownCategoryFilter] = useState<string>('ALL');
   const [breakdownSearchQuery, setBreakdownSearchQuery] = useState<string>('');
   const [breakdownStatusFilter, setBreakdownStatusFilter] = useState<string>('ALL');
@@ -365,6 +379,16 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
   const [editedHtmlContent, setEditedHtmlContent] = useState<string>('');
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState<boolean>(false);
   const editableDocRef = useRef<HTMLDivElement>(null);
+
+  // Stable refs for realtime subscriptions (prevents channel tear-down on selection / typing)
+  const selectedDocIdRef = useRef<string>(selectedDocId);
+  selectedDocIdRef.current = selectedDocId;
+
+  const hasUnsavedChangesRef = useRef<boolean>(hasUnsavedChanges);
+  hasUnsavedChangesRef.current = hasUnsavedChanges;
+
+  const currentUserRef = useRef<string | undefined>(currentUser);
+  currentUserRef.current = currentUser;
 
   // Annotations & Markup
   const [activeTool, setActiveTool] = useState<AnnotationType | 'hand'>('hand');
@@ -452,12 +476,83 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
     };
   }, [selectedDocId, currentProjectId]);
 
-  // Real-time Supabase Broadcast Channel for instant multi-user cross-browser synchronization
+  // Real-time Supabase Channel for instant multi-user cross-browser synchronization & Postgres DB changes
   useEffect(() => {
     if (!isSupabaseConfigured || !currentProjectId) return;
 
+    // Use a dedicated vault channel so unmounting/resubscribing never tears down ProjectContext
     const channel = supabase
-      .channel(`project_changes_${currentProjectId}`)
+      .channel(`vault_realtime_${currentProjectId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'project_documents',
+          filter: `project_id=eq.${currentProjectId}`
+        },
+        (payload: any) => {
+          console.log('[DocumentVault] Postgres document change received:', payload.eventType);
+          if (payload.eventType === 'DELETE') {
+            const delId = payload.old?.id;
+            if (delId) {
+              setDocuments((prev) => prev.filter((d) => d.id !== delId));
+            }
+            return;
+          }
+          if (payload.new) {
+            const row = payload.new;
+            const docFromDb: ProductionDocument = {
+              id: row.id,
+              projectId: row.project_id,
+              title: row.title || 'Untitled Document',
+              category: row.category || 'OTHER',
+              fileName: row.file_name,
+              fileSize: row.file_size,
+              fileType: row.file_type || 'other',
+              pageCount: row.page_count || 1,
+              uploadedAt: row.uploaded_at || new Date().toISOString(),
+              updatedAt: row.updated_at || row.uploaded_at,
+              pdfDataUrl: row.pdf_data_url || undefined,
+              imageDataUrl: row.image_data_url || undefined,
+              thumbnailDataUrl: row.thumbnail_data_url || row.image_data_url || undefined,
+              audioUrl: row.audio_url || undefined,
+              videoUrl: row.video_url || undefined,
+              durationSeconds: row.duration_seconds || undefined,
+              htmlContent: row.html_content || undefined,
+              textContent: row.text_content || undefined,
+              sheetData: row.sheet_data || undefined,
+              annotations: row.annotations || [],
+              archivedAt: row.archived_at || undefined,
+              tags: row.tags || [],
+              status: row.status || 'review',
+              originalFileDataUrl: row.original_file_data_url || undefined,
+              originalFileName: row.original_file_name || undefined,
+              convertedDocxDataUrl: row.converted_docx_data_url || undefined,
+              isBaminiConverted: !!row.is_bamini_converted,
+              isBaminiDetected: !!row.is_bamini_detected,
+              isLeftRightFormat: !!row.is_left_right_format,
+              hasTwoColumnScript: !!row.has_two_column_script,
+              twoColumnData: row.two_column_data || undefined,
+              leftRightDocId: row.left_right_doc_id || undefined,
+              sourceDocId: row.source_doc_id || undefined
+            };
+
+            setDocuments((prevDocs) => {
+              const merged = mergeProductionDocuments(prevDocs, [docFromDb]);
+              saveProductionDocuments(merged, currentProjectId, true); // skip cloud because it originated from cloud
+              return merged;
+            });
+
+            if (selectedDocIdRef.current === docFromDb.id && !hasUnsavedChangesRef.current) {
+              const newHtml = docFromDb.htmlContent || (docFromDb.textContent ? `<p>${docFromDb.textContent.replace(/\n/g, '<br/>')}</p>` : '');
+              if (newHtml) {
+                setEditedHtmlContent(newHtml);
+              }
+            }
+          }
+        }
+      )
       .on(
         'broadcast',
         { event: 'vault_documents_updated' },
@@ -466,7 +561,7 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
           if (!payload || !payload.documents) return;
           // Ignore own broadcast
           if (payload.senderInstanceId && payload.senderInstanceId === clientInstanceIdRef.current) return;
-          if (payload.senderId && payload.senderId === currentUser && !payload.senderInstanceId) return;
+          if (payload.senderId && payload.senderId === currentUserRef.current && !payload.senderInstanceId) return;
 
           console.log('[DocumentVault] Live update received from collaborator:', payload.senderId);
           const incomingDocs: ProductionDocument[] = payload.documents;
@@ -477,9 +572,10 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
           });
 
           // If current doc was updated by collaborator, refresh in-place content if not dirty
-          if (selectedDocId) {
-            const updatedSelected = incomingDocs.find((d: any) => d.id === selectedDocId);
-            if (updatedSelected && !hasUnsavedChanges) {
+          const curSelectedId = selectedDocIdRef.current;
+          if (curSelectedId) {
+            const updatedSelected = incomingDocs.find((d: any) => d.id === curSelectedId);
+            if (updatedSelected && !hasUnsavedChangesRef.current) {
               const newHtml = updatedSelected.htmlContent || (updatedSelected.textContent ? `<p>${updatedSelected.textContent.replace(/\n/g, '<br/>')}</p>` : '');
               setEditedHtmlContent(newHtml);
             }
@@ -517,7 +613,7 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [currentProjectId, currentUser, selectedDocId, hasUnsavedChanges]);
+  }, [currentProjectId]);
 
   // Audio Playback event handling
   useEffect(() => {
@@ -604,6 +700,70 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
     }
   };
 
+  // Manual Force-Sync with Supabase Cloud
+  const handleManualCloudSync = async () => {
+    if (!currentProjectId) {
+      showToast('Select or open a project first.');
+      return;
+    }
+    setIsCloudSyncing(true);
+    showToast('Connecting to Supabase Cloud & Storage...');
+    try {
+      // 1. First ensure all local IndexedDB documents are loaded into memory
+      const idbDocs = await loadLargeDocuments(currentProjectId).catch(() => []);
+      const local = getProductionDocuments(currentProjectId);
+      const combinedLocal = mergeProductionDocuments(local, idbDocs || []);
+
+      // 2. Explicitly push all local documents to Supabase Cloud so the other laptop gets every asset
+      if (combinedLocal.length > 0) {
+        await saveProjectDocumentsToProjectData(currentProjectId, combinedLocal).catch((e) => {
+          console.warn('[DocVault] Force push to project data notice:', e);
+        });
+      }
+
+      // 3. Full bi-directional sync with cloud
+      const synced = await syncDocumentsWithCloud(currentProjectId, supabaseUser?.id);
+      const activeList = synced && synced.length > 0 ? synced : combinedLocal;
+      setDocuments(activeList);
+      if (!selectedDocId || !activeList.some((d) => d.id === selectedDocId)) {
+        setSelectedDocId(activeList[0]?.id || '');
+      }
+
+      // 4. Broadcast live update to any other open computers
+      broadcastDocumentsUpdated(activeList, currentProjectId, supabaseUser?.id);
+
+      const activeCount = activeList.filter((d) => !d.isArchived).length;
+      confetti({ particleCount: 35, spread: 60, origin: { y: 0.6 } });
+      showToast(`✓ Cloud Synced: ${activeCount} active assets ready across all computers!`);
+    } catch (err) {
+      console.error('[DocVault] Manual cloud sync error:', err);
+      showToast('Cloud sync completed with local cache.');
+    } finally {
+      setIsCloudSyncing(false);
+    }
+  };
+
+  // Listen for remote project updates & external cloud refresh signals
+  useEffect(() => {
+    const handleRemoteRefresh = () => {
+      if (currentProjectId) {
+        syncDocumentsWithCloud(currentProjectId, supabaseUser?.id)
+          .then((synced) => {
+            if (synced && synced.length > 0) {
+              setDocuments(synced);
+            }
+          })
+          .catch(() => {});
+      }
+    };
+    window.addEventListener('backstage:refresh-cloud', handleRemoteRefresh);
+    window.addEventListener('backstage_refresh_documents', handleRemoteRefresh);
+    return () => {
+      window.removeEventListener('backstage:refresh-cloud', handleRemoteRefresh);
+      window.removeEventListener('backstage_refresh_documents', handleRemoteRefresh);
+    };
+  }, [currentProjectId, supabaseUser?.id]);
+
   // Shortcut listener for Cmd+K (AI) and Cmd+S (Save Document)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -637,6 +797,184 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
     window.addEventListener('mousedown', handleGlobalMouseDown);
     return () => window.removeEventListener('mousedown', handleGlobalMouseDown);
   }, [selectionRange]);
+
+  // Dismiss context menu & new doc menu on click outside or Escape
+  useEffect(() => {
+    const handleGlobalClick = () => {
+      if (contextMenu.isOpen) {
+        setContextMenu({ isOpen: false, x: 0, y: 0 });
+      }
+      setIsNewDocMenuOpen(false);
+    };
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (contextMenu.isOpen) {
+          setContextMenu({ isOpen: false, x: 0, y: 0 });
+        }
+        setIsNewDocMenuOpen(false);
+      }
+    };
+    window.addEventListener('click', handleGlobalClick);
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => {
+      window.removeEventListener('click', handleGlobalClick);
+      window.removeEventListener('keydown', handleGlobalKeyDown);
+    };
+  }, [contextMenu.isOpen]);
+
+  // Context Menu triggers
+  const handleCanvasContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const menuWidth = 260;
+    const menuHeight = 360;
+    const x = Math.min(e.clientX, window.innerWidth - menuWidth - 16);
+    const y = Math.min(e.clientY, window.innerHeight - menuHeight - 16);
+    setContextMenu({
+      isOpen: true,
+      x: Math.max(16, x),
+      y: Math.max(16, y),
+      targetDoc: undefined,
+    });
+  };
+
+  const handleDocCardContextMenu = (e: React.MouseEvent, doc: ProductionDocument) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const menuWidth = 260;
+    const menuHeight = 420;
+    const x = Math.min(e.clientX, window.innerWidth - menuWidth - 16);
+    const y = Math.min(e.clientY, window.innerHeight - menuHeight - 16);
+    setContextMenu({
+      isOpen: true,
+      x: Math.max(16, x),
+      y: Math.max(16, y),
+      targetDoc: doc,
+    });
+  };
+
+  // Create new blank document (Markdown, Screenplay, or Breakdown Sheet)
+  const handleCreateNewBlankDoc = (type: 'markdown' | 'screenplay' | 'breakdown' = 'markdown') => {
+    const newId = `doc_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+    const now = new Date().toISOString();
+
+    let newDoc: ProductionDocument;
+
+    if (type === 'markdown') {
+      const defaultTitle = 'Untitled Document';
+      const defaultMd = `# ${defaultTitle}\n\nStart writing your document here, exactly like Google Docs or Notion...\n\n- Press \`/\` on an empty line to insert headings, checklists, quotes, or code blocks.\n- Use the formatting toolbar or shortcuts (**Cmd+B**, **Cmd+I**, **Cmd+S**).\n- Switch between **Doc Canvas**, **Split View**, or **Raw Markdown** using the toolbar above.\n`;
+      const defaultHtml = markdownToHtml(defaultMd);
+
+      newDoc = {
+        id: newId,
+        projectId: currentProjectId || undefined,
+        title: defaultTitle,
+        category: 'NOTE',
+        fileName: `${defaultTitle}.md`,
+        fileType: 'md',
+        pageCount: 1,
+        uploadedAt: now,
+        updatedAt: now,
+        htmlContent: defaultHtml,
+        textContent: defaultMd,
+        annotations: [],
+        author: currentUser || 'User',
+        status: 'draft',
+        tags: ['doc', 'markdown', 'notion'],
+      };
+    } else if (type === 'screenplay') {
+      const defaultTitle = 'Untitled Tamil Screenplay';
+      newDoc = {
+        id: newId,
+        projectId: currentProjectId || undefined,
+        title: defaultTitle,
+        category: 'SCRIPT',
+        fileName: `${defaultTitle}.lr`,
+        fileType: 'script',
+        pageCount: 1,
+        uploadedAt: now,
+        updatedAt: now,
+        isLeftRightFormat: true,
+        hasTwoColumnScript: true,
+        twoColumnData: {
+          title: defaultTitle,
+          scenes: [
+            {
+              id: 'sc_1',
+              sceneNumber: '1',
+              header: 'EXT. CHENNAI STREET - DAY',
+              blocks: [
+                {
+                  id: 'b_1',
+                  leftText: 'கார் ஒன்று வேகமாக வந்து நிற்கிறது.',
+                  rightText: 'கபாலி\\n(கோபமாக)\\nஎங்கடா அவன்?',
+                },
+              ],
+            },
+          ],
+        },
+        annotations: [],
+        author: currentUser || 'User',
+        status: 'draft',
+        tags: ['script', 'kollywood'],
+      };
+    } else {
+      const defaultTitle = 'Scene Breakdown Sheet';
+      newDoc = {
+        id: newId,
+        projectId: currentProjectId || undefined,
+        title: defaultTitle,
+        category: 'BREAKDOWN',
+        fileName: `${defaultTitle}.sheet`,
+        fileType: 'breakdown',
+        builtInType: 'breakdown',
+        pageCount: 1,
+        uploadedAt: now,
+        updatedAt: now,
+        htmlContent: generateBreakdownHtmlTable(SCENE_4_BREAKDOWN_SHEET_DATA),
+        annotations: [],
+        author: currentUser || 'User',
+        status: 'draft',
+        tags: ['breakdown', '1st-ad'],
+      };
+    }
+
+    const updatedDocs = [newDoc, ...documents];
+    updateDocuments(updatedDocs, new Set([newDoc.id]));
+    setSelectedDocId(newDoc.id);
+    const mode = type === 'screenplay' ? 'two-column' : type === 'breakdown' ? 'table' : 'markdown';
+    setStudioViewMode(mode);
+    setInStudioMode(true);
+    setContextMenu({ isOpen: false, x: 0, y: 0 });
+    confetti({ particleCount: 35, spread: 60, origin: { y: 0.6 } });
+    showToast(`✓ Created new blank document: ${newDoc.title}`);
+  };
+
+  const handleDuplicateDocument = (doc: ProductionDocument) => {
+    const newId = `doc_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+    const now = new Date().toISOString();
+    const copyDoc: ProductionDocument = {
+      ...doc,
+      id: newId,
+      title: `${doc.title} (Copy)`,
+      fileName: doc.fileName ? `Copy_${doc.fileName}` : `${doc.title}_(Copy)`,
+      uploadedAt: now,
+      updatedAt: now,
+    };
+    const updatedDocs = [copyDoc, ...documents];
+    updateDocuments(updatedDocs, new Set([copyDoc.id]));
+    setContextMenu({ isOpen: false, x: 0, y: 0 });
+    showToast(`✓ Duplicated: ${copyDoc.title}`);
+  };
+
+  const handleExportDocAsMarkdown = (doc: ProductionDocument) => {
+    const mdContent = doc.textContent || (doc.htmlContent ? htmlToMarkdown(doc.htmlContent) : `# ${doc.title}\\n`);
+    const blob = new Blob([mdContent], { type: 'text/markdown;charset=utf-8' });
+    const filename = `${doc.title.replace(/[^a-zA-Z0-9_\\-\\u0B80-\\u0BFF]/g, '_') || 'document'}.md`;
+    downloadBlobAsFile(blob, filename);
+    setContextMenu({ isOpen: false, x: 0, y: 0 });
+    showToast(`✓ Exported ${filename}`);
+  };
 
   const selectedDoc = documents.find((d) => d.id === selectedDocId) || documents[0];
   const annotations = selectedDoc?.annotations || [];
@@ -1020,7 +1358,7 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
   };
 
   // Persist documents on change and sync with all collaborators
-  const updateDocuments = (docs: ProductionDocument[]) => {
+  const updateDocuments = (docs: ProductionDocument[], changedDocIds?: Set<string>) => {
     setDocuments(docs);
     saveProductionDocuments(
       docs, 
@@ -1028,7 +1366,8 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
       false, 
       true, 
       currentUser || 'User', 
-      clientInstanceIdRef.current
+      clientInstanceIdRef.current,
+      changedDocIds
     );
     if (setProjectHasUnsavedChanges) setProjectHasUnsavedChanges(true);
     if (isCloudMode && saveProject) {
@@ -1044,7 +1383,8 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
     setSelectedCommentId(null);
     const initialContent = doc?.htmlContent || (doc?.textContent ? `<p>${doc.textContent.replace(/\n/g, '<br/>')}</p>` : '');
     setEditedHtmlContent(initialContent);
-    const mode = (doc?.isLeftRightFormat || doc?.hasTwoColumnScript) ? 'two-column' : 'page';
+    const isMd = doc?.fileType === 'md' || doc?.fileName?.endsWith('.md');
+    const mode = (doc?.isLeftRightFormat || doc?.hasTwoColumnScript) ? 'two-column' : isMd ? 'markdown' : 'page';
     setStudioViewMode(mode);
     setIsEditMode(false); // Default to authentic Paginated A4 View!
     if (doc?.fileType === 'docx' || doc?.fileName?.endsWith('.docx')) {
@@ -1104,6 +1444,10 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
   // Save in-place edited document content to Vault
   const handleSaveDocumentContent = () => {
     if (!selectedDoc) return;
+    if (studioViewMode === 'markdown' || selectedDoc.fileType === 'md' || selectedDoc.fileName?.endsWith('.md')) {
+      // Handled directly by MarkdownDocEditor with debounced auto-save & Cmd+S
+      return;
+    }
     const contentToSave = editableDocRef.current?.innerHTML || editedHtmlContent || selectedDoc.htmlContent || '';
     const plainText = contentToSave.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
 
@@ -1113,12 +1457,13 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
           ...d,
           htmlContent: contentToSave,
           textContent: plainText || d.textContent,
+          updatedAt: new Date().toISOString(),
         };
       }
       return d;
     });
 
-    updateDocuments(updatedDocs);
+    updateDocuments(updatedDocs, new Set([selectedDoc.id]));
     setEditedHtmlContent(contentToSave);
     setHasUnsavedChanges(false);
     confetti({ particleCount: 25, spread: 50, origin: { y: 0.6 } });
@@ -1495,6 +1840,7 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
           uploadedAt: new Date().toISOString(),
           pdfDataUrl: parsed.pdfDataUrl,
           imageDataUrl: parsed.imageDataUrl,
+          thumbnailDataUrl: parsed.thumbnailDataUrl || parsed.imageDataUrl,
           audioUrl: parsed.audioUrl,
           videoUrl: parsed.videoUrl,
           durationSeconds: parsed.durationSeconds,
@@ -2387,17 +2733,20 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                     Grand Gallery
                   </span>
                   {currentProjectId && (
-                    <span 
-                      title="Realtime Cloud Sync Active: All 2-Column scripts, Word files, breakdowns, and annotations are automatically saved to Supabase Cloud & IndexedDB in real-time."
-                      className={`inline-flex items-center gap-1 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider rounded-md transition-all ${
+                    <button
+                      type="button"
+                      onClick={handleManualCloudSync}
+                      disabled={isCloudSyncing}
+                      title="Click to force-sync all uploaded files & documents from Supabase Cloud"
+                      className={`inline-flex items-center gap-1 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider rounded-md transition-all cursor-pointer ${
                         isCloudSyncing 
                           ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30 animate-pulse' 
-                          : 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
+                          : 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/25 hover:border-emerald-500/50'
                       }`}
                     >
-                      <Cloud size={10} className="stroke-[2.5]" />
-                      <span>{isCloudSyncing ? 'Syncing...' : 'Realtime Cloud Active'}</span>
-                    </span>
+                      <Cloud size={10} className={`stroke-[2.5] ${isCloudSyncing ? 'animate-spin' : ''}`} />
+                      <span>{isCloudSyncing ? 'Syncing...' : 'Supabase Synced'}</span>
+                    </button>
                   )}
                 </div>
                 <p className={`text-[10px] ${isLight ? 'text-slate-400' : 'text-zinc-600'}`}>
@@ -2526,6 +2875,100 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                 </button>
               </div>
 
+              {/* Subtle Creator Menu: + New ▾ */}
+              <div className="relative">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setIsNewDocMenuOpen((prev) => !prev);
+                  }}
+                  className={`px-2.5 py-1 text-xs font-medium rounded-lg border flex items-center gap-1.5 transition-all cursor-pointer ${
+                    isNewDocMenuOpen
+                      ? 'bg-zinc-800 text-white border-zinc-600'
+                      : isLight
+                      ? 'bg-slate-50 border-slate-200 text-slate-600 hover:text-slate-900 hover:border-slate-300'
+                      : 'bg-transparent border-zinc-800 text-zinc-400 hover:text-zinc-200 hover:border-zinc-700'
+                  }`}
+                  title="Create a new document, screenplay, or note"
+                >
+                  <Plus size={13} className="text-zinc-400" />
+                  <span>New</span>
+                  <ChevronDown size={11} className={`opacity-60 transition-transform duration-200 ${isNewDocMenuOpen ? 'rotate-180' : ''}`} />
+                </button>
+
+                {isNewDocMenuOpen && (
+                  <div
+                    onClick={(e) => e.stopPropagation()}
+                    className={`absolute left-0 top-full mt-1.5 w-56 rounded-xl border shadow-xl p-1 z-50 backdrop-blur-xl animate-in fade-in zoom-in-95 duration-100 ${
+                      isLight
+                        ? 'bg-white/95 border-slate-200 shadow-slate-300/30 text-slate-800'
+                        : 'bg-[#16161b]/95 border-zinc-800 shadow-2xl text-zinc-200'
+                    }`}
+                  >
+                    <button
+                      onClick={() => {
+                        setIsNewDocMenuOpen(false);
+                        handleCreateNewBlankDoc('markdown');
+                      }}
+                      className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs flex items-center gap-2 hover:bg-white/10 dark:hover:bg-zinc-800/70 transition-colors cursor-pointer"
+                    >
+                      <FileText size={13} className="text-zinc-400" />
+                      <span className="flex-1 font-medium">Blank Document</span>
+                      <span className="text-[10px] text-zinc-500 font-mono">.md</span>
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        setIsNewDocMenuOpen(false);
+                        handleCreateNewBlankDoc('screenplay');
+                      }}
+                      className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs flex items-center gap-2 hover:bg-white/10 dark:hover:bg-zinc-800/70 transition-colors cursor-pointer"
+                    >
+                      <Columns size={13} className="text-zinc-400" />
+                      <span className="flex-1 font-medium">Screenplay (2-Column)</span>
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        setIsNewDocMenuOpen(false);
+                        handleCreateNewBlankDoc('breakdown');
+                      }}
+                      className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs flex items-center gap-2 hover:bg-white/10 dark:hover:bg-zinc-800/70 transition-colors cursor-pointer"
+                    >
+                      <Layers size={13} className="text-zinc-400" />
+                      <span className="flex-1 font-medium">Breakdown Sheet</span>
+                    </button>
+
+                    <div className="my-1 border-t border-zinc-800/60" />
+
+                    <button
+                      onClick={() => {
+                        setIsNewDocMenuOpen(false);
+                        setVoiceNoteTitle('');
+                        setIsVoiceRecorderOpen(true);
+                      }}
+                      className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs flex items-center gap-2 hover:bg-white/10 dark:hover:bg-zinc-800/70 transition-colors cursor-pointer text-zinc-400 hover:text-zinc-200"
+                    >
+                      <Mic size={13} />
+                      <span>Voice Note</span>
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        setIsNewDocMenuOpen(false);
+                        setQuickNoteTitle('');
+                        setQuickNoteContent('');
+                        setIsNoteModalOpen(true);
+                      }}
+                      className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs flex items-center gap-2 hover:bg-white/10 dark:hover:bg-zinc-800/70 transition-colors cursor-pointer text-zinc-400 hover:text-zinc-200"
+                    >
+                      <StickyNote size={13} />
+                      <span>Quick Note</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+
               {/* Action Creators: Voice Note, Quick Note, Import, Sync */}
               <button
                 onClick={() => {
@@ -2598,6 +3041,22 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
               >
                 <Columns size={13} />
                 <span className="hidden md:inline">Script Studio</span>
+              </button>
+
+              <button
+                onClick={handleManualCloudSync}
+                disabled={isCloudSyncing}
+                className={`px-2.5 py-1 text-xs font-medium rounded-lg border flex items-center gap-1.5 transition-all ${
+                  isCloudSyncing
+                    ? 'bg-amber-500/10 border-amber-500/40 text-amber-400 animate-pulse'
+                    : isLight
+                    ? 'bg-emerald-50 border-emerald-300 text-emerald-700 hover:bg-emerald-100 hover:border-emerald-400'
+                    : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20 hover:border-emerald-500/50'
+                }`}
+                title="Fetch and synchronize all uploaded files, scripts & attachments from Supabase Cloud"
+              >
+                <Cloud size={13} className={isCloudSyncing ? 'animate-spin' : ''} />
+                <span>{isCloudSyncing ? 'Syncing...' : 'Sync Cloud'}</span>
               </button>
 
               <button
@@ -2888,7 +3347,7 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
           MAIN VAULT VIEW: GRAND GALLERY HUB vs. DOCUMENT STUDIO
          ========================================================================= */}
       {!inStudioMode ? (
-        <div className="flex-1 flex flex-col overflow-hidden">
+        <div className="flex-1 flex flex-col overflow-hidden" onContextMenu={handleCanvasContextMenu}>
           
           {/* Filter Chips Bar & Sort Selector */}
           <div className={`px-6 py-3 border-b flex flex-wrap items-center justify-between gap-3 shrink-0 ${
@@ -3050,7 +3509,7 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
           )}
 
           {/* Gallery Content Area */}
-          <div className="flex-1 overflow-y-auto p-6 scrollbar-thin">
+          <div className="flex-1 overflow-y-auto p-6 scrollbar-thin" onContextMenu={handleCanvasContextMenu}>
             {filteredDocuments.length === 0 ? (
               <div className="h-96 flex flex-col items-center justify-center text-center p-8">
                 <div className="w-16 h-16 rounded-2xl bg-zinc-800/50 border border-zinc-700/60 flex items-center justify-center text-zinc-500 mb-4">
@@ -3134,13 +3593,14 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                       const isYouTube = doc.fileType === 'youtube' || !!doc.youtubeUrl || !!doc.youtubeEmbedUrl;
                       const isVideo = (doc.fileType === 'video' || doc.category === 'VIDEO' || !!doc.videoUrl) && !isYouTube;
                       const isAudio = (doc.category === 'VOICE_NOTE' || doc.category === 'AUDIO' || doc.fileType === 'audio' || !!doc.audioUrl) && !isVideo && !isYouTube;
-                      const isImage = !!doc.imageDataUrl && !isYouTube && !isVideo;
+                      const isImage = (doc.fileType === 'image' || !!doc.imageDataUrl || !!doc.thumbnailDataUrl || (doc.fileName && /\.(png|jpe?g|webp|svg|gif|bmp)$/i.test(doc.fileName)) || doc.category === 'LOOKBOOK') && !isYouTube && !isVideo;
                       const isPlayingThis = playingDocId === doc.id;
 
                       return (
                         <div
                           key={doc.id}
                           onClick={() => handleOpenDocInStudio(doc.id)}
+                          onContextMenu={(e) => handleDocCardContextMenu(e, doc)}
                           className={`group relative rounded-2xl border transition-all duration-200 cursor-pointer flex flex-col overflow-hidden hover:shadow-xl hover:-translate-y-0.5 ${
                             isLight
                               ? 'bg-white border-slate-200/90 hover:border-[#f5a623]'
@@ -3154,9 +3614,9 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                             {/* CASE 1: YouTube Embed Preview */}
                             {isYouTube ? (
                               <div className="w-full h-full relative overflow-hidden bg-black flex items-center justify-center">
-                                {doc.imageDataUrl ? (
+                                {doc.thumbnailDataUrl || doc.imageDataUrl ? (
                                   <img
-                                    src={doc.imageDataUrl}
+                                    src={doc.thumbnailDataUrl || doc.imageDataUrl}
                                     alt={doc.title}
                                     className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
                                   />
@@ -3247,11 +3707,23 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                             ) : isImage ? (
                               /* CASE 4: Image / Storyboard / Snapshot Preview */
                               <div className="w-full h-full relative overflow-hidden bg-black/40 flex items-center justify-center">
-                                <img
-                                  src={doc.imageDataUrl}
-                                  alt={doc.title}
-                                  className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
-                                />
+                                {doc.thumbnailDataUrl || doc.imageDataUrl ? (
+                                  <img
+                                    src={doc.thumbnailDataUrl || doc.imageDataUrl}
+                                    alt={doc.title}
+                                    className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                                    loading="lazy"
+                                  />
+                                ) : (
+                                  <div className="w-full h-full flex flex-col items-center justify-center bg-zinc-900/60 text-zinc-400 gap-2 p-4 text-center">
+                                    <div className="w-12 h-12 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-400">
+                                      <ImageIcon size={24} />
+                                    </div>
+                                    <span className="text-[10px] font-mono font-bold text-zinc-300 uppercase tracking-wider truncate max-w-full">
+                                      {doc.fileName}
+                                    </span>
+                                  </div>
+                                )}
                                 <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-3">
                                   <span className="text-[11px] font-bold text-white flex items-center gap-1">
                                     <Eye size={12} /> Inspect Canvas
@@ -3311,6 +3783,8 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                                     ? 'bg-rose-500/15 text-rose-400 border border-rose-500/30 shadow-rose-500/10'
                                     : doc.fileType === 'docx' || doc.fileName?.toLowerCase().endsWith('.docx') || doc.fileName?.toLowerCase().endsWith('.doc')
                                     ? 'bg-blue-500/15 text-blue-400 border border-blue-500/30 shadow-blue-500/10'
+                                    : doc.fileType === 'image' || isImage
+                                    ? 'bg-purple-500/15 text-purple-400 border border-purple-500/30 shadow-purple-500/10'
                                     : doc.category === 'SCRIPT' || doc.hasTwoColumnScript
                                     ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30 shadow-amber-500/10'
                                     : doc.fileType === 'sheet' || doc.category === 'SCHEDULE'
@@ -3321,6 +3795,8 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                                     <FileText size={28} />
                                   ) : doc.fileType === 'docx' || doc.fileName?.toLowerCase().endsWith('.docx') || doc.fileName?.toLowerCase().endsWith('.doc') ? (
                                     <FileText size={28} />
+                                  ) : doc.fileType === 'image' || isImage ? (
+                                    <ImageIcon size={28} />
                                   ) : doc.category === 'SCRIPT' || doc.hasTwoColumnScript ? (
                                     <FileCode size={28} />
                                   ) : doc.fileType === 'sheet' || doc.category === 'SCHEDULE' ? (
@@ -3560,6 +4036,7 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                             <tr
                               key={doc.id}
                               onClick={() => handleOpenDocInStudio(doc.id)}
+                              onContextMenu={(e) => handleDocCardContextMenu(e, doc)}
                               className={`transition-colors cursor-pointer group ${
                                 isLight ? 'hover:bg-slate-50' : 'hover:bg-zinc-800/40'
                               }`}
@@ -3782,6 +4259,7 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                               <div
                                 key={doc.id}
                                 onClick={() => handleOpenDocInStudio(doc.id)}
+                                onContextMenu={(e) => handleDocCardContextMenu(e, doc)}
                                 className={`p-3.5 rounded-xl border transition-all cursor-pointer hover:shadow-lg hover:border-[#f5a623]/80 ${
                                   isLight ? 'bg-white border-slate-200' : 'bg-[#18181d] border-[#2a2a30]'
                                 }`}
@@ -3863,6 +4341,7 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                             {/* Timeline Card */}
                             <div
                               onClick={() => handleOpenDocInStudio(doc.id)}
+                              onContextMenu={(e) => handleDocCardContextMenu(e, doc)}
                               className={`p-4 rounded-2xl border transition-all cursor-pointer hover:border-[#f5a623] hover:shadow-xl ${
                                 isLight ? 'bg-white border-slate-200' : 'bg-[#131317] border-[#24242a]'
                               }`}
@@ -4277,6 +4756,22 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                   </button>
                 )}
 
+                {/* Notion / Doc Markdown Studio Toggle */}
+                <button
+                  onClick={() => setStudioViewMode(studioViewMode === 'markdown' ? 'page' : 'markdown')}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-bold border flex items-center gap-1.5 transition-all shadow-xs ${
+                    studioViewMode === 'markdown'
+                      ? 'bg-[#f5a623] text-black border-[#f5a623]'
+                      : isLight
+                      ? 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
+                      : 'bg-zinc-800/80 border-zinc-700/60 text-zinc-300 hover:bg-zinc-800'
+                  }`}
+                  title="Switch between Notion Live Markdown Canvas & Paginated A4 View"
+                >
+                  <FileCode size={13} />
+                  <span className="hidden sm:inline">{studioViewMode === 'markdown' ? 'Doc Canvas' : 'Notion / Doc'}</span>
+                </button>
+
                 {/* Toggle Comments / Inspector Side Panel */}
                 <button
                   onClick={() => setShowCommentsPanel(!showCommentsPanel)}
@@ -4345,17 +4840,25 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                     className="max-w-full max-h-full rounded-xl"
                   />
                 </div>
-              ) : selectedDoc?.imageDataUrl ? (
+              ) : (selectedDoc?.imageDataUrl || selectedDoc?.thumbnailDataUrl || selectedDoc?.fileType === 'image' || (selectedDoc?.fileName && /\.(png|jpe?g|webp|svg|gif)$/i.test(selectedDoc.fileName))) ? (
                 /* IMAGE / SNAPSHOT STUDIO */
                 <div
                   className="relative rounded-xl border shadow-2xl overflow-hidden bg-black max-w-4xl max-h-[85vh] flex items-center justify-center"
                   style={{ transform: `scale(${zoomLevel / 100})`, transformOrigin: 'top center' }}
                 >
-                  <img
-                    src={selectedDoc.imageDataUrl}
-                    alt={selectedDoc.title}
-                    className="max-h-[80vh] w-auto object-contain"
-                  />
+                  {selectedDoc.imageDataUrl || selectedDoc.thumbnailDataUrl || selectedDoc.originalFileDataUrl ? (
+                    <img
+                      src={selectedDoc.imageDataUrl || selectedDoc.thumbnailDataUrl || selectedDoc.originalFileDataUrl}
+                      alt={selectedDoc.title}
+                      className="max-h-[80vh] w-auto object-contain"
+                    />
+                  ) : (
+                    <div className="p-16 text-center text-zinc-400 flex flex-col items-center gap-3">
+                      <ImageIcon size={48} className="text-zinc-600" />
+                      <p className="text-sm font-bold text-zinc-200">{selectedDoc.title}</p>
+                      <p className="text-xs font-mono text-zinc-400">{selectedDoc.fileName} • {selectedDoc.fileSize || 'Image Asset'}</p>
+                    </div>
+                  )}
                   {/* Freehand SVG Overlay for Drawing on Image */}
                   <svg
                     className="absolute inset-0 w-full h-full pointer-events-auto"
@@ -4375,6 +4878,59 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                       return null;
                     })}
                   </svg>
+                </div>
+              ) : selectedDoc?.fileType === 'audio' || (selectedDoc?.audioUrl && !selectedDoc?.htmlContent) ? (
+                /* AUDIO / VOICE NOTE STUDIO */
+                <div
+                  className="relative rounded-2xl border border-zinc-800 shadow-2xl p-8 bg-[#18181c] w-full max-w-lg flex flex-col items-center justify-center text-center gap-4 my-auto"
+                  style={{ transform: `scale(${zoomLevel / 100})`, transformOrigin: 'top center' }}
+                >
+                  <div className="w-20 h-20 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-[#f5a623] shadow-lg">
+                    <Mic size={36} />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-bold text-white mb-1">{selectedDoc.title}</h3>
+                    <p className="text-xs font-mono text-zinc-400">{selectedDoc.fileName} • {selectedDoc.fileSize || 'Audio File'}</p>
+                  </div>
+                  <audio
+                    src={selectedDoc.audioUrl || selectedDoc.originalFileDataUrl}
+                    controls
+                    className="w-full mt-2"
+                  />
+                </div>
+              ) : (selectedDoc?.pdfDataUrl || selectedDoc?.fileType === 'pdf' || (selectedDoc?.fileName && selectedDoc.fileName.toLowerCase().endsWith('.pdf'))) ? (
+                /* DEDICATED PDF VIEWER STUDIO */
+                <div
+                  className="relative rounded-2xl border border-zinc-700/80 shadow-2xl overflow-hidden bg-zinc-900 w-full max-w-5xl h-[85vh] flex flex-col"
+                  style={{ transform: `scale(${zoomLevel / 100})`, transformOrigin: 'top center' }}
+                >
+                  {selectedDoc.pdfDataUrl || selectedDoc.originalFileDataUrl ? (
+                    <iframe
+                      src={selectedDoc.pdfDataUrl || selectedDoc.originalFileDataUrl}
+                      className="w-full h-full border-0 rounded-2xl bg-white"
+                      title={selectedDoc.title}
+                    />
+                  ) : (
+                    <div className="w-full h-full flex flex-col items-center justify-center p-8 bg-zinc-900 text-zinc-300 gap-4 text-center">
+                      <div className="w-16 h-16 rounded-2xl bg-rose-500/10 border border-rose-500/30 flex items-center justify-center text-rose-400 shadow-xl">
+                        <FileText size={32} />
+                      </div>
+                      <div>
+                        <h3 className="text-lg font-bold text-white mb-1">{selectedDoc.title}</h3>
+                        <p className="text-xs font-mono text-zinc-400">{selectedDoc.fileName} • {selectedDoc.fileSize || 'PDF Document'}</p>
+                      </div>
+                      <div className="p-3 bg-zinc-800/80 border border-zinc-700 rounded-xl text-xs text-zinc-400 max-w-md">
+                        {selectedDoc.textContent || 'PDF Document indexed in Production Vault.'}
+                      </div>
+                      <button
+                        onClick={() => handleDownloadOriginalFile(selectedDoc)}
+                        className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-bold text-xs flex items-center gap-2 shadow-lg transition-all"
+                      >
+                        <Download size={14} />
+                        <span>Download Original File</span>
+                      </button>
+                    </div>
+                  )}
                 </div>
               ) : isBreakdownDoc && studioViewMode === 'table' ? (
                 /* =========================================================================
@@ -4704,6 +5260,26 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                       } catch (e) {}
                     }}
                     isLight={isLight}
+                  />
+                </div>
+              ) : (studioViewMode === 'markdown' || selectedDoc?.fileType === 'md' || selectedDoc?.fileName?.endsWith('.md')) && selectedDoc ? (
+                /* NOTION / GOOGLE DOCS LIVE MARKDOWN STUDIO */
+                <div className="w-full h-full flex-1 min-h-[900px] flex justify-center">
+                  <MarkdownDocEditor
+                    document={selectedDoc}
+                    isLight={isLight}
+                    onSave={(updatedDoc) => {
+                      const updatedList = documents.map((d) => (d.id === updatedDoc.id ? updatedDoc : d));
+                      setEditedHtmlContent(updatedDoc.htmlContent || '');
+                      updateDocuments(updatedList, new Set([updatedDoc.id]));
+                    }}
+                    onClose={() => {
+                      setStudioViewMode('page');
+                      try {
+                        localStorage.setItem('backstage_last_vault_mode', 'page');
+                      } catch (e) {}
+                    }}
+                    showToast={showToast}
                   />
                 </div>
               ) : (
@@ -5984,6 +6560,230 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* =========================================================================
+          RIGHT-CLICK CONTEXT MENU (Subtle, Clean & Effective)
+         ========================================================================= */}
+      {contextMenu.isOpen && (
+        <div
+          onClick={(e) => e.stopPropagation()}
+          className={`fixed z-[9999] rounded-xl border shadow-2xl p-1 min-w-[210px] backdrop-blur-xl animate-in fade-in zoom-in-95 duration-100 ${
+            isLight
+              ? 'bg-white/95 border-slate-200 shadow-slate-300/30 text-slate-800'
+              : 'bg-[#16161a]/95 border-zinc-800 shadow-2xl text-zinc-200'
+          }`}
+          style={{
+            top: contextMenu.y,
+            left: contextMenu.x,
+          }}
+        >
+          {contextMenu.targetDoc ? (
+            /* Document Item Specific Context Actions */
+            <>
+              <div className="px-2.5 py-1 text-[10px] font-mono uppercase tracking-wider text-zinc-500 border-b border-zinc-800/60 mb-0.5 flex items-center justify-between">
+                <span className="truncate max-w-[140px]">{contextMenu.targetDoc.title}</span>
+                <span className="text-[9px] uppercase font-mono text-zinc-400">
+                  {contextMenu.targetDoc.fileType || 'Doc'}
+                </span>
+              </div>
+
+              <button
+                onClick={() => {
+                  const doc = contextMenu.targetDoc!;
+                  setContextMenu({ isOpen: false, x: 0, y: 0 });
+                  handleOpenDocInStudio(doc.id);
+                }}
+                className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs flex items-center gap-2 hover:bg-white/10 dark:hover:bg-zinc-800/80 transition-colors cursor-pointer"
+              >
+                <ExternalLink size={13} className="text-zinc-400" />
+                <span className="flex-1 font-medium">Open in Studio</span>
+                <span className="text-[10px] text-zinc-500 font-mono">↵</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  const doc = contextMenu.targetDoc!;
+                  setSelectedDocId(doc.id);
+                  setStudioViewMode('markdown');
+                  setInStudioMode(true);
+                  setContextMenu({ isOpen: false, x: 0, y: 0 });
+                }}
+                className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs flex items-center gap-2 hover:bg-white/10 dark:hover:bg-zinc-800/80 transition-colors cursor-pointer"
+              >
+                <FileCode size={13} className="text-zinc-400" />
+                <span className="flex-1 font-medium">Open as Markdown</span>
+              </button>
+
+              <div className="my-1 border-t border-zinc-800/60" />
+
+              <button
+                onClick={() => {
+                  setContextMenu({ isOpen: false, x: 0, y: 0 });
+                  handleCreateNewBlankDoc('markdown');
+                }}
+                className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs flex items-center gap-2 hover:bg-white/10 dark:hover:bg-zinc-800/80 transition-colors cursor-pointer"
+              >
+                <Plus size={13} className="text-zinc-400" />
+                <span className="flex-1 font-medium">New Blank Document</span>
+                <span className="text-[10px] text-zinc-500 font-mono">⌘N</span>
+              </button>
+
+              <button
+                onClick={() => handleDuplicateDocument(contextMenu.targetDoc!)}
+                className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs flex items-center gap-2 hover:bg-white/10 dark:hover:bg-zinc-800/80 transition-colors cursor-pointer text-zinc-300"
+              >
+                <Copy size={13} className="text-zinc-400" />
+                <span className="flex-1">Duplicate</span>
+                <span className="text-[10px] text-zinc-500 font-mono">⌘D</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  const doc = contextMenu.targetDoc!;
+                  const mdContent = doc.textContent || (doc.htmlContent ? htmlToMarkdown(doc.htmlContent) : `# ${doc.title}\n`);
+                  navigator.clipboard.writeText(mdContent);
+                  setContextMenu({ isOpen: false, x: 0, y: 0 });
+                  showToast('✓ Markdown copied to clipboard!');
+                }}
+                className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs flex items-center gap-2 hover:bg-white/10 dark:hover:bg-zinc-800/80 transition-colors cursor-pointer text-zinc-300"
+              >
+                <Check size={13} className="text-zinc-400" />
+                <span className="flex-1">Copy Markdown</span>
+              </button>
+
+              <button
+                onClick={() => handleExportDocAsMarkdown(contextMenu.targetDoc!)}
+                className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs flex items-center gap-2 hover:bg-white/10 dark:hover:bg-zinc-800/80 transition-colors cursor-pointer text-zinc-300"
+              >
+                <Download size={13} className="text-zinc-400" />
+                <span className="flex-1">Export .md</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  handleDownloadOriginalFile(contextMenu.targetDoc!);
+                  setContextMenu({ isOpen: false, x: 0, y: 0 });
+                }}
+                className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs flex items-center gap-2 hover:bg-white/10 dark:hover:bg-zinc-800/80 transition-colors cursor-pointer text-zinc-300"
+              >
+                <Download size={13} className="text-zinc-400" />
+                <span className="flex-1">Download Word (.docx)</span>
+              </button>
+
+              <div className="my-1 border-t border-zinc-800/60" />
+
+              {contextMenu.targetDoc.isArchived ? (
+                <button
+                  onClick={(e) => {
+                    const doc = contextMenu.targetDoc!;
+                    setContextMenu({ isOpen: false, x: 0, y: 0 });
+                    handleUnarchiveDocument(e, doc.id);
+                  }}
+                  className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs flex items-center gap-2 hover:bg-amber-500/15 text-amber-400 transition-colors cursor-pointer"
+                >
+                  <ArchiveRestore size={13} />
+                  <span>Restore from Archive</span>
+                </button>
+              ) : (
+                <button
+                  onClick={(e) => {
+                    const doc = contextMenu.targetDoc!;
+                    setContextMenu({ isOpen: false, x: 0, y: 0 });
+                    handleArchiveDocument(e, doc.id);
+                  }}
+                  className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs flex items-center gap-2 hover:bg-red-500/15 text-zinc-400 hover:text-red-400 transition-colors cursor-pointer"
+                >
+                  <Archive size={13} />
+                  <span>Archive</span>
+                </button>
+              )}
+            </>
+          ) : (
+            /* Canvas Right-Click: Subtle Creation & Sync Actions */
+            <>
+              <div className="px-2.5 py-1 text-[10px] font-mono uppercase tracking-wider text-zinc-500 border-b border-zinc-800/60 mb-0.5">
+                Vault
+              </div>
+
+              <button
+                onClick={() => handleCreateNewBlankDoc('markdown')}
+                className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs flex items-center gap-2 hover:bg-white/10 dark:hover:bg-zinc-800/80 transition-colors cursor-pointer"
+              >
+                <FileText size={13} className="text-zinc-400" />
+                <span className="flex-1 font-medium">New Blank Document</span>
+                <span className="text-[10px] text-zinc-500 font-mono">⌘N</span>
+              </button>
+
+              <button
+                onClick={() => handleCreateNewBlankDoc('screenplay')}
+                className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs flex items-center gap-2 hover:bg-white/10 dark:hover:bg-zinc-800/80 transition-colors cursor-pointer text-zinc-300"
+              >
+                <Columns size={13} className="text-zinc-400" />
+                <span className="flex-1">New Screenplay (2-Column)</span>
+              </button>
+
+              <button
+                onClick={() => handleCreateNewBlankDoc('breakdown')}
+                className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs flex items-center gap-2 hover:bg-white/10 dark:hover:bg-zinc-800/80 transition-colors cursor-pointer text-zinc-300"
+              >
+                <Layers size={13} className="text-zinc-400" />
+                <span className="flex-1">New Breakdown Sheet</span>
+              </button>
+
+              <div className="my-1 border-t border-zinc-800/60" />
+
+              <button
+                onClick={() => {
+                  setContextMenu({ isOpen: false, x: 0, y: 0 });
+                  setVoiceNoteTitle('');
+                  setIsVoiceRecorderOpen(true);
+                }}
+                className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs flex items-center gap-2 hover:bg-white/10 dark:hover:bg-zinc-800/80 transition-colors cursor-pointer text-zinc-400 hover:text-zinc-200"
+              >
+                <Mic size={13} />
+                <span>Record Voice Note</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  setContextMenu({ isOpen: false, x: 0, y: 0 });
+                  setQuickNoteTitle('');
+                  setQuickNoteContent('');
+                  setIsNoteModalOpen(true);
+                }}
+                className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs flex items-center gap-2 hover:bg-white/10 dark:hover:bg-zinc-800/80 transition-colors cursor-pointer text-zinc-400 hover:text-zinc-200"
+              >
+                <StickyNote size={13} />
+                <span>Write Quick Note</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  setContextMenu({ isOpen: false, x: 0, y: 0 });
+                  fileInputRef.current?.click();
+                }}
+                className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs flex items-center gap-2 hover:bg-white/10 dark:hover:bg-zinc-800/80 transition-colors cursor-pointer text-zinc-400 hover:text-zinc-200"
+              >
+                <Upload size={13} />
+                <span>Import Files...</span>
+              </button>
+
+              <div className="my-1 border-t border-zinc-800/60" />
+
+              <button
+                onClick={() => {
+                  setContextMenu({ isOpen: false, x: 0, y: 0 });
+                  handleManualCloudSync();
+                }}
+                className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs flex items-center gap-2 hover:bg-white/10 dark:hover:bg-zinc-800/80 transition-colors cursor-pointer text-zinc-400 hover:text-zinc-200"
+              >
+                <Cloud size={13} className={isCloudSyncing ? 'animate-spin' : ''} />
+                <span>{isCloudSyncing ? 'Syncing...' : 'Sync Cloud'}</span>
+              </button>
+            </>
+          )}
         </div>
       )}
     </div>

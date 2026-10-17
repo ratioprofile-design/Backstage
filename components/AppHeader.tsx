@@ -1,11 +1,12 @@
 
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { ViewMode } from '../types';
 import { useProject } from '../context/ProjectContext';
 import {
     Target, Zap, Clock, Film, RotateCcw, RotateCw, CheckCircle2, 
     TrendingUp, Save, Cloud, CloudOff, Wifi, WifiOff, CloudUpload,
-    Loader2, Check, FileCode, Inbox, Sun, Moon, LogIn, LogOut, ChevronDown, Sparkles, User, Settings, Folder, Pencil
+    Loader2, Check, FileCode, Inbox, Sun, Moon, LogIn, LogOut, ChevronDown, Sparkles, User, Settings, Folder, Pencil,
+    Workflow, PenTool, FileText, Columns, Layers, Video, Image as ImageIcon, Calendar, CalendarCheck, ClipboardList, Files
 } from 'lucide-react';
 import { isSupabaseConfigured } from '../services/supabase';
 import { useAiKeyStatus } from '../context/AiKeyStatusContext';
@@ -14,6 +15,22 @@ import { InviteManagerModal } from './InviteManagerModal';
 import { Users as UsersIcon } from 'lucide-react';
 import { ThemeToggleButton } from './ThemeToggleButton';
 import { translateUi } from '../services/appTranslations';
+
+export interface NavGroupItem {
+  id: ViewMode;
+  label: string;
+  description?: string;
+  icon: React.ComponentType<{ size?: number; className?: string; style?: React.CSSProperties }>;
+  hidden?: boolean;
+}
+
+export interface NavGroup {
+  id: string;
+  label: string;
+  shortLabel: string;
+  align?: 'left' | 'center' | 'right';
+  items: NavGroupItem[];
+}
 
 interface AppHeaderProps {
   currentView: ViewMode;
@@ -46,7 +63,6 @@ const AppHeader: React.FC<AppHeaderProps> = ({
       saveProject, saveProjectAs, hasUnsavedChanges, currentUser, isCloudMode, isSaving, fileHandle,
       autoGenerate5Scenes, appTheme, setAppTheme, logout, cloudOffline, supabaseUser, userRole, appAccentColor,
       appLanguage,
-      appZoomLevel = 0.8, setAppZoomLevel,
       collaborators = [],
       currentProjectName,
       isCurrentProjectShared,
@@ -104,27 +120,148 @@ const AppHeader: React.FC<AppHeaderProps> = ({
 
   const isCloudActive = isCloudMode;
 
-  const views = useMemo(() => {
-    const list = [
-      { id: 'board', label: translateUi('Causality Short', appLanguage) !== 'Causality Short' ? translateUi('Causality Short', appLanguage) : 'Causality' },
-      { id: 'excalidraw', label: translateUi('Excalidraw Short', appLanguage) !== 'Excalidraw Short' ? translateUi('Excalidraw Short', appLanguage) : 'Excalidraw' },
-      { id: 'script', label: translateUi('Screenplay', appLanguage) },
-      { id: 'two-column-script', label: translateUi('Script', appLanguage) },
-      { id: 'casting', label: translateUi('Casting', appLanguage) },
-      { id: 'breakdown', label: translateUi('Breakdown', appLanguage) },
-      { id: 'continuity', label: translateUi('Continuity', appLanguage) },
-      { id: 'crew', label: translateUi('Crew', appLanguage) },
-      { id: 'shotlist', label: translateUi('Shot Division', appLanguage) },
-      { id: 'storyboard', label: translateUi('Storyboard', appLanguage), hidden: !isStoryboardFeatureEnabled },
-      { id: 'schedule', label: translateUi('Schedule', appLanguage) },
-      { id: 'dood', label: translateUi('DOOD Short', appLanguage) !== 'DOOD Short' ? translateUi('DOOD Short', appLanguage) : 'DOOD' },
-      { id: 'documents', label: translateUi('Documents', appLanguage) },
-      { id: 'callsheet', label: translateUi('Call Sheet', appLanguage) },
-      { id: 'statistics', label: translateUi('Statistics', appLanguage) }
-    ];
+  const [openGroupId, setOpenGroupId] = useState<string | null>(null);
+  const navContainerRef = useRef<HTMLDivElement>(null);
 
-    return list.filter(v => !v.hidden);
+  useEffect(() => {
+    if (!openGroupId) return;
+    const handleOutside = (e: MouseEvent) => {
+      if (navContainerRef.current && !navContainerRef.current.contains(e.target as Node)) {
+        setOpenGroupId(null);
+      }
+    };
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpenGroupId(null);
+    };
+    window.addEventListener('mousedown', handleOutside);
+    window.addEventListener('keydown', handleEscape);
+    return () => {
+      window.removeEventListener('mousedown', handleOutside);
+      window.removeEventListener('keydown', handleEscape);
+    };
+  }, [openGroupId]);
+
+  const navGroups = useMemo(() => {
+    return [
+      {
+        id: 'writing',
+        label: translateUi('Writing', appLanguage),
+        shortLabel: translateUi('Writing', appLanguage),
+        items: [
+          { 
+            id: 'board' as ViewMode, 
+            label: translateUi('Causality Short', appLanguage) !== 'Causality Short' ? translateUi('Causality Short', appLanguage) : 'Causality',
+            icon: Workflow
+          },
+          { 
+            id: 'excalidraw' as ViewMode, 
+            label: translateUi('Excalidraw Short', appLanguage) !== 'Excalidraw Short' ? translateUi('Excalidraw Short', appLanguage) : 'Excalidraw',
+            icon: PenTool
+          },
+          { 
+            id: 'script' as ViewMode, 
+            label: translateUi('Screenplay', appLanguage),
+            icon: FileText
+          },
+          { 
+            id: 'two-column-script' as ViewMode, 
+            label: translateUi('Script', appLanguage),
+            icon: Columns
+          },
+        ]
+      },
+      {
+        id: 'pre-production',
+        label: translateUi('Pre-Production', appLanguage),
+        shortLabel: translateUi('Pre-Pro', appLanguage),
+        items: [
+          { 
+            id: 'casting' as ViewMode, 
+            label: translateUi('Casting', appLanguage),
+            icon: UsersIcon
+          },
+          { 
+            id: 'breakdown' as ViewMode, 
+            label: translateUi('Breakdown', appLanguage),
+            icon: Layers
+          },
+          { 
+            id: 'continuity' as ViewMode, 
+            label: translateUi('Continuity', appLanguage),
+            icon: Clock
+          },
+          { 
+            id: 'crew' as ViewMode, 
+            label: translateUi('Crew', appLanguage),
+            icon: ClipboardList
+          },
+        ]
+      },
+      {
+        id: 'visuals',
+        label: translateUi('Visuals', appLanguage),
+        shortLabel: translateUi('Visuals', appLanguage),
+        items: [
+          { 
+            id: 'shotlist' as ViewMode, 
+            label: translateUi('Shot Division', appLanguage),
+            icon: Video
+          },
+          { 
+            id: 'storyboard' as ViewMode, 
+            label: translateUi('Storyboard', appLanguage),
+            icon: ImageIcon,
+            hidden: !isStoryboardFeatureEnabled 
+          },
+        ].filter(item => !item.hidden)
+      },
+      {
+        id: 'production',
+        label: translateUi('Production', appLanguage),
+        shortLabel: translateUi('Production', appLanguage),
+        items: [
+          { 
+            id: 'schedule' as ViewMode, 
+            label: translateUi('Schedule', appLanguage),
+            icon: Calendar
+          },
+          { 
+            id: 'dood' as ViewMode, 
+            label: translateUi('DOOD Short', appLanguage) !== 'DOOD Short' ? translateUi('DOOD Short', appLanguage) : 'DOOD',
+            icon: CalendarCheck
+          },
+          { 
+            id: 'callsheet' as ViewMode, 
+            label: translateUi('Call Sheet', appLanguage),
+            icon: Files
+          },
+        ]
+      },
+      {
+        id: 'studio',
+        label: translateUi('Studio', appLanguage),
+        shortLabel: translateUi('Studio', appLanguage),
+        items: [
+          { 
+            id: 'documents' as ViewMode, 
+            label: translateUi('Documents', appLanguage),
+            icon: Folder
+          },
+          { 
+            id: 'statistics' as ViewMode, 
+            label: translateUi('Statistics', appLanguage),
+            icon: TrendingUp
+          },
+        ]
+      }
+    ];
   }, [isStoryboardFeatureEnabled, appLanguage]);
+
+  const allViews = useMemo(() => {
+    return navGroups.flatMap(g => g.items);
+  }, [navGroups]);
+
+
 
   // Handle saved confirmation effect
   useEffect(() => {
@@ -199,8 +336,9 @@ const AppHeader: React.FC<AppHeaderProps> = ({
     <>
       <header className={`w-full h-[42px] bg-[#111] border-b border-[#3d3d3d] flex items-center justify-between px-3.5 shrink-0 z-[500] select-none shadow-[0_2px_10px_rgba(0,0,0,0.3)] font-['Helvetica_Neue',Helvetica,Arial,sans-serif]`}>
         
-        {/* LEFT: Cinematic Logo */}
-        <div className="flex items-center gap-3.5 h-full flex-1">
+        {/* LEFT: Cinematic Logo + Grouped Project Strip */}
+        <div className="flex items-center gap-3 h-full flex-1">
+          {/* Logo */}
           <div 
               className="flex items-center gap-2.5 select-none h-full"
               title={fileHandle ? fileHandle.name : activeProjectName}
@@ -218,10 +356,13 @@ const AppHeader: React.FC<AppHeaderProps> = ({
               </div>
           </div>
 
-          {/* Prominent Active Project Display with Project Switcher Dropdown, Owner-Only Rename and Shared Project Badge */}
-          <div className="relative">
+          {/* GROUPED PROJECT & ACTIONS STRIP (Project Switcher, Exit, Inbox, AI) */}
+          <div className="bg-[#222] border border-[#3d3d3d] rounded-[4px] flex relative select-none items-center">
+            
+            {/* Active Project Pill with Switcher Dropdown */}
+            <div className="relative flex items-center">
               <div 
-                  className="flex items-center gap-2 px-2.5 py-1 bg-[#191922] border border-[#383844] hover:border-amber-500/50 rounded-lg shadow-sm max-w-[280px] transition-all cursor-pointer group"
+                  className="flex items-center gap-2 px-3 py-1.5 hover:bg-[#2a2a2a] cursor-pointer group border-r border-[#333] transition-colors max-w-[260px]"
                   onClick={() => {
                     if (!isRenamingProject) setShowProjectDropdown(prev => !prev);
                   }}
@@ -253,7 +394,7 @@ const AppHeader: React.FC<AppHeaderProps> = ({
                                   setIsRenamingProject(false);
                               }
                           }}
-                          className="bg-black/80 border border-amber-500 text-xs font-bold text-white px-1.5 py-0.5 rounded outline-none w-28 truncate"
+                          className="bg-black/90 border border-amber-500 text-xs font-bold text-white px-1.5 py-0.5 rounded outline-none w-28 truncate"
                       />
                   ) : (
                       <span className="text-xs font-bold text-white tracking-wide truncate max-w-[130px]">
@@ -261,7 +402,7 @@ const AppHeader: React.FC<AppHeaderProps> = ({
                       </span>
                   )}
                   {isShared ? (
-                      <span className="px-1.5 py-0.2 text-[8px] font-black uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/40 rounded-full shrink-0" title="Collaborator View">
+                      <span className="px-1.5 py-0.2 text-[8px] font-black uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/40 rounded shrink-0">
                           Shared
                       </span>
                   ) : (
@@ -274,13 +415,13 @@ const AppHeader: React.FC<AppHeaderProps> = ({
                                   setIsRenamingProject(true);
                               }}
                               className="opacity-40 hover:opacity-100 hover:text-amber-400 p-0.5 rounded transition-all cursor-pointer"
-                              title="Rename Cloud Project (Owner only)"
+                              title="Rename Project"
                           >
                               <Pencil size={11} />
                           </button>
                       )
                   )}
-                  <ChevronDown size={12} className={`text-gray-400 group-hover:text-amber-400 transition-transform ${showProjectDropdown ? 'rotate-180 text-amber-400' : ''}`} />
+                  <ChevronDown size={11} className={`text-gray-400 group-hover:text-amber-400 transition-transform ${showProjectDropdown ? 'rotate-180 text-amber-400' : ''}`} />
               </div>
 
               {/* Projects Dropdown Menu */}
@@ -338,185 +479,212 @@ const AppHeader: React.FC<AppHeaderProps> = ({
                       </div>
                   </div>
               )}
+            </div>
+
+            {/* Inbox Button */}
+            <button
+                onClick={() => onViewChange('inbox')}
+                className={`relative px-3 py-1.5 flex items-center justify-center transition-all border-r border-[#333] cursor-pointer ${
+                    currentView === 'inbox'
+                    ? 'bg-[#333] text-[#f5a623]'
+                    : 'text-gray-400 hover:text-[#f5a623] hover:bg-[#2a2a2a]'
+                }`}
+                title={translateUi('Inbox', appLanguage)}
+            >
+                <Inbox size={14} />
+                {unreadCount > 0 && (
+                    <span className="absolute -top-1 -right-1 flex items-center justify-center min-w-[16px] h-4 px-1 text-[9px] font-black text-black bg-[#f5a623] rounded-full shadow-[0_0_8px_rgba(245,166,35,0.8)] animate-pulse">
+                        {unreadCount}
+                    </span>
+                )}
+            </button>
+
+            {/* Ask Anything (AI Assistant) */}
+            <button
+                onClick={() => onAskAnything?.()}
+                disabled={!aiAvailable}
+                className="px-3 py-1.5 flex items-center gap-1.5 text-[#f5a623] hover:bg-[#2a2a2a] transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                title={translateUi('Ask Anything (AI Assistant)', appLanguage)}
+            >
+                <Sparkles size={14} className="fill-[#f5a623]/30" />
+                <span className="text-[11px] font-black uppercase tracking-wider">AI</span>
+            </button>
           </div>
-
-          {/* Exit Project Button - Takes user directly to Welcome Screen to pick another project */}
-          <button
-              onClick={() => {
-                  closeProject();
-                  window.dispatchEvent(new CustomEvent('backstage:show-welcome'));
-              }}
-              className="flex items-center gap-1.5 px-2.5 py-1 bg-[#18181c] hover:bg-red-950/30 border border-[#333] hover:border-red-500/50 text-gray-400 hover:text-red-400 rounded-lg text-xs font-bold transition-all cursor-pointer shadow-sm group"
-              title="Exit Project & Go to Studio Hub (Pick Another Project)"
-          >
-              <LogOut size={13} className="group-hover:-translate-x-0.5 transition-transform" />
-              <span className="text-[11px] font-bold">Exit</span>
-          </button>
-
-          {/* INBOX ICON (Next to Backstage Logo) - Dedicated Page Switcher */}
-          <button
-              onClick={() => onViewChange('inbox')}
-              className={`relative p-2 rounded-lg transition-all duration-300 border flex items-center justify-center group cursor-pointer ${
-                  currentView === 'inbox'
-                  ? 'bg-amber-500/20 border-amber-500 text-amber-400 shadow-[0_0_12px_rgba(245,166,35,0.3)]'
-                  : 'bg-[#18181c] border-[#333] text-gray-400 hover:text-amber-400 hover:border-amber-500/50 hover:bg-[#222]'
-              }`}
-              title={translateUi('Inbox', appLanguage)}
-          >
-              <Inbox size={18} className="group-hover:scale-110 transition-transform duration-300" />
-              {unreadCount > 0 && (
-                  <span className="absolute -top-1 -right-1 flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] font-black text-black bg-[#f5a623] rounded-full shadow-[0_0_8px_rgba(245,166,35,0.8)] animate-pulse">
-                      {unreadCount}
-                  </span>
-              )}
-          </button>
-
-          {/* ASK ANYTHING (AI Assistant) */}
-          <button
-              onClick={() => onAskAnything?.()}
-              disabled={!aiAvailable}
-              className="w-9 h-9 rounded-lg transition-all duration-300 border flex items-center justify-center group cursor-pointer bg-gradient-to-br from-[#252018] to-[#1a1a1a] border-[#f5a623]/40 text-[#f5a623] hover:border-[#f5a623] hover:shadow-[0_0_12px_rgba(245,166,35,0.35)] disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:border-[#f5a623]/40 disabled:hover:shadow-none"
-              title={translateUi('Ask Anything (AI Assistant)', appLanguage)}
-          >
-              <Sparkles size={16} className="fill-[#f5a623]/30 group-hover:scale-110 transition-transform duration-300" />
-          </button>
         </div>
 
-        {/* CENTER: View Switcher or Active View Title */}
+        {/* CENTER: Grouped View Switcher in Original Connected Strip */}
         <div className="flex items-center justify-center gap-[15px] h-full flex-[0_0_auto]">
           {!hideViewSwitcher ? (
-            <div className="bg-[#222] border border-[#3d3d3d] rounded-[4px] flex overflow-hidden">
-              {views.map((view) => (
-                <button
-                  key={view.id}
-                  onClick={() => onViewChange(view.id as ViewMode)}
-                  className={`bg-transparent border-none px-3 py-1.5 cursor-pointer text-[12px] font-semibold uppercase transition-all duration-200 border-r border-[#333] last:border-r-0 ${
-                    currentView === view.id 
-                      ? 'bg-[#333] text-[#f5a623]' 
-                      : 'text-[#888] hover:text-[#ccc] hover:bg-[#2a2a2a]'
-                  }`}
-                >
-                  {view.label}
-                </button>
-              ))}
+            <div ref={navContainerRef} className="bg-[#222] border border-[#3d3d3d] rounded-[4px] flex relative select-none">
+              {navGroups.map((group, groupIdx) => {
+                const isActiveGroup = group.items.some(i => i.id === currentView);
+                const activeItemInGroup = group.items.find(i => i.id === currentView);
+                const isOpen = openGroupId === group.id;
+                const isLast = groupIdx === navGroups.length - 1;
+
+                return (
+                  <div key={group.id} className="relative flex">
+                    <button
+                      type="button"
+                      onClick={() => setOpenGroupId(isOpen ? null : group.id)}
+                      onMouseEnter={() => {
+                        if (openGroupId && openGroupId !== group.id) {
+                          setOpenGroupId(group.id);
+                        }
+                      }}
+                      className={`bg-transparent border-none px-3.5 py-1.5 cursor-pointer text-[12px] font-semibold uppercase transition-all duration-200 flex items-center gap-1.5 ${
+                        !isLast ? 'border-r border-[#333]' : ''
+                      } ${
+                        isActiveGroup
+                          ? 'bg-[#333] text-[#f5a623]'
+                          : 'text-[#888] hover:text-[#ccc] hover:bg-[#2a2a2a]'
+                      }`}
+                      title={`${group.label}: Click to switch page`}
+                    >
+                      <span>
+                        {isActiveGroup && activeItemInGroup
+                          ? `${group.shortLabel}: ${activeItemInGroup.label}`
+                          : group.shortLabel}
+                      </span>
+                      <ChevronDown 
+                        size={11} 
+                        className={`transition-transform duration-200 ${
+                          isOpen ? 'rotate-180 text-[#f5a623]' : isActiveGroup ? 'text-[#f5a623]/80' : 'opacity-60'
+                        }`} 
+                      />
+                    </button>
+
+                    {/* Dropdown Menu */}
+                    {isOpen && (
+                      <div 
+                        className={`absolute top-full mt-1 min-w-[190px] bg-[#222] border border-[#3d3d3d] rounded-[4px] shadow-[0_12px_30px_rgba(0,0,0,0.7)] z-[600] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-100 ${
+                          group.id === 'production' || group.id === 'studio' 
+                            ? 'right-0' 
+                            : 'left-0'
+                        }`}
+                      >
+                        {group.items.map((item) => {
+                          const isItemActive = currentView === item.id;
+
+                          return (
+                            <button
+                              key={item.id}
+                              type="button"
+                              onClick={() => {
+                                onViewChange(item.id);
+                                setOpenGroupId(null);
+                              }}
+                              className={`w-full px-3.5 py-2 text-left text-[12px] font-semibold uppercase transition-all duration-150 cursor-pointer flex items-center justify-between border-b border-[#2d2d2d] last:border-b-0 ${
+                                isItemActive
+                                  ? 'bg-[#333] text-[#f5a623]'
+                                  : 'text-[#888] hover:text-[#ccc] hover:bg-[#2a2a2a]'
+                              }`}
+                            >
+                              <span>{item.label}</span>
+                              {isItemActive && (
+                                <Check size={12} className="text-[#f5a623] shrink-0 ml-2 stroke-[2.5]" />
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           ) : (
             <div className="flex items-center gap-2 px-3 py-1 bg-[#1a1a1e] border border-[#333] rounded-[4px]">
               <span className="text-[10px] font-mono uppercase tracking-widest text-gray-500">{translateUi('Active View:', appLanguage)}</span>
               <span className="text-[12px] font-black uppercase tracking-wider" style={{ color: appAccentColor || '#f5a623' }}>
-                {views.find(v => v.id === currentView)?.label || (currentView as string).toUpperCase()}
+                {allViews.find(v => v.id === currentView)?.label || (currentView as string).toUpperCase()}
               </span>
             </div>
           )}
-          
-          {/* UNDO / REDO GROUP */}
-          <div className="flex bg-[#222] border border-[#3d3d3d] rounded-[4px] overflow-hidden">
-             <button 
-                onClick={undo}
-                disabled={!canUndo}
-                className={`px-3 py-1.5 flex items-center justify-center transition-all ${!canUndo ? 'text-[#444] cursor-not-allowed' : 'text-[#888] hover:text-white hover:bg-[#2a2a2a]'}`}
-                title={translateUi('Undo (Ctrl+Z)', appLanguage)}
-             >
-                <RotateCcw size={14} />
-             </button>
-             <div className="w-px bg-[#3d3d3d]"></div>
-             <button 
-                onClick={redo}
-                disabled={!canRedo}
-                className={`px-3 py-1.5 flex items-center justify-center transition-all ${!canRedo ? 'text-[#444] cursor-not-allowed' : 'text-[#888] hover:text-white hover:bg-[#2a2a2a]'}`}
-                title={translateUi('Redo (Ctrl+Y)', appLanguage)}
-             >
-                <RotateCw size={14} />
-             </button>
-          </div>
         </div>
 
-        {/* RIGHT: Goal / Progress Widget & User */}
+        {/* RIGHT: Grouped Tools (Undo/Redo, Goal, Theme, Settings) & User */}
         <div className="flex items-center justify-end gap-[10px] h-full flex-1">
-          <button 
-            onClick={() => onViewChange('goals')}
-            className={`relative overflow-hidden flex items-center justify-center w-9 h-9 rounded-[4px] border transition-all duration-300 group ${
-              currentView === 'goals'
-                ? 'bg-[#222] border-[#f5a623] shadow-[0_0_10px_rgba(245,166,35,0.2)]'
-                : writingGoal.isActive 
-                    ? 'bg-[#1a1a1a] border-[#333] hover:border-[#555]' 
-                    : 'bg-[#222] border-[#444] text-[#888] hover:border-[#666] hover:text-[#ccc]'
-            }`}
-            title={writingGoal.isActive && progressDisplay ? `${translateUi('Goal Progress:', appLanguage)} ${progressDisplay.current}/${progressDisplay.target} ${progressDisplay.unit} (${progressDisplay.percent}%) — ${progressDisplay.label}` : translateUi('Set Deadline / Writing Goal', appLanguage)}
-          >
-             {/* Progress Bar Background */}
-             {writingGoal.isActive && progressDisplay && (
-                  <div 
-                     className={`absolute left-0 top-0 bottom-0 transition-all duration-500 ease-out pointer-events-none ${
-                         progressDisplay.showTotal
-                             ? (progressDisplay.isDone ? 'bg-green-500/30' : 'bg-[#f5a623]/30') 
-                             : 'bg-blue-600/40' 
-                     }`}
-                     style={{ width: `${progressDisplay.percent}%` }}
-                  />
-             )}
+          
+          {/* GROUPED TOOLS STRIP */}
+          <div className="flex bg-[#222] border border-[#3d3d3d] rounded-[4px] overflow-hidden select-none">
+            {/* Undo */}
+            <button 
+                onClick={undo}
+                disabled={!canUndo}
+                className={`px-3 py-1.5 flex items-center justify-center transition-all border-r border-[#333] ${!canUndo ? 'text-[#444] cursor-not-allowed' : 'text-[#888] hover:text-white hover:bg-[#2a2a2a]'}`}
+                title={translateUi('Undo (Ctrl+Z)', appLanguage)}
+            >
+                <RotateCcw size={14} />
+            </button>
+            
+            {/* Redo */}
+            <button 
+                onClick={redo}
+                disabled={!canRedo}
+                className={`px-3 py-1.5 flex items-center justify-center transition-all border-r border-[#333] ${!canRedo ? 'text-[#444] cursor-not-allowed' : 'text-[#888] hover:text-white hover:bg-[#2a2a2a]'}`}
+                title={translateUi('Redo (Ctrl+Y)', appLanguage)}
+            >
+                <RotateCw size={14} />
+            </button>
 
-             {writingGoal.isActive && progressDisplay ? (
-                 <div className={`z-10 ${
-                     progressDisplay.showTotal
-                         ? (progressDisplay.isDone ? 'text-green-500' : 'text-[#f5a623]') 
-                         : 'text-blue-400'
-                 }`}>
-                     {progressDisplay.isDone ? <CheckCircle2 size={14} /> : (progressDisplay.showTotal ? <Target size={14} /> : <TrendingUp size={14} />)}
-                 </div>
-             ) : (
-                 <Clock size={14} className="z-10" />
-             )}
-          </button>
+            {/* Goal Progress */}
+            <button 
+              onClick={() => onViewChange('goals')}
+              className={`relative px-3 py-1.5 flex items-center justify-center transition-all border-r border-[#333] cursor-pointer overflow-hidden ${
+                currentView === 'goals'
+                  ? 'bg-[#333] text-[#f5a623]'
+                  : writingGoal.isActive 
+                      ? 'text-gray-300 hover:bg-[#2a2a2a]' 
+                      : 'text-[#888] hover:text-[#ccc] hover:bg-[#2a2a2a]'
+              }`}
+              title={writingGoal.isActive && progressDisplay ? `${translateUi('Goal Progress:', appLanguage)} ${progressDisplay.current}/${progressDisplay.target} ${progressDisplay.unit} (${progressDisplay.percent}%) — ${progressDisplay.label}` : translateUi('Set Deadline / Writing Goal', appLanguage)}
+            >
+              {/* Progress Bar Background */}
+              {writingGoal.isActive && progressDisplay && (
+                <div 
+                  className={`absolute left-0 top-0 bottom-0 transition-all duration-500 ease-out pointer-events-none ${
+                    progressDisplay.showTotal
+                      ? (progressDisplay.isDone ? 'bg-green-500/30' : 'bg-[#f5a623]/30') 
+                      : 'bg-blue-600/40' 
+                  }`}
+                  style={{ width: `${progressDisplay.percent}%` }}
+                />
+              )}
 
-          {/* ZOOM SCALE CYCLER BUTTON */}
-          <button
-            onClick={() => {
-              const nextZoom = (appZoomLevel || 0.8) === 0.8 ? 0.9 : (appZoomLevel || 0.8) === 0.9 ? 1.0 : 0.8;
-              setAppZoomLevel(nextZoom);
-            }}
-            className="h-9 px-2.5 rounded-[4px] bg-[#222] border border-[#3d3d3d] hover:border-[#f5a623] flex items-center justify-center text-xs font-mono font-bold text-gray-300 hover:text-white transition-all shadow-sm cursor-pointer select-none"
-            title={`Studio Zoom: ${Math.round((appZoomLevel || 0.8) * 100)}% (Click to toggle 80% / 90% / 100%)`}
-          >
-            {Math.round((appZoomLevel || 0.8) * 100)}%
-          </button>
+              {writingGoal.isActive && progressDisplay ? (
+                <div className={`z-10 ${
+                  progressDisplay.showTotal
+                    ? (progressDisplay.isDone ? 'text-green-500' : 'text-[#f5a623]') 
+                    : 'text-blue-400'
+                }`}>
+                  {progressDisplay.isDone ? <CheckCircle2 size={14} /> : (progressDisplay.showTotal ? <Target size={14} /> : <TrendingUp size={14} />)}
+                </div>
+              ) : (
+                <Clock size={14} className="z-10" />
+              )}
+            </button>
 
-          {/* THEME TOGGLE BUTTON */}
-          <ThemeToggleButton variant="header" size={16} />
-
-          {/* SETTINGS GEAR BUTTON */}
-          <button
-            onClick={() => onOpenSettings?.()}
-            className="w-9 h-9 rounded-[4px] bg-[#222] border border-[#3d3d3d] hover:border-[#f5a623] flex items-center justify-center text-gray-300 hover:text-white transition-all shadow-sm cursor-pointer"
-            title={translateUi('Open Backstage Settings Panel', appLanguage)}
-          >
-            <Settings size={16} />
-          </button>
-
-          {/* COLLABORATORS AVATAR STACK */}
-          {isCloudMode && collaborators.length > 0 && (
-            <div className="flex items-center -space-x-1.5 mr-1 select-none">
-              {collaborators.map((collab: any) => {
-                const initial = (collab.name || collab.email).charAt(0).toUpperCase();
-                const tooltip = `${collab.name || collab.email} (${collab.role})`;
-                return (
-                  <div 
-                    key={collab.email}
-                    className="w-7 h-7 rounded-full bg-gradient-to-br from-amber-500 to-orange-600 text-black border border-[#111] flex items-center justify-center text-[10px] font-black uppercase tracking-wider shadow cursor-default transition-transform hover:scale-110 hover:z-10"
-                    title={tooltip}
-                  >
-                    {initial}
-                  </div>
-                );
-              })}
+            {/* Theme Toggle Button */}
+            <div className="px-2.5 py-1.5 flex items-center justify-center border-r border-[#333] hover:bg-[#2a2a2a] transition-all">
+              <ThemeToggleButton variant="header" size={14} />
             </div>
-          )}
+
+            {/* Settings Gear Button */}
+            <button
+              onClick={() => onOpenSettings?.()}
+              className="px-3 py-1.5 flex items-center justify-center text-gray-300 hover:text-white hover:bg-[#2a2a2a] transition-all cursor-pointer"
+              title={translateUi('Open Backstage Settings Panel', appLanguage)}
+            >
+              <Settings size={14} />
+            </button>
+          </div>
 
           {/* CLOUD / USER MENU */}
           <div className="relative">
             <button
               onClick={() => setShowUserMenu(v => !v)}
-              className="relative w-8 h-8 rounded-full flex items-center justify-center transition-all focus:outline-none shrink-0"
+              className="relative w-8 h-8 rounded-full flex items-center justify-center transition-all focus:outline-none shrink-0 cursor-pointer"
               title={isCloudActive ? `Signed in as ${currentUser}` : 'Sign in'}
             >
               {supabaseUser?.user_metadata?.avatar_url ? (

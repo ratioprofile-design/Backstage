@@ -1172,6 +1172,7 @@ export type DocumentFormat =
   | 'image' 
   | 'sheet' 
   | 'text' 
+  | 'md'
   | 'breakdown' 
   | 'callsheet' 
   | 'lookbook' 
@@ -1216,8 +1217,10 @@ export interface ProductionDocument {
   fileType?: DocumentFormat;
   pageCount: number;
   uploadedAt: string;
+  updatedAt?: string; // Last-modified timestamp for conflict resolution during sync/merge
   pdfDataUrl?: string;
   imageDataUrl?: string;
+  thumbnailDataUrl?: string;
   audioUrl?: string;
   durationSeconds?: number;
   videoUrl?: string;

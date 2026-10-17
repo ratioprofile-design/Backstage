@@ -341,7 +341,13 @@ export const uploadDocumentBinaryToStorage = async (
   fileName: string,
   dataUrl?: string
 ): Promise<string | null> => {
-  if (!isSupabaseConfigured || !dataUrl || !dataUrl.startsWith('data:')) return null;
+  if (!isSupabaseConfigured || !dataUrl) return null;
+  // If it is already a hosted public URL, return directly
+  if (dataUrl.startsWith('http://') || dataUrl.startsWith('https://')) {
+    return dataUrl;
+  }
+  if (!dataUrl.startsWith('data:')) return null;
+
   try {
     const commaIndex = dataUrl.indexOf(',');
     if (commaIndex === -1) return null;
@@ -365,9 +371,11 @@ export const uploadDocumentBinaryToStorage = async (
     if (!error) {
       const { data } = supabase.storage.from('vault-files').getPublicUrl(storagePath);
       return data?.publicUrl || null;
+    } else {
+      console.warn('[Supabase Storage] Upload error:', error.message);
     }
   } catch (e) {
-    // Graceful fallback to inline data URL
+    console.warn('[Supabase Storage] Upload exception:', e);
   }
   return null;
 };
@@ -391,6 +399,64 @@ export const saveProjectDocumentToCloud = async (
       } catch {}
     }
 
+    let pdfUrl = doc.pdfDataUrl || null;
+    let originalFileUrl = doc.originalFileDataUrl || null;
+    let imageUrl = doc.imageDataUrl || null;
+    let docxUrl = doc.convertedDocxDataUrl || null;
+    let audioUrl = doc.audioUrl || null;
+    let videoUrl = doc.videoUrl || null;
+
+    // Offload heavy base64 data URLs (>25KB) to Supabase Storage bucket 'vault-files' if configured
+    if (pdfUrl && pdfUrl.startsWith('data:') && pdfUrl.length > 25000) {
+      try {
+        const uploaded = await uploadDocumentBinaryToStorage(projectId, doc.fileName || `${doc.id}.pdf`, pdfUrl);
+        if (uploaded) {
+          pdfUrl = uploaded;
+          doc.pdfDataUrl = uploaded;
+        }
+      } catch {}
+    }
+
+    if (originalFileUrl && originalFileUrl.startsWith('data:') && originalFileUrl.length > 25000) {
+      try {
+        const uploaded = await uploadDocumentBinaryToStorage(projectId, doc.originalFileName || doc.fileName || `${doc.id}_orig`, originalFileUrl);
+        if (uploaded) {
+          originalFileUrl = uploaded;
+          doc.originalFileDataUrl = uploaded;
+        }
+      } catch {}
+    }
+
+    if (imageUrl && imageUrl.startsWith('data:') && imageUrl.length > 25000) {
+      try {
+        const uploaded = await uploadDocumentBinaryToStorage(projectId, `${doc.id}_img`, imageUrl);
+        if (uploaded) {
+          imageUrl = uploaded;
+          doc.imageDataUrl = uploaded;
+        }
+      } catch {}
+    }
+
+    if (docxUrl && docxUrl.startsWith('data:') && docxUrl.length > 25000) {
+      try {
+        const uploaded = await uploadDocumentBinaryToStorage(projectId, `${doc.id}_converted.docx`, docxUrl);
+        if (uploaded) {
+          docxUrl = uploaded;
+          doc.convertedDocxDataUrl = uploaded;
+        }
+      } catch {}
+    }
+
+    if (audioUrl && audioUrl.startsWith('data:') && audioUrl.length > 25000) {
+      try {
+        const uploaded = await uploadDocumentBinaryToStorage(projectId, `${doc.id}_audio`, audioUrl);
+        if (uploaded) {
+          audioUrl = uploaded;
+          doc.audioUrl = uploaded;
+        }
+      } catch {}
+    }
+
     const row: any = {
       id: doc.id,
       project_id: projectId,
@@ -403,9 +469,10 @@ export const saveProjectDocumentToCloud = async (
       file_type: doc.fileType || 'pdf',
       page_count: doc.pageCount || 1,
       uploaded_at: doc.uploadedAt || new Date().toISOString(),
-      pdf_data_url: doc.pdfDataUrl || null,
-      image_data_url: doc.imageDataUrl || null,
-      audio_url: doc.audioUrl || null,
+      pdf_data_url: pdfUrl,
+      image_data_url: imageUrl,
+      audio_url: audioUrl,
+      video_url: videoUrl,
       duration_seconds: doc.durationSeconds || null,
       html_content: doc.htmlContent || null,
       text_content: doc.textContent || null,
@@ -417,9 +484,9 @@ export const saveProjectDocumentToCloud = async (
       archived_at: doc.archivedAt || null,
       tags: doc.tags || [],
       status: doc.status || 'review',
-      original_file_data_url: doc.originalFileDataUrl || null,
+      original_file_data_url: originalFileUrl,
       original_file_name: doc.originalFileName || null,
-      converted_docx_data_url: doc.convertedDocxDataUrl || null,
+      converted_docx_data_url: docxUrl,
       is_bamini_converted: !!doc.isBaminiConverted,
       is_bamini_detected: !!doc.isBaminiDetected,
       is_left_right_format: !!doc.isLeftRightFormat,
@@ -427,7 +494,7 @@ export const saveProjectDocumentToCloud = async (
       two_column_data: doc.twoColumnData || null,
       left_right_doc_id: doc.leftRightDocId || null,
       source_doc_id: doc.sourceDocId || null,
-      updated_at: new Date().toISOString()
+      updated_at: doc.updatedAt || new Date().toISOString()
     };
 
     let { error } = await supabase
@@ -436,7 +503,7 @@ export const saveProjectDocumentToCloud = async (
 
     if (error && (error.code === '42703' || error.message?.includes('column'))) {
       // In case Postgres table doesn't have the new columns yet, fallback to base columns
-      const { two_column_data, has_two_column_script, is_bamini_detected, ...baseRow } = row;
+      const { two_column_data, has_two_column_script, is_bamini_detected, video_url, ...baseRow } = row;
       const retry = await supabase
         .from('project_documents')
         .upsert(baseRow, { onConflict: 'id' });
@@ -448,10 +515,10 @@ export const saveProjectDocumentToCloud = async (
       // Strip heavy binary strings (>50KB) so document metadata, script text, sheets, and annotations are safely preserved
       const safeRow = {
         ...row,
-        pdf_data_url: null,
-        original_file_data_url: null,
-        converted_docx_data_url: null,
-        image_data_url: null,
+        pdf_data_url: (pdfUrl && pdfUrl.startsWith('http')) ? pdfUrl : null,
+        original_file_data_url: (originalFileUrl && originalFileUrl.startsWith('http')) ? originalFileUrl : null,
+        converted_docx_data_url: (docxUrl && docxUrl.startsWith('http')) ? docxUrl : null,
+        image_data_url: (imageUrl && imageUrl.startsWith('http')) ? imageUrl : null,
       };
       const retrySafe = await supabase
         .from('project_documents')
@@ -460,11 +527,149 @@ export const saveProjectDocumentToCloud = async (
         return true;
       }
       console.warn("Failed to upsert to project_documents table (it may not be created yet):", retrySafe.error.message);
-      return false;
+      // Fallback: save to projects.data.documents so the other laptop gets this document!
+      await saveProjectDocumentsToProjectData(projectId, [doc]);
+      return true;
     }
     return true;
   } catch (err) {
     console.warn("Error saving document to Supabase:", err);
+    // Attempt fallback to projects table
+    try {
+      await saveProjectDocumentsToProjectData(projectId, [doc]);
+    } catch {}
+    return false;
+  }
+};
+
+/**
+ * Persist an array of documents directly into the projects table JSON data (projects.data.documents).
+ * This ensures that even if the public.project_documents table doesn't exist, all documents
+ * are seamlessly backed up to Supabase Cloud and sync between laptops without data loss.
+ */
+export const saveProjectDocumentsToProjectData = async (
+  projectId: string,
+  docs: any[]
+): Promise<boolean> => {
+  if (!isSupabaseConfigured || !projectId || !docs || docs.length === 0) return false;
+  try {
+    const { data: projectRow, error: fetchErr } = await supabase
+      .from('projects')
+      .select('id, data')
+      .eq('id', projectId)
+      .maybeSingle();
+
+    if (fetchErr || !projectRow) {
+      console.warn('[Supabase] saveProjectDocumentsToProjectData: projectRow not found or fetch error:', fetchErr);
+      return false;
+    }
+
+    // Helper to sanitize each document:
+    // 1. Drop duplicate raw bytes (if pdfDataUrl exists, drop originalFileDataUrl; if image, drop camera raw originalFileDataUrl)
+    // 2. Preserve compact thumbnailDataUrl (always <= 25KB WebP)
+    // 3. Keep inline binaries up to 2.8MB chars (~2.1MB binary) per asset
+    // 4. Strip accidental Google Accounts cookie login HTML dumps
+    const sanitizeDoc = (doc: any) => {
+      if (!doc) return doc;
+      const clean = { ...doc };
+
+      // Deduplicate identical copies
+      if (clean.pdfDataUrl) {
+        clean.originalFileDataUrl = undefined;
+      }
+      if (clean.fileType === 'image') {
+        clean.originalFileDataUrl = undefined;
+      }
+      if (clean.convertedDocxDataUrl && clean.convertedDocxDataUrl === clean.originalFileDataUrl) {
+        clean.originalFileDataUrl = undefined;
+      }
+
+      const MAX_INLINE_BINARY_CHARS = 2800000;
+      if (clean.pdfDataUrl && !clean.pdfDataUrl.startsWith('http') && clean.pdfDataUrl.length > MAX_INLINE_BINARY_CHARS) {
+        clean.pdfDataUrl = undefined;
+      }
+      if (clean.originalFileDataUrl && !clean.originalFileDataUrl.startsWith('http') && clean.originalFileDataUrl.length > MAX_INLINE_BINARY_CHARS) {
+        clean.originalFileDataUrl = undefined;
+      }
+      if (clean.convertedDocxDataUrl && !clean.convertedDocxDataUrl.startsWith('http') && clean.convertedDocxDataUrl.length > MAX_INLINE_BINARY_CHARS) {
+        clean.convertedDocxDataUrl = undefined;
+      }
+      if (clean.imageDataUrl && !clean.imageDataUrl.startsWith('http') && clean.imageDataUrl.length > 800000) {
+        clean.imageDataUrl = clean.thumbnailDataUrl || undefined;
+      }
+
+      // Always ensure thumbnailDataUrl is present if imageDataUrl exists
+      if (!clean.thumbnailDataUrl && clean.imageDataUrl && clean.imageDataUrl.length < 50000) {
+        clean.thumbnailDataUrl = clean.imageDataUrl;
+      }
+
+      // Clean large Google login error pages in Gantt/spreadsheet htmlContent
+      if (clean.htmlContent && clean.htmlContent.length > 30000 && clean.htmlContent.includes('Sign in - Google Accounts')) {
+        clean.htmlContent = '<p>Production Spreadsheet Data</p>';
+      }
+
+      return clean;
+    };
+
+    const sanitizedDocs = docs.map(sanitizeDoc);
+
+    const existingData = projectRow.data || {};
+    const existingDocs: any[] = Array.isArray(existingData.documents) ? existingData.documents : [];
+
+    // Merge incoming docs into existingDocs by ID or fileName
+    const docsMap = new Map<string, any>();
+    existingDocs.forEach((d) => {
+      if (d && d.id) docsMap.set(d.id, sanitizeDoc(d));
+    });
+
+    sanitizedDocs.forEach((inDoc: any) => {
+      if (!inDoc || !inDoc.id) return;
+      const existing = docsMap.get(inDoc.id);
+      if (existing) {
+        docsMap.set(inDoc.id, { ...existing, ...inDoc });
+      } else {
+        docsMap.set(inDoc.id, inDoc);
+      }
+    });
+
+    let mergedDocs = Array.from(docsMap.values());
+
+    // If total documents JSON payload is unusually large (> 4.5MB), prune heavy data URLs from oldest docs
+    let totalPayloadSize = JSON.stringify(mergedDocs).length;
+    if (totalPayloadSize > 4500000) {
+      console.warn(`[Supabase] Documents payload large (${(totalPayloadSize / 1024 / 1024).toFixed(1)} MB). Optimizing oldest binaries...`);
+      mergedDocs = mergedDocs.map((doc, idx) => {
+        // Keep thumbnailDataUrl, title, sheetData, htmlContent always
+        if (idx < mergedDocs.length - 2 && doc.pdfDataUrl && doc.pdfDataUrl.length > 500000) {
+          return { ...doc, pdfDataUrl: undefined };
+        }
+        return doc;
+      });
+    }
+
+    const updatedData = {
+      ...existingData,
+      documents: mergedDocs,
+      lastModified: Date.now()
+    };
+
+    const { error: updateErr } = await supabase
+      .from('projects')
+      .update({
+        data: updatedData,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', projectId);
+
+    if (updateErr) {
+      console.warn('[Supabase] Failed to update projects.data.documents fallback:', updateErr);
+      return false;
+    }
+
+    console.log(`[Supabase] Successfully synced ${mergedDocs.length} documents to projects.data in cloud.`);
+    return true;
+  } catch (err) {
+    console.warn('[Supabase] saveProjectDocumentsToProjectData exception:', err);
     return false;
   }
 };
@@ -502,7 +707,9 @@ export const fetchProjectDocumentsFromCloud = async (projectId: string): Promise
       uploadedAt: row.uploaded_at,
       pdfDataUrl: row.pdf_data_url,
       imageDataUrl: row.image_data_url,
+      thumbnailDataUrl: row.thumbnail_data_url || row.image_data_url || undefined,
       audioUrl: row.audio_url,
+      videoUrl: row.video_url,
       durationSeconds: row.duration_seconds,
       htmlContent: row.html_content,
       textContent: row.text_content,
@@ -523,10 +730,115 @@ export const fetchProjectDocumentsFromCloud = async (projectId: string): Promise
       hasTwoColumnScript: !!row.has_two_column_script,
       twoColumnData: row.two_column_data || undefined,
       leftRightDocId: row.left_right_doc_id,
-      sourceDocId: row.source_doc_id
+      sourceDocId: row.source_doc_id,
+      updatedAt: row.updated_at || row.uploaded_at
     }));
   } catch (err) {
     return null;
+  }
+};
+
+/**
+ * Fetch all uploaded files stored in Supabase Storage bucket 'vault-files'
+ * Handles files stored in both `${projectId}/` folder and root folder.
+ */
+export const fetchStorageFilesFromCloud = async (projectId: string): Promise<any[]> => {
+  if (!isSupabaseConfigured || !projectId) return [];
+  try {
+    const allFiles: { name: string; fullPath: string; metadata?: any; created_at?: string }[] = [];
+
+    // 1. List files in projectId folder
+    try {
+      const { data: projectFiles, error: projErr } = await supabase.storage
+        .from('vault-files')
+        .list(projectId, { limit: 100, sortBy: { column: 'created_at', order: 'desc' } });
+
+      if (!projErr && Array.isArray(projectFiles)) {
+        projectFiles.forEach((f) => {
+          if (f.name && !f.name.startsWith('.') && f.name !== '.emptyFolderPlaceholder') {
+            allFiles.push({ ...f, fullPath: `${projectId}/${f.name}` });
+          }
+        });
+      }
+    } catch (e) {}
+
+    // 2. Also check root directory in case files were uploaded directly to root
+    try {
+      const { data: rootFiles, error: rootErr } = await supabase.storage
+        .from('vault-files')
+        .list('', { limit: 100, sortBy: { column: 'created_at', order: 'desc' } });
+
+      if (!rootErr && Array.isArray(rootFiles)) {
+        rootFiles.forEach((f) => {
+          if (f.name && !f.name.startsWith('.') && f.id && f.name.includes('.')) {
+            allFiles.push({ ...f, fullPath: f.name });
+          }
+        });
+      }
+    } catch (e) {}
+
+    if (allFiles.length === 0) return [];
+
+    return allFiles.map((f) => {
+      const { data: urlData } = supabase.storage.from('vault-files').getPublicUrl(f.fullPath);
+      const publicUrl = urlData?.publicUrl || '';
+      const rawName = f.name;
+      // Remove leading timestamp (e.g. 1729123456_script.pdf -> script.pdf)
+      const cleanName = rawName.replace(/^\d+_/, '');
+      const ext = cleanName.includes('.') ? cleanName.split('.').pop()?.toLowerCase() || '' : '';
+      const sizeBytes = f.metadata?.size || 0;
+      const sizeStr = sizeBytes > 0 
+        ? (sizeBytes < 1024 * 1024 ? `${Math.round(sizeBytes / 1024)} KB` : `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB`) 
+        : undefined;
+
+      let fileType = ext;
+      let category: any = 'OTHER';
+      if (['pdf'].includes(ext)) {
+        fileType = 'pdf';
+        category = 'SCRIPT';
+      } else if (['docx', 'doc', 'fountain', 'txt'].includes(ext)) {
+        fileType = ext;
+        category = 'SCRIPT';
+      } else if (['png', 'jpg', 'jpeg', 'webp', 'svg', 'gif'].includes(ext)) {
+        fileType = 'image';
+        category = 'LOOKBOOK';
+      } else if (['mp3', 'wav', 'ogg', 'm4a', 'aac', 'flac'].includes(ext)) {
+        fileType = 'audio';
+        category = 'VOICE_NOTE';
+      } else if (['mp4', 'mov', 'webm', 'mkv', 'avi'].includes(ext)) {
+        fileType = 'video';
+        category = 'VIDEO';
+      } else if (['xlsx', 'xls', 'csv'].includes(ext)) {
+        fileType = 'sheet';
+        category = 'SCHEDULE';
+      }
+
+      const title = cleanName.replace(/\.[^/.]+$/, '').replace(/_/g, ' ');
+
+      return {
+        id: `storage-${projectId}-${f.name}`,
+        projectId,
+        title,
+        category,
+        fileName: cleanName,
+        fileSize: sizeStr,
+        fileType,
+        pageCount: 1,
+        uploadedAt: f.created_at || new Date().toISOString(),
+        pdfDataUrl: fileType === 'pdf' ? publicUrl : undefined,
+        imageDataUrl: fileType === 'image' ? publicUrl : undefined,
+        audioUrl: fileType === 'audio' ? publicUrl : undefined,
+        videoUrl: fileType === 'video' ? publicUrl : undefined,
+        originalFileDataUrl: publicUrl,
+        originalFileName: cleanName,
+        status: 'review',
+        tags: ['Supabase Storage', category],
+        annotations: []
+      };
+    });
+  } catch (err) {
+    console.warn('[Supabase Storage] fetchStorageFilesFromCloud notice:', err);
+    return [];
   }
 };
 

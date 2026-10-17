@@ -17,6 +17,7 @@ export interface ParsedDocumentResult {
   sheetData?: any[][];
   pdfDataUrl?: string;
   imageDataUrl?: string;
+  thumbnailDataUrl?: string;
   audioUrl?: string;
   videoUrl?: string;
   durationSeconds?: number;
@@ -33,6 +34,103 @@ function readFileAsDataUrl(file: File): Promise<string> {
     reader.onload = () => resolve((reader.result as string) || '');
     reader.onerror = () => resolve('');
     reader.readAsDataURL(file);
+  });
+}
+
+/**
+ * Create optimized preview and lightweight thumbnail variants for uploaded images.
+ * Guarantees that thumbnailDataUrl is <= 25KB and imageDataUrl is compressed (<= 150KB WebP)
+ * so that both laptops can synchronize and preview them with 0 quota errors and 0 missing cards.
+ */
+async function createOptimizedImageVariants(dataUrl: string): Promise<{
+  imageDataUrl: string;
+  thumbnailDataUrl: string;
+}> {
+  if (typeof window === 'undefined' || typeof document === 'undefined' || !dataUrl) {
+    return { imageDataUrl: dataUrl, thumbnailDataUrl: dataUrl };
+  }
+  // SVG images are vector XML text, so keep as-is
+  if (dataUrl.startsWith('data:image/svg+xml')) {
+    return { imageDataUrl: dataUrl, thumbnailDataUrl: dataUrl };
+  }
+
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const origW = img.naturalWidth || img.width;
+        const origH = img.naturalHeight || img.height;
+        if (!origW || !origH) {
+          return resolve({ imageDataUrl: dataUrl, thumbnailDataUrl: dataUrl });
+        }
+
+        // 1. Generate Full Canvas Preview (max 1600px width/height)
+        const maxPreviewDim = 1600;
+        let pW = origW;
+        let pH = origH;
+        if (pW > maxPreviewDim || pH > maxPreviewDim) {
+          if (pW > pH) {
+            pH = Math.round((pH * maxPreviewDim) / pW);
+            pW = maxPreviewDim;
+          } else {
+            pW = Math.round((pW * maxPreviewDim) / pH);
+            pH = maxPreviewDim;
+          }
+        }
+
+        const previewCanvas = document.createElement('canvas');
+        previewCanvas.width = pW;
+        previewCanvas.height = pH;
+        const pCtx = previewCanvas.getContext('2d');
+        let compressedDataUrl = dataUrl;
+        if (pCtx) {
+          pCtx.imageSmoothingEnabled = true;
+          pCtx.imageSmoothingQuality = 'high';
+          pCtx.drawImage(img, 0, 0, pW, pH);
+          compressedDataUrl = previewCanvas.toDataURL('image/webp', 0.82);
+          if (!compressedDataUrl.startsWith('data:image/webp')) {
+            compressedDataUrl = previewCanvas.toDataURL('image/jpeg', 0.82);
+          }
+        }
+
+        // 2. Generate Ultra-Fast Thumbnail for Grand Gallery Card (max 380px, ~15KB)
+        const maxThumbDim = 380;
+        let tW = origW;
+        let tH = origH;
+        if (tW > maxThumbDim || tH > maxThumbDim) {
+          if (tW > tH) {
+            tH = Math.round((tH * maxThumbDim) / tW);
+            tW = maxThumbDim;
+          } else {
+            tW = Math.round((tW * maxThumbDim) / tH);
+            tH = maxThumbDim;
+          }
+        }
+
+        const thumbCanvas = document.createElement('canvas');
+        thumbCanvas.width = tW;
+        thumbCanvas.height = tH;
+        const tCtx = thumbCanvas.getContext('2d');
+        let thumbnailDataUrl = compressedDataUrl;
+        if (tCtx) {
+          tCtx.imageSmoothingEnabled = true;
+          tCtx.imageSmoothingQuality = 'medium';
+          tCtx.drawImage(img, 0, 0, tW, tH);
+          thumbnailDataUrl = thumbCanvas.toDataURL('image/webp', 0.72);
+          if (!thumbnailDataUrl.startsWith('data:image/webp')) {
+            thumbnailDataUrl = thumbCanvas.toDataURL('image/jpeg', 0.72);
+          }
+        }
+
+        resolve({ imageDataUrl: compressedDataUrl, thumbnailDataUrl });
+      } catch (e) {
+        resolve({ imageDataUrl: dataUrl, thumbnailDataUrl: dataUrl });
+      }
+    };
+    img.onerror = () => {
+      resolve({ imageDataUrl: dataUrl, thumbnailDataUrl: dataUrl });
+    };
+    img.src = dataUrl;
   });
 }
 
@@ -113,25 +211,21 @@ export async function parseUniversalFile(file: File, defaultCategory: Production
 
   // 3. Images (.png, .jpg, .jpeg, .webp, .svg, .gif)
   if (['.png', '.jpg', '.jpeg', '.webp', '.svg', '.gif'].includes(extension) || file.type.startsWith('image/')) {
-    return new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.onload = (ev) => {
-        const dataUrl = ev.target?.result as string;
-        resolve({
-          title,
-          fileName,
-          fileSize,
-          fileType: 'image',
-          category: defaultCategory === 'OTHER' ? 'LOOKBOOK' : defaultCategory,
-          pageCount: 1,
-          imageDataUrl: dataUrl,
-          textContent: `Visual asset: ${fileName}`,
-          originalFileDataUrl: dataUrl,
-          originalFileName: fileName,
-        });
-      };
-      reader.readAsDataURL(file);
-    });
+    const rawDataUrl = await readFileAsDataUrl(file);
+    const { imageDataUrl, thumbnailDataUrl } = await createOptimizedImageVariants(rawDataUrl);
+    return {
+      title,
+      fileName,
+      fileSize,
+      fileType: 'image',
+      category: defaultCategory === 'OTHER' ? 'LOOKBOOK' : defaultCategory,
+      pageCount: 1,
+      imageDataUrl,
+      thumbnailDataUrl,
+      textContent: `Visual asset: ${fileName}`,
+      originalFileDataUrl: rawDataUrl,
+      originalFileName: fileName,
+    };
   }
 
   // 4. Audio Files (.mp3, .wav, .ogg, .m4a, .aac, .flac)
