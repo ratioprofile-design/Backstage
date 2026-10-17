@@ -755,7 +755,8 @@ const PrintPreviewModal: React.FC<PrintPreviewModalProps> = ({ onClose }) => {
 
         const topPx = settings.marginTop * DPI + headerOffsetPx;
         const bottomPx = settings.marginBottom * DPI + footerOffsetPx;
-        const writableHeight = heightPx - (topPx + bottomPx);
+        // 16px safety headroom prevents subpixel line-height differences from overflowing
+        const writableHeight = heightPx - (topPx + bottomPx) - 16;
 
         const newPages: MeasuredElement[][] = [];
         let currentPage: MeasuredElement[] = [];
@@ -781,13 +782,23 @@ const PrintPreviewModal: React.FC<PrintPreviewModalProps> = ({ onClose }) => {
                 }
             } else if (item.elementClass?.includes('sc-character')) {
                 const nextChild = domChildren[index + 1];
+                let requiredNextH = 0;
                 if (nextChild) {
                     const nextStyle = window.getComputedStyle(nextChild);
                     const nextMargin = (parseFloat(nextStyle.marginTop) || 0) + (parseFloat(nextStyle.marginBottom) || 0);
-                    const nextH = nextChild.offsetHeight + nextMargin;
-                    if (currentH + h + nextH > writableHeight) {
-                        shouldBreakPage = true;
+                    requiredNextH += nextChild.offsetHeight + nextMargin;
+                    // If next child is parenthetical, also require the following dialogue
+                    if (flatElements[index + 1]?.elementClass?.includes('sc-parenthetical')) {
+                        const diaChild = domChildren[index + 2];
+                        if (diaChild) {
+                            const diaStyle = window.getComputedStyle(diaChild);
+                            const diaMargin = (parseFloat(diaStyle.marginTop) || 0) + (parseFloat(diaStyle.marginBottom) || 0);
+                            requiredNextH += diaChild.offsetHeight + diaMargin;
+                        }
                     }
+                }
+                if (currentH + h + requiredNextH > writableHeight) {
+                    shouldBreakPage = true;
                 }
             }
 
@@ -1273,10 +1284,10 @@ const PrintPreviewModal: React.FC<PrintPreviewModalProps> = ({ onClose }) => {
   };
 
   return (
-    <div className="fixed inset-0 z-[5000] bg-[#09090b] text-gray-100 flex font-sans animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-[5000] bg-[#09090b] text-gray-100 flex font-sans animate-in fade-in duration-200 print-modal-container">
 
       {/* SIDEBAR */}
-      <div className={`${sidebarWidth === 'standard' ? 'w-[420px]' : sidebarWidth === 'wide' ? 'w-[520px]' : 'w-[640px]'} transition-all duration-200 flex flex-col border-r border-[#222] bg-[#0c0c0c] shadow-2xl z-20 shrink-0`}>
+      <div className={`${sidebarWidth === 'standard' ? 'w-[420px]' : sidebarWidth === 'wide' ? 'w-[520px]' : 'w-[640px]'} transition-all duration-200 flex flex-col border-r border-[#222] bg-[#0c0c0c] shadow-2xl z-20 shrink-0 print:hidden print-modal-sidebar`}>
          <div className="h-16 flex items-center justify-between px-6 border-b border-[#222] shrink-0 bg-[#0a0a0a]">
             <h2 className="font-black text-sm uppercase tracking-widest text-[#f5a623] flex items-center gap-2">
               <BookOpen className="text-[#f5a623]" size={18}/> Print & PDF Controls
@@ -2482,8 +2493,8 @@ const PrintPreviewModal: React.FC<PrintPreviewModalProps> = ({ onClose }) => {
       </div>
 
       {/* PREVIEW CANVAS */}
-      <div className="flex-1 bg-[#09090b] relative flex flex-col overflow-hidden">
-         <div className="absolute top-6 left-1/2 -translate-x-1/2 z-50">
+      <div className="flex-1 bg-[#09090b] relative flex flex-col overflow-hidden print-modal-canvas-wrapper">
+         <div className="absolute top-6 left-1/2 -translate-x-1/2 z-50 print:hidden">
             <div className="bg-[#1a1a1a]/90 backdrop-blur-md border border-[#333] rounded-full px-4 py-2 flex items-center gap-4 shadow-2xl">
                <div className="flex items-center gap-2">
                   <button onClick={() => setScale(s => Math.max(0.25, s - 0.1))} className="p-1.5 hover:bg-white/10 rounded-full text-gray-400 hover:text-white transition-colors cursor-pointer"><Minus size={16}/></button>
@@ -2494,7 +2505,7 @@ const PrintPreviewModal: React.FC<PrintPreviewModalProps> = ({ onClose }) => {
          </div>
 
          <div id="preview-scroll-container" className="flex-1 overflow-auto flex flex-col items-center p-20 custom-scrollbar bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')]">
-            <div style={{ transform: `scale(${scale})`, transformOrigin: 'top center', marginBottom: '100px', transition: 'transform 0.15s ease' }}>
+            <div className="print-modal-scale-wrapper" style={{ transform: `scale(${scale})`, transformOrigin: 'top center', marginBottom: '100px', transition: 'transform 0.15s ease' }}>
 
                {/* 1. COVER PAGE */}
                {sections.cover && (
@@ -2580,7 +2591,7 @@ const PrintPreviewModal: React.FC<PrintPreviewModalProps> = ({ onClose }) => {
                                </div>
                            )}
 
-                           <div className="w-full h-full overflow-hidden text-black font-screenplay text-[12pt] leading-tight">
+                           <div className="w-full h-full text-black font-screenplay text-[12pt] leading-tight">
                              {pageItems.map((item) => {
                                 if (item.type === "slugline" && item.slugData) {
                                    return renderSluglineElement(item);

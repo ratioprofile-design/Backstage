@@ -319,6 +319,43 @@ export function getProductionDocuments(projectId?: string): ProductionDocument[]
       );
       result = mergeProductionDocuments(migrated, inMemoryDocsCache[activeProjId]);
     }
+
+    // Safety fallback: Check other localStorage keys (STORAGE_KEY, default, empty-project)
+    // so documents uploaded or harvested under base or default accounts are seamlessly preserved
+    const fallbackKeys = [
+      STORAGE_KEY,
+      'backstage_production_documents_default',
+      'backstage_production_documents_empty-project'
+    ];
+    let fallbackDocs: ProductionDocument[] = [];
+    fallbackKeys.forEach((fbKey) => {
+      if (fbKey !== key) {
+        try {
+          const fbRaw = localStorage.getItem(fbKey);
+          if (fbRaw) {
+            const fbParsed = JSON.parse(fbRaw);
+            if (Array.isArray(fbParsed)) {
+              fallbackDocs.push(...fbParsed);
+            }
+          }
+        } catch {}
+      }
+    });
+
+    if (fallbackDocs.length > 0) {
+      const filteredFallback = fallbackDocs.filter(
+        (doc: ProductionDocument) =>
+          doc.id !== 'doc-ranga-1' &&
+          doc.fileName !== 'Pilot_Ranga_Screenplay.docx' &&
+          !(doc.title && doc.title.includes('பைலட் ரங்கா'))
+      );
+      const prevCount = result.length;
+      result = mergeProductionDocuments(result, filteredFallback);
+      if (result.length !== prevCount) {
+        hasMigrated = true;
+      }
+    }
+
     inMemoryDocsCache[activeProjId] = result;
 
     if (hasMigrated) {
@@ -717,15 +754,21 @@ export async function syncDocumentsWithCloud(
     return localDocs;
   }
 
-  // Merge any documents that may have been created under 'empty-project' or 'default' before project was selected
+  // Merge any documents that may have been created under 'empty-project', 'default', or base STORAGE_KEY before project was selected
   if (projectId !== 'empty-project' && projectId !== 'default') {
     const fallbackEmpty = getProductionDocuments('empty-project');
     const fallbackDefault = getProductionDocuments('default');
-    const orphaned = [...fallbackEmpty, ...fallbackDefault].filter(
-      (d) => !localDocs.some((ld) => ld.id === d.id || (ld.fileName && ld.fileName === d.fileName))
+    const fallbackBase = (() => {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        return raw ? JSON.parse(raw) : [];
+      } catch { return []; }
+    })();
+    const orphaned = [...fallbackEmpty, ...fallbackDefault, ...fallbackBase].filter(
+      (d: ProductionDocument) => d && d.id && !localDocs.some((ld) => ld.id === d.id || (ld.fileName && ld.fileName === d.fileName))
     );
     if (orphaned.length > 0) {
-      const remapped = orphaned.map((d) => ({ ...d, projectId }));
+      const remapped = orphaned.map((d: ProductionDocument) => ({ ...d, projectId }));
       localDocs = mergeProductionDocuments(localDocs, remapped);
       saveProductionDocuments(localDocs, projectId, true);
     }
@@ -1110,10 +1153,11 @@ export function saveExportToVault(
  * Crawls project state (beats, notes, voice memos, storyboard shots, character portraits, breakdowns)
  * and safely ensures they are cataloged in the Vault without duplicates!
  */
-export function harvestProjectArtifacts(project: any): { addedCount: number; documents: ProductionDocument[] } {
-  if (!project) return { addedCount: 0, documents: getProductionDocuments() };
+export function harvestProjectArtifacts(project: any, explicitProjectId?: string): { addedCount: number; documents: ProductionDocument[] } {
+  const projId = explicitProjectId || project?.currentProjectId || undefined;
+  if (!project) return { addedCount: 0, documents: getProductionDocuments(projId) };
 
-  const existingDocs = getProductionDocuments();
+  const existingDocs = getProductionDocuments(projId);
   const existingIds = new Set(existingDocs.map((d) => d.id));
   const newDocs: ProductionDocument[] = [];
 
@@ -1331,7 +1375,7 @@ export function harvestProjectArtifacts(project: any): { addedCount: number; doc
 
   if (newDocs.length > 0) {
     const updated = [...newDocs, ...existingDocs];
-    saveProductionDocuments(updated);
+    saveProductionDocuments(updated, projId, false, true);
     return { addedCount: newDocs.length, documents: updated };
   }
 

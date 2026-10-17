@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { AISceneGeneratorModal } from '../AISceneGeneratorModal';
 import { ScriptRollingPreviewModal } from '../ScriptRollingPreviewModal';
+import { CausalityCanvasBoard } from './CausalityCanvasBoard';
 
 interface BoardViewProps {
   onEditBeat: (id: number) => void;
@@ -204,6 +205,14 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isScriptRollingOpen, setIsScriptRollingOpen] = useState(false);
   const [isAiModalOpen, setIsAiModalOpen] = useState(false);
+  const [useCanvasEngine, setUseCanvasEngine] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('causality_use_canvas_engine');
+      return saved !== null ? saved === 'true' : true;
+    } catch {
+      return true;
+    }
+  });
 
   // Inline editing
   const [editingBeatId, setEditingBeatId] = useState<number | null>(null);
@@ -1373,7 +1382,24 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
           </div>
         </div>
 
-        <div className="flex items-center gap-3 text-[9px] font-mono opacity-50">
+        <div className="flex items-center gap-3 text-[9px] font-mono opacity-80">
+          <button
+            onClick={() => {
+              const next = !useCanvasEngine;
+              setUseCanvasEngine(next);
+              try { localStorage.setItem('causality_use_canvas_engine', String(next)); } catch {}
+            }}
+            className={`flex items-center gap-1.5 px-2.5 py-0.5 rounded text-[10px] font-sans font-medium transition-all ${
+              useCanvasEngine
+                ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-xs shadow-cyan-500/20'
+                : 'bg-white/10 text-white/70 hover:text-white border border-white/10'
+            }`}
+            title="Toggle between 120 FPS Zero-DOM Causality Canvas and Legacy DOM View"
+          >
+            <span className={`w-1.5 h-1.5 rounded-full ${useCanvasEngine ? 'bg-cyan-400 animate-pulse' : 'bg-white/40'}`} />
+            <span>{useCanvasEngine ? '⚡ Causality Engine (120 FPS)' : 'DOM View'}</span>
+          </button>
+          <span>·</span>
           <span>{beats.filter(b => !b.isDisabled).length} active</span>
           <span>·</span>
           <span>{beats.filter(b => b.isDisabled).length} disabled</span>
@@ -1382,8 +1408,12 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
         </div>
       </div>
 
-      {/* ─── WHITEBOARD MAIN CANVAS ─── */}
-      <div
+      {useCanvasEngine ? (
+        <CausalityCanvasBoard onEditBeat={onEditBeat} />
+      ) : (
+        <>
+          {/* ─── LEGACY WHITEBOARD MAIN CANVAS (DOM) ─── */}
+          <div
         ref={boardScrollRef}
         onClick={handleCanvasClick}
         onContextMenu={(e) => {
@@ -2085,6 +2115,8 @@ export const BoardView: React.FC<BoardViewProps> = ({ onEditBeat }) => {
           </button>
         </div>
       </div>
+      </>
+      )}
 
       {/* ─── COMPREHENSIVE CONTEXT MENU (Beats, Groups, Canvas) ─── */}
       {contextMenu && (

@@ -50,6 +50,8 @@ import {
 import { TamilLeftRightStudioView } from './TamilLeftRightStudioView';
 import { DocumentTwoColumnEditor } from './DocumentTwoColumnEditor';
 import { MarkdownDocEditor } from './vault/MarkdownDocEditor';
+import { ScriptRevisionDiffModal } from './vault/ScriptRevisionDiffModal';
+import { vaultBridge } from '../../services/vault/VaultBridge';
 import { markdownToHtml, htmlToMarkdown } from '../../services/markdownEngine';
 import confetti from 'canvas-confetti';
 import {
@@ -136,7 +138,9 @@ import {
   Video,
   Tv,
   Music,
-  FileCode
+  FileCode,
+  GitCompare,
+  Zap
 } from 'lucide-react';
 
 const HIGHLIGHT_COLORS = [
@@ -268,10 +272,14 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
         .then((synced) => {
           if (!isMounted) return;
           if (synced && synced.length > 0) {
-            setDocuments(synced);
-            if (!selectedDocId || !synced.some(d => d.id === selectedDocId)) {
-              setSelectedDocId(synced[0]?.id || '');
-            }
+            setDocuments((prevDocs) => {
+              const merged = mergeProductionDocuments(prevDocs, synced);
+              saveProductionDocuments(merged, currentProjectId, true);
+              if (!selectedDocId || !merged.some((d) => d.id === selectedDocId)) {
+                setSelectedDocId(merged[0]?.id || '');
+              }
+              return merged;
+            });
           }
         })
         .finally(() => {
@@ -283,6 +291,11 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
       isMounted = false;
     };
   }, [currentProjectId, supabaseUser?.id]);
+
+  // Synchronize Inverted Index & Memory Pool with Vault Bridge
+  useEffect(() => {
+    vaultBridge.syncDocuments(documents);
+  }, [documents]);
   
   // Tamil Left-Right (இருபக்க திரைக்கதை வடிவம்) Modal & Conversion State
   const [isTamilLeftRightModalOpen, setIsTamilLeftRightModalOpen] = useState<boolean>(false);
@@ -314,6 +327,8 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
   const [newTagInput, setNewTagInput] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [searchLatencyUs, setSearchLatencyUs] = useState<number>(0);
+  const [isDiffModalOpen, setIsDiffModalOpen] = useState<boolean>(false);
   const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'title' | 'size' | 'comments'>('newest');
 
   // Breakdown & Studio View Mode & Filter State
@@ -670,24 +685,23 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
     }
   };
 
-  // Auto-Harvest App Artifacts on first mount
+  // Auto-Harvest App Artifacts on mount or project switch
   useEffect(() => {
     try {
-      const { addedCount } = harvestProjectArtifacts(projectContext);
-      if (addedCount > 0) {
-        const updated = getProductionDocuments();
-        setDocuments(updated);
+      const { addedCount, documents: updated } = harvestProjectArtifacts(projectContext, currentProjectId || undefined);
+      if (addedCount > 0 || (updated && updated.length > documents.length)) {
+        setDocuments((prev) => mergeProductionDocuments(prev, updated));
       }
     } catch (e) {
       console.warn('Auto-harvesting skipped on mount:', e);
     }
-  }, []);
+  }, [currentProjectId]);
 
   // Manual Trigger for Syncing App Artifacts
   const handleSyncArtifacts = () => {
     try {
-      const { addedCount, documents: updated } = harvestProjectArtifacts(projectContext);
-      setDocuments(updated);
+      const { addedCount, documents: updated } = harvestProjectArtifacts(projectContext, currentProjectId || undefined);
+      setDocuments((prev) => mergeProductionDocuments(prev, updated));
       confetti({ particleCount: 40, spread: 60, origin: { y: 0.6 } });
       if (addedCount > 0) {
         showToast(`⚡ Synchronized ${addedCount} new production assets into Document Vault!`);
@@ -1177,76 +1191,57 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
       .sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag));
   }, [documents]);
 
-  // Filter & Search Engine
+  // High-Speed Inverted Index & BM25 Fuzzy Search Engine
   const filteredDocuments = useMemo(() => {
-    return documents.filter((doc) => {
-      // Archive Filter
-      if (selectedCategory === 'ARCHIVED') {
-        if (!doc.isArchived) return false;
-      } else {
-        if (doc.isArchived) return false;
-        if (selectedCategory !== 'ALL' && doc.category !== selectedCategory) {
-          return false;
+    let candidateDocs = documents;
+
+    // Archive Filter
+    if (selectedCategory === 'ARCHIVED') {
+      candidateDocs = candidateDocs.filter((d) => d.isArchived);
+    } else {
+      candidateDocs = candidateDocs.filter((d) => !d.isArchived);
+      if (selectedCategory !== 'ALL') {
+        candidateDocs = candidateDocs.filter((d) => d.category === selectedCategory);
+      }
+    }
+
+    // Tag Filter
+    if (selectedTag) {
+      const tagLower = selectedTag.toLowerCase().trim();
+      candidateDocs = candidateDocs.filter((d) =>
+        d.tags?.some((t) => t.toLowerCase().trim() === tagLower)
+      );
+    }
+
+    // High-Speed Inverted Index Search
+    if (searchQuery.trim()) {
+      const q = searchQuery.trim();
+      const catFilter = selectedCategory === 'ARCHIVED' ? undefined : selectedCategory;
+      const searchRes = vaultBridge.search(q, catFilter, 100);
+      setSearchLatencyUs(searchRes.queryTimeUs);
+
+      if (searchRes.matches.length > 0) {
+        const scoreMap = new Map<string, number>();
+        searchRes.matches.forEach((m) => scoreMap.set(m.docId, m.score));
+
+        const matched = candidateDocs.filter((d) => scoreMap.has(d.id));
+        if (matched.length > 0) {
+          return matched.sort((a, b) => (scoreMap.get(b.id) || 0) - (scoreMap.get(a.id) || 0));
         }
       }
 
-      // Tag Filter
-      if (selectedTag) {
-        const hasSelectedTag = doc.tags?.some(
-          (t) => t.toLowerCase().trim() === selectedTag.toLowerCase().trim()
-        );
-        if (!hasSelectedTag) return false;
-      }
+      // Fallback for sub-word tag matching
+      const rawQ = q.toLowerCase();
+      return candidateDocs.filter((d) =>
+        d.title.toLowerCase().includes(rawQ) ||
+        d.fileName?.toLowerCase().includes(rawQ) ||
+        d.tags?.some((t) => t.toLowerCase().includes(rawQ))
+      );
+    }
 
-      // Search Query
-      if (searchQuery.trim()) {
-        const rawQ = searchQuery.toLowerCase().trim();
-        const isHashQuery = rawQ.startsWith('#');
-        const tagToken = isHashQuery ? rawQ.replace(/^#+/, '').trim() : '';
-        const cleanQ = isHashQuery ? tagToken : rawQ;
+    setSearchLatencyUs(0);
 
-        const matchTitle = doc.title.toLowerCase().includes(rawQ);
-        const matchTitleTa = doc.titleTa?.toLowerCase().includes(rawQ);
-        const matchFileName = doc.fileName.toLowerCase().includes(rawQ);
-        const matchAuthor = doc.author?.toLowerCase().includes(rawQ);
-        const matchCategory = doc.category.toLowerCase().includes(rawQ);
-
-        const matchTags = doc.tags?.some((t) => {
-          const lowerT = t.toLowerCase();
-          return (
-            lowerT.includes(rawQ) ||
-            (tagToken && lowerT.includes(tagToken)) ||
-            lowerT.replace(/\s+/g, '').includes(cleanQ.replace(/\s+/g, ''))
-          );
-        });
-
-        const matchText = doc.textContent?.toLowerCase().includes(rawQ);
-        const matchHtml = doc.htmlContent?.toLowerCase().includes(rawQ);
-        const matchAnnos = doc.annotations?.some(
-          (a) => a.text?.toLowerCase().includes(rawQ) || a.selectedText?.toLowerCase().includes(rawQ)
-        );
-
-        if (isHashQuery) {
-          if (!matchTags && !matchTitle) return false;
-        } else {
-          if (
-            !matchTitle &&
-            !matchTitleTa &&
-            !matchFileName &&
-            !matchAuthor &&
-            !matchCategory &&
-            !matchTags &&
-            !matchText &&
-            !matchHtml &&
-            !matchAnnos
-          ) {
-            return false;
-          }
-        }
-      }
-
-      return true;
-    }).sort((a, b) => {
+    return candidateDocs.slice().sort((a, b) => {
       if (sortBy === 'newest') return new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime();
       if (sortBy === 'oldest') return new Date(a.uploadedAt).getTime() - new Date(b.uploadedAt).getTime();
       if (sortBy === 'title') return a.title.localeCompare(b.title);
@@ -2356,7 +2351,7 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
       tags
     );
 
-    const updated = getProductionDocuments();
+    const updated = getProductionDocuments(currentProjectId || undefined);
     setDocuments(updated);
     setSelectedDocId(doc.id);
     setIsVoiceRecorderOpen(false);
@@ -2375,7 +2370,7 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
     const tags = quickNoteTags.split(',').map((t) => t.replace(/^#/, '').trim()).filter(Boolean);
     const doc = saveNoteToVault(title, quickNoteContent, tags, 'Production Office');
 
-    const updated = getProductionDocuments();
+    const updated = getProductionDocuments(currentProjectId || undefined);
     setDocuments(updated);
     setSelectedDocId(doc.id);
     setIsNoteModalOpen(false);
@@ -2399,7 +2394,7 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
     }
     const updatedTags = [...current, clean];
     updateDocumentTags(docId, updatedTags);
-    const updatedDocs = getProductionDocuments();
+    const updatedDocs = getProductionDocuments(currentProjectId || undefined);
     setDocuments(updatedDocs);
     setNewTagInput('');
     showToast(`✓ Added tag #${clean}`);
@@ -2412,7 +2407,7 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
       (t) => t.toLowerCase() !== tagToRemove.toLowerCase()
     );
     updateDocumentTags(docId, updatedTags);
-    const updatedDocs = getProductionDocuments();
+    const updatedDocs = getProductionDocuments(currentProjectId || undefined);
     setDocuments(updatedDocs);
     showToast(`✓ Removed tag #${tagToRemove}`);
   };
@@ -2782,8 +2777,14 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder={selectedTag ? "Filter within this tag or type #other..." : "Search documents, #tags (e.g. #Madurai), voice notes..."}
-                className={`w-full py-2 ${selectedTag ? 'pl-2' : 'pl-10'} pr-10 text-xs bg-transparent outline-none font-medium placeholder:text-zinc-500`}
+                className={`w-full py-2 ${selectedTag ? 'pl-2' : 'pl-10'} pr-20 text-xs bg-transparent outline-none font-medium placeholder:text-zinc-500`}
               />
+              {searchQuery && searchLatencyUs > 0 && (
+                <span className="absolute right-9 text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 flex items-center gap-0.5 pointer-events-none">
+                  <Zap size={9} />
+                  <span>{(searchLatencyUs / 1000).toFixed(2)}ms</span>
+                </span>
+              )}
               {searchQuery && (
                 <button
                   onClick={() => setSearchQuery('')}
@@ -3041,6 +3042,19 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
               >
                 <Columns size={13} />
                 <span className="hidden md:inline">Script Studio</span>
+              </button>
+
+              <button
+                onClick={() => setIsDiffModalOpen(true)}
+                className={`px-2.5 py-1 text-xs font-bold rounded-lg border flex items-center gap-1.5 transition-all cursor-pointer ${
+                  isLight
+                    ? 'bg-amber-50 border-amber-300 text-amber-800 hover:bg-amber-100'
+                    : 'bg-[#f5a623]/10 border-[#f5a623]/30 text-[#f5a623] hover:bg-[#f5a623]/20 hover:border-[#f5a623]/50'
+                }`}
+                title="Compare script revisions, versions, and drafts using Myers Diff Engine"
+              >
+                <GitCompare size={13} />
+                <span className="hidden md:inline">Revision Diff</span>
               </button>
 
               <button
@@ -6786,6 +6800,15 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
           )}
         </div>
       )}
+
+      {/* Script Revision & Document Diff Studio Modal (Powered by Myers C++ Engine) */}
+      <ScriptRevisionDiffModal
+        isOpen={isDiffModalOpen}
+        onClose={() => setIsDiffModalOpen(false)}
+        documents={documents}
+        initialDocIdA={selectedDocId}
+        isLight={isLight}
+      />
     </div>
   );
 };

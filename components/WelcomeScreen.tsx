@@ -9,6 +9,7 @@ import { ProjectMetadata } from '../types';
 import { useProject } from '../context/ProjectContext';
 import { isTauri } from '../utils/desktop';
 import { getProductionDocuments } from '../services/documentsStorage';
+import { ThemeToggleButton } from './ThemeToggleButton';
 
 interface WelcomeScreenProps {
   recents: RecentFile[];
@@ -45,8 +46,11 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
     deleteProject,
     userRole, logout, schemaError, projectList, selectProject, 
     autoGenerate5Scenes, setActiveBoardId, appAccentColor = '#f5a623',
-    renameProject
+    renameProject,
+    appTheme,
   } = useProject();
+
+  const isLight = appTheme === 'light';
 
   const [activeTab, setActiveTab] = useState<'all' | 'cloud' | 'local' | 'collab'>('all');
   const [searchQuery, setSearchQuery] = useState('');
@@ -365,40 +369,66 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-[700] bg-[#07070a] text-white flex items-center justify-center p-4 sm:p-6 md:p-8 font-sans select-none overflow-hidden">
+    <div className={`fixed inset-0 z-[700] ${isLight ? 'bg-slate-900/35' : 'bg-[#07070a]/90'} flex items-center justify-center p-4 sm:p-6 md:p-8 font-sans select-none overflow-hidden transition-colors duration-300 backdrop-blur-md`}>
       {/* Background Ambient Glows */}
       <div 
-        className="absolute -top-[15%] -left-[10%] w-[550px] h-[550px] rounded-full blur-[140px] pointer-events-none opacity-25"
+        className={`absolute -top-[15%] -left-[10%] w-[550px] h-[550px] rounded-full blur-[140px] pointer-events-none transition-opacity duration-300 ${isLight ? 'opacity-15' : 'opacity-25'}`}
         style={{ background: appAccentColor }}
       />
-      <div className="absolute -bottom-[20%] -right-[10%] w-[600px] h-[600px] rounded-full bg-blue-600/15 blur-[160px] pointer-events-none" />
+      <div className={`absolute -bottom-[20%] -right-[10%] w-[600px] h-[600px] rounded-full ${isLight ? 'bg-sky-400/15' : 'bg-blue-600/15'} blur-[160px] pointer-events-none`} />
 
       {/* Main Glassmorphic Studio Hub Container */}
-      <div className="relative w-full max-w-[1020px] h-[660px] max-h-[92vh] bg-[#101116]/95 border border-white/10 rounded-2xl shadow-[0_25px_80px_rgba(0,0,0,0.85)] backdrop-blur-2xl flex flex-col md:flex-row overflow-hidden">
+      <div className={`relative w-full max-w-[1020px] h-[660px] max-h-[92vh] ${
+        isLight 
+          ? 'bg-white/95 border-slate-200/90 text-slate-900 shadow-[0_25px_80px_rgba(15,23,42,0.18)]' 
+          : 'bg-[#101116]/95 border-white/10 text-white shadow-[0_25px_80px_rgba(0,0,0,0.85)]'
+      } border rounded-2xl backdrop-blur-2xl flex flex-col md:flex-row overflow-hidden transition-all duration-300`}>
+
+        {/* Top-Right Quick Controls (Theme Toggle & Dismiss Button) */}
+        <div className="absolute top-4 right-4 z-30 flex items-center gap-2">
+          <ThemeToggleButton variant="pill" size={14} />
+          <button
+            onClick={onDismiss}
+            className={`p-1.5 rounded-xl border transition-all cursor-pointer ${
+              isLight
+                ? 'bg-white/80 hover:bg-slate-100 border-slate-200 text-slate-500 hover:text-slate-900 shadow-xs'
+                : 'bg-white/5 hover:bg-white/10 border-white/10 text-gray-400 hover:text-white'
+            }`}
+            title="Dismiss Welcome Screen (Esc)"
+          >
+            <X size={15} />
+          </button>
+        </div>
         
         {/* ================= LEFT PANEL: Studio Actions & Branding ================= */}
-        <div className="w-full md:w-[380px] p-6 md:p-8 border-b md:border-b-0 md:border-r border-white/10 flex flex-col justify-between bg-gradient-to-b from-white/[0.03] to-transparent shrink-0">
+        <div className={`w-full md:w-[380px] p-6 md:p-8 border-b md:border-b-0 md:border-r ${
+          isLight 
+            ? 'border-slate-200/80 bg-gradient-to-b from-slate-50/90 via-slate-50/50 to-transparent' 
+            : 'border-white/10 bg-gradient-to-b from-white/[0.03] to-transparent'
+        } flex flex-col justify-between shrink-0 transition-colors duration-300`}>
           
           {/* Studio Brand Header */}
           <div className="flex flex-col gap-5">
             <div className="flex items-center gap-3.5">
               <div 
-                className="w-11 h-11 rounded-xl flex items-center justify-center shadow-lg border relative group"
+                className="w-11 h-11 rounded-xl flex items-center justify-center shadow-lg border relative group shrink-0"
                 style={{ 
-                  background: `linear-gradient(135deg, ${appAccentColor}25, ${appAccentColor}08)`,
+                  background: isLight 
+                    ? `linear-gradient(135deg, ${appAccentColor}30, ${appAccentColor}10)`
+                    : `linear-gradient(135deg, ${appAccentColor}25, ${appAccentColor}08)`,
                   borderColor: `${appAccentColor}50` 
                 }}
               >
                 <Film size={22} style={{ color: appAccentColor }} className="group-hover:scale-110 transition-transform duration-300" />
                 <div 
-                  className="absolute inset-0 rounded-xl blur-sm opacity-30 pointer-events-none" 
+                  className={`absolute inset-0 rounded-xl blur-sm pointer-events-none ${isLight ? 'opacity-20' : 'opacity-30'}`} 
                   style={{ background: appAccentColor }}
                 />
               </div>
 
               <div className="flex flex-col">
                 <div className="flex items-center gap-2">
-                  <span className="text-lg font-black tracking-[0.2em] uppercase text-white leading-none">
+                  <span className={`text-lg font-black tracking-[0.2em] uppercase leading-none ${isLight ? 'text-slate-900' : 'text-white'}`}>
                     Backstage
                   </span>
                   <span 
@@ -412,7 +442,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
                     Studio
                   </span>
                 </div>
-                <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mt-1">
+                <span className={`text-[10px] font-bold uppercase tracking-widest mt-1 ${isLight ? 'text-slate-500' : 'text-gray-400'}`}>
                   Screenplay & Story Sequencer
                 </span>
               </div>
@@ -420,12 +450,14 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
 
             {/* Schema Error Banner if any */}
             {schemaError && (
-              <div className="p-3 rounded-xl bg-red-950/40 border border-red-500/30 text-red-200 text-xs flex flex-col gap-1.5">
-                <div className="flex items-center gap-1.5 font-bold uppercase tracking-wide text-red-400 text-[10px]">
+              <div className={`p-3 rounded-xl border text-xs flex flex-col gap-1.5 ${
+                isLight ? 'bg-red-50 border-red-200 text-red-900' : 'bg-red-950/40 border-red-500/30 text-red-200'
+              }`}>
+                <div className="flex items-center gap-1.5 font-bold uppercase tracking-wide text-red-500 text-[10px]">
                   <AlertTriangle size={12} />
                   <span>Database Schema Notice</span>
                 </div>
-                <p className="text-[11px] leading-relaxed text-red-300/90">
+                <p className={`text-[11px] leading-relaxed ${isLight ? 'text-red-700' : 'text-red-300/90'}`}>
                   {schemaError === 'TABLE_MISSING' ? 'Projects or invites table missing.' : 'Required schema columns missing.'}
                 </p>
               </div>
@@ -436,7 +468,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
               {/* 1. New Screenplay */}
               <button
                 onClick={onNew}
-                className="flex items-center justify-between p-3.5 rounded-xl text-black font-black transition-all duration-200 shadow-md group hover:brightness-105 active:scale-[0.99] border border-black/10 text-left"
+                className="flex items-center justify-between p-3.5 rounded-xl text-black font-black transition-all duration-200 shadow-md group hover:brightness-105 active:scale-[0.99] border border-black/10 text-left cursor-pointer"
                 style={{
                   background: `linear-gradient(135deg, ${appAccentColor}, #ffb73c)`,
                 }}
@@ -458,18 +490,28 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
               {/* 2. Open Project File */}
               <button
                 onClick={onOpen}
-                className="flex items-center justify-between p-3.5 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 hover:border-white/20 text-white transition-all duration-200 group active:scale-[0.99] text-left"
+                className={`flex items-center justify-between p-3.5 rounded-xl border transition-all duration-200 group active:scale-[0.99] text-left cursor-pointer ${
+                  isLight
+                    ? 'bg-white hover:bg-slate-50 border-slate-200/90 hover:border-slate-300 text-slate-800 shadow-xs'
+                    : 'bg-white/[0.04] hover:bg-white/[0.08] border-white/10 hover:border-white/20 text-white'
+                }`}
               >
                 <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center shrink-0">
+                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${isLight ? 'bg-slate-100' : 'bg-white/5'}`}>
                     <FolderOpen size={18} style={{ color: appAccentColor }} className="group-hover:scale-110 transition-transform" />
                   </div>
                   <div className="flex flex-col">
-                    <span className="text-xs font-bold uppercase tracking-wider text-slate-200 group-hover:text-white">Open / Import File</span>
-                    <span className="text-[10px] text-gray-400">Backstage (.bst) or Causality (.cau, .json)</span>
+                    <span className={`text-xs font-bold uppercase tracking-wider ${isLight ? 'text-slate-800 group-hover:text-slate-950' : 'text-slate-200 group-hover:text-white'}`}>
+                      Open / Import File
+                    </span>
+                    <span className={`text-[10px] ${isLight ? 'text-slate-500' : 'text-gray-400'}`}>
+                      Backstage (.bst) or Causality (.cau, .json)
+                    </span>
                   </div>
                 </div>
-                <kbd className="text-[10px] font-mono text-gray-400 bg-white/5 px-2 py-1 rounded border border-white/5 shrink-0">
+                <kbd className={`text-[10px] font-mono px-2 py-1 rounded border shrink-0 ${
+                  isLight ? 'text-slate-500 bg-slate-100 border-slate-200' : 'text-gray-400 bg-white/5 border-white/5'
+                }`}>
                   Ctrl+O
                 </kbd>
               </button>
@@ -477,54 +519,72 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
               {/* 3. Open Excalidraw Whiteboard */}
               <button
                 onClick={handleLaunchExcalidraw}
-                className="flex items-center justify-between p-3 rounded-xl bg-white/[0.02] hover:bg-white/[0.06] border border-white/5 hover:border-white/15 text-white transition-all duration-200 group text-left"
+                className={`flex items-center justify-between p-3 rounded-xl border transition-all duration-200 group text-left cursor-pointer ${
+                  isLight
+                    ? 'bg-white hover:bg-purple-50/50 border-slate-200/80 hover:border-purple-200 text-slate-800 shadow-xs'
+                    : 'bg-white/[0.02] hover:bg-white/[0.06] border-white/5 hover:border-white/15 text-white'
+                }`}
                 title="Launch infinite whiteboard sketching canvas"
               >
                 <div className="flex items-center gap-3">
                   <div className="w-7 h-7 rounded-lg bg-purple-500/10 flex items-center justify-center shrink-0">
-                    <PenTool size={15} className="text-purple-400 group-hover:scale-110 transition-transform" />
+                    <PenTool size={15} className="text-purple-500 group-hover:scale-110 transition-transform" />
                   </div>
                   <div className="flex flex-col">
-                    <span className="text-xs font-semibold text-slate-300 group-hover:text-white">Excalidraw Whiteboard</span>
-                    <span className="text-[9px] text-gray-500">Infinite sketching & beat canvas</span>
+                    <span className={`text-xs font-semibold ${isLight ? 'text-slate-700 group-hover:text-purple-900' : 'text-slate-300 group-hover:text-white'}`}>
+                      Excalidraw Whiteboard
+                    </span>
+                    <span className={`text-[9px] ${isLight ? 'text-slate-400' : 'text-gray-500'}`}>
+                      Infinite sketching & beat canvas
+                    </span>
                   </div>
                 </div>
-                <ChevronRight size={14} className="text-gray-600 group-hover:text-white transition-colors shrink-0" />
+                <ChevronRight size={14} className={`${isLight ? 'text-slate-400 group-hover:text-purple-600' : 'text-gray-600 group-hover:text-white'} transition-colors shrink-0`} />
               </button>
 
               {/* 4. Quick Starter Demo Project */}
               <button
                 onClick={handleLoadDemoProject}
-                className="flex items-center justify-between p-3 rounded-xl bg-white/[0.02] hover:bg-white/[0.06] border border-white/5 hover:border-white/15 text-white transition-all duration-200 group text-left"
+                className={`flex items-center justify-between p-3 rounded-xl border transition-all duration-200 group text-left cursor-pointer ${
+                  isLight
+                    ? 'bg-white hover:bg-emerald-50/50 border-slate-200/80 hover:border-emerald-200 text-slate-800 shadow-xs'
+                    : 'bg-white/[0.02] hover:bg-white/[0.06] border-white/5 hover:border-white/15 text-white'
+                }`}
                 title="Load 5-scene demo project with breakdown and beatboard"
               >
                 <div className="flex items-center gap-3">
                   <div className="w-7 h-7 rounded-lg bg-emerald-500/10 flex items-center justify-center shrink-0">
-                    <Sparkles size={15} className="text-emerald-400 group-hover:scale-110 transition-transform" />
+                    <Sparkles size={15} className="text-emerald-500 group-hover:scale-110 transition-transform" />
                   </div>
                   <div className="flex flex-col">
-                    <span className="text-xs font-semibold text-slate-300 group-hover:text-white">Explore Demo Screenplay</span>
-                    <span className="text-[9px] text-gray-500">Test scenes, beats & dialogue</span>
+                    <span className={`text-xs font-semibold ${isLight ? 'text-slate-700 group-hover:text-emerald-900' : 'text-slate-300 group-hover:text-white'}`}>
+                      Explore Demo Screenplay
+                    </span>
+                    <span className={`text-[9px] ${isLight ? 'text-slate-400' : 'text-gray-500'}`}>
+                      Test scenes, beats & dialogue
+                    </span>
                   </div>
                 </div>
-                <Play size={12} className="text-gray-600 group-hover:text-emerald-400 transition-colors shrink-0" />
+                <Play size={12} className={`${isLight ? 'text-slate-400 group-hover:text-emerald-600' : 'text-gray-600 group-hover:text-emerald-400'} transition-colors shrink-0`} />
               </button>
             </div>
           </div>
 
           {/* Bottom Profile & Direct Studio Access */}
-          <div className="pt-4 border-t border-white/10 flex flex-col gap-3 mt-4">
+          <div className={`pt-4 border-t flex flex-col gap-3 mt-4 ${isLight ? 'border-slate-200/80' : 'border-white/10'}`}>
             {/* User Details */}
-            <div className="flex items-center justify-between text-xs text-gray-400">
+            <div className={`flex items-center justify-between text-xs ${isLight ? 'text-slate-500' : 'text-gray-400'}`}>
               <div className="flex items-center gap-2 overflow-hidden">
-                <div className="w-7 h-7 rounded-full bg-gradient-to-br from-[#2a2a35] to-[#181820] border border-white/10 flex items-center justify-center shrink-0">
-                  <User size={13} className="text-gray-300" />
+                <div className={`w-7 h-7 rounded-full border flex items-center justify-center shrink-0 ${
+                  isLight ? 'bg-gradient-to-br from-slate-100 to-slate-200 border-slate-300 text-slate-700' : 'bg-gradient-to-br from-[#2a2a35] to-[#181820] border-white/10 text-gray-300'
+                }`}>
+                  <User size={13} />
                 </div>
                 <div className="flex flex-col min-w-0">
-                  <span className="text-[11px] font-bold text-white truncate max-w-[150px]">
+                  <span className={`text-[11px] font-bold truncate max-w-[150px] ${isLight ? 'text-slate-900' : 'text-white'}`}>
                     {currentUser || 'Guest Writer'}
                   </span>
-                  <span className="text-[9px] font-mono text-gray-500 uppercase truncate">
+                  <span className={`text-[9px] font-mono uppercase truncate ${isLight ? 'text-slate-400' : 'text-gray-500'}`}>
                     {userRole?.includes('writer') ? 'Head Writer' : (userRole || 'Screenwriter')}
                   </span>
                 </div>
@@ -533,7 +593,9 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
               {currentUser ? (
                 <button
                   onClick={() => logout()}
-                  className="p-1.5 rounded-lg text-gray-400 hover:text-red-400 hover:bg-red-500/10 transition-colors text-[10px] flex items-center gap-1 cursor-pointer"
+                  className={`p-1.5 rounded-lg transition-colors text-[10px] flex items-center gap-1 cursor-pointer ${
+                    isLight ? 'text-slate-500 hover:text-red-600 hover:bg-red-50' : 'text-gray-400 hover:text-red-400 hover:bg-red-500/10'
+                  }`}
                   title="Sign out of workspace"
                 >
                   <LogOut size={13} />
@@ -553,10 +615,16 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
             {/* Direct Continue Button */}
             <button
               onClick={onDismiss}
-              className="w-full py-2.5 px-4 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-bold text-slate-300 hover:text-white flex items-center justify-center gap-2 transition-all group"
+              className={`w-full py-2.5 px-4 rounded-xl border text-xs font-bold flex items-center justify-center gap-2 transition-all group cursor-pointer ${
+                isLight 
+                  ? 'bg-slate-100 hover:bg-slate-200/80 border-slate-200 text-slate-700 hover:text-slate-900'
+                  : 'bg-white/5 hover:bg-white/10 border-white/10 text-slate-300 hover:text-white'
+              }`}
             >
               <span>Continue to Workspace</span>
-              <kbd className="text-[9px] font-mono bg-white/10 px-1.5 py-0.5 rounded text-gray-400 group-hover:text-white">
+              <kbd className={`text-[9px] font-mono px-1.5 py-0.5 rounded ${
+                isLight ? 'bg-slate-200 text-slate-600' : 'bg-white/10 text-gray-400 group-hover:text-white'
+              }`}>
                 Esc
               </kbd>
             </button>
@@ -564,24 +632,32 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
         </div>
 
         {/* ================= RIGHT PANEL: Recents, Cloud & Invites ================= */}
-        <div className="flex-1 flex flex-col min-w-0 bg-[#0c0d12]/60 p-6 md:p-8 overflow-hidden">
+        <div className={`flex-1 flex flex-col min-w-0 p-6 md:p-8 overflow-hidden transition-colors duration-300 ${
+          isLight ? 'bg-slate-50/50' : 'bg-[#0c0d12]/60'
+        }`}>
           
           {/* Top Bar: Tabs & Search Input */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3.5 pb-4 border-b border-white/10">
+          <div className={`flex flex-col sm:flex-row sm:items-center justify-between gap-3.5 pb-4 border-b pr-20 ${
+            isLight ? 'border-slate-200/80' : 'border-white/10'
+          }`}>
             {/* Segmented Navigation Tabs */}
-            <div className="flex items-center gap-1 p-1 bg-white/[0.04] border border-white/5 rounded-xl overflow-x-auto max-w-full">
+            <div className={`flex items-center gap-1 p-1 border rounded-xl overflow-x-auto max-w-full ${
+              isLight ? 'bg-slate-200/60 border-slate-300/50' : 'bg-white/[0.04] border-white/5'
+            }`}>
               <button
                 onClick={() => setActiveTab('all')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 transition-all whitespace-nowrap ${
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 transition-all whitespace-nowrap cursor-pointer ${
                   activeTab === 'all'
-                    ? 'bg-white/10 text-white shadow-xs'
-                    : 'text-gray-400 hover:text-white'
+                    ? isLight ? 'bg-white text-slate-900 shadow-xs' : 'bg-white/10 text-white shadow-xs'
+                    : isLight ? 'text-slate-600 hover:text-slate-900' : 'text-gray-400 hover:text-white'
                 }`}
               >
                 <Clock size={13} />
                 <span>Recent Projects</span>
                 {allRecentProjects.length > 0 && (
-                  <span className="ml-1 px-1.5 py-0.2 rounded-full text-[9px] font-mono bg-white/10 text-gray-300">
+                  <span className={`ml-1 px-1.5 py-0.2 rounded-full text-[9px] font-mono ${
+                    isLight ? 'bg-slate-100 text-slate-700 border border-slate-200' : 'bg-white/10 text-gray-300'
+                  }`}>
                     {allRecentProjects.length}
                   </span>
                 )}
@@ -589,16 +665,18 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
 
               <button
                 onClick={() => setActiveTab('cloud')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 transition-all whitespace-nowrap ${
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 transition-all whitespace-nowrap cursor-pointer ${
                   activeTab === 'cloud'
-                    ? 'bg-white/10 text-white shadow-xs'
-                    : 'text-gray-400 hover:text-white'
+                    ? isLight ? 'bg-white text-emerald-800 shadow-xs' : 'bg-white/10 text-white shadow-xs'
+                    : isLight ? 'text-slate-600 hover:text-emerald-700' : 'text-gray-400 hover:text-white'
                 }`}
               >
                 <Cloud size={13} />
                 <span>Cloud</span>
                 {cloudCount > 0 && (
-                  <span className="ml-1 px-1.5 py-0.2 rounded-full text-[9px] font-mono bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                  <span className={`ml-1 px-1.5 py-0.2 rounded-full text-[9px] font-mono border ${
+                    isLight ? 'bg-emerald-50 text-emerald-700 border-emerald-300' : 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+                  }`}>
                     {cloudCount}
                   </span>
                 )}
@@ -606,16 +684,18 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
 
               <button
                 onClick={() => setActiveTab('local')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 transition-all whitespace-nowrap ${
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 transition-all whitespace-nowrap cursor-pointer ${
                   activeTab === 'local'
-                    ? 'bg-white/10 text-white shadow-xs'
-                    : 'text-gray-400 hover:text-white'
+                    ? isLight ? 'bg-white text-amber-800 shadow-xs' : 'bg-white/10 text-white shadow-xs'
+                    : isLight ? 'text-slate-600 hover:text-amber-700' : 'text-gray-400 hover:text-white'
                 }`}
               >
                 <Film size={13} />
                 <span>Local</span>
                 {localCount > 0 && (
-                  <span className="ml-1 px-1.5 py-0.2 rounded-full text-[9px] font-mono bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                  <span className={`ml-1 px-1.5 py-0.2 rounded-full text-[9px] font-mono border ${
+                    isLight ? 'bg-amber-50 text-amber-700 border-amber-300' : 'bg-amber-500/20 text-amber-400 border-amber-500/30'
+                  }`}>
                     {localCount}
                   </span>
                 )}
@@ -623,16 +703,18 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
 
               <button
                 onClick={() => setActiveTab('collab')}
-                className={`relative px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 transition-all whitespace-nowrap ${
+                className={`relative px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 transition-all whitespace-nowrap cursor-pointer ${
                   activeTab === 'collab'
-                    ? 'bg-white/10 text-sky-400 shadow-xs'
-                    : 'text-gray-400 hover:text-sky-300'
+                    ? isLight ? 'bg-white text-sky-700 shadow-xs' : 'bg-white/10 text-sky-400 shadow-xs'
+                    : isLight ? 'text-slate-600 hover:text-sky-700' : 'text-gray-400 hover:text-sky-300'
                 }`}
               >
                 <Mail size={13} />
                 <span>Collab</span>
                 {collabCount > 0 && (
-                  <span className="ml-1 px-1.5 py-0.2 rounded-full text-[9px] font-mono bg-sky-500/20 text-sky-400 border border-sky-500/30">
+                  <span className={`ml-1 px-1.5 py-0.2 rounded-full text-[9px] font-mono border ${
+                    isLight ? 'bg-sky-50 text-sky-700 border-sky-300' : 'bg-sky-500/20 text-sky-400 border-sky-500/30'
+                  }`}>
                     {collabCount}
                   </span>
                 )}
@@ -641,18 +723,22 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
 
             {/* Live Search Input */}
             <div className="relative w-full sm:w-[200px]">
-              <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
+              <Search size={13} className={`absolute left-3 top-1/2 -translate-y-1/2 ${isLight ? 'text-slate-400' : 'text-gray-500'}`} />
               <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Filter projects..."
-                className="w-full bg-white/[0.03] border border-white/10 rounded-xl pl-8 pr-3 py-1.5 text-xs text-white placeholder-gray-500 outline-none focus:border-amber-500/50 focus:bg-white/[0.06] transition-all"
+                className={`w-full border rounded-xl pl-8 pr-3 py-1.5 text-xs outline-none transition-all ${
+                  isLight
+                    ? 'bg-white border-slate-200 text-slate-900 placeholder-slate-400 focus:border-amber-500 focus:ring-1 focus:ring-amber-500/20 shadow-xs'
+                    : 'bg-white/[0.03] border-white/10 text-white placeholder-gray-500 focus:border-amber-500/50 focus:bg-white/[0.06]'
+                }`}
               />
               {searchQuery && (
                 <button
                   onClick={() => setSearchQuery('')}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-500 hover:text-white"
+                  className={`absolute right-2.5 top-1/2 -translate-y-1/2 cursor-pointer ${isLight ? 'text-slate-400 hover:text-slate-700' : 'text-gray-500 hover:text-white'}`}
                 >
                   <X size={12} />
                 </button>
@@ -670,46 +756,54 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
                     onClick={() => handleOpenProject(proj)}
                     className={`group flex items-center justify-between p-3.5 rounded-xl border transition-all cursor-pointer ${
                       proj.isCurrent 
-                        ? 'bg-amber-500/[0.08] border-amber-500/30 hover:bg-amber-500/[0.12]' 
-                        : 'bg-white/[0.02] hover:bg-white/[0.07] border-white/5 hover:border-white/15'
+                        ? isLight
+                          ? 'bg-amber-50/90 border-amber-300 hover:bg-amber-100/70 shadow-xs'
+                          : 'bg-amber-500/[0.08] border-amber-500/30 hover:bg-amber-500/[0.12]' 
+                        : isLight
+                          ? 'bg-white hover:bg-slate-50 border-slate-200/80 hover:border-slate-300 shadow-xs'
+                          : 'bg-white/[0.02] hover:bg-white/[0.07] border-white/5 hover:border-white/15'
                     }`}
                   >
                     <div className="flex items-center gap-3.5 min-w-0 flex-1 mr-2">
                       <div className={`w-9 h-9 rounded-lg border flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform ${
                         proj.type === 'cloud'
-                          ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
+                          ? isLight ? 'bg-emerald-50 border-emerald-200 text-emerald-600' : 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
                           : proj.type === 'collab'
-                          ? 'bg-sky-500/10 border-sky-500/20 text-sky-400'
-                          : 'bg-amber-500/10 border-amber-500/20 text-amber-400'
+                          ? isLight ? 'bg-sky-50 border-sky-200 text-sky-600' : 'bg-sky-500/10 border-sky-500/20 text-sky-400'
+                          : isLight ? 'bg-amber-50 border-amber-200 text-amber-600' : 'bg-amber-500/10 border-amber-500/20 text-amber-400'
                       }`}>
                         {proj.type === 'cloud' ? <Cloud size={16} /> : proj.type === 'collab' ? <Mail size={16} /> : <Film size={16} />}
                       </div>
 
                       <div className="flex flex-col min-w-0">
                         <div className="flex items-center gap-2">
-                          <span className="text-xs font-bold text-slate-200 group-hover:text-white truncate">
+                          <span className={`text-xs font-bold truncate ${
+                            isLight ? 'text-slate-800 group-hover:text-slate-950' : 'text-slate-200 group-hover:text-white'
+                          }`}>
                             {proj.name}
                           </span>
                           {proj.isCurrent && (
-                            <span className="px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-wider bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                            <span className={`px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-wider border ${
+                              isLight ? 'bg-amber-100 text-amber-800 border-amber-300' : 'bg-amber-500/20 text-amber-400 border-amber-500/30'
+                            }`}>
                               Active
                             </span>
                           )}
                         </div>
 
-                        <div className="text-[10px] text-gray-500 font-mono flex items-center gap-2 mt-0.5">
+                        <div className={`text-[10px] font-mono flex items-center gap-2 mt-0.5 ${isLight ? 'text-slate-500' : 'text-gray-500'}`}>
                           <span className={`px-1.5 py-0.2 rounded text-[8px] uppercase font-bold tracking-wider border ${
                             proj.type === 'cloud'
-                              ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
+                              ? isLight ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
                               : proj.type === 'collab'
-                              ? 'bg-sky-500/15 text-sky-300 border-sky-500/30'
-                              : 'bg-amber-500/15 text-amber-300 border-amber-500/30'
+                              ? isLight ? 'bg-sky-50 text-sky-700 border-sky-200' : 'bg-sky-500/15 text-sky-300 border-sky-500/30'
+                              : isLight ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-amber-500/15 text-amber-300 border-amber-500/30'
                           }`}>
                             {proj.type === 'cloud' ? 'Cloud' : proj.type === 'collab' ? 'Collab' : 'Local'}
                           </span>
                           {proj.invitedBy && <span>• Invited by {proj.invitedBy}</span>}
                           {proj.lastModified && <span>• {formatRelativeTime(proj.lastModified)}</span>}
-                          {proj.path && <span className="truncate max-w-[200px] text-gray-600">• {proj.path}</span>}
+                          {proj.path && <span className={`truncate max-w-[200px] ${isLight ? 'text-slate-400' : 'text-gray-600'}`}>• {proj.path}</span>}
                         </div>
                       </div>
                     </div>
@@ -717,7 +811,11 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
                     <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
                       <button
                         onClick={() => handleOpenProject(proj)}
-                        className="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-xs font-semibold text-slate-300 hover:text-white transition-colors"
+                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
+                          isLight
+                            ? 'bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-200'
+                            : 'bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white'
+                        }`}
                       >
                         Open
                       </button>
@@ -735,7 +833,11 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
                               }
                             }
                           }}
-                          className="p-1.5 rounded-lg text-gray-500 hover:text-amber-400 hover:bg-amber-500/10 transition-colors"
+                          className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                            isLight
+                              ? 'text-slate-400 hover:text-amber-600 hover:bg-amber-50'
+                              : 'text-gray-500 hover:text-amber-400 hover:bg-amber-500/10'
+                          }`}
                           title="Rename project"
                         >
                           <Pencil size={13} />
@@ -748,7 +850,11 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
                             e.stopPropagation();
                             handleDeleteProject(proj);
                           }}
-                          className="p-1.5 rounded-lg text-gray-500 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                          className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                            isLight
+                              ? 'text-slate-400 hover:text-red-600 hover:bg-red-50'
+                              : 'text-gray-500 hover:text-red-400 hover:bg-red-500/10'
+                          }`}
                           title="Delete project"
                         >
                           <Trash2 size={13} />
@@ -759,15 +865,23 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
                 ))}
               </div>
             ) : (
-              <div className="h-full flex flex-col items-center justify-center text-center p-8 text-gray-500 gap-3">
-                <div className="w-12 h-12 rounded-2xl bg-white/[0.02] border border-white/5 flex items-center justify-center">
-                  {activeTab === 'cloud' ? <Cloud size={20} className="text-gray-600" /> : activeTab === 'collab' ? <Mail size={20} className="text-gray-600" /> : <Clock size={20} className="text-gray-600" />}
+              <div className={`h-full flex flex-col items-center justify-center text-center p-8 gap-3 ${isLight ? 'text-slate-500' : 'text-gray-500'}`}>
+                <div className={`w-12 h-12 rounded-2xl border flex items-center justify-center ${
+                  isLight ? 'bg-slate-100 border-slate-200' : 'bg-white/[0.02] border-white/5'
+                }`}>
+                  {activeTab === 'cloud' ? (
+                    <Cloud size={20} className={isLight ? 'text-slate-400' : 'text-gray-600'} />
+                  ) : activeTab === 'collab' ? (
+                    <Mail size={20} className={isLight ? 'text-slate-400' : 'text-gray-600'} />
+                  ) : (
+                    <Clock size={20} className={isLight ? 'text-slate-400' : 'text-gray-600'} />
+                  )}
                 </div>
                 <div>
-                  <h4 className="text-xs font-bold text-gray-300 uppercase tracking-wider">
+                  <h4 className={`text-xs font-bold uppercase tracking-wider ${isLight ? 'text-slate-700' : 'text-gray-300'}`}>
                     {searchQuery ? `No projects matching "${searchQuery}"` : `No ${activeTab === 'all' ? 'Recent' : activeTab} Projects Found`}
                   </h4>
-                  <p className="text-[11px] text-gray-500 max-w-[300px] mt-1 leading-relaxed">
+                  <p className={`text-[11px] max-w-[300px] mt-1 leading-relaxed ${isLight ? 'text-slate-500' : 'text-gray-500'}`}>
                     {activeTab === 'cloud' && !currentUser
                       ? 'Sign in to access your cloud scripts, automated backups, and shared production workspaces.'
                       : activeTab === 'collab' && !currentUser
@@ -787,7 +901,9 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
                 {activeTab === 'all' && (
                   <button
                     onClick={onNew}
-                    className="mt-1 px-4 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-bold uppercase tracking-wider transition-all"
+                    className={`mt-1 px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${
+                      isLight ? 'bg-slate-800 hover:bg-slate-900 text-white' : 'bg-white/10 hover:bg-white/20 text-white'
+                    }`}
                   >
                     Create New Screenplay
                   </button>
@@ -797,11 +913,13 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
           </div>
 
           {/* Quick Shortcuts Footer */}
-          <div className="pt-3.5 mt-3 border-t border-white/10 flex items-center justify-between text-[10px] text-gray-500 font-mono">
+          <div className={`pt-3.5 mt-3 border-t flex items-center justify-between text-[10px] font-mono ${
+            isLight ? 'border-slate-200/80 text-slate-500' : 'border-white/10 text-gray-500'
+          }`}>
             <div className="flex items-center gap-4">
-              <span><kbd className="bg-white/10 px-1 py-0.5 rounded text-gray-300">Ctrl+N</kbd> New</span>
-              <span><kbd className="bg-white/10 px-1 py-0.5 rounded text-gray-300">Ctrl+O</kbd> Open</span>
-              <span><kbd className="bg-white/10 px-1 py-0.5 rounded text-gray-300">Esc</kbd> Dismiss</span>
+              <span><kbd className={`px-1 py-0.5 rounded ${isLight ? 'bg-slate-200 text-slate-700 border border-slate-300' : 'bg-white/10 text-gray-300'}`}>Ctrl+N</kbd> New</span>
+              <span><kbd className={`px-1 py-0.5 rounded ${isLight ? 'bg-slate-200 text-slate-700 border border-slate-300' : 'bg-white/10 text-gray-300'}`}>Ctrl+O</kbd> Open</span>
+              <span><kbd className={`px-1 py-0.5 rounded ${isLight ? 'bg-slate-200 text-slate-700 border border-slate-300' : 'bg-white/10 text-gray-300'}`}>Esc</kbd> Dismiss</span>
             </div>
             <span>Backstage Production Engine</span>
           </div>

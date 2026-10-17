@@ -428,7 +428,7 @@ export const TwoColumnItemRow: React.FC<TwoColumnItemRowProps> = React.memo(
         id={`script-row-${item.id}`}
         data-item-row-id={item.id}
         className="relative group/row"
-        style={{ marginBottom: `${gapParagraphRowPx}px` }}
+        style={{ marginBottom: `${Math.min(gapParagraphRowPx, 3)}px` }}
         onDragOver={(e) => onDragOver(item.id, e)}
         onDragLeave={(e) => onDragLeave(item.id, e)}
         onDrop={(e) => onDrop(item.id, e)}
@@ -507,7 +507,7 @@ export const TwoColumnItemRow: React.FC<TwoColumnItemRowProps> = React.memo(
           id={`script-row-card-${item.id}`}
           tabIndex={-1}
           onClick={(e) => onParagraphClick(item.id, e)}
-          className={`group relative rounded-xl p-2.5 transition-colors duration-150 cursor-pointer border ${
+          className={`group relative rounded-lg px-2 py-0.5 transition-colors duration-150 cursor-pointer border ${
             isDragged
               ? 'opacity-35 scale-[0.99] ring-2 ring-emerald-500/50 shadow-xl border-emerald-500/50'
               : isSelected

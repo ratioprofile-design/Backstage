@@ -380,33 +380,42 @@ export const TwoColumnExportModal: React.FC<TwoColumnExportModalProps> = ({
                       diaText = m[2].trim();
                     }
                   }
+                  if (charName.endsWith(':')) {
+                    charName = charName.slice(0, -1).trim();
+                  }
 
-                  const leftActionText = !isRight ? (item.leftAction || item.rawText || '') : '';
+                  const leftActionText = (item.leftAction || (!isRight ? item.rawText : '') || '').trim();
+                  const isPureDialogue = !leftActionText && Boolean(charName || diaText);
+                  const isSimultaneous = Boolean(leftActionText && (charName || diaText));
 
                   return (
                     <div
                       key={`item-${item.id}-${idx}`}
-                      className="flex items-start text-xs leading-relaxed mb-1.5"
+                      className="flex items-start text-xs leading-relaxed mb-1"
                     >
-                      {/* Left Column (Visual Action ONLY) */}
+                      {/* Left Column: Visual Action OR Right-Aligned Character Name */}
                       <div
                         style={{ width: `${exportOptions.columnSplitPercent}%` }}
-                        className="pr-3 text-left"
+                        className={`pr-3 ${isPureDialogue ? 'text-right' : 'text-left'}`}
                       >
-                        {!isRight && leftActionText ? (
+                        {isPureDialogue && charName ? (
+                          <div className="font-bold text-sky-700 text-xs">
+                            {charName} :
+                          </div>
+                        ) : leftActionText ? (
                           <span className={`text-slate-900 ${item.isBold ? 'font-bold' : ''} ${item.isItalic ? 'italic' : ''}`}>{leftActionText}</span>
                         ) : null}
                       </div>
 
                       {/* Hairline Divider */}
-                      <div className="w-[1px] bg-slate-300 self-stretch shrink-0 min-h-[18px]" />
+                      <div className="w-[1px] bg-slate-300 self-stretch shrink-0" />
 
-                      {/* Right Column (Character & Dialogue) */}
+                      {/* Right Column: Dialogue */}
                       <div
                         style={{ width: `${100 - exportOptions.columnSplitPercent}%` }}
                         className="pl-3 text-left"
                       >
-                        {(isRight || charName || diaText) ? (
+                        {isSimultaneous ? (
                           <div>
                             {charName ? (
                               <div className="font-bold text-sky-700 text-xs mb-0.5">
@@ -415,6 +424,8 @@ export const TwoColumnExportModal: React.FC<TwoColumnExportModalProps> = ({
                             ) : null}
                             <div className={`text-slate-900 ${item.isBold ? 'font-bold' : ''} ${item.isItalic ? 'italic' : ''}`}>{diaText}</div>
                           </div>
+                        ) : diaText ? (
+                          <div className={`text-slate-900 ${item.isBold ? 'font-bold' : ''} ${item.isItalic ? 'italic' : ''}`}>{diaText}</div>
                         ) : null}
                       </div>
                     </div>

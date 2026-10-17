@@ -1281,8 +1281,8 @@ select:not(.slug-input):not(.bg-transparent):focus {
    ========================================== */
 @media print {
   @page {
-    size: A4 portrait;
-    margin: 10mm 12mm 12mm 12mm;
+    size: auto;
+    margin: 0mm;
   }
   body {
     background: #ffffff !important;
@@ -1300,13 +1300,56 @@ select:not(.slug-input):not(.bg-transparent):focus {
     height: auto !important;
     background: #ffffff !important;
   }
-  .no-print, header, .ui-layer, aside, nav, .sidebar, [data-sidebar], button, input[type="file"] {
+  .no-print, header, .ui-layer, aside, nav, .sidebar, [data-sidebar], button, input[type="file"],
+  [data-print-hide], .print-modal-sidebar {
     display: none !important;
   }
+
+  /* Reset modal containers when printing */
+  .print-modal-container {
+    position: static !important;
+    overflow: visible !important;
+    background: #ffffff !important;
+    display: block !important;
+    height: auto !important;
+    width: 100% !important;
+  }
+  .print-modal-canvas-wrapper {
+    overflow: visible !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    background: none !important;
+    background-image: none !important;
+    display: block !important;
+  }
+  .print-modal-scale-wrapper {
+    transform: none !important;
+    margin: 0 !important;
+    display: block !important;
+  }
+  #preview-scroll-container {
+    overflow: visible !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    background: none !important;
+    background-image: none !important;
+    display: block !important;
+  }
+
   .bible-page {
     box-shadow: none !important;
-    margin: 0 !important;
+    margin: 0 auto !important;
     border: none !important;
+    page-break-after: always !important;
+    break-after: page !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    overflow: hidden !important;
+  }
+  .bible-page:last-child,
+  .bible-page:last-of-type {
+    page-break-after: auto !important;
+    break-after: auto !important;
   }
 
   /* 2-Column Kollywood Script Print Styles */

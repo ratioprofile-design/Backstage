@@ -3365,7 +3365,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
       // Immediately persist current screenplay to the Vault
       saveToVault(false);
       showToast('Opening Instant Vector PDF...');
-      await printTwoColumnVector(screenplayData);
+      await printTwoColumnVector(screenplayData, layoutOptions);
       confetti({ particleCount: 30, spread: 60, origin: { y: 0.7 } });
       showToast('✓ PDF ready! Select "Save as PDF"');
     } catch (err) {
@@ -4208,7 +4208,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
                 <button
                   onClick={() => {
                     setIsExportMenuOpen(false);
-                    printTwoColumnVector(screenplayData);
+                    printTwoColumnVector(screenplayData, layoutOptions);
                   }}
                   className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-left text-xs font-medium transition-colors cursor-pointer ${
                     isLight ? 'hover:bg-slate-100 text-slate-800' : 'hover:bg-zinc-800 text-zinc-100'
@@ -4646,7 +4646,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
 
 
                 {/* 3. Page Body Elements */}
-                <div className="flex-1 space-y-4">
+                <div className="flex-1">
                   {page.elements.map((elem, idx) => {
                     // CASE A: Scene Heading Element
                     if (elem.type === 'scene_header') {

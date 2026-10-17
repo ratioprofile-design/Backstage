@@ -46,14 +46,41 @@ export interface TwoColumnPaginationOptions {
   splitActionIncludeDot?: boolean; // Also split action blocks at periods/dots into single shot paragraphs (default false)
 }
 
+/**
+ * Checks if a script item is functionally empty (has no printable text in any column)
+ */
+export function isItemEmpty(item: TamilScriptItem): boolean {
+  if (!item) return true;
+  if (item.column === 'center' || item.type === 'transition' || item.type === 'title') {
+    const text = (item.rawText || item.leftAction || item.rightDialogue || '')
+      .replace(/<[^>]+>/g, '')
+      .replace(/&nbsp;/g, ' ')
+      .trim();
+    return !text;
+  }
+  const left = (item.leftAction || (item.column !== 'right' && !item.rightDialogue ? item.rawText : '') || '')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .trim();
+  const char = (item.rightCharacter || '')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .trim();
+  const dia = (item.rightDialogue || (item.column === 'right' ? item.rawText : '') || '')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .trim();
+  return !left && !char && !dia;
+}
+
 export const DEFAULT_TWO_COLUMN_PAGINATION_OPTIONS: TwoColumnPaginationOptions = {
   paperStandard: 'A4',
   marginTopMm: 20,
   marginBottomMm: 20,
   marginLeftMm: 20,
   marginRightMm: 20,
-  gapSceneHeaderPx: 16,
-  gapParagraphRowPx: 8,
+  gapSceneHeaderPx: 14,
+  gapParagraphRowPx: 3,
   baseFontSizePx: 17,
   baseLineHeight: 1.5,
   baseFontFamily: "'Vijaya', 'Latha', 'Mukta Malar', 'Noto Sans Tamil', system-ui, sans-serif",
@@ -183,8 +210,9 @@ export const healOrphanedNumeralItems = (
 };
 
 // Paper Dimensions in CSS pixels (96 DPI standard: 1 inch = 96px, 1mm = 3.7795px)
+// A4 is 210 x 297mm = exactly 1122.52px. Using 1122px prevents sub-pixel rounding blank overflow pages in Chromium!
 export const PAPER_DIMENSIONS: Record<PaperStandard, { widthPx: number; heightPx: number; name: string; desc: string }> = {
-  A4: { widthPx: 794, heightPx: 1123, name: 'A4 Standard', desc: '210 × 297 mm (International / Kollywood standard)' },
+  A4: { widthPx: 794, heightPx: 1122, name: 'A4 Standard', desc: '210 × 297 mm (International / Kollywood standard)' },
   US_Letter: { widthPx: 816, heightPx: 1056, name: 'US Letter', desc: '8.5 × 11 in (216 × 279 mm)' },
   Legal: { widthPx: 816, heightPx: 1344, name: 'US Legal', desc: '8.5 × 14 in (216 × 356 mm)' },
 };
@@ -245,6 +273,31 @@ function getVisualGraphemeCount(text: string): number {
   if (!text) return 0;
   const base = text.replace(/[\u0B82\u0BBE-\u0BCD\u0BD7\u0901-\u0903\u093E-\u094F\u0951-\u0957]/g, '');
   return Math.max(1, base.length);
+}
+
+/**
+ * Accurately measures multiline text (handling line breaks and paragraphs)
+ * so long actions or dialogues are never underestimated by pagination.
+ */
+function measureMultiLineGraphemes(text: string, colWidthPx: number, avgCharWidthPx: number): number {
+  if (!text || !text.trim()) return 0;
+  const normalized = text
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n')
+    .replace(/<[^>]+>/g, '');
+  const paragraphs = normalized.split(/\r?\n/).map((p) => p.trim()).filter(Boolean);
+  if (paragraphs.length === 0) return 1;
+
+  let totalLines = 0;
+  // Account for natural word-boundary wrapping: long Tamil words cannot fill to the exact pixel edge,
+  // pushing words to the next line earlier and requiring ~15% extra headroom.
+  const effectiveWidth = Math.max(20, colWidthPx * 0.85);
+  for (const para of paragraphs) {
+    const graphemes = getVisualGraphemeCount(para);
+    const paraLines = Math.max(1, Math.ceil((graphemes * avgCharWidthPx) / effectiveWidth));
+    totalLines += paraLines;
+  }
+  return Math.max(1, totalLines);
 }
 
 /**
@@ -319,14 +372,21 @@ export function paginateTwoColumnScript(
   const paddingRightPx = Math.round(options.marginRightMm * 3.7795);
 
   const contentWidthPx = widthPx - paddingLeftPx - paddingRightPx;
-  // Symmetrical printable area: exactly equal top and bottom boundaries
-  const printableHeightPx = heightPx - paddingTopPx - paddingBottomPx - 8;
+
+  // Dynamic available height accounting for document header (Page 1) or running header (Page 2+),
+  // running footer, and generous safety headroom (58px) ensuring content NEVER gets cut off at page bottom.
+  const getPageAvailableHeight = (pgNum: number) => {
+    const headerHeight = pgNum === 1 ? 62 : 36;
+    const footerHeight = 32;
+    const safetyHeadroom = 58; // Generous 58px buffer ensures bottom line is never truncated
+    return heightPx - paddingTopPx - paddingBottomPx - headerHeight - footerHeight - safetyHeadroom;
+  };
 
   const leftColWidthPx = Math.round(contentWidthPx * (options.columnSplitPercent / 100)) - 16;
   const rightColWidthPx = Math.round(contentWidthPx * ((100 - options.columnSplitPercent) / 100)) - 16;
 
-  // Approximate character width in pixels based on base font size
-  const avgCharWidthPx = options.baseFontSizePx * 0.58;
+  // Accurate Tamil character width ratio in pixels based on base font size (0.65 provides realistic line wrap bounds)
+  const avgCharWidthPx = options.baseFontSizePx * 0.65;
   const lineHeightPx = options.baseFontSizePx * options.baseLineHeight;
 
   const pages: TwoColumnPage[] = [];
@@ -381,7 +441,7 @@ export function paginateTwoColumnScript(
     } else if (!isFreshPage && currentPageElements.length > 0) {
       // Continuous mode: require heading + at least 1 item to prevent orphan heading at page bottom
       const minRequiredSpacePx = headingHeightPx + 48;
-      if (currentHeightUsed + minRequiredSpacePx > printableHeightPx) {
+      if (currentHeightUsed + minRequiredSpacePx > getPageAvailableHeight(pageNum)) {
         flushPage(false);
       } else {
         // Fits comfortably on current page! Add small inter-scene separator gap
@@ -409,9 +469,9 @@ export function paginateTwoColumnScript(
     currentPageElements.push(page1Header);
     currentHeightUsed += headingHeightPx;
 
-    // 2. Scene Items (with auto end-of-scene CUT TO if enabled and not already ending with a transition)
-    const effectiveItems: TamilScriptItem[] = [...scene.items];
-    if (options.autoEndSceneCutTo === true && !hasEndSceneTransition(scene.items)) {
+    // 2. Scene Items (filter out empty ghost items to eliminate random vertical voids and phantom pages)
+    const effectiveItems: TamilScriptItem[] = scene.items.filter((it) => !isItemEmpty(it));
+    if (options.autoEndSceneCutTo === true && !hasEndSceneTransition(effectiveItems)) {
       effectiveItems.push({
         id: `auto-cut-to-${scene.id}`,
         type: 'transition',
@@ -429,7 +489,7 @@ export function paginateTwoColumnScript(
         // Center text (transition / title)
         const text = item.rawText || item.leftAction || item.rightDialogue || '';
         const lines = Math.ceil((getVisualGraphemeCount(text) * avgCharWidthPx) / (contentWidthPx * 0.8)) || 1;
-        itemHeightPx = Math.max(28, lines * lineHeightPx + 14) + options.gapParagraphRowPx;
+        itemHeightPx = Math.max(26, lines * lineHeightPx + 10) + options.gapParagraphRowPx;
       } else {
         // Two-column row:
         const isRight = item.column === 'right';
@@ -442,23 +502,46 @@ export function paginateTwoColumnScript(
             diaText = m[2].trim();
           }
         }
+        if (charName.endsWith(':')) {
+          charName = charName.slice(0, -1).trim();
+        }
 
-        const leftActionText = !isRight ? (item.leftAction || item.rawText || '') : '';
+        const leftActionText = (item.leftAction || (!isRight ? item.rawText : '') || '').trim();
 
-        const leftLines = isRight
-          ? (charName ? Math.max(1, Math.ceil((getVisualGraphemeCount(charName) * avgCharWidthPx) / leftColWidthPx)) : 1)
-          : Math.ceil((getVisualGraphemeCount(leftActionText) * avgCharWidthPx) / leftColWidthPx);
-
-        const rightLines = isRight
-          ? Math.ceil((getVisualGraphemeCount(diaText) * avgCharWidthPx) / rightColWidthPx)
+        const leftLines = leftActionText
+          ? measureMultiLineGraphemes(leftActionText, leftColWidthPx, avgCharWidthPx)
           : 0;
 
-        const rowLines = Math.max(leftLines, rightLines, 1);
-        itemHeightPx = Math.round(rowLines * lineHeightPx + 6) + options.gapParagraphRowPx;
+        const diaLines = diaText
+          ? measureMultiLineGraphemes(diaText, rightColWidthPx, avgCharWidthPx)
+          : 0;
+
+        let rowLines: number;
+        if (!leftActionText && (charName || diaText)) {
+          // Standard Dialogue Row: Character Name is on the LEFT column right-aligned,
+          // Dialogue text is on the RIGHT column left-aligned! They sit in parallel side-by-side!
+          const charLines = charName
+            ? Math.max(1, Math.ceil((getVisualGraphemeCount(charName) * avgCharWidthPx) / leftColWidthPx))
+            : 0;
+          rowLines = Math.max(charLines, diaLines, 1);
+        } else if (leftActionText && (charName || diaText)) {
+          // Simultaneous Action + Dialogue
+          const charNameLines = charName
+            ? Math.max(1, Math.ceil((getVisualGraphemeCount(charName) * avgCharWidthPx) / rightColWidthPx))
+            : 0;
+          const rightLines = charNameLines + diaLines;
+          rowLines = Math.max(leftLines, rightLines, 1);
+        } else {
+          // Pure Action
+          rowLines = Math.max(leftLines, 1);
+        }
+
+        itemHeightPx = Math.round(rowLines * lineHeightPx + 4) + options.gapParagraphRowPx;
       }
 
       // Check if item overflows current page
-      if (currentHeightUsed + itemHeightPx > printableHeightPx && currentPageElements.length > 0) {
+      const pageCap = getPageAvailableHeight(pageNum);
+      if (currentHeightUsed + itemHeightPx > pageCap && currentPageElements.length > 0) {
         // If all remaining items in this scene are only transitions (e.g. CUT TO:, DISSOLVE TO:),
         // NEVER orphan the transition onto a new page alone and NEVER show "- Continues -"!
         // Instead, squeeze the transition onto the current page so the scene concludes properly.
