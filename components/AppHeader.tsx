@@ -5,7 +5,7 @@ import { useProject } from '../context/ProjectContext';
 import {
     Target, Zap, Clock, Film, RotateCcw, RotateCw, CheckCircle2, 
     TrendingUp, Save, Cloud, CloudOff, Wifi, WifiOff, CloudUpload,
-    Loader2, Check, FileCode, Inbox, Sun, Moon, LogIn, LogOut, ChevronDown, Sparkles, User, Settings, Folder, Pencil,
+    Loader2, Check, FileCode, Inbox, Sun, Moon, LogIn, LogOut, ChevronDown, ChevronLeft, ChevronRight, Sparkles, User, Settings, Folder, Pencil,
     Workflow, PenTool, FileText, Columns, Layers, Video, Image as ImageIcon, Calendar, CalendarCheck, ClipboardList, Files
 } from 'lucide-react';
 import { isSupabaseConfigured } from '../services/supabase';
@@ -43,6 +43,12 @@ interface AppHeaderProps {
   onAskAnything?: () => void;
   onOpenSettings?: () => void;
   hideViewSwitcher?: boolean;
+  canGoBack?: boolean;
+  canGoForward?: boolean;
+  onGoBack?: () => void;
+  onGoForward?: () => void;
+  backViewName?: string | null;
+  forwardViewName?: string | null;
 }
 
 const AppHeader: React.FC<AppHeaderProps> = ({ 
@@ -54,7 +60,13 @@ const AppHeader: React.FC<AppHeaderProps> = ({
   onOpenAuth,
   onAskAnything,
   onOpenSettings,
-  hideViewSwitcher = false
+  hideViewSwitcher = false,
+  canGoBack = false,
+  canGoForward = false,
+  onGoBack,
+  onGoForward,
+  backViewName,
+  forwardViewName
 }) => {
   const { 
       isStoryboardFeatureEnabled, writingGoal, dailyStats, beats,
@@ -354,6 +366,39 @@ const AppHeader: React.FC<AppHeaderProps> = ({
                       </span>
                   </div>
               </div>
+          </div>
+
+          {/* BACK & FORWARD NAVIGATION BUTTONS */}
+          <div className="flex items-center bg-[#1c1c20] border border-[#383842] rounded-[5px] p-0.5 shrink-0 select-none shadow-sm">
+            <button
+              type="button"
+              onClick={onGoBack}
+              disabled={!canGoBack}
+              className={`w-6 h-6 rounded flex items-center justify-center transition-all ${
+                canGoBack
+                  ? 'text-gray-200 hover:text-white hover:bg-[#2c2c36] active:scale-95 cursor-pointer'
+                  : 'text-gray-600 opacity-30 cursor-not-allowed pointer-events-none'
+              }`}
+              title={canGoBack ? `Back to ${backViewName || 'Previous Page'} (Alt + ← / Cmd + [)` : 'Back (Alt + ←)'}
+              aria-label="Back"
+            >
+              <ChevronLeft size={14} />
+            </button>
+            <div className="w-px h-3 bg-[#383842] mx-0.5" />
+            <button
+              type="button"
+              onClick={onGoForward}
+              disabled={!canGoForward}
+              className={`w-6 h-6 rounded flex items-center justify-center transition-all ${
+                canGoForward
+                  ? 'text-gray-200 hover:text-white hover:bg-[#2c2c36] active:scale-95 cursor-pointer'
+                  : 'text-gray-600 opacity-30 cursor-not-allowed pointer-events-none'
+              }`}
+              title={canGoForward ? `Forward to ${forwardViewName || 'Next Page'} (Alt + → / Cmd + ])` : 'Forward (Alt + →)'}
+              aria-label="Forward"
+            >
+              <ChevronRight size={14} />
+            </button>
           </div>
 
           {/* GROUPED PROJECT & ACTIONS STRIP (Project Switcher, Exit, Inbox, AI) */}

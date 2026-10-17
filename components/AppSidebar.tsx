@@ -7,7 +7,7 @@ import {
   PanelLeftClose, PanelLeft, Settings, Sun, Moon, Sparkles, Inbox,
   RotateCcw, RotateCw, Target, CheckCircle2, Check, PenTool, SlidersHorizontal,
   User, Cloud, CloudOff, Wifi, WifiOff, LogOut, LogIn, Users as UsersIcon,
-  Workflow, Columns
+  Workflow, Columns, ChevronLeft, ChevronRight
 } from 'lucide-react';
 import { useAiKeyStatus } from '../context/AiKeyStatusContext';
 import { InviteManagerModal } from './InviteManagerModal';
@@ -25,6 +25,12 @@ interface AppSidebarProps {
   onAskAnything?: () => void;
   onPrint?: () => void;
   onOpenAuth?: () => void;
+  canGoBack?: boolean;
+  canGoForward?: boolean;
+  onGoBack?: () => void;
+  onGoForward?: () => void;
+  backViewName?: string | null;
+  forwardViewName?: string | null;
 }
 
 export const AppSidebar: React.FC<AppSidebarProps> = ({
@@ -36,7 +42,13 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
   onOpenInbox,
   unreadCount = 0,
   onAskAnything,
-  onOpenAuth
+  onOpenAuth,
+  canGoBack = false,
+  canGoForward = false,
+  onGoBack,
+  onGoForward,
+  backViewName,
+  forwardViewName
 }) => {
   const {
     isStoryboardFeatureEnabled, writingGoal, dailyStats, beats,
@@ -236,6 +248,46 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
             >
               <PanelLeft size={16} />
             </button>
+          </div>
+        )}
+
+        {/* Navigation History Controls (Back & Forward) */}
+        {!isCollapsed && onGoBack && onGoForward && (
+          <div className={`px-2.5 py-1.5 border-b flex items-center justify-between text-xs select-none ${
+            isLight ? 'border-gray-200 bg-gray-50/70' : 'border-[#26262a] bg-[#141418]'
+          }`}>
+            <span className="text-[9.5px] font-mono uppercase tracking-wider text-gray-500 font-bold">
+              History
+            </span>
+            <div className="flex items-center gap-1 bg-[#1e1e24] border border-[#33333d] rounded p-0.5">
+              <button
+                type="button"
+                onClick={onGoBack}
+                disabled={!canGoBack}
+                className={`p-1 rounded flex items-center justify-center transition-all ${
+                  canGoBack
+                    ? isLight ? 'text-gray-700 hover:bg-gray-200 cursor-pointer' : 'text-gray-200 hover:text-white hover:bg-[#2c2c36] cursor-pointer'
+                    : 'text-gray-600 opacity-30 cursor-not-allowed pointer-events-none'
+                }`}
+                title={canGoBack ? `Back to ${backViewName || 'Previous Page'} (Alt + ←)` : 'Back'}
+              >
+                <ChevronLeft size={12} />
+              </button>
+              <div className="w-px h-3 bg-[#33333d]" />
+              <button
+                type="button"
+                onClick={onGoForward}
+                disabled={!canGoForward}
+                className={`p-1 rounded flex items-center justify-center transition-all ${
+                  canGoForward
+                    ? isLight ? 'text-gray-700 hover:bg-gray-200 cursor-pointer' : 'text-gray-200 hover:text-white hover:bg-[#2c2c36] cursor-pointer'
+                    : 'text-gray-600 opacity-30 cursor-not-allowed pointer-events-none'
+                }`}
+                title={canGoForward ? `Forward to ${forwardViewName || 'Next Page'} (Alt + →)` : 'Forward'}
+              >
+                <ChevronRight size={12} />
+              </button>
+            </div>
           </div>
         )}
 

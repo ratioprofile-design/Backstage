@@ -2,6 +2,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ProjectProvider, useProject } from './context/ProjectContext';
 import { AiKeyStatusProvider } from './context/AiKeyStatusContext';
+import { NavigationProvider, useNavigation } from './context/NavigationContext';
 import AppHeader from './components/AppHeader';
 import { AppSidebar } from './components/AppSidebar';
 import { SettingsModal } from './components/SettingsModal';
@@ -217,51 +218,20 @@ const StyleInjector: React.FC = () => {
 const AppContent: React.FC = () => {
   console.log('[probe] AppContent mounted, supabase user =', useProject ? 'n/a' : 'n/a');
   const { currentUser, currentProjectId, undo, redo, isInitialLoading, isProjectLoading, projectLoadingMessage, saveProject, saveProjectAs, loadProject, closeProject, setAppTheme, filePath, setFilePath, supabaseUser, isCloudMode, logout, selectProject, deleteProject, projectList, userRole, updateUserRole, navLayout = 'horizontal', beats, appTheme } = useProject();
-  const [currentView, setCurrentView] = useState<ViewMode>(() => {
-    try {
-      const saved = localStorage.getItem('backstage_last_view');
-      if (saved) return saved as ViewMode;
-    } catch {}
-    return 'board';
-  });
-
-  const [pageLoadingMessage, setPageLoadingMessage] = useState<string | null>(null);
-  const pageLoadingTimerRef = useRef<any>(null);
-
-  const VIEW_NAMES: Record<string, string> = {
-    script: 'Screenplay Editor',
-    'two-column-script': 'Two-Column Script Studio',
-    documents: 'Document Vault',
-    breakdown: 'Scene Breakdown',
-    board: 'Storyboard & Beats Canvas',
-    casting: 'Casting & Talent Hub',
-    characterdesign: 'Character Design Studio',
-    continuity: 'Costume & Continuity Tracker',
-    crew: 'Crew & Departments',
-    shotlist: 'Director Shot List',
-    storyboard: 'Visual Storyboard Grid',
-    schedule: 'Production Shooting Schedule',
-    dood: 'Day-out-of-Days Matrix',
-    callsheet: 'Daily Call Sheet Creator',
-    statistics: 'Script Analytics & Stats',
-    backstage: 'Backstage Dashboard',
-    goals: 'Production Goals & Milestones',
-    inbox: 'Production Inbox & Tasks',
-    excalidraw: 'Whiteboard & Floorplans',
-  };
-
-  const handleNavigateView = useCallback((nextView: ViewMode) => {
-    if (nextView === currentView) return;
-    const viewName = VIEW_NAMES[nextView] || nextView;
-    setPageLoadingMessage(`Loading ${viewName}...`);
-    if (pageLoadingTimerRef.current) clearTimeout(pageLoadingTimerRef.current);
-    
-    setCurrentView(nextView);
-
-    pageLoadingTimerRef.current = setTimeout(() => {
-      setPageLoadingMessage(null);
-    }, 450);
-  }, [currentView]);
+  
+  // Navigation & History Stack (Browser & In-App Back/Forward)
+  const {
+    currentView,
+    setCurrentView,
+    navigateToView: handleNavigateView,
+    goBack,
+    goForward,
+    canGoBack,
+    canGoForward,
+    backViewName,
+    forwardViewName,
+    pageLoadingMessage
+  } = useNavigation();
 
   // Global listener for async tasks or heavy views that take time to load
   useEffect(() => {
@@ -895,6 +865,12 @@ const AppContent: React.FC = () => {
             onAskAnything={() => setShowAssistant(true)}
             onPrint={() => setShowPrintPreview(true)}
             onOpenAuth={() => setShowAuthModal(true)}
+            canGoBack={canGoBack}
+            canGoForward={canGoForward}
+            onGoBack={goBack}
+            onGoForward={goForward}
+            backViewName={backViewName}
+            forwardViewName={forwardViewName}
           />
         )}
 
@@ -927,6 +903,12 @@ const AppContent: React.FC = () => {
                   onOpenAuth={() => setShowAuthModal(true)}
                   onAskAnything={() => setShowAssistant(true)}
                   onOpenSettings={() => setIsSettingsOpen(true)}
+                  canGoBack={canGoBack}
+                  canGoForward={canGoForward}
+                  onGoBack={goBack}
+                  onGoForward={goForward}
+                  backViewName={backViewName}
+                  forwardViewName={forwardViewName}
               />
             </div>
           )}
@@ -1069,7 +1051,9 @@ const App: React.FC = () => {
   return (
     <ProjectProvider>
       <AiKeyStatusProvider>
-        <AppContent />
+        <NavigationProvider>
+          <AppContent />
+        </NavigationProvider>
       </AiKeyStatusProvider>
     </ProjectProvider>
   );
