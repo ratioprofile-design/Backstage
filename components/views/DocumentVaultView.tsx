@@ -25,7 +25,10 @@ import {
   syncDocumentsWithCloud,
   mergeProductionDocuments,
   broadcastDocumentsUpdated,
-  SCENE_4_BREAKDOWN_SHEET_DATA
+  SCENE_4_BREAKDOWN_SHEET_DATA,
+  MASTER_BREAKDOWN_DOC_ID,
+  buildMasterBreakdownSheetData,
+  generateMasterBreakdownHtml
 } from '../../services/documentsStorage';
 import { loadLargeDocuments } from '../../services/largeStorage';
 import { supabase, isSupabaseConfigured, saveProjectDocumentsToProjectData } from '../../services/supabase';
@@ -350,6 +353,7 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
   }>({ isOpen: false, x: 0, y: 0 });
   const [isNewDocMenuOpen, setIsNewDocMenuOpen] = useState<boolean>(false);
   const [breakdownCategoryFilter, setBreakdownCategoryFilter] = useState<string>('ALL');
+  const [breakdownSceneFilter, setBreakdownSceneFilter] = useState<string>('ALL');
   const [breakdownSearchQuery, setBreakdownSearchQuery] = useState<string>('');
   const [breakdownStatusFilter, setBreakdownStatusFilter] = useState<string>('ALL');
   const [isAddElementOpen, setIsAddElementOpen] = useState<boolean>(false);
@@ -1002,35 +1006,63 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
     if (selectedDoc.sheetData && selectedDoc.sheetData.length > 1) {
       return selectedDoc.sheetData.slice(1);
     }
-    if (selectedDoc.id === 'doc-bd-1' || selectedDoc.category === 'BREAKDOWN') {
-      return SCENE_4_BREAKDOWN_SHEET_DATA.slice(1);
+    if (selectedDoc.id === 'doc-bd-1' || selectedDoc.id === MASTER_BREAKDOWN_DOC_ID || selectedDoc.category === 'BREAKDOWN') {
+      return buildMasterBreakdownSheetData(projectContext?.beats || []).slice(1);
     }
     return [];
-  }, [selectedDoc]);
+  }, [selectedDoc, projectContext?.beats]);
+
+  const hasSceneColumn = useMemo(() => {
+    if (!selectedDoc?.sheetData || selectedDoc.sheetData.length === 0) return false;
+    const header = selectedDoc.sheetData[0] || [];
+    return header.some((h: any) => String(h).toLowerCase() === 'scene') || (rawTableRows.length > 0 && rawTableRows[0].length >= 7);
+  }, [selectedDoc, rawTableRows]);
+
+  const availableScenes = useMemo(() => {
+    if (!hasSceneColumn) return [];
+    const set = new Set<string>();
+    rawTableRows.forEach((r) => {
+      const sc = String(r[1] || '').trim();
+      if (sc) set.add(sc);
+    });
+    return Array.from(set).sort((a, b) => {
+      const numA = parseInt(a.replace(/\D/g, '') || '0', 10);
+      const numB = parseInt(b.replace(/\D/g, '') || '0', 10);
+      return numA - numB;
+    });
+  }, [rawTableRows, hasSceneColumn]);
 
   const availableCategories = useMemo(() => {
     const set = new Set<string>();
     rawTableRows.forEach((r) => {
-      if (r[1]) set.add(String(r[1]).toUpperCase());
+      const cat = hasSceneColumn ? r[2] : r[1];
+      if (cat) set.add(String(cat).toUpperCase());
     });
     return Array.from(set);
-  }, [rawTableRows]);
+  }, [rawTableRows, hasSceneColumn]);
 
   const uniqueDepartmentsCount = useMemo(() => {
     const set = new Set<string>();
     rawTableRows.forEach((r) => {
-      if (r[3]) set.add(String(r[3]).trim().toLowerCase());
+      const dept = hasSceneColumn ? r[4] : r[3];
+      if (dept) set.add(String(dept).trim().toLowerCase());
     });
     return Math.max(1, set.size);
-  }, [rawTableRows]);
+  }, [rawTableRows, hasSceneColumn]);
 
   const filteredTableRows = useMemo(() => {
     return rawTableRows.filter((r) => {
-      const cat = String(r[1] || '').toUpperCase();
-      const name = String(r[2] || '').toLowerCase();
-      const dept = String(r[3] || '').toLowerCase();
-      const notes = String(r[4] || '').toLowerCase();
-      const status = String(r[5] || '').toLowerCase();
+      const scene = hasSceneColumn ? String(r[1] || '') : '';
+      const cat = hasSceneColumn ? String(r[2] || '').toUpperCase() : String(r[1] || '').toUpperCase();
+      const name = hasSceneColumn ? String(r[3] || '').toLowerCase() : String(r[2] || '').toLowerCase();
+      const dept = hasSceneColumn ? String(r[4] || '').toLowerCase() : String(r[3] || '').toLowerCase();
+      const notes = hasSceneColumn ? String(r[5] || '').toLowerCase() : String(r[4] || '').toLowerCase();
+      const status = hasSceneColumn ? String(r[6] || '').toLowerCase() : String(r[5] || '').toLowerCase();
+
+      // Scene filter
+      if (hasSceneColumn && breakdownSceneFilter !== 'ALL' && scene !== breakdownSceneFilter) {
+        return false;
+      }
 
       // Category filter
       if (breakdownCategoryFilter !== 'ALL' && cat !== breakdownCategoryFilter) {
@@ -1045,13 +1077,13 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
       // Search query
       if (breakdownSearchQuery.trim()) {
         const q = breakdownSearchQuery.trim().toLowerCase();
-        const matches = name.includes(q) || dept.includes(q) || notes.includes(q) || cat.toLowerCase().includes(q) || status.includes(q);
+        const matches = name.includes(q) || dept.includes(q) || notes.includes(q) || cat.toLowerCase().includes(q) || status.includes(q) || scene.toLowerCase().includes(q);
         if (!matches) return false;
       }
 
       return true;
     });
-  }, [rawTableRows, breakdownCategoryFilter, breakdownStatusFilter, breakdownSearchQuery]);
+  }, [rawTableRows, hasSceneColumn, breakdownSceneFilter, breakdownCategoryFilter, breakdownStatusFilter, breakdownSearchQuery]);
 
   // Table action handlers
   const handleExportTableExcel = () => {
@@ -1059,7 +1091,7 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
     try {
       const rows = selectedDoc.sheetData && selectedDoc.sheetData.length > 0
         ? selectedDoc.sheetData
-        : SCENE_4_BREAKDOWN_SHEET_DATA;
+        : buildMasterBreakdownSheetData(projectContext?.beats || []);
 
       if (!rows || rows.length <= 1) {
         showToast('No table rows to export.');
@@ -1068,9 +1100,9 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
       const worksheet = XLSX.utils.aoa_to_sheet(rows);
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, worksheet, 'Breakdown Sheet');
-      const filename = `${selectedDoc.fileName ? selectedDoc.fileName.replace(/\.[^/.]+$/, '') : 'Breakdown_Sheet'}.xlsx`;
+      const filename = `${selectedDoc.fileName ? selectedDoc.fileName.replace(/\.[^/.]+$/, '') : 'Master_Script_Breakdown'}.xlsx`;
       XLSX.writeFile(workbook, filename);
-      showToast(`✓ Exported ${rows.length - 1} elements to ${filename}!`);
+      showToast(`✓ Exported ${rows.length - 1} elements across all scenes to ${filename}!`);
     } catch (err) {
       console.error(err);
       showToast('Export failed.');
@@ -1080,7 +1112,7 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
   const handleCopyTableToClipboard = () => {
     const rows = selectedDoc?.sheetData && selectedDoc.sheetData.length > 0
       ? selectedDoc.sheetData
-      : SCENE_4_BREAKDOWN_SHEET_DATA;
+      : buildMasterBreakdownSheetData(projectContext?.beats || []);
 
     if (!rows || rows.length === 0) return;
     try {
@@ -1098,24 +1130,36 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
 
     const currentRows = selectedDoc.sheetData && selectedDoc.sheetData.length > 0
       ? [...selectedDoc.sheetData]
-      : [...SCENE_4_BREAKDOWN_SHEET_DATA];
+      : buildMasterBreakdownSheetData(projectContext?.beats || []);
 
     const nextIndex = currentRows.length;
-    const newRow = [
-      String(nextIndex),
-      newElemCategory.toUpperCase(),
-      newElemName.trim(),
-      newElemDept.trim() || newElemCategory,
-      newElemNotes.trim(),
-      newElemStatus
-    ];
+    const newRow = hasSceneColumn
+      ? [
+          String(nextIndex),
+          breakdownSceneFilter !== 'ALL' ? breakdownSceneFilter : 'Scene 1',
+          newElemCategory.toUpperCase(),
+          newElemName.trim(),
+          newElemDept.trim() || newElemCategory,
+          newElemNotes.trim(),
+          newElemStatus
+        ]
+      : [
+          String(nextIndex),
+          newElemCategory.toUpperCase(),
+          newElemName.trim(),
+          newElemDept.trim() || newElemCategory,
+          newElemNotes.trim(),
+          newElemStatus
+        ];
 
     const updatedRows = [...currentRows, newRow];
-    const updatedHtml = generateBreakdownHtmlTable(
-      selectedDoc.title.replace(/[^0-9]/g, '') || '4',
-      selectedDoc.title,
-      updatedRows
-    );
+    const updatedHtml = hasSceneColumn
+      ? generateMasterBreakdownHtml(selectedDoc.title, projectContext?.beats || [], updatedRows)
+      : generateBreakdownHtmlTable(
+          selectedDoc.title.replace(/[^0-9]/g, '') || '4',
+          selectedDoc.title,
+          updatedRows
+        );
 
     const updatedDoc: ProductionDocument = {
       ...selectedDoc,
@@ -1137,18 +1181,20 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
     if (!selectedDoc) return;
     const currentRows = selectedDoc.sheetData && selectedDoc.sheetData.length > 0
       ? selectedDoc.sheetData
-      : SCENE_4_BREAKDOWN_SHEET_DATA;
+      : buildMasterBreakdownSheetData(projectContext?.beats || []);
 
     const header = currentRows[0];
     const dataRows = currentRows.slice(1).filter((_, idx) => idx !== rowIdx);
-    const renumbered = dataRows.map((r, i) => [String(i + 1), r[1], r[2], r[3], r[4], r[5]]);
+    const renumbered = dataRows.map((r, i) => [String(i + 1), ...r.slice(1)]);
     const updatedRows = [header, ...renumbered];
 
-    const updatedHtml = generateBreakdownHtmlTable(
-      selectedDoc.title.replace(/[^0-9]/g, '') || '4',
-      selectedDoc.title,
-      updatedRows
-    );
+    const updatedHtml = hasSceneColumn
+      ? generateMasterBreakdownHtml(selectedDoc.title, projectContext?.beats || [], updatedRows)
+      : generateBreakdownHtmlTable(
+          selectedDoc.title.replace(/[^0-9]/g, '') || '4',
+          selectedDoc.title,
+          updatedRows
+        );
 
     const updatedDoc: ProductionDocument = {
       ...selectedDoc,
@@ -4997,6 +5043,16 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                             {uniqueDepartmentsCount}
                           </span>
                         </div>
+                        {hasSceneColumn && availableScenes.length > 0 && (
+                          <div className={`p-3 rounded-xl border flex flex-col items-center justify-center min-w-[90px] ${
+                            isLight ? 'bg-slate-50 border-slate-200' : 'bg-zinc-900/80 border-zinc-800'
+                          }`}>
+                            <span className="text-[10px] font-mono text-zinc-400 uppercase">Scenes</span>
+                            <span className="text-lg font-black text-[#f5a623] font-mono">
+                              {availableScenes.length}
+                            </span>
+                          </div>
+                        )}
                         <div className={`p-3 rounded-xl border flex flex-col items-center justify-center min-w-[90px] ${
                           isLight ? 'bg-slate-50 border-slate-200' : 'bg-zinc-900/80 border-zinc-800'
                         }`}>
@@ -5044,7 +5100,7 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                       </button>
                       {availableCategories.map((cat) => {
                         const isSel = breakdownCategoryFilter === cat;
-                        const count = rawTableRows.filter((r) => String(r[1]).toUpperCase() === cat).length;
+                        const count = rawTableRows.filter((r) => String(hasSceneColumn ? r[2] : r[1]).toUpperCase() === cat).length;
                         const meta = CATEGORY_REGISTRY[cat as BreakdownCategory];
 
                         return (
@@ -5068,9 +5124,9 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
 
                     {/* Search & Actions Bar */}
                     <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-1 border-t border-zinc-200/50 dark:border-zinc-800/60">
-                      <div className="flex items-center gap-2.5 w-full sm:w-auto">
+                      <div className="flex items-center gap-2.5 w-full sm:w-auto flex-wrap">
                         {/* Instant Table Search Input */}
-                        <div className="relative flex-1 sm:w-72">
+                        <div className="relative flex-1 sm:w-64">
                           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
                           <input
                             type="text"
@@ -5090,6 +5146,30 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                             </button>
                           )}
                         </div>
+
+                        {/* Scene Filter (For Master All-Scenes Breakdown Sheet) */}
+                        {hasSceneColumn && availableScenes.length > 0 && (
+                          <select
+                            value={breakdownSceneFilter}
+                            onChange={(e) => setBreakdownSceneFilter(e.target.value)}
+                            className={`text-xs font-bold rounded-xl border px-3 py-1.5 outline-none font-mono ${
+                              breakdownSceneFilter !== 'ALL'
+                                ? 'bg-[#f5a623] text-black border-[#f5a623] shadow-xs'
+                                : isLight ? 'bg-slate-50 border-slate-200 text-slate-800' : 'bg-zinc-900 border-zinc-800 text-zinc-200'
+                            }`}
+                            title="Filter elements by individual script scene"
+                          >
+                            <option value="ALL">All Scenes ({rawTableRows.length})</option>
+                            {availableScenes.map((sc) => {
+                              const scCount = rawTableRows.filter((r) => String(r[1]).trim() === sc).length;
+                              return (
+                                <option key={sc} value={sc}>
+                                  {sc} ({scCount} items)
+                                </option>
+                              );
+                            })}
+                          </select>
+                        )}
 
                         {/* Status Filter */}
                         <select
@@ -5152,6 +5232,7 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                             isLight ? 'bg-slate-100/90 text-slate-600 border-slate-200' : 'bg-[#1a1a22] text-zinc-400 border-[#2a2a35]'
                           }`}>
                             <th className="py-3.5 px-4 w-12 text-center">#</th>
+                            {hasSceneColumn && <th className="py-3.5 px-4 w-28">Scene</th>}
                             <th className="py-3.5 px-4 w-36">Category</th>
                             <th className="py-3.5 px-4 w-56">Element / Item Name</th>
                             <th className="py-3.5 px-4 w-36">Department</th>
@@ -5164,11 +5245,12 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                           {filteredTableRows.length > 0 ? (
                             filteredTableRows.map((row, idx) => {
                               const num = row[0] || idx + 1;
-                              const cat = String(row[1] || 'PROPS').toUpperCase();
-                              const name = row[2] || '';
-                              const dept = row[3] || cat;
-                              const notes = row[4] || '';
-                              const status = row[5] || 'Confirmed';
+                              const scene = hasSceneColumn ? String(row[1] || 'Scene 1') : '';
+                              const cat = hasSceneColumn ? String(row[2] || 'PROPS').toUpperCase() : String(row[1] || 'PROPS').toUpperCase();
+                              const name = hasSceneColumn ? String(row[3] || '') : String(row[2] || '');
+                              const dept = hasSceneColumn ? String(row[4] || cat) : String(row[3] || cat);
+                              const notes = hasSceneColumn ? String(row[5] || '') : String(row[4] || '');
+                              const status = hasSceneColumn ? String(row[6] || 'Confirmed') : String(row[5] || 'Confirmed');
                               const catStyle = BREAKDOWN_CATEGORY_STYLES[cat] || { bg: 'bg-zinc-500/15', text: 'text-zinc-300', border: 'border-zinc-500/30' };
                               const statusBadge = getStatusBadgeStyle(status);
 
@@ -5182,6 +5264,13 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                                   <td className="py-3 px-4 text-center font-mono text-zinc-500 font-bold">
                                     {num}
                                   </td>
+                                  {hasSceneColumn && (
+                                    <td className="py-3 px-4">
+                                      <span className="inline-block px-2.5 py-0.5 rounded-md font-mono text-[11px] font-bold bg-[#f5a623]/15 text-[#f5a623] border border-[#f5a623]/30 whitespace-nowrap">
+                                        {scene}
+                                      </span>
+                                    </td>
+                                  )}
                                   <td className="py-3 px-4">
                                     <span className={`inline-block px-2.5 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider border ${catStyle.bg} ${catStyle.text} ${catStyle.border}`}>
                                       {cat}
@@ -5221,7 +5310,7 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                             })
                           ) : (
                             <tr>
-                              <td colSpan={7} className="py-12 text-center text-zinc-400">
+                              <td colSpan={hasSceneColumn ? 8 : 7} className="py-12 text-center text-zinc-400">
                                 <div className="flex flex-col items-center justify-center gap-2">
                                   <Filter size={20} className="text-zinc-500" />
                                   <span className="font-bold text-sm">No breakdown elements found matching current filters</span>

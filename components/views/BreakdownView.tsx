@@ -13,7 +13,7 @@ import {
 } from '../../types';
 import { generateBreakdown } from '../../services/gemini';
 import { batchBreakdownManager, BatchProgressState } from '../../services/batchBreakdownService';
-import { saveBreakdownToVault } from '../../services/documentsStorage';
+import { saveBreakdownToVault, saveMasterBreakdownToVault } from '../../services/documentsStorage';
 import { syncBreakdownToDepartmentsAndContinuity } from '../../utils/breakdownSync';
 import confetti from 'canvas-confetti';
 import * as XLSX from 'xlsx';
@@ -434,33 +434,16 @@ export const BreakdownView: React.FC<BreakdownViewProps> = ({
     } catch (e) { /* ignore */ }
   };
 
-  // Save 1st AD Breakdown sheet to Vault
+  // Save Master 1st AD Breakdown sheet (All Scenes) to Vault
   const handleSaveToVault = () => {
-    if (!currentBeat) return;
-    const sceneNum = currentBeat.sceneNumber || `#${currentBeat.id}`;
-    const sceneTitle = currentBeat.title || `${currentBeat.slug?.prefix || 'INT.'} ${currentBeat.slug?.location || 'LOCATION'}`;
-
-    const sheetRows: any[][] = [
-      ['#', 'Category', 'Element / Item Name', 'Department', 'Notes / Specifications', 'Status']
-    ];
-    let count = 1;
-    ALL_15_CATEGORIES.forEach((cat) => {
-      const items = getBeatCategoryItems(currentBeat, cat);
-      items.forEach((item) => {
-        sheetRows.push([
-          String(count++),
-          cat,
-          item.name,
-          item.departmentId || CATEGORY_REGISTRY[cat]?.nameEn || cat,
-          item.description || (item.count ? `Qty: ${item.count}` : '') || '',
-          'Confirmed'
-        ]);
-      });
-    });
-
-    saveBreakdownToVault(sceneTitle, sceneNum, currentSceneTotalItems, undefined, sheetRows);
-    confetti({ particleCount: 30, spread: 45, origin: { y: 0.6 } });
-    showToast(`✓ Saved Scene ${sceneNum} Breakdown Sheet directly to Document Vault!`);
+    try {
+      saveMasterBreakdownToVault(beats, 'Feature Film Production');
+      confetti({ particleCount: 35, spread: 50, origin: { y: 0.6 } });
+      showToast(`✓ Saved Master Script Breakdown (All ${beats.length} Scenes) directly to Document Vault!`);
+    } catch (e) {
+      console.error(e);
+      showToast('Failed to save Master Breakdown to Vault.');
+    }
   };
 
   // Department & Continuity sync
@@ -678,16 +661,16 @@ export const BreakdownView: React.FC<BreakdownViewProps> = ({
             <span>{isAnalyzingSingle ? 'Analyzing Scene...' : 'Breakdown Scene'}</span>
           </button>
 
-          {/* Save to Vault */}
+          {/* Save Master Breakdown to Vault */}
           <button
             onClick={handleSaveToVault}
             className={`px-3 py-1.5 rounded-lg text-xs font-bold border flex items-center gap-1.5 transition-colors ${
               isLight ? 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-800' : 'bg-[#1c1c24] hover:bg-[#282834] border-white/10 text-slate-200'
             }`}
-            title="Save this 1st AD Breakdown Sheet to the Document Vault"
+            title="Save complete multi-scene Master Breakdown Sheet to the Document Vault"
           >
             <FolderOpen size={13} className="text-amber-400" />
-            <span>Save to Vault</span>
+            <span>Save Master Breakdown</span>
           </button>
 
           {/* Sync to Departments & Continuity */}
