@@ -692,14 +692,17 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
   // Auto-Harvest App Artifacts on mount or project switch
   useEffect(() => {
     try {
-      const { addedCount, documents: updated } = harvestProjectArtifacts(projectContext, currentProjectId || undefined);
-      if (addedCount > 0 || (updated && updated.length > documents.length)) {
-        setDocuments((prev) => mergeProductionDocuments(prev, updated));
+      const { documents: updated } = harvestProjectArtifacts(projectContext, currentProjectId || undefined);
+      if (updated && updated.length > 0) {
+        setDocuments(updated);
+        if (!selectedDocId || !updated.some(d => d.id === selectedDocId)) {
+          setSelectedDocId(updated[0]?.id || '');
+        }
       }
     } catch (e) {
       console.warn('Auto-harvesting skipped on mount:', e);
     }
-  }, [currentProjectId]);
+  }, [currentProjectId, projectContext?.beats]);
 
   // Manual Trigger for Syncing App Artifacts
   const handleSyncArtifacts = () => {

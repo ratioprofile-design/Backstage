@@ -864,9 +864,12 @@ export function getProductionDocuments(projectId?: string): ProductionDocument[]
     if (hasFragmentedBreakdowns) {
       hasMigrated = true;
       consolidated = filtered.filter((d: ProductionDocument) => !d.id.startsWith('harvest-breakdown-'));
-      if (!consolidated.some((d: ProductionDocument) => d.id === MASTER_BREAKDOWN_DOC_ID)) {
-        consolidated.unshift(generateMasterBreakdownDocument());
-      }
+    }
+
+    // Guarantee that the unified Master Breakdown Document is present in the vault
+    if (!consolidated.some((d: ProductionDocument) => d.id === MASTER_BREAKDOWN_DOC_ID || d.id === 'doc-bd-1')) {
+      hasMigrated = true;
+      consolidated = [generateMasterBreakdownDocument(), ...consolidated];
     }
 
     // Auto-migration: ensure doc-bd-1 breakdown document has sheetData if present
@@ -1070,9 +1073,11 @@ export function mergeProductionDocuments(
     }
   });
 
-  return Array.from(map.values()).sort(
-    (a, b) => new Date(b.uploadedAt || 0).getTime() - new Date(a.uploadedAt || 0).getTime()
-  );
+  return Array.from(map.values())
+    .filter((d) => !d.id.startsWith('harvest-breakdown-') || d.id === MASTER_BREAKDOWN_DOC_ID)
+    .sort(
+      (a, b) => new Date(b.uploadedAt || 0).getTime() - new Date(a.uploadedAt || 0).getTime()
+    );
 }
 
 /**
