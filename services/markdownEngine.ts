@@ -59,33 +59,49 @@ export function markdownToHtml(md: string): string {
     </div>`;
   });
 
+  // Clean dangling/empty numerals or bullets before a double enter (e.g. "3. \n\n" -> "\n\n")
+  html = html.replace(/^\s*\d+[\.\)][ \t]*(?=\n\n|$)/gm, '');
+  html = html.replace(/^\s*[-*][ \t]*(?=\n\n|$)/gm, '');
+
   // 4. Blockquotes (> ...)
-  html = html.replace(/^>\s+(.+)$/gm, '<blockquote class="md-quote my-3 pl-4 border-l-3 border-[#f5a623] italic opacity-85 text-sm leading-relaxed">$1</blockquote>');
+  html = html.replace(/^>[ \t]+(.+)$/gm, '<blockquote class="md-quote my-3 pl-4 border-l-3 border-[#f5a623] italic opacity-85 text-sm leading-relaxed">$1</blockquote>');
 
   // 5. Headings
-  html = html.replace(/^####\s+(.+)$/gm, '<h4 class="text-base font-bold tracking-tight mt-5 mb-2">$1</h4>');
-  html = html.replace(/^###\s+(.+)$/gm, '<h3 class="text-lg font-bold tracking-tight mt-6 mb-2.5">$1</h3>');
-  html = html.replace(/^##\s+(.+)$/gm, '<h2 class="text-xl font-bold tracking-tight mt-7 mb-3 pb-1 border-b border-zinc-200/20">$1</h2>');
-  html = html.replace(/^#\s+(.+)$/gm, '<h1 class="text-2xl sm:text-3xl font-extrabold tracking-tight mt-8 mb-4">$1</h1>');
+  html = html.replace(/^####[ \t]+(.+)$/gm, '<h4 class="text-base font-bold tracking-tight mt-5 mb-2">$1</h4>');
+  html = html.replace(/^###[ \t]+(.+)$/gm, '<h3 class="text-lg font-bold tracking-tight mt-6 mb-2.5">$1</h3>');
+  html = html.replace(/^##[ \t]+(.+)$/gm, '<h2 class="text-xl font-bold tracking-tight mt-7 mb-3 pb-1 border-b border-zinc-200/20">$1</h2>');
+  html = html.replace(/^#[ \t]+(.+)$/gm, '<h1 class="text-2xl sm:text-3xl font-extrabold tracking-tight mt-8 mb-4">$1</h1>');
 
   // 6. Horizontal Rules / Dividers
   html = html.replace(/^(?:---|\*\*\*|___)$/gm, '<hr class="md-divider my-6 border-t border-zinc-300 dark:border-zinc-700/60" />');
 
   // 7. Checkboxes / Task list items (- [ ] or - [x])
-  html = html.replace(/^-\s+\[ \]\s+(.+)$/gm, `<div class="md-task-item flex items-center gap-2.5 my-1.5 text-sm">
+  html = html.replace(/^-[ \t]+\[ \][ \t]+(.+)$/gm, `<div class="md-task-item flex items-center gap-2.5 my-1.5 text-sm">
     <input type="checkbox" class="md-checkbox rounded cursor-pointer w-4 h-4 accent-[#f5a623]" />
     <span>$1</span>
   </div>`);
-  html = html.replace(/^-\s+\[[xX]\]\s+(.+)$/gm, `<div class="md-task-item flex items-center gap-2.5 my-1.5 text-sm opacity-60 line-through">
+  html = html.replace(/^-[ \t]+\[[xX]\][ \t]+(.+)$/gm, `<div class="md-task-item flex items-center gap-2.5 my-1.5 text-sm opacity-60 line-through">
     <input type="checkbox" checked class="md-checkbox rounded cursor-pointer w-4 h-4 accent-[#f5a623]" />
     <span>$1</span>
   </div>`);
 
-  // 8. Bullet Lists (- item or * item)
-  html = html.replace(/^[-*]\s+(.+)$/gm, '<li class="ml-5 list-disc my-1 text-sm leading-relaxed">$1</li>');
+  // 8. Bullet Lists (- item or * item) -> grouped in <ul>
+  html = html.replace(/((?:^[-*][ \t]+.+(?:\n|$))+)/gm, (match) => {
+    const items = match.trim().split('\n').map((line) => {
+      const text = line.replace(/^[-*][ \t]+/, '').trim();
+      return `<li class="my-1 text-sm leading-relaxed">${text}</li>`;
+    });
+    return `<ul class="list-disc pl-6 my-2 space-y-1">\n${items.join('\n')}\n</ul>\n\n`;
+  });
 
-  // 9. Numbered Lists (1. item)
-  html = html.replace(/^\d+\.\s+(.+)$/gm, '<li class="ml-5 list-decimal my-1 text-sm leading-relaxed">$1</li>');
+  // 9. Numbered Lists (1. item or 1) item) -> grouped in <ol>
+  html = html.replace(/((?:^\d+[\.\)][ \t]+.+(?:\n|$))+)/gm, (match) => {
+    const items = match.trim().split('\n').map((line) => {
+      const text = line.replace(/^\d+[\.\)][ \t]+/, '').trim();
+      return `<li class="my-1 text-sm leading-relaxed">${text}</li>`;
+    });
+    return `<ol class="list-decimal pl-6 my-2 space-y-1">\n${items.join('\n')}\n</ol>\n\n`;
+  });
 
   // 10. Tables (| a | b |\n|---|---|\n| c | d |)
   html = html.replace(/((?:^\|.+?\|\s*(?:\n|$))+)/gm, (tableMatch) => {
@@ -151,6 +167,8 @@ export function markdownToHtml(md: string): string {
       trimmed.startsWith('<blockquote') ||
       trimmed.startsWith('<hr') ||
       trimmed.startsWith('<table') ||
+      trimmed.startsWith('<ol') ||
+      trimmed.startsWith('<ul') ||
       trimmed.startsWith('<li')
     ) {
       return trimmed;
@@ -256,9 +274,48 @@ export function htmlToMarkdown(html: string): string {
   // Dividers
   md = md.replace(/<hr[^>]*\/?>/gi, '---\n\n');
 
-  // Lists
-  md = md.replace(/<li[^>]*class="[^"]*list-decimal[^"]*"[^>]*>([\s\S]*?)<\/li>/gi, (_match, inner) => `1. ${inner.replace(/<[^>]+>/g, '').trim()}\n`);
-  md = md.replace(/<li[^>]*>([\s\S]*?)<\/li>/gi, (_match, inner) => `- ${inner.replace(/<[^>]+>/g, '').trim()}\n`);
+  // Ordered Lists (<ol>)
+  md = md.replace(/<ol[^>]*>([\s\S]*?)<\/ol>/gi, (_match, inner) => {
+    let itemIndex = 1;
+    const items = inner.match(/<li[^>]*>([\s\S]*?)<\/li>/gi) || [];
+    const lines = items.map((liHtml) => {
+      const text = liHtml.replace(/<li[^>]*>/i, '').replace(/<\/li>/i, '').replace(/<[^>]+>/g, '').trim();
+      if (!text) return '';
+      const line = `${itemIndex}. ${text}`;
+      itemIndex++;
+      return line;
+    }).filter(Boolean);
+    return lines.length > 0 ? '\n\n' + lines.join('\n') + '\n\n' : '\n\n';
+  });
+
+  // Bullet Lists (<ul>)
+  md = md.replace(/<ul[^>]*>([\s\S]*?)<\/ul>/gi, (_match, inner) => {
+    const items = inner.match(/<li[^>]*>([\s\S]*?)<\/li>/gi) || [];
+    const lines = items.map((liHtml) => {
+      const text = liHtml.replace(/<li[^>]*>/i, '').replace(/<\/li>/i, '').replace(/<[^>]+>/g, '').trim();
+      if (!text) return '';
+      return `- ${text}`;
+    }).filter(Boolean);
+    return lines.length > 0 ? '\n\n' + lines.join('\n') + '\n\n' : '\n\n';
+  });
+
+  // Standalone list items
+  let currentDecNum = 1;
+  md = md.replace(/<li[^>]*class="[^"]*list-decimal[^"]*"[^>]*>([\s\S]*?)<\/li>/gi, (_match, inner) => {
+    const text = inner.replace(/<[^>]+>/g, '').trim();
+    if (!text) {
+      currentDecNum = 1;
+      return '\n\n';
+    }
+    const res = `${currentDecNum}. ${text}\n`;
+    currentDecNum++;
+    return res;
+  });
+  md = md.replace(/<li[^>]*>([\s\S]*?)<\/li>/gi, (_match, inner) => {
+    const text = inner.replace(/<[^>]+>/g, '').trim();
+    if (!text) return '\n\n';
+    return `- ${text}\n`;
+  });
 
   // Inlines
   md = md.replace(/<strong>([\s\S]*?)<\/strong>/gi, '**$1**');

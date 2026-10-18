@@ -10,6 +10,7 @@ import { useProject } from '../context/ProjectContext';
 import { ArtistOption } from '../types';
 import { openCompanionInspector } from '../services/companionInspector';
 import { compressHeadshot } from '../services/imageOptimizer';
+import { uploadHeadshotToR2 } from '../services/r2Storage';
 
 interface TalentDirectoryViewProps {
   onOpenMassImport: () => void;
@@ -65,11 +66,18 @@ export const TalentDirectoryView: React.FC<TalentDirectoryViewProps> = ({
       const rawBase64 = evt.target?.result as string;
       if (rawBase64) {
         const compressed = await compressHeadshot(rawBase64, 400, 0.72);
+        let finalPhotoUrl = compressed;
+        try {
+          const r2Url = await uploadHeadshotToR2(compressed, targetArtistIdForUpload);
+          if (r2Url) finalPhotoUrl = r2Url;
+        } catch (e) {
+          console.warn('[TalentDirectoryView] R2 upload fallback:', e);
+        }
         const artist = talentPool?.find(t => t.id === targetArtistIdForUpload);
         const existingPhotos = Array.isArray(artist?.photos) ? artist!.photos : (artist?.photoUrl ? [artist!.photoUrl] : []);
         updateTalentInPool(targetArtistIdForUpload, {
-          photoUrl: compressed,
-          photos: [compressed, ...existingPhotos]
+          photoUrl: finalPhotoUrl,
+          photos: [finalPhotoUrl, ...existingPhotos]
         });
         setEditingPhotoId(null);
         await triggerCloudSync();

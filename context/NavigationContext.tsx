@@ -67,10 +67,11 @@ export const NavigationProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const pageLoadingTimerRef = useRef<any>(null);
   const isInternalHistoryStepRef = useRef<boolean>(false);
 
-  // Set browser history initial state on mount
+  // Set browser history initial state on mount (preserving OAuth code/hash/query params)
   useEffect(() => {
     try {
-      window.history.replaceState({ view: currentView, index: 0 }, '', window.location.pathname);
+      const fullUrl = window.location.pathname + window.location.search + window.location.hash;
+      window.history.replaceState({ view: currentView, index: 0 }, '', fullUrl);
     } catch (e) {}
   }, []);
 

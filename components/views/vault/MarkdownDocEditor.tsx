@@ -309,6 +309,7 @@ export const MarkdownDocEditor: React.FC<MarkdownDocEditorProps> = ({
   };
 
   // Keyboard events in canvas
+  // Keyboard events in canvas
   const handleCanvasKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     // If slash menu is active, navigate with arrow keys and Enter
     if (slashMenuOpen) {
@@ -346,6 +347,191 @@ export const MarkdownDocEditor: React.FC<MarkdownDocEditorProps> = ({
           setSlashIndex(0);
         }
       }, 10);
+      return;
+    }
+
+    // Enter key handling in Canvas mode for list items and numerals:
+    // Handles double enter on empty numerals/lists to break out into a fresh row!
+    if (e.key === 'Enter' && !e.shiftKey) {
+      const sel = window.getSelection();
+      if (sel && sel.rangeCount > 0) {
+        const range = sel.getRangeAt(0);
+
+        // 1. Check if caret is inside an <li> element
+        let node: Node | null = sel.anchorNode;
+        let liEl: HTMLElement | null = null;
+        while (node && node !== e.currentTarget) {
+          if (node.nodeType === Node.ELEMENT_NODE && (node as HTMLElement).tagName.toLowerCase() === 'li') {
+            liEl = node as HTMLElement;
+            break;
+          }
+          node = node.parentNode;
+        }
+
+        if (liEl) {
+          const text = liEl.textContent?.replace(/\uFEFF/g, '').trim() || '';
+          // If empty (only whitespace or <br>), this is DOUBLE ENTER to exit numerals / list!
+          if (!text) {
+            e.preventDefault();
+            const p = document.createElement('p');
+            p.className = 'my-2.5 text-sm leading-relaxed';
+            p.innerHTML = '<br>';
+
+            const parent = liEl.parentElement;
+            if (parent && /^(ol|ul)$/i.test(parent.tagName)) {
+              if (liEl === parent.lastElementChild) {
+                parent.parentNode?.insertBefore(p, parent.nextSibling);
+              } else if (liEl === parent.firstElementChild && parent.children.length === 1) {
+                parent.parentNode?.insertBefore(p, parent.nextSibling);
+              } else {
+                const nextItems: Element[] = [];
+                let sibling = liEl.nextElementSibling;
+                while (sibling) {
+                  nextItems.push(sibling);
+                  sibling = sibling.nextElementSibling;
+                }
+                parent.parentNode?.insertBefore(p, parent.nextSibling);
+                if (nextItems.length > 0) {
+                  const nextList = document.createElement(parent.tagName);
+                  nextList.className = parent.className;
+                  nextItems.forEach((it) => nextList.appendChild(it));
+                  p.parentNode?.insertBefore(nextList, p.nextSibling);
+                }
+              }
+              liEl.remove();
+              if (parent.children.length === 0) parent.remove();
+            } else {
+              liEl.parentNode?.insertBefore(p, liEl.nextSibling);
+              liEl.remove();
+            }
+
+            const newRange = document.createRange();
+            newRange.setStart(p, 0);
+            newRange.collapse(true);
+            sel.removeAllRanges();
+            sel.addRange(newRange);
+
+            if (pageLook === 'continuous') {
+              handleCanvasInput();
+            } else {
+              handlePaginatedCanvasInput();
+            }
+            return;
+          }
+        }
+
+        // 2. Check if caret is inside a block element (<p> or <div>) that only has numerals/bullets
+        let blockNode: Node | null = sel.anchorNode;
+        let blockEl: HTMLElement | null = null;
+        while (blockNode && blockNode !== e.currentTarget) {
+          if (blockNode.nodeType === Node.ELEMENT_NODE && /^(p|div|h[1-6])$/i.test((blockNode as HTMLElement).tagName)) {
+            blockEl = blockNode as HTMLElement;
+            break;
+          }
+          blockNode = blockNode.parentNode;
+        }
+
+        if (blockEl) {
+          const blockText = blockEl.textContent?.replace(/\uFEFF/g, '').trim() || '';
+          // Check if current line is ONLY an empty numeral (e.g. "1.", "1. ", "2.", "2. ", "-")
+          // This is DOUBLE ENTER on a numeral!
+          const emptyNumeral = blockText.match(/^(\d+[\.\)]|[-*])\s*$/);
+          if (emptyNumeral) {
+            e.preventDefault();
+            blockEl.innerHTML = '<br>';
+            const newRange = document.createRange();
+            newRange.setStart(blockEl, 0);
+            newRange.collapse(true);
+            sel.removeAllRanges();
+            sel.addRange(newRange);
+            if (pageLook === 'continuous') {
+              handleCanvasInput();
+            } else {
+              handlePaginatedCanvasInput();
+            }
+            return;
+          }
+
+          // Check if current line starts with a numeral and has content (e.g. "1. First item")
+          const numeralMatch = blockText.match(/^(\s*)(\d+)([\.\)])\s+(.*)$/);
+          if (numeralMatch && range.collapsed) {
+            const isAtEnd = range.endContainer === blockEl || 
+              (range.endContainer.nodeType === Node.TEXT_NODE && range.endOffset === range.endContainer.textContent?.length);
+            if (isAtEnd) {
+              e.preventDefault();
+              const nextNum = parseInt(numeralMatch[2], 10) + 1;
+              const delim = numeralMatch[3];
+              const nextP = document.createElement(blockEl.tagName.toLowerCase() === 'p' ? 'p' : 'div');
+              nextP.className = blockEl.className || 'my-2.5 text-sm leading-relaxed';
+              nextP.innerHTML = `${nextNum}${delim}&nbsp;`;
+              blockEl.parentNode?.insertBefore(nextP, blockEl.nextSibling);
+
+              const newRange = document.createRange();
+              newRange.selectNodeContents(nextP);
+              newRange.collapse(false);
+              sel.removeAllRanges();
+              sel.addRange(newRange);
+              if (pageLook === 'continuous') {
+                handleCanvasInput();
+              } else {
+                handlePaginatedCanvasInput();
+              }
+              return;
+            }
+          }
+        }
+      }
+    }
+  };
+
+  // Keyboard events in Textarea (Split & Raw Markdown Mode)
+  const handleTextareaKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      const ta = e.currentTarget;
+      const { selectionStart, selectionEnd, value } = ta;
+
+      // Find current line text before cursor
+      const lineStart = value.lastIndexOf('\n', selectionStart - 1) + 1;
+      let lineEnd = value.indexOf('\n', selectionStart);
+      if (lineEnd === -1) lineEnd = value.length;
+
+      const currentLine = value.substring(lineStart, lineEnd);
+
+      // Case A: Current line is ONLY a numeral or bullet (e.g., "2. " or "2." or "- ")
+      // This is DOUBLE ENTER to break out into a fresh row!
+      const emptyNumeralMatch = currentLine.match(/^(\s*)(\d+[\.\)]|[-*])\s*$/);
+      if (emptyNumeralMatch) {
+        e.preventDefault();
+        // Replace the current empty numeral line with a blank line for a fresh row
+        const before = value.substring(0, lineStart);
+        const after = value.substring(lineEnd);
+        const newMd = before + '\n' + after.replace(/^\n/, '');
+        setMarkdown(newMd);
+        setHasChanges(true);
+        setTimeout(() => {
+          ta.selectionStart = ta.selectionEnd = before.length + 1;
+        }, 0);
+        return;
+      }
+
+      // Case B: Current line has numeral item with content: e.g. "1. First item"
+      const numeralMatch = currentLine.match(/^(\s*)(\d+)([\.\)])\s+(.*)$/);
+      if (numeralMatch && selectionStart === lineEnd) {
+        e.preventDefault();
+        const indent = numeralMatch[1];
+        const nextNum = parseInt(numeralMatch[2], 10) + 1;
+        const delim = numeralMatch[3];
+        const insert = `\n${indent}${nextNum}${delim} `;
+        const before = value.substring(0, selectionStart);
+        const after = value.substring(selectionEnd);
+        const newMd = before + insert + after;
+        setMarkdown(newMd);
+        setHasChanges(true);
+        setTimeout(() => {
+          ta.selectionStart = ta.selectionEnd = before.length + insert.length;
+        }, 0);
+        return;
+      }
     }
   };
 
@@ -955,6 +1141,7 @@ export const MarkdownDocEditor: React.FC<MarkdownDocEditorProps> = ({
                   if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
                   saveTimeoutRef.current = setTimeout(() => performSave(true), 1000);
                 }}
+                onKeyDown={handleTextareaKeyDown}
                 className="flex-1 w-full p-4 font-mono text-xs leading-relaxed bg-transparent outline-none resize-none custom-scrollbar"
                 placeholder="Write Markdown here..."
               />
@@ -1086,6 +1273,7 @@ export const MarkdownDocEditor: React.FC<MarkdownDocEditorProps> = ({
                 if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
                 saveTimeoutRef.current = setTimeout(() => performSave(true), 1000);
               }}
+              onKeyDown={handleTextareaKeyDown}
               className="flex-1 w-full p-6 font-mono text-xs leading-relaxed bg-zinc-950 text-amber-100/90 rounded-2xl border border-zinc-800 outline-none resize-none custom-scrollbar shadow-inner"
               placeholder="# Write markdown here..."
             />

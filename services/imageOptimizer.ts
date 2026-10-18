@@ -62,8 +62,11 @@ export async function compressHeadshot(src: string, maxDimension = 400, quality 
 }
 
 /**
- * Optimizes an entire talent pool for Supabase cloud sync by compressing photos
- * ensuring total payload remains under 2MB so Supabase t4g.nano never crashes.
+import { isR2Configured, uploadHeadshotToR2 } from './r2Storage';
+
+/**
+ * Optimizes an entire talent pool for cloud sync by offloading photos to
+ * Cloudflare R2 (zero egress) or compressing to lightweight avatars.
  */
 export async function optimizeTalentForCloud(talentList: any[]): Promise<any[]> {
   if (!Array.isArray(talentList) || talentList.length === 0) return talentList;
@@ -71,14 +74,34 @@ export async function optimizeTalentForCloud(talentList: any[]): Promise<any[]> 
   return Promise.all(
     talentList.map(async (t) => {
       let optPhotoUrl = t.photoUrl;
-      if (t.photoUrl && (t.photoUrl.startsWith('data:image/') || t.photoUrl.startsWith('http'))) {
-        optPhotoUrl = await compressHeadshot(t.photoUrl, 380, 0.7);
+      if (t.photoUrl && t.photoUrl.startsWith('data:image/')) {
+        if (isR2Configured) {
+          try {
+            const r2Url = await uploadHeadshotToR2(t.photoUrl, t.id);
+            if (r2Url) optPhotoUrl = r2Url;
+          } catch (e) {
+            console.warn('[R2 Storage] Headshot upload fallback:', e);
+          }
+        }
+        if (!optPhotoUrl || optPhotoUrl.startsWith('data:image/')) {
+          optPhotoUrl = await compressHeadshot(t.photoUrl, 380, 0.7);
+        }
       }
 
       let optPhotos = t.photos;
       if (Array.isArray(t.photos) && t.photos.length > 0) {
         optPhotos = await Promise.all(
-          t.photos.slice(0, 3).map((p: string) => compressHeadshot(p, 380, 0.7))
+          t.photos.slice(0, 3).map(async (p: string) => {
+            if (p && p.startsWith('data:image/') && isR2Configured) {
+              try {
+                const r2Url = await uploadHeadshotToR2(p, t.id);
+                if (r2Url) return r2Url;
+              } catch (e) {
+                console.warn('[R2 Storage] Headshot gallery fallback:', e);
+              }
+            }
+            return compressHeadshot(p, 380, 0.7);
+          })
         );
       }
 

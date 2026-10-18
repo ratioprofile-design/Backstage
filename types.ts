@@ -407,6 +407,7 @@ export interface ProjectContextType extends ProjectState {
   setFilePath: (path: string | null) => void;
   
   login: (username: string) => void;
+  loginWithSupabase: () => Promise<boolean>;
   logout: () => void;
   selectProject: (id: string, opts?: { silent?: boolean }) => void;
   createProject: (name: string) => void;

@@ -17,6 +17,7 @@ import {
   addProductionDocument,
   archiveProductionDocument,
   unarchiveProductionDocument,
+  deleteProductionDocument,
   saveVoiceNoteToVault,
   saveNoteToVault,
   harvestProjectArtifacts,
@@ -141,7 +142,9 @@ import {
   Music,
   FileCode,
   GitCompare,
-  Zap
+  Zap,
+  MoreHorizontal,
+  MoreVertical
 } from 'lucide-react';
 
 const HIGHLIGHT_COLORS = [
@@ -350,6 +353,7 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
     targetDoc?: ProductionDocument;
   }>({ isOpen: false, x: 0, y: 0 });
   const [isNewDocMenuOpen, setIsNewDocMenuOpen] = useState<boolean>(false);
+  const [isMoreActionsMenuOpen, setIsMoreActionsMenuOpen] = useState<boolean>(false);
   const [breakdownCategoryFilter, setBreakdownCategoryFilter] = useState<string>('ALL');
   const [breakdownSearchQuery, setBreakdownSearchQuery] = useState<string>('');
   const [breakdownStatusFilter, setBreakdownStatusFilter] = useState<string>('ALL');
@@ -813,13 +817,14 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
     return () => window.removeEventListener('mousedown', handleGlobalMouseDown);
   }, [selectionRange]);
 
-  // Dismiss context menu & new doc menu on click outside or Escape
+  // Dismiss context menu & dropdown menus on click outside or Escape
   useEffect(() => {
     const handleGlobalClick = () => {
       if (contextMenu.isOpen) {
         setContextMenu({ isOpen: false, x: 0, y: 0 });
       }
       setIsNewDocMenuOpen(false);
+      setIsMoreActionsMenuOpen(false);
     };
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -827,6 +832,7 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
           setContextMenu({ isOpen: false, x: 0, y: 0 });
         }
         setIsNewDocMenuOpen(false);
+        setIsMoreActionsMenuOpen(false);
       }
     };
     window.addEventListener('click', handleGlobalClick);
@@ -946,7 +952,7 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
         pageCount: 1,
         uploadedAt: now,
         updatedAt: now,
-        htmlContent: generateBreakdownHtmlTable(SCENE_4_BREAKDOWN_SHEET_DATA),
+        htmlContent: generateBreakdownHtmlTable('4', 'EXT. SANGILI FORT - NIGHT', SCENE_4_BREAKDOWN_SHEET_DATA, 'Production Breakdown Sheet', 'DAY 1', '3 1/8 PGS'),
         annotations: [],
         author: currentUser || 'User',
         status: 'draft',
@@ -1383,18 +1389,17 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
     }
   };
 
-  const handleOpenDocInStudio = (docId: string) => {
-    const doc = documents.find((d) => d.id === docId);
-    setSelectedDocId(docId);
+  // PREVIEW DOCUMENT (Read-Only / Paginated View)
+  const handlePreviewDocument = (doc: ProductionDocument) => {
+    setSelectedDocId(doc.id);
     setCurrentPage(1);
     setSelectionRange(null);
     setSelectedCommentId(null);
     const initialContent = doc?.htmlContent || (doc?.textContent ? `<p>${doc.textContent.replace(/\n/g, '<br/>')}</p>` : '');
     setEditedHtmlContent(initialContent);
-    const isMd = doc?.fileType === 'md' || doc?.fileName?.endsWith('.md');
-    const mode = (doc?.isLeftRightFormat || doc?.hasTwoColumnScript) ? 'two-column' : isMd ? 'markdown' : 'page';
+    const mode = (doc?.isLeftRightFormat || doc?.hasTwoColumnScript) ? 'two-column' : 'page';
     setStudioViewMode(mode);
-    setIsEditMode(false); // Default to authentic Paginated A4 View!
+    setIsEditMode(false); // Explicitly read-only / preview mode
     if (doc?.fileType === 'docx' || doc?.fileName?.endsWith('.docx')) {
       setDocFontFamily('calibri');
     } else if (doc?.category === 'BREAKDOWN' || doc?.builtInType === 'breakdown') {
@@ -1407,13 +1412,83 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
     setInStudioMode(true);
 
     try {
-      localStorage.setItem('backstage_last_vault_doc_id', docId);
-      localStorage.setItem('active_two_column_doc_id', docId);
+      localStorage.setItem('backstage_last_vault_doc_id', doc.id);
+      localStorage.setItem('active_two_column_doc_id', doc.id);
       localStorage.setItem('backstage_last_vault_mode', mode);
     } catch (e) {}
   };
 
-  // ARCHIVE DOCUMENT (NO DELETION GUARANTEE)
+  // MODIFY DOCUMENT (Direct Edit Mode)
+  const handleModifyDocument = (doc: ProductionDocument) => {
+    if (doc.isLeftRightFormat || doc.hasTwoColumnScript || doc.category === 'SCRIPT' || doc.isStagedToScript) {
+      if (onNavigateToView) {
+        localStorage.setItem('active_two_column_doc_id', doc.id);
+        onNavigateToView('two-column-script');
+        return;
+      }
+    }
+    setSelectedDocId(doc.id);
+    setCurrentPage(1);
+    setSelectionRange(null);
+    setSelectedCommentId(null);
+    const initialContent = doc?.htmlContent || (doc?.textContent ? `<p>${doc.textContent.replace(/\n/g, '<br/>')}</p>` : '');
+    setEditedHtmlContent(initialContent);
+    const isMd = doc?.fileType === 'md' || doc?.fileName?.endsWith('.md');
+    const mode = (doc?.isLeftRightFormat || doc?.hasTwoColumnScript) ? 'two-column' : isMd ? 'markdown' : 'page';
+    setStudioViewMode(mode);
+    setIsEditMode(true); // Open directly in modify / edit mode
+    if (doc?.fileType === 'docx' || doc?.fileName?.endsWith('.docx')) {
+      setDocFontFamily('calibri');
+    } else if (doc?.category === 'BREAKDOWN' || doc?.builtInType === 'breakdown') {
+      setDocFontFamily('inter');
+    } else {
+      setDocFontFamily('sans');
+    }
+    setBreakdownCategoryFilter('ALL');
+    setBreakdownSearchQuery('');
+    setInStudioMode(true);
+
+    try {
+      localStorage.setItem('backstage_last_vault_doc_id', doc.id);
+      localStorage.setItem('active_two_column_doc_id', doc.id);
+      localStorage.setItem('backstage_last_vault_mode', mode);
+    } catch (e) {}
+  };
+
+  const handleOpenDocInStudio = (docId: string, forceEditMode: boolean = false) => {
+    const doc = documents.find((d) => d.id === docId);
+    if (!doc) return;
+    if (forceEditMode) {
+      handleModifyDocument(doc);
+    } else {
+      handlePreviewDocument(doc);
+    }
+  };
+
+  // PERMANENTLY DELETE DOCUMENT
+  const handleDeleteDocument = (e?: React.MouseEvent, docId?: string, docTitle?: string) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    const targetId = docId || selectedDocId;
+    if (!targetId) return;
+    const docToDelete = documents.find((d) => d.id === targetId);
+    const title = docTitle || docToDelete?.title || 'this document';
+
+    if (window.confirm(`Are you sure you want to delete "${title}"?\n\nThis will remove the document from your vault and cloud storage.`)) {
+      deleteProductionDocument(targetId, currentProjectId || undefined);
+      const updated = getProductionDocuments(currentProjectId || undefined);
+      updateDocuments(updated);
+      if (inStudioMode && selectedDocId === targetId) {
+        setInStudioMode(false);
+        setSelectedDocId(null);
+      }
+      showToast(`🗑️ Deleted "${title}"`);
+    }
+  };
+
+  // ARCHIVE DOCUMENT
   const handleArchiveDocument = (e: React.MouseEvent, docId: string) => {
     e.stopPropagation();
     const docToArchive = documents.find((d) => d.id === docId);
@@ -1440,11 +1515,19 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
   // Toggle Edit Mode with Auto-Population
   const toggleEditMode = () => {
     if (!isEditMode) {
+      const isMd = selectedDoc?.fileType === 'md' || selectedDoc?.fileName?.endsWith('.md');
+      if (isMd) {
+        setStudioViewMode('markdown');
+      }
       if (!editedHtmlContent && selectedDoc) {
         setEditedHtmlContent(selectedDoc.htmlContent || (selectedDoc.textContent ? `<p>${selectedDoc.textContent.replace(/\n/g, '<br/>')}</p>` : ''));
       }
       setIsEditMode(true);
     } else {
+      const isMd = selectedDoc?.fileType === 'md' || selectedDoc?.fileName?.endsWith('.md');
+      if (isMd) {
+        setStudioViewMode('page');
+      }
       setIsEditMode(false);
     }
   };
@@ -2828,92 +2911,101 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
           {!inStudioMode ? (
             <>
               {/* View Mode Switcher (Gallery, Table, Kanban, Timeline) */}
-              <div className={`flex items-center p-1 rounded-xl border ${
-                isLight ? 'bg-slate-100 border-slate-200' : 'bg-zinc-900/60 border-zinc-800/80'
+              <div className={`flex items-center p-0.5 rounded-xl border ${
+                isLight ? 'bg-slate-100 border-slate-200' : 'bg-zinc-900/80 border-zinc-800'
               }`}>
                 <button
                   onClick={() => setGalleryViewMode('gallery')}
                   title="Visual Card Gallery View"
-                  className={`p-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                  className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
                     galleryViewMode === 'gallery'
-                      ? 'bg-[#f5a623] text-black shadow-sm'
+                      ? 'bg-[#f5a623] text-black shadow-xs font-black'
                       : isLight
                       ? 'text-slate-600 hover:text-slate-900'
                       : 'text-zinc-400 hover:text-white'
                   }`}
                 >
-                  <Grid size={14} />
-                  <span className="hidden sm:inline">Gallery</span>
+                  <Grid size={13} />
+                  <span className="hidden xl:inline">Gallery</span>
                 </button>
                 <button
                   onClick={() => setGalleryViewMode('table')}
                   title="Detailed Table / List View"
-                  className={`p-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                  className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
                     galleryViewMode === 'table'
-                      ? 'bg-[#f5a623] text-black shadow-sm'
+                      ? 'bg-[#f5a623] text-black shadow-xs font-black'
                       : isLight
                       ? 'text-slate-600 hover:text-slate-900'
                       : 'text-zinc-400 hover:text-white'
                   }`}
                 >
-                  <List size={14} />
-                  <span className="hidden sm:inline">Table</span>
+                  <List size={13} />
+                  <span className="hidden xl:inline">Table</span>
                 </button>
                 <button
                   onClick={() => setGalleryViewMode('kanban')}
                   title="Category Board (Kanban) View"
-                  className={`p-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                  className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
                     galleryViewMode === 'kanban'
-                      ? 'bg-[#f5a623] text-black shadow-sm'
+                      ? 'bg-[#f5a623] text-black shadow-xs font-black'
                       : isLight
                       ? 'text-slate-600 hover:text-slate-900'
                       : 'text-zinc-400 hover:text-white'
                   }`}
                 >
-                  <Columns size={14} />
-                  <span className="hidden sm:inline">Board</span>
+                  <Columns size={13} />
+                  <span className="hidden xl:inline">Board</span>
                 </button>
                 <button
                   onClick={() => setGalleryViewMode('timeline')}
                   title="Production Timeline Feed"
-                  className={`p-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                  className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
                     galleryViewMode === 'timeline'
-                      ? 'bg-[#f5a623] text-black shadow-sm'
+                      ? 'bg-[#f5a623] text-black shadow-xs font-black'
                       : isLight
                       ? 'text-slate-600 hover:text-slate-900'
                       : 'text-zinc-400 hover:text-white'
                   }`}
                 >
-                  <Calendar size={14} />
-                  <span className="hidden sm:inline">Timeline</span>
+                  <Calendar size={13} />
+                  <span className="hidden xl:inline">Timeline</span>
                 </button>
               </div>
 
-              {/* Subtle Creator Menu: + New ▾ */}
+              {/* Direct Import Button */}
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className={`px-3 py-1.5 text-xs font-semibold rounded-xl border flex items-center gap-1.5 transition-all shadow-xs cursor-pointer ${
+                  isLight
+                    ? 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100 hover:border-slate-300'
+                    : 'bg-zinc-900/90 border-zinc-800 text-zinc-300 hover:text-white hover:bg-zinc-800'
+                }`}
+                title="Import files (PDF, Word, Excel, Images, Audio, Video, Scripts)"
+              >
+                <Upload size={13} className="text-[#f5a623]" />
+                <span>Import</span>
+              </button>
+
+              {/* + New Button with Categorized Dropdown */}
               <div className="relative">
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
+                    setIsMoreActionsMenuOpen(false);
                     setIsNewDocMenuOpen((prev) => !prev);
                   }}
-                  className={`px-2.5 py-1 text-xs font-medium rounded-lg border flex items-center gap-1.5 transition-all cursor-pointer ${
-                    isNewDocMenuOpen
-                      ? 'bg-zinc-800 text-white border-zinc-600'
-                      : isLight
-                      ? 'bg-slate-50 border-slate-200 text-slate-600 hover:text-slate-900 hover:border-slate-300'
-                      : 'bg-transparent border-zinc-800 text-zinc-400 hover:text-zinc-200 hover:border-zinc-700'
-                  }`}
-                  title="Create a new document, screenplay, or note"
+                  className="px-3.5 py-1.5 text-xs font-bold rounded-xl bg-[#f5a623] hover:bg-[#e09612] text-black flex items-center gap-1.5 shadow-md shadow-[#f5a623]/20 transition-all cursor-pointer"
+                  title="Create new document, screenplay, or note"
                 >
-                  <Plus size={13} className="text-zinc-400" />
+                  <Plus size={14} className="stroke-[2.5]" />
                   <span>New</span>
-                  <ChevronDown size={11} className={`opacity-60 transition-transform duration-200 ${isNewDocMenuOpen ? 'rotate-180' : ''}`} />
+                  <ChevronDown size={12} className={`transition-transform duration-200 ${isNewDocMenuOpen ? 'rotate-180' : ''}`} />
                 </button>
 
                 {isNewDocMenuOpen && (
                   <div
                     onClick={(e) => e.stopPropagation()}
-                    className={`absolute left-0 top-full mt-1.5 w-56 rounded-xl border shadow-xl p-1 z-50 backdrop-blur-xl animate-in fade-in zoom-in-95 duration-100 ${
+                    className={`absolute right-0 top-full mt-2 w-60 rounded-2xl border shadow-2xl p-1.5 z-50 backdrop-blur-xl animate-in fade-in zoom-in-95 duration-100 ${
                       isLight
                         ? 'bg-white/95 border-slate-200 shadow-slate-300/30 text-slate-800'
                         : 'bg-[#16161b]/95 border-zinc-800 shadow-2xl text-zinc-200'
@@ -2924,11 +3016,13 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                         setIsNewDocMenuOpen(false);
                         handleCreateNewBlankDoc('markdown');
                       }}
-                      className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs flex items-center gap-2 hover:bg-white/10 dark:hover:bg-zinc-800/70 transition-colors cursor-pointer"
+                      className="w-full text-left px-3 py-2 rounded-xl text-xs flex items-center gap-2.5 hover:bg-zinc-500/10 transition-colors cursor-pointer"
                     >
-                      <FileText size={13} className="text-zinc-400" />
-                      <span className="flex-1 font-medium">Blank Document</span>
-                      <span className="text-[10px] text-zinc-500 font-mono">.md</span>
+                      <FileText size={14} className="text-amber-500" />
+                      <div className="flex-1">
+                        <div className="font-semibold">Blank Document</div>
+                        <div className="text-[10px] text-zinc-500 font-mono">Markdown (.md)</div>
+                      </div>
                     </button>
 
                     <button
@@ -2936,10 +3030,13 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                         setIsNewDocMenuOpen(false);
                         handleCreateNewBlankDoc('screenplay');
                       }}
-                      className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs flex items-center gap-2 hover:bg-white/10 dark:hover:bg-zinc-800/70 transition-colors cursor-pointer"
+                      className="w-full text-left px-3 py-2 rounded-xl text-xs flex items-center gap-2.5 hover:bg-zinc-500/10 transition-colors cursor-pointer"
                     >
-                      <Columns size={13} className="text-zinc-400" />
-                      <span className="flex-1 font-medium">Screenplay (2-Column)</span>
+                      <Columns size={14} className="text-emerald-500" />
+                      <div className="flex-1">
+                        <div className="font-semibold">Screenplay (2-Column)</div>
+                        <div className="text-[10px] text-zinc-500">இருபக்க காட்சி-வசனம்</div>
+                      </div>
                     </button>
 
                     <button
@@ -2947,13 +3044,16 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                         setIsNewDocMenuOpen(false);
                         handleCreateNewBlankDoc('breakdown');
                       }}
-                      className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs flex items-center gap-2 hover:bg-white/10 dark:hover:bg-zinc-800/70 transition-colors cursor-pointer"
+                      className="w-full text-left px-3 py-2 rounded-xl text-xs flex items-center gap-2.5 hover:bg-zinc-500/10 transition-colors cursor-pointer"
                     >
-                      <Layers size={13} className="text-zinc-400" />
-                      <span className="flex-1 font-medium">Breakdown Sheet</span>
+                      <Layers size={14} className="text-sky-500" />
+                      <div className="flex-1">
+                        <div className="font-semibold">Breakdown Sheet</div>
+                        <div className="text-[10px] text-zinc-500">1st AD Stripboard & Elements</div>
+                      </div>
                     </button>
 
-                    <div className="my-1 border-t border-zinc-800/60" />
+                    <div className="my-1.5 border-t border-zinc-800/60" />
 
                     <button
                       onClick={() => {
@@ -2961,10 +3061,13 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                         setVoiceNoteTitle('');
                         setIsVoiceRecorderOpen(true);
                       }}
-                      className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs flex items-center gap-2 hover:bg-white/10 dark:hover:bg-zinc-800/70 transition-colors cursor-pointer text-zinc-400 hover:text-zinc-200"
+                      className="w-full text-left px-3 py-2 rounded-xl text-xs flex items-center gap-2.5 hover:bg-zinc-500/10 transition-colors cursor-pointer"
                     >
-                      <Mic size={13} />
-                      <span>Voice Note</span>
+                      <Mic size={14} className="text-rose-500" />
+                      <div className="flex-1">
+                        <div className="font-semibold">Voice Note</div>
+                        <div className="text-[10px] text-zinc-500">Record audio memo</div>
+                      </div>
                     </button>
 
                     <button
@@ -2974,128 +3077,131 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                         setQuickNoteContent('');
                         setIsNoteModalOpen(true);
                       }}
-                      className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs flex items-center gap-2 hover:bg-white/10 dark:hover:bg-zinc-800/70 transition-colors cursor-pointer text-zinc-400 hover:text-zinc-200"
+                      className="w-full text-left px-3 py-2 rounded-xl text-xs flex items-center gap-2.5 hover:bg-zinc-500/10 transition-colors cursor-pointer"
                     >
-                      <StickyNote size={13} />
-                      <span>Quick Note</span>
+                      <StickyNote size={14} className="text-amber-400" />
+                      <div className="flex-1">
+                        <div className="font-semibold">Quick Note</div>
+                        <div className="text-[10px] text-zinc-500">Production memo</div>
+                      </div>
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        setIsNewDocMenuOpen(false);
+                        setIsAddYouTubeModalOpen(true);
+                      }}
+                      className="w-full text-left px-3 py-2 rounded-xl text-xs flex items-center gap-2.5 hover:bg-zinc-500/10 transition-colors cursor-pointer"
+                    >
+                      <Tv size={14} className="text-red-500" />
+                      <div className="flex-1">
+                        <div className="font-semibold">YouTube / Web Link</div>
+                        <div className="text-[10px] text-zinc-500">Embed video or URL</div>
+                      </div>
                     </button>
                   </div>
                 )}
               </div>
 
-              {/* Action Creators: Voice Note, Quick Note, Import, Sync */}
-              <button
-                onClick={() => {
-                  setVoiceNoteTitle('');
-                  setIsVoiceRecorderOpen(true);
-                }}
-                className={`px-2.5 py-1 text-xs font-medium rounded-lg border flex items-center gap-1.5 transition-all ${
-                  isLight ? 'bg-slate-50 border-slate-200 text-slate-500 hover:text-slate-700 hover:border-slate-300' : 'bg-transparent border-zinc-800 text-zinc-500 hover:text-zinc-300 hover:border-zinc-700'
-                }`}
-                title="Record Voice Note directly in Vault"
-              >
-                <Mic size={13} />
-                <span className="hidden md:inline">Voice Note</span>
-              </button>
+              {/* Clean More Tools (...) Dropdown */}
+              <div className="relative">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setIsNewDocMenuOpen(false);
+                    setIsMoreActionsMenuOpen((prev) => !prev);
+                  }}
+                  className={`p-2 rounded-xl border flex items-center justify-center transition-all cursor-pointer ${
+                    isMoreActionsMenuOpen
+                      ? 'bg-zinc-800 text-white border-zinc-600'
+                      : isLight
+                      ? 'bg-white border-slate-200 text-slate-600 hover:text-slate-900 hover:bg-slate-100 shadow-xs'
+                      : 'bg-zinc-900/90 border-zinc-800 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800'
+                  }`}
+                  title="More Tools & Sync Options"
+                >
+                  <MoreHorizontal size={15} />
+                </button>
 
-              <button
-                onClick={() => {
-                  setQuickNoteTitle('');
-                  setQuickNoteContent('');
-                  setIsNoteModalOpen(true);
-                }}
-                className={`px-2.5 py-1 text-xs font-medium rounded-lg border flex items-center gap-1.5 transition-all ${
-                  isLight ? 'bg-slate-50 border-slate-200 text-slate-500 hover:text-slate-700 hover:border-slate-300' : 'bg-transparent border-zinc-800 text-zinc-500 hover:text-zinc-300 hover:border-zinc-700'
-                }`}
-                title="Write a Production Memo"
-              >
-                <StickyNote size={13} />
-                <span className="hidden md:inline">Quick Note</span>
-              </button>
+                {isMoreActionsMenuOpen && (
+                  <div
+                    onClick={(e) => e.stopPropagation()}
+                    className={`absolute right-0 top-full mt-2 w-64 rounded-2xl border shadow-2xl p-1.5 z-50 backdrop-blur-xl animate-in fade-in zoom-in-95 duration-100 ${
+                      isLight
+                        ? 'bg-white/95 border-slate-200 shadow-slate-300/30 text-slate-800'
+                        : 'bg-[#16161b]/95 border-zinc-800 shadow-2xl text-zinc-200'
+                    }`}
+                  >
+                    <button
+                      onClick={() => {
+                        setIsMoreActionsMenuOpen(false);
+                        if (onNavigateToView) {
+                          onNavigateToView('two-column-script');
+                        } else {
+                          const targetDoc = selectedDoc || documents.find((d) => d.isStagedToScript) || documents.find((d) => d.category === 'SCRIPT' || d.isLeftRightFormat) || documents[0];
+                          if (targetDoc) {
+                            setSelectedDocId(targetDoc.id);
+                            setStudioViewMode('two-column');
+                            setInStudioMode(true);
+                          }
+                        }
+                      }}
+                      className="w-full text-left px-3 py-2 rounded-xl text-xs flex items-center gap-2.5 hover:bg-zinc-500/10 transition-colors cursor-pointer"
+                    >
+                      <Columns size={14} className="text-emerald-400" />
+                      <div className="flex-1">
+                        <div className="font-semibold">Dedicated Script Studio</div>
+                        <div className="text-[10px] text-zinc-500">2-Column Kollywood script editor</div>
+                      </div>
+                    </button>
 
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                className={`px-2.5 py-1 text-xs font-medium rounded-lg border flex items-center gap-1.5 transition-all ${
-                  isLight ? 'bg-slate-50 border-slate-200 text-slate-500 hover:text-slate-700 hover:border-slate-300' : 'bg-transparent border-zinc-800 text-zinc-500 hover:text-zinc-300 hover:border-zinc-700'
-                }`}
-                title="Import multiple files: PDF, Word (.docx), Excel, Images, Audio, Video, Scripts"
-              >
-                <Upload size={13} />
-                <span className="hidden md:inline">Import Files</span>
-              </button>
+                    <button
+                      onClick={() => {
+                        setIsMoreActionsMenuOpen(false);
+                        setIsDiffModalOpen(true);
+                      }}
+                      className="w-full text-left px-3 py-2 rounded-xl text-xs flex items-center gap-2.5 hover:bg-zinc-500/10 transition-colors cursor-pointer"
+                    >
+                      <GitCompare size={14} className="text-[#f5a623]" />
+                      <div className="flex-1">
+                        <div className="font-semibold">Revision Diff Engine</div>
+                        <div className="text-[10px] text-zinc-500">Compare revisions & drafts</div>
+                      </div>
+                    </button>
 
-              <button
-                onClick={() => setIsAddYouTubeModalOpen(true)}
-                className={`px-2.5 py-1 text-xs font-medium rounded-lg border flex items-center gap-1.5 transition-all ${
-                  isLight ? 'bg-slate-50 border-slate-200 text-slate-500 hover:text-slate-700 hover:border-slate-300' : 'bg-transparent border-zinc-800 text-zinc-500 hover:text-zinc-300 hover:border-zinc-700'
-                }`}
-                title="Embed YouTube Video or Web Link"
-              >
-                <Tv size={13} className="text-red-500" />
-                <span className="hidden md:inline">YouTube / Link</span>
-              </button>
+                    <div className="my-1.5 border-t border-zinc-800/60" />
 
-              <button
-                onClick={() => {
-                  if (onNavigateToView) {
-                    onNavigateToView('two-column-script');
-                  } else {
-                    const targetDoc = selectedDoc || documents.find((d) => d.isStagedToScript) || documents.find((d) => d.category === 'SCRIPT' || d.isLeftRightFormat) || documents[0];
-                    if (targetDoc) {
-                      setSelectedDocId(targetDoc.id);
-                      setStudioViewMode('two-column');
-                      setInStudioMode(true);
-                    }
-                  }
-                }}
-                className={`px-2.5 py-1 text-xs font-medium rounded-lg border flex items-center gap-1.5 transition-all ${
-                  isLight ? 'bg-slate-50 border-slate-200 text-slate-500 hover:text-slate-700 hover:border-slate-300' : 'bg-transparent border-zinc-800 text-zinc-500 hover:text-zinc-300 hover:border-zinc-700'
-                }`}
-                title="Open Dedicated 2-Column Kollywood Script Studio"
-              >
-                <Columns size={13} />
-                <span className="hidden md:inline">Script Studio</span>
-              </button>
+                    <button
+                      onClick={() => {
+                        setIsMoreActionsMenuOpen(false);
+                        handleManualCloudSync();
+                      }}
+                      disabled={isCloudSyncing}
+                      className="w-full text-left px-3 py-2 rounded-xl text-xs flex items-center gap-2.5 hover:bg-zinc-500/10 transition-colors cursor-pointer disabled:opacity-50"
+                    >
+                      <Cloud size={14} className={`text-emerald-400 ${isCloudSyncing ? 'animate-spin' : ''}`} />
+                      <div className="flex-1">
+                        <div className="font-semibold">{isCloudSyncing ? 'Syncing...' : 'Sync Cloud (Supabase)'}</div>
+                        <div className="text-[10px] text-zinc-500">Synchronize files with cloud database</div>
+                      </div>
+                    </button>
 
-              <button
-                onClick={() => setIsDiffModalOpen(true)}
-                className={`px-2.5 py-1 text-xs font-bold rounded-lg border flex items-center gap-1.5 transition-all cursor-pointer ${
-                  isLight
-                    ? 'bg-amber-50 border-amber-300 text-amber-800 hover:bg-amber-100'
-                    : 'bg-[#f5a623]/10 border-[#f5a623]/30 text-[#f5a623] hover:bg-[#f5a623]/20 hover:border-[#f5a623]/50'
-                }`}
-                title="Compare script revisions, versions, and drafts using Myers Diff Engine"
-              >
-                <GitCompare size={13} />
-                <span className="hidden md:inline">Revision Diff</span>
-              </button>
-
-              <button
-                onClick={handleManualCloudSync}
-                disabled={isCloudSyncing}
-                className={`px-2.5 py-1 text-xs font-medium rounded-lg border flex items-center gap-1.5 transition-all ${
-                  isCloudSyncing
-                    ? 'bg-amber-500/10 border-amber-500/40 text-amber-400 animate-pulse'
-                    : isLight
-                    ? 'bg-emerald-50 border-emerald-300 text-emerald-700 hover:bg-emerald-100 hover:border-emerald-400'
-                    : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20 hover:border-emerald-500/50'
-                }`}
-                title="Fetch and synchronize all uploaded files, scripts & attachments from Supabase Cloud"
-              >
-                <Cloud size={13} className={isCloudSyncing ? 'animate-spin' : ''} />
-                <span>{isCloudSyncing ? 'Syncing...' : 'Sync Cloud'}</span>
-              </button>
-
-              <button
-                onClick={handleSyncArtifacts}
-                className={`px-2.5 py-1 text-xs font-medium rounded-lg border flex items-center gap-1.5 transition-all ${
-                  isLight ? 'bg-slate-100 border-slate-300 text-slate-600 hover:bg-slate-200' : 'bg-zinc-900 border-zinc-700 text-zinc-400 hover:text-zinc-200 hover:border-zinc-600'
-                }`}
-                title="Scan and synchronize all notes, voice memos, storyboard panels, and breakdowns from project"
-              >
-                <RefreshCw size={13} />
-                <span>Sync Artifacts</span>
-              </button>
+                    <button
+                      onClick={() => {
+                        setIsMoreActionsMenuOpen(false);
+                        handleSyncArtifacts();
+                      }}
+                      className="w-full text-left px-3 py-2 rounded-xl text-xs flex items-center gap-2.5 hover:bg-zinc-500/10 transition-colors cursor-pointer"
+                    >
+                      <RefreshCw size={14} className="text-zinc-400" />
+                      <div className="flex-1">
+                        <div className="font-semibold">Sync Project Artifacts</div>
+                        <div className="text-[10px] text-zinc-500">Scan notes, memos, & storyboard panels</div>
+                      </div>
+                    </button>
+                  </div>
+                )}
+              </div>
             </>
           ) : (
             /* Studio Mode Header Actions */
@@ -3107,7 +3213,7 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                 <button
                   onClick={() => {
                     const idx = filteredDocuments.findIndex((d) => d.id === selectedDocId);
-                    if (idx > 0) handleOpenDocInStudio(filteredDocuments[idx - 1].id);
+                    if (idx > 0) handlePreviewDocument(filteredDocuments[idx - 1]);
                   }}
                   disabled={filteredDocuments.findIndex((d) => d.id === selectedDocId) <= 0}
                   className={`p-1 rounded disabled:opacity-30 ${
@@ -3121,7 +3227,7 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                   onClick={() => {
                     const idx = filteredDocuments.findIndex((d) => d.id === selectedDocId);
                     if (idx >= 0 && idx < filteredDocuments.length - 1) {
-                      handleOpenDocInStudio(filteredDocuments[idx + 1].id);
+                      handlePreviewDocument(filteredDocuments[idx + 1]);
                     }
                   }}
                   disabled={filteredDocuments.findIndex((d) => d.id === selectedDocId) >= filteredDocuments.length - 1}
@@ -3175,7 +3281,7 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                       ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border-emerald-200'
                       : 'bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40'
                   }`}
-                  title="Download Word (.docx) with Bamini converted to Unicode (preserving 100% of original formatting, font sizes, colors and tables)"
+                  title="Download Word (.docx) with Bamini converted to Unicode"
                 >
                   <Download size={13} className={isLight ? 'text-emerald-700' : 'text-emerald-400'} />
                   <span>Download Converted (.docx)</span>
@@ -3198,19 +3304,20 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                 </button>
               )}
 
-              {/* In-Place Edit Mode Toggle */}
+              {/* In-Place Modify / Edit Mode Toggle */}
               <button
                 onClick={toggleEditMode}
-                className={`px-3 py-1.5 text-xs font-bold rounded-lg border flex items-center gap-1.5 transition-all ${
+                className={`px-3 py-1.5 text-xs font-bold rounded-lg border flex items-center gap-1.5 transition-all cursor-pointer ${
                   isEditMode
-                    ? 'bg-[#f5a623] text-black border-[#f5a623] shadow-md'
+                    ? 'bg-[#f5a623] text-black border-[#f5a623] shadow-md font-black'
                     : isLight
                     ? 'bg-white border-slate-300 text-slate-700 hover:bg-slate-100 shadow-sm'
                     : 'bg-zinc-800/80 border-zinc-700 text-zinc-200 hover:bg-zinc-700'
                 }`}
+                title={isEditMode ? "Switch back to Preview Mode" : "Modify and edit document"}
               >
-                <Edit3 size={14} />
-                <span>{isEditMode ? 'Editing' : 'Edit'}</span>
+                {isEditMode ? <Eye size={14} /> : <Edit3 size={14} />}
+                <span>{isEditMode ? 'Preview' : 'Modify'}</span>
               </button>
 
               {hasUnsavedChanges && (
@@ -3223,11 +3330,11 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                 </button>
               )}
 
-              {/* Archive / Unarchive Button (NO DELETION GUARANTEE) */}
+              {/* Archive / Unarchive Button */}
               {selectedDoc?.isArchived ? (
                 <button
                   onClick={(e) => handleUnarchiveDocument(e, selectedDoc.id)}
-                  className={`px-3 py-1.5 text-xs font-bold rounded-lg border flex items-center gap-1.5 transition-all ${
+                  className={`px-3 py-1.5 text-xs font-bold rounded-lg border flex items-center gap-1.5 transition-all cursor-pointer ${
                     isLight
                       ? 'bg-amber-50 border-amber-200 text-amber-700 hover:bg-amber-100'
                       : 'bg-amber-500/20 border-amber-500/40 text-amber-400 hover:bg-amber-500/30'
@@ -3240,22 +3347,36 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
               ) : (
                 <button
                   onClick={(e) => handleArchiveDocument(e, selectedDoc?.id || '')}
-                  className={`px-3 py-1.5 text-xs font-bold rounded-lg border flex items-center gap-1.5 transition-all ${
+                  className={`px-3 py-1.5 text-xs font-bold rounded-lg border flex items-center gap-1.5 transition-all cursor-pointer ${
                     isLight
                       ? 'bg-white border-slate-300 text-slate-600 hover:text-amber-700 hover:border-amber-300 shadow-sm'
                       : 'bg-zinc-800/80 border-zinc-700 text-zinc-300 hover:text-amber-400 hover:border-amber-500/40'
                   }`}
-                  title="Safely archive this document into Vault history"
+                  title="Safely archive this document"
                 >
                   <Archive size={14} />
                   <span>Archive</span>
                 </button>
               )}
 
+              {/* Delete Document Button */}
+              <button
+                onClick={(e) => handleDeleteDocument(e, selectedDoc?.id, selectedDoc?.title)}
+                className={`px-3 py-1.5 text-xs font-bold rounded-lg border flex items-center gap-1.5 transition-all cursor-pointer ${
+                  isLight
+                    ? 'bg-rose-50 border-rose-200 text-rose-700 hover:bg-rose-100 hover:border-rose-300 shadow-sm'
+                    : 'bg-rose-950/40 border-rose-800/50 text-rose-300 hover:bg-rose-900/60 hover:text-white'
+                }`}
+                title="Permanently delete this document from vault and cloud"
+              >
+                <Trash2 size={13} className="text-rose-400" />
+                <span>Delete</span>
+              </button>
+
               {/* Print Preview */}
               <button
                 onClick={() => window.print()}
-                className={`p-2 rounded-lg border ${
+                className={`p-2 rounded-lg border cursor-pointer ${
                   isLight
                     ? 'bg-white border-slate-300 text-slate-600 hover:text-slate-900 shadow-sm'
                     : 'bg-zinc-800/80 border-zinc-700 text-zinc-300 hover:text-white'
@@ -3599,7 +3720,7 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                         </div>
                       </div>
                       <button
-                        onClick={() => handleOpenDocInStudio(recentDoc.id)}
+                        onClick={() => handleModifyDocument(recentDoc)}
                         className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-bold text-xs flex items-center gap-2 shadow-md transition-all cursor-pointer"
                       >
                         <span>Continue 2-Column Script</span>
@@ -3626,8 +3747,9 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                       return (
                         <div
                           key={doc.id}
-                          onClick={() => handleOpenDocInStudio(doc.id)}
+                          onClick={() => handlePreviewDocument(doc)}
                           onContextMenu={(e) => handleDocCardContextMenu(e, doc)}
+                          title="Click to preview document • Right-click to modify"
                           className={`group relative rounded-2xl border transition-all duration-200 cursor-pointer flex flex-col overflow-hidden hover:shadow-xl hover:-translate-y-0.5 ${
                             isLight
                               ? 'bg-white border-slate-200/90 hover:border-[#f5a623]'
@@ -3903,12 +4025,33 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                               ) : (
                                 <button
                                   onClick={(e) => handleArchiveDocument(e, doc.id)}
-                                  className="p-1.5 rounded-lg bg-zinc-900/90 text-zinc-400 hover:text-amber-400 hover:bg-zinc-800 transition-all shadow-md"
-                                  title="Archive document (Safely preserved)"
+                                  className="p-1.5 rounded-lg bg-zinc-900/90 text-zinc-400 hover:text-amber-400 hover:bg-zinc-800 transition-all shadow-md cursor-pointer"
+                                  title="Archive document"
                                 >
                                   <Archive size={13} />
                                 </button>
                               )}
+
+                              {/* Delete Document Button */}
+                              <button
+                                onClick={(e) => handleDeleteDocument(e, doc.id, doc.title)}
+                                className="p-1.5 rounded-lg bg-zinc-900/90 text-zinc-400 hover:text-rose-400 hover:bg-rose-950/80 transition-all shadow-md cursor-pointer"
+                                title="Delete document"
+                              >
+                                <Trash2 size={13} />
+                              </button>
+
+                              {/* More Actions (Context Menu) */}
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDocCardContextMenu(e, doc);
+                                }}
+                                className="p-1.5 rounded-lg bg-zinc-900/90 text-zinc-400 hover:text-white hover:bg-zinc-800 transition-all shadow-md cursor-pointer"
+                                title="More actions (Right-click)"
+                              >
+                                <MoreVertical size={13} />
+                              </button>
                             </div>
                           </div>
 
@@ -4062,8 +4205,9 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                           return (
                             <tr
                               key={doc.id}
-                              onClick={() => handleOpenDocInStudio(doc.id)}
+                              onClick={() => handlePreviewDocument(doc)}
                               onContextMenu={(e) => handleDocCardContextMenu(e, doc)}
+                              title="Click to preview document • Right-click to modify"
                               className={`transition-colors cursor-pointer group ${
                                 isLight ? 'hover:bg-slate-50' : 'hover:bg-zinc-800/40'
                               }`}
@@ -4192,22 +4336,42 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                                     </button>
                                   )}
 
+                                  {/* Preview Document */}
                                   <button
-                                    onClick={() => handleOpenDocInStudio(doc.id)}
-                                    className={`p-1.5 rounded-lg transition-colors ${
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handlePreviewDocument(doc);
+                                    }}
+                                    className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
                                       isLight
                                         ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200'
                                         : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-200'
                                     }`}
-                                    title="Open in Document Studio"
+                                    title="Preview document"
                                   >
-                                    <ExternalLink size={13} />
+                                    <Eye size={13} />
+                                  </button>
+
+                                  {/* Modify Document */}
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleModifyDocument(doc);
+                                    }}
+                                    className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                                      isLight
+                                        ? 'bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200'
+                                        : 'bg-amber-500/15 hover:bg-amber-500/30 text-amber-400'
+                                    }`}
+                                    title="Modify / Edit document"
+                                  >
+                                    <Edit3 size={13} />
                                   </button>
 
                                   {doc.isArchived ? (
                                     <button
                                       onClick={(e) => handleUnarchiveDocument(e, doc.id)}
-                                      className="p-1.5 rounded-lg bg-amber-500/20 text-amber-400 hover:bg-amber-500 hover:text-black transition-all"
+                                      className="p-1.5 rounded-lg bg-amber-500/20 text-amber-400 hover:bg-amber-500 hover:text-black transition-all cursor-pointer"
                                       title="Restore from Archive"
                                     >
                                       <ArchiveRestore size={13} />
@@ -4215,7 +4379,7 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                                   ) : (
                                     <button
                                       onClick={(e) => handleArchiveDocument(e, doc.id)}
-                                      className={`p-1.5 rounded-lg transition-all ${
+                                      className={`p-1.5 rounded-lg transition-all cursor-pointer ${
                                         isLight
                                           ? 'bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-amber-600 border border-slate-200'
                                           : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-amber-400'
@@ -4225,6 +4389,19 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                                       <Archive size={13} />
                                     </button>
                                   )}
+
+                                  {/* Delete Document Button */}
+                                  <button
+                                    onClick={(e) => handleDeleteDocument(e, doc.id, doc.title)}
+                                    className={`p-1.5 rounded-lg transition-all cursor-pointer ${
+                                      isLight
+                                        ? 'bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200'
+                                        : 'bg-zinc-800 hover:bg-rose-950/80 text-zinc-400 hover:text-rose-400'
+                                    }`}
+                                    title="Delete document"
+                                  >
+                                    <Trash2 size={13} />
+                                  </button>
                                 </div>
                               </td>
                             </tr>
@@ -4285,8 +4462,9 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                             {colDocs.map((doc) => (
                               <div
                                 key={doc.id}
-                                onClick={() => handleOpenDocInStudio(doc.id)}
+                                onClick={() => handlePreviewDocument(doc)}
                                 onContextMenu={(e) => handleDocCardContextMenu(e, doc)}
+                                title="Click to preview document • Right-click to modify"
                                 className={`p-3.5 rounded-xl border transition-all cursor-pointer hover:shadow-lg hover:border-[#f5a623]/80 ${
                                   isLight ? 'bg-white border-slate-200' : 'bg-[#18181d] border-[#2a2a30]'
                                 }`}
@@ -4367,8 +4545,9 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
 
                             {/* Timeline Card */}
                             <div
-                              onClick={() => handleOpenDocInStudio(doc.id)}
+                              onClick={() => handlePreviewDocument(doc)}
                               onContextMenu={(e) => handleDocCardContextMenu(e, doc)}
+                              title="Click to preview document • Right-click to modify"
                               className={`p-4 rounded-2xl border transition-all cursor-pointer hover:border-[#f5a623] hover:shadow-xl ${
                                 isLight ? 'bg-white border-slate-200' : 'bg-[#131317] border-[#24242a]'
                               }`}
@@ -6621,32 +6800,53 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                 </span>
               </div>
 
+              {/* Primary Action: Modify Document */}
               <button
                 onClick={() => {
                   const doc = contextMenu.targetDoc!;
                   setContextMenu({ isOpen: false, x: 0, y: 0 });
-                  handleOpenDocInStudio(doc.id);
+                  handleModifyDocument(doc);
                 }}
-                className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs flex items-center gap-2 hover:bg-white/10 dark:hover:bg-zinc-800/80 transition-colors cursor-pointer"
+                className="w-full text-left px-2.5 py-2 rounded-lg text-xs flex items-center gap-2 hover:bg-[#f5a623]/20 text-[#f5a623] font-bold transition-colors cursor-pointer"
               >
-                <ExternalLink size={13} className="text-zinc-400" />
-                <span className="flex-1 font-medium">Open in Studio</span>
-                <span className="text-[10px] text-zinc-500 font-mono">↵</span>
+                <Edit3 size={13} className="text-[#f5a623]" />
+                <span className="flex-1 font-bold">Modify Document</span>
+                <span className="text-[10px] text-amber-500/80 font-mono">Edit</span>
               </button>
 
+              {/* Secondary Action: Preview Document */}
               <button
                 onClick={() => {
                   const doc = contextMenu.targetDoc!;
-                  setSelectedDocId(doc.id);
-                  setStudioViewMode('markdown');
-                  setInStudioMode(true);
                   setContextMenu({ isOpen: false, x: 0, y: 0 });
+                  handlePreviewDocument(doc);
                 }}
-                className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs flex items-center gap-2 hover:bg-white/10 dark:hover:bg-zinc-800/80 transition-colors cursor-pointer"
+                className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs flex items-center gap-2 hover:bg-white/10 dark:hover:bg-zinc-800/80 transition-colors cursor-pointer text-zinc-200"
               >
-                <FileCode size={13} className="text-zinc-400" />
-                <span className="flex-1 font-medium">Open as Markdown</span>
+                <Eye size={13} className="text-zinc-400" />
+                <span className="flex-1 font-medium">Preview Document</span>
+                <span className="text-[10px] text-zinc-500 font-mono">View</span>
               </button>
+
+              {/* Open in Dedicated Script Studio / Page */}
+              {(contextMenu.targetDoc.category === 'SCRIPT' || contextMenu.targetDoc.isLeftRightFormat || contextMenu.targetDoc.hasTwoColumnScript || contextMenu.targetDoc.isStagedToScript) && (
+                <button
+                  onClick={() => {
+                    const doc = contextMenu.targetDoc!;
+                    setContextMenu({ isOpen: false, x: 0, y: 0 });
+                    if (onNavigateToView) {
+                      localStorage.setItem('active_two_column_doc_id', doc.id);
+                      onNavigateToView('two-column-script');
+                    } else {
+                      handleMakeTwoColumnScriptAndOpen(doc);
+                    }
+                  }}
+                  className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs flex items-center gap-2 hover:bg-white/10 dark:hover:bg-zinc-800/80 transition-colors cursor-pointer text-emerald-400"
+                >
+                  <Columns size={13} />
+                  <span className="flex-1 font-medium">Open in Script Page</span>
+                </button>
+              )}
 
               <div className="my-1 border-t border-zinc-800/60" />
 
@@ -6725,12 +6925,26 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                     setContextMenu({ isOpen: false, x: 0, y: 0 });
                     handleArchiveDocument(e, doc.id);
                   }}
-                  className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs flex items-center gap-2 hover:bg-red-500/15 text-zinc-400 hover:text-red-400 transition-colors cursor-pointer"
+                  className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs flex items-center gap-2 hover:bg-zinc-800 text-zinc-400 hover:text-amber-400 transition-colors cursor-pointer"
                 >
                   <Archive size={13} />
                   <span>Archive</span>
                 </button>
               )}
+
+              {/* Delete Document Button */}
+              <button
+                onClick={(e) => {
+                  const doc = contextMenu.targetDoc!;
+                  setContextMenu({ isOpen: false, x: 0, y: 0 });
+                  handleDeleteDocument(e, doc.id, doc.title);
+                }}
+                className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs flex items-center gap-2 hover:bg-rose-500/20 text-rose-400 font-bold transition-colors cursor-pointer mt-0.5"
+              >
+                <Trash2 size={13} className="text-rose-400" />
+                <span className="flex-1">Delete Document</span>
+                <span className="text-[10px] text-rose-500/80 font-mono">Del</span>
+              </button>
             </>
           ) : (
             /* Canvas Right-Click: Subtle Creation & Sync Actions */

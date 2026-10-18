@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { isR2Configured, uploadDocumentToR2 } from './r2Storage';
 
 // Safe access to environment variables across Vite, Vercel, Node, and browser runtimes
 const getEnv = (key: string): string => {
@@ -78,7 +79,6 @@ export const supabase = isSupabaseConfigured
         autoRefreshToken: true,
         persistSession: true,
         detectSessionInUrl: true,
-        flowType: 'pkce',
         storage: typeof window !== 'undefined' ? window.localStorage : undefined,
       }
     })
@@ -260,7 +260,7 @@ export const fetchUserProjects = async (userId: string) => {
     const { data, error } = await withTimeout(
       query as any,
       6000,
-      'fetchUserProjects timed out after 6000ms'
+      { data: null, error: new Error('fetchUserProjects timed out after 6000ms') }
     );
 
     if (error) {
@@ -296,7 +296,7 @@ export const fetchProjectData = async (id: string) => {
     const { data, error } = await withTimeout(
       query as any,
       8000,
-      'fetchProjectData timed out after 8000ms'
+      { data: null, error: new Error('fetchProjectData timed out after 8000ms') }
     );
 
     if (error) {
@@ -429,12 +429,24 @@ export const uploadDocumentBinaryToStorage = async (
   fileName: string,
   dataUrl?: string
 ): Promise<string | null> => {
-  if (!isSupabaseConfigured || !dataUrl) return null;
+  if (!dataUrl) return null;
   // If it is already a hosted public URL, return directly
   if (dataUrl.startsWith('http://') || dataUrl.startsWith('https://')) {
     return dataUrl;
   }
   if (!dataUrl.startsWith('data:')) return null;
+
+  // 1. Try Cloudflare R2 first (Zero Egress fees)
+  if (isR2Configured) {
+    try {
+      const r2Url = await uploadDocumentToR2(projectId, fileName, dataUrl);
+      if (r2Url) return r2Url;
+    } catch (r2Err) {
+      console.warn('[R2 Storage] Document upload notice, trying Supabase fallback:', r2Err);
+    }
+  }
+
+  if (!isSupabaseConfigured) return null;
 
   try {
     const commaIndex = dataUrl.indexOf(',');

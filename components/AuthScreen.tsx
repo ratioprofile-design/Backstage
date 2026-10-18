@@ -1,90 +1,97 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { supabase, withTimeout } from '../services/supabase';
+import { supabase, isSupabaseConfigured } from '../services/supabase';
 import { useProject } from '../context/ProjectContext';
-import { Film, Mail, Lock, Loader2, AlertCircle, CheckCircle2, Cloud, X, User, ArrowRight, Laptop, Zap, WifiOff } from 'lucide-react';
+import { 
+  Film, Mail, Lock, User, Eye, EyeOff, CheckCircle2, 
+  AlertCircle, Cloud, CloudOff, LogOut, ArrowRight, X, KeyRound, Loader2 
+} from 'lucide-react';
 
-interface AuthErrorInfo {
-  title: string;
-  message: string;
-  isGatewayTimeout: boolean;
-}
-
-const parseAuthError = (err: any): AuthErrorInfo => {
-  let rawMsg = '';
-  if (typeof err === 'string') {
-    rawMsg = err;
-  } else if (err?.message) {
-    rawMsg = err.message;
-  } else {
-    try {
-      rawMsg = JSON.stringify(err);
-    } catch {
-      rawMsg = 'An error occurred';
-    }
+// Friendly error message parser
+const parseAuthError = (err: any): string => {
+  let raw = '';
+  if (typeof err === 'string') raw = err;
+  else if (err?.message) raw = err.message;
+  else if (err?.error_description) raw = err.error_description;
+  else {
+    try { raw = JSON.stringify(err); } catch { raw = 'Unknown authentication error'; }
   }
 
-  // Parse embedded JSON like '{"message":"Gateway Timeout"}'
   try {
-    const trimmed = rawMsg.trim();
+    const trimmed = raw.trim();
     if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
       const parsed = JSON.parse(trimmed);
-      if (parsed.message) rawMsg = parsed.message;
+      raw = parsed.message || parsed.msg || parsed.error_description || raw;
     }
   } catch {}
 
-  const lower = rawMsg.toLowerCase();
-  const isGatewayTimeout =
-    lower.includes('gateway timeout') ||
-    lower.includes('504') ||
-    err?.status === 504 ||
-    lower.includes('failed to fetch') ||
-    lower.includes('network request failed') ||
-    lower.includes('networkerror');
-
-  if (isGatewayTimeout) {
-    return {
-      title: 'Cloud Database Offline (504 Gateway Timeout)',
-      message:
-        'The remote Supabase cloud authentication service is currently paused or unreachable. Backstage has full offline capabilities — all your screenplays, vault documents, and storyboard shots are saved locally.',
-      isGatewayTimeout: true,
-    };
+  const lower = raw.toLowerCase();
+  if (lower.includes('invalid login credentials') || lower.includes('invalid_credentials')) {
+    return 'Invalid email or password. Please verify your credentials or create an account.';
   }
-
-  return {
-    title: 'Authentication Failed',
-    message: rawMsg || 'Please check your credentials or continue in Local Mode.',
-    isGatewayTimeout: false,
-  };
+  if (lower.includes('user already registered') || lower.includes('already registered')) {
+    return 'An account with this email already exists. Please sign in below.';
+  }
+  if (lower.includes('email not confirmed')) {
+    return 'Please confirm your email address before signing in. Check your inbox for the confirmation link.';
+  }
+  if (lower.includes('password should be at least') || lower.includes('weak password')) {
+    return 'Password must be at least 6 characters long.';
+  }
+  if (lower.includes('rate limit') || lower.includes('too many requests')) {
+    return 'Too many attempts. Please wait a few moments and try again.';
+  }
+  if (lower.includes('gateway timeout') || lower.includes('504') || lower.includes('failed to fetch') || lower.includes('networkerror')) {
+    return 'Unable to reach the cloud server. Check your connection or continue in Offline Mode.';
+  }
+  return raw || 'An unexpected error occurred. Please try again.';
 };
+
+const GoogleIcon = () => (
+  <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true">
+    <path fill="#FFC107" d="M43.6 20.1H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.9 1.2 8 3l5.7-5.7C34 6.1 29.3 4 24 4 13 4 4 13 4 24s9 20 20 20 20-9 20-20c0-1.3-.1-2.6-.4-3.9z"/>
+    <path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.9 1.2 8 3l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/>
+    <path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-8l-6.5 5C9.6 39.6 16.2 44 24 44z"/>
+    <path fill="#1976D2" d="M43.6 20.1H42V20H24v8h11.3c-.8 2.3-2.3 4.3-4.1 5.7l6.2 5.2C41.2 35.9 44 30.5 44 24c0-1.3-.1-2.6-.4-3.9z"/>
+  </svg>
+);
 
 interface AuthScreenProps {
   onClose?: () => void;
   onSuccess?: () => void;
+  initialView?: 'signin' | 'signup' | 'reset' | 'local';
 }
 
-const AuthScreen: React.FC<AuthScreenProps> = ({ onClose, onSuccess }) => {
-  const { login, currentUser, supabaseUser } = useProject();
-  const [tab, setTab] = useState<'cloud' | 'local'>('cloud');
-  const [cloudMode, setCloudMode] = useState<'signin' | 'signup'>('signin');
+type AuthTab = 'signin' | 'signup' | 'reset' | 'local';
+
+export const AuthScreen: React.FC<AuthScreenProps> = ({ 
+  onClose, 
+  onSuccess,
+  initialView = 'signin'
+}) => {
+  const { currentUser, supabaseUser, login, loginWithSupabase, logout, isCloudMode } = useProject();
+
+  const [activeTab, setActiveTab] = useState<AuthTab>(initialView);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [localName, setLocalName] = useState(currentUser || '');
+  const [writerName, setWriterName] = useState('');
+  const [localPenName, setLocalPenName] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+
   const [loading, setLoading] = useState(false);
-  const [takingLonger, setTakingLonger] = useState(false);
-  const [error, setError] = useState<AuthErrorInfo | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
-  const [debug, setDebug] = useState<string | null>(null);
-  const takingLongerTimerRef = useRef<any>(null);
+  const [googleLoading, setGoogleLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
-  // Auto-dismiss if session is established
+  const isMounted = useRef(true);
+
   useEffect(() => {
-    if (supabaseUser) {
-      onSuccess?.();
-      onClose?.();
-    }
-  }, [supabaseUser, onSuccess, onClose]);
+    isMounted.current = true;
+    return () => {
+      isMounted.current = false;
+    };
+  }, []);
 
-  // Handle ESC key to close
+  // Close on Escape key
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -95,418 +102,529 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onClose, onSuccess }) => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [onClose]);
 
-  // Fast direct local bypass using the prefix of the email or pen name
-  const suggestedLocalName = (email.trim() ? email.split('@')[0] : localName.trim()) || 'Writer';
+  const resetNotices = () => {
+    setErrorMessage(null);
+    setSuccessMessage(null);
+  };
 
-  const continueLocally = (customName?: string) => {
-    const chosen = (customName || suggestedLocalName).trim() || 'Writer';
-    login(chosen);
+  const switchTab = (tab: AuthTab) => {
+    resetNotices();
+    setActiveTab(tab);
+  };
+
+  // 1. Sign In handler
+  const handleSignIn = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const cleanEmail = email.trim().toLowerCase();
+    if (!cleanEmail || !password) return;
+
+    resetNotices();
+    setLoading(true);
+
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: cleanEmail,
+        password,
+      });
+
+      if (!isMounted.current) return;
+
+      if (error) {
+        setErrorMessage(parseAuthError(error));
+        setLoading(false);
+        return;
+      }
+
+      if (data?.session?.user) {
+        setSuccessMessage('Signed in successfully! Launching studio...');
+        await loginWithSupabase();
+        setTimeout(() => {
+          if (isMounted.current) {
+            onSuccess?.();
+            onClose?.();
+          }
+        }, 350);
+      }
+    } catch (err: any) {
+      if (isMounted.current) {
+        setErrorMessage(parseAuthError(err));
+        setLoading(false);
+      }
+    }
+  };
+
+  // 2. Sign Up handler
+  const handleSignUp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const cleanEmail = email.trim().toLowerCase();
+    if (!cleanEmail || !password) return;
+
+    if (password.length < 6) {
+      setErrorMessage('Password must be at least 6 characters long.');
+      return;
+    }
+
+    resetNotices();
+    setLoading(true);
+
+    try {
+      const { data, error } = await supabase.auth.signUp({
+        email: cleanEmail,
+        password,
+        options: {
+          data: {
+            display_name: writerName.trim() || undefined,
+            full_name: writerName.trim() || undefined,
+          }
+        }
+      });
+
+      if (!isMounted.current) return;
+
+      if (error) {
+        setErrorMessage(parseAuthError(error));
+        setLoading(false);
+        return;
+      }
+
+      // If session is immediately returned (no email verification required)
+      if (data?.session?.user) {
+        setSuccessMessage('Account created! Entering studio...');
+        await loginWithSupabase();
+        setTimeout(() => {
+          if (isMounted.current) {
+            onSuccess?.();
+            onClose?.();
+          }
+        }, 350);
+      } else {
+        // Verification email sent
+        setSuccessMessage('Account registered! Please check your email inbox to confirm your account, then sign in.');
+        setActiveTab('signin');
+        setLoading(false);
+      }
+    } catch (err: any) {
+      if (isMounted.current) {
+        setErrorMessage(parseAuthError(err));
+        setLoading(false);
+      }
+    }
+  };
+
+  // 3. Password Reset handler
+  const handlePasswordReset = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const cleanEmail = email.trim().toLowerCase();
+    if (!cleanEmail) {
+      setErrorMessage('Please enter your email address to receive reset instructions.');
+      return;
+    }
+
+    resetNotices();
+    setLoading(true);
+
+    try {
+      const redirectUrl = typeof window !== 'undefined' ? window.location.origin : undefined;
+      const { error } = await supabase.auth.resetPasswordForEmail(cleanEmail, {
+        redirectTo: redirectUrl,
+      });
+
+      if (!isMounted.current) return;
+
+      if (error) {
+        setErrorMessage(parseAuthError(error));
+      } else {
+        setSuccessMessage('Password reset instructions have been sent to your email.');
+      }
+    } catch (err: any) {
+      if (isMounted.current) {
+        setErrorMessage(parseAuthError(err));
+      }
+    } finally {
+      if (isMounted.current) {
+        setLoading(false);
+      }
+    }
+  };
+
+  // 4. Google OAuth handler
+  const handleGoogleSignIn = async () => {
+    resetNotices();
+    setGoogleLoading(true);
+
+    try {
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: typeof window !== 'undefined' ? window.location.origin : undefined,
+        },
+      });
+
+      if (error) {
+        if (isMounted.current) {
+          setErrorMessage(parseAuthError(error));
+          setGoogleLoading(false);
+        }
+      } else if (data?.url) {
+        window.location.assign(data.url);
+      }
+    } catch (err: any) {
+      if (isMounted.current) {
+        setErrorMessage(parseAuthError(err));
+        setGoogleLoading(false);
+      }
+    }
+  };
+
+  // 5. Offline / Local Writer Mode handler
+  const handleOfflineMode = (e: React.FormEvent) => {
+    e.preventDefault();
+    const name = localPenName.trim() || 'Screenwriter';
+    login(name);
+    window.dispatchEvent(new CustomEvent('backstage:local-login', { detail: { name } }));
     onSuccess?.();
     onClose?.();
   };
 
-  const handleCloudSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!email.trim() || !password) return;
+  const handleSignOutActive = async () => {
     setLoading(true);
-    setTakingLonger(false);
-    setError(null);
-    setNotice(null);
-
-    // If server takes longer than 2.5s, offer instant local bypass so user is never stuck
-    if (takingLongerTimerRef.current) clearTimeout(takingLongerTimerRef.current);
-    takingLongerTimerRef.current = setTimeout(() => {
-      setTakingLonger(true);
-    }, 2500);
-
-    try {
-      if (cloudMode === 'signin') {
-        // Enforce 6-second timeout race to prevent indefinite spinning
-        const signInPromise = supabase.auth.signInWithPassword({
-          email: email.trim(),
-          password,
-        });
-
-        const { data, error: authErr } = await withTimeout(
-          signInPromise,
-          6000,
-          'Cloud server response timed out. You can continue instantly in offline/local mode below.'
-        );
-
-        if (takingLongerTimerRef.current) clearTimeout(takingLongerTimerRef.current);
-
-        if (authErr) {
-          setError(parseAuthError(authErr));
-        } else {
-          if (data?.user?.email) {
-            login(data.user.email);
-          }
-          onSuccess?.();
-          onClose?.();
-        }
-      } else {
-        const signUpPromise = supabase.auth.signUp({
-          email: email.trim(),
-          password,
-        });
-
-        const { data, error: authErr } = await withTimeout(
-          signUpPromise,
-          6000,
-          'Cloud signup timed out. You can continue in offline/local mode.'
-        );
-
-        if (takingLongerTimerRef.current) clearTimeout(takingLongerTimerRef.current);
-
-        if (authErr) {
-          setError(parseAuthError(authErr));
-        } else if (data?.session) {
-          if (data.user?.email) {
-            login(data.user.email);
-          }
-          onSuccess?.();
-          onClose?.();
-        } else {
-          setNotice('Account created! Please check your email inbox to confirm your account, then sign in.');
-        }
-      }
-    } catch (err: any) {
-      if (takingLongerTimerRef.current) clearTimeout(takingLongerTimerRef.current);
-      setError(parseAuthError(err));
-    } finally {
-      setLoading(false);
-      setTakingLonger(false);
-    }
+    await logout();
+    setLoading(false);
+    resetNotices();
+    setSuccessMessage('Signed out successfully.');
   };
-
-  const handleLocalSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const trimmed = localName.trim();
-    if (!trimmed) {
-      setError({
-        title: 'Display Name Required',
-        message: 'Please enter a display name or pen name.',
-        isGatewayTimeout: false,
-      });
-      return;
-    }
-    continueLocally(trimmed);
-  };
-
-  const handleGoogle = async () => {
-    setLoading(true);
-    setError(null);
-    setNotice(null);
-    try {
-      const { error } = await supabase.auth.signInWithOAuth({
-        provider: 'google',
-        options: {
-          redirectTo: window.location.origin,
-        },
-      });
-      if (error) setError(parseAuthError(error));
-    } catch (err: any) {
-      setError(parseAuthError(err));
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const GoogleIcon = () => (
-    <svg width="14" height="14" viewBox="0 0 48 48">
-      <path fill="#FFC107" d="M43.6 20.1H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.9 1.2 8 3l5.7-5.7C34 6.1 29.3 4 24 4 13 4 4 13 4 24s9 20 20 20 20-9 20-20c0-1.3-.1-2.6-.4-3.9z"/>
-      <path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.9 1.2 8 3l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/>
-      <path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-8l-6.5 5C9.6 39.6 16.2 44 24 44z"/>
-      <path fill="#1976D2" d="M43.6 20.1H42V20H24v8h11.3c-.8 2.3-2.3 4.3-4.1 5.7l6.2 5.2C41.2 35.9 44 30.5 44 24c0-1.3-.1-2.6-.4-3.9z"/>
-    </svg>
-  );
 
   return (
     <div 
-      className="fixed inset-0 z-[1000] bg-black/80 backdrop-blur-md flex items-center justify-center p-4 font-sans select-none"
+      className="fixed inset-0 z-[2500] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-in fade-in duration-200"
       onClick={(e) => {
-        if (e.target === e.currentTarget) {
-          onClose?.();
-        }
+        if (e.target === e.currentTarget) onClose?.();
       }}
     >
       <div 
-        className="relative w-full max-w-[400px] px-6 py-8 bg-[#121217] border border-white/10 rounded-2xl shadow-2xl flex flex-col gap-5 text-white animate-in fade-in zoom-in-95 duration-150"
+        className="relative w-full max-w-[440px] rounded-2xl bg-[#121218] border border-white/10 shadow-[0_30px_100px_rgba(0,0,0,0.9),0_0_0_1px_rgba(245,166,35,0.08)] overflow-hidden flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Top Close Button */}
+        {/* Amber brand top line glow */}
+        <div className="h-1 w-full bg-gradient-to-r from-transparent via-[#f5a623] to-transparent shrink-0" />
+
+        {/* Modal Close Button */}
         {onClose && (
           <button
             onClick={onClose}
-            className="absolute top-4 right-4 p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/10 transition-colors"
+            className="absolute top-4 right-4 w-8 h-8 rounded-full flex items-center justify-center text-zinc-400 hover:text-white hover:bg-white/10 transition-colors z-10"
             title="Close"
           >
             <X size={16} />
           </button>
         )}
 
-        {/* Logo Header */}
-        <div className="flex flex-col items-center gap-2 text-center pt-1">
-          <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-amber-400/20 to-amber-600/10 border border-amber-500/30 flex items-center justify-center shadow-lg shadow-amber-500/10">
-            <Film className="text-[#f5a623]" size={22} />
+        <div className="p-6 md:p-8 flex flex-col gap-5">
+          {/* Header branding */}
+          <div className="flex flex-col items-center text-center gap-2">
+            <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-[#f5a623]/25 to-[#f5a623]/5 border border-[#f5a623]/30 shadow-[0_8px_24px_rgba(245,166,35,0.18)] flex items-center justify-center text-[#f5a623]">
+              <Film size={22} className="stroke-[2.2]" />
+            </div>
+            <div>
+              <h2 className="text-xl font-black tracking-wider uppercase text-white">
+                Backstage Studio
+              </h2>
+              <p className="text-[11px] uppercase tracking-widest text-zinc-400 font-semibold mt-0.5">
+                {activeTab === 'local' ? 'Offline Local Mode' : 'Cloud Screenwriting Suite'}
+              </p>
+            </div>
           </div>
-          <div>
-            <h1 className="text-xl font-black tracking-[0.2em] uppercase text-white">Backstage</h1>
-            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.15em] mt-0.5">
-              {tab === 'cloud' ? 'Cloud Sync & Collaboration' : 'Local Writer Profile'}
-            </p>
-          </div>
-        </div>
 
-        {/* Main Tab Navigation: Cloud vs Local */}
-        <div className="flex p-1 rounded-xl bg-black/40 border border-white/5">
-          <button
-            type="button"
-            onClick={() => { setTab('cloud'); setError(null); setNotice(null); }}
-            className={`flex-1 py-1.5 text-[11px] font-bold uppercase rounded-lg transition-all flex items-center justify-center gap-1.5 ${
-              tab === 'cloud'
-                ? 'bg-amber-400 text-black shadow-md font-black'
-                : 'text-gray-400 hover:text-gray-200'
-            }`}
-          >
-            <Cloud size={13} />
-            <span>Cloud Account</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => { setTab('local'); setError(null); setNotice(null); }}
-            className={`flex-1 py-1.5 text-[11px] font-bold uppercase rounded-lg transition-all flex items-center justify-center gap-1.5 ${
-              tab === 'local'
-                ? 'bg-amber-400 text-black shadow-md font-black'
-                : 'text-gray-400 hover:text-gray-200'
-            }`}
-          >
-            <Laptop size={13} />
-            <span>Local Profile</span>
-          </button>
-        </div>
-
-        {/* CLOUD TAB CONTENT */}
-        {tab === 'cloud' && (
-          <div className="flex flex-col gap-4">
-            {/* Mode Switcher: Sign In vs Sign Up */}
-            <div className="flex p-0.5 rounded-lg bg-white/5 border border-white/5">
+          {/* Current Session Banner if logged in */}
+          {currentUser && (
+            <div className="flex items-center justify-between p-3 rounded-xl bg-zinc-900/90 border border-white/10 text-xs">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-7 h-7 rounded-full bg-[#f5a623] text-black font-black flex items-center justify-center text-xs shrink-0">
+                  {currentUser.charAt(0).toUpperCase()}
+                </div>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5 text-[10px] text-zinc-400 font-bold uppercase tracking-wider">
+                    {supabaseUser ? <Cloud size={10} className="text-emerald-400" /> : <CloudOff size={10} className="text-amber-400" />}
+                    <span>{supabaseUser ? 'Cloud Active' : 'Offline Mode'}</span>
+                  </div>
+                  <div className="text-zinc-200 font-medium truncate text-xs">{currentUser}</div>
+                </div>
+              </div>
               <button
                 type="button"
-                onClick={() => { setCloudMode('signin'); setError(null); setNotice(null); }}
-                className={`flex-1 py-1 text-[10px] font-bold uppercase rounded transition-all ${
-                  cloudMode === 'signin'
-                    ? 'bg-white/15 text-white font-black'
-                    : 'text-gray-400 hover:text-gray-200'
-                }`}
+                onClick={handleSignOutActive}
+                disabled={loading}
+                className="px-2.5 py-1 rounded-lg text-[10px] font-bold text-red-400 hover:text-red-300 hover:bg-red-500/10 transition-colors shrink-0 flex items-center gap-1"
+                title="Sign out of this session"
               >
-                Sign In
-              </button>
-              <button
-                type="button"
-                onClick={() => { setCloudMode('signup'); setError(null); setNotice(null); }}
-                className={`flex-1 py-1 text-[10px] font-bold uppercase rounded transition-all ${
-                  cloudMode === 'signup'
-                    ? 'bg-white/15 text-white font-black'
-                    : 'text-gray-400 hover:text-gray-200'
-                }`}
-              >
-                Create Account
+                <LogOut size={11} />
+                <span>Sign Out</span>
               </button>
             </div>
+          )}
 
-            {/* Google Auth */}
+          {/* Tab Selector */}
+          <div className="grid grid-cols-3 p-1 rounded-xl bg-black/40 border border-white/5 text-xs font-bold">
             <button
               type="button"
-              onClick={handleGoogle}
-              disabled={loading}
-              className="w-full py-2.5 rounded-lg bg-white hover:bg-gray-100 text-[#111] text-xs font-bold uppercase disabled:opacity-40 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2 shadow-sm"
+              onClick={() => switchTab('signin')}
+              className={`py-2 rounded-lg transition-all tracking-wide text-center cursor-pointer ${
+                activeTab === 'signin'
+                  ? 'bg-[#f5a623] text-black shadow-[0_2px_10px_rgba(245,166,35,0.3)]'
+                  : 'text-zinc-400 hover:text-white'
+              }`}
             >
-              <GoogleIcon />
-              <span>Continue with Google</span>
+              Sign In
             </button>
+            <button
+              type="button"
+              onClick={() => switchTab('signup')}
+              className={`py-2 rounded-lg transition-all tracking-wide text-center cursor-pointer ${
+                activeTab === 'signup'
+                  ? 'bg-[#f5a623] text-black shadow-[0_2px_10px_rgba(245,166,35,0.3)]'
+                  : 'text-zinc-400 hover:text-white'
+              }`}
+            >
+              Register
+            </button>
+            <button
+              type="button"
+              onClick={() => switchTab('local')}
+              className={`py-2 rounded-lg transition-all tracking-wide text-center cursor-pointer ${
+                activeTab === 'local'
+                  ? 'bg-zinc-800 text-white shadow-xs'
+                  : 'text-zinc-400 hover:text-white'
+              }`}
+            >
+              Offline
+            </button>
+          </div>
 
-            {/* Divider */}
-            <div className="flex items-center gap-2 py-0.5">
-              <div className="flex-1 h-px bg-white/10" />
-              <span className="text-[9px] font-bold text-gray-500 uppercase tracking-widest">or email</span>
-              <div className="flex-1 h-px bg-white/10" />
-            </div>
-
-            {/* Email / Password Form */}
-            <form onSubmit={handleCloudSubmit} className="flex flex-col gap-3">
-              <div className="relative">
-                <Mail size={13} className="absolute left-3 top-3 text-gray-400" />
-                <input
-                  type="email"
-                  required
-                  autoFocus
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="Email Address"
-                  className="w-full bg-white/5 border border-white/10 text-white pl-9 pr-3 py-2 rounded-lg outline-none focus:border-amber-400/60 text-xs transition-colors"
-                />
-              </div>
-
-              <div className="relative">
-                <Lock size={13} className="absolute left-3 top-3 text-gray-400" />
-                <input
-                  type="password"
-                  required
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Password"
-                  className="w-full bg-white/5 border border-white/10 text-white pl-9 pr-3 py-2 rounded-lg outline-none focus:border-amber-400/60 text-xs transition-colors"
-                />
-              </div>
-
-              {error && (
-                <div
-                  className={`flex flex-col gap-2.5 p-3 rounded-xl border text-[11px] leading-relaxed transition-all ${
-                    error.isGatewayTimeout
-                      ? 'bg-amber-500/10 border-amber-500/30 text-amber-200'
-                      : 'bg-red-500/10 border-red-500/20 text-red-300'
-                  }`}
-                >
-                  <div className="flex items-start gap-2.5">
-                    {error.isGatewayTimeout ? (
-                      <WifiOff size={16} className="shrink-0 mt-0.5 text-amber-400" />
-                    ) : (
-                      <AlertCircle size={15} className="shrink-0 mt-0.5 text-red-400" />
-                    )}
-                    <div className="flex flex-col gap-0.5">
-                      <span className="font-bold text-xs text-white tracking-wide">
-                        {error.title}
-                      </span>
-                      <span className="text-gray-300 leading-normal">{error.message}</span>
-                    </div>
-                  </div>
-
-                  {error.isGatewayTimeout ? (
-                    <div className="mt-1 flex flex-col gap-2 pt-2 border-t border-amber-500/20">
-                      <button
-                        type="button"
-                        onClick={() => continueLocally(email.trim() || undefined)}
-                        className="w-full py-2.5 px-3 rounded-lg bg-amber-400 hover:bg-amber-300 text-black font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 shadow-lg shadow-amber-400/20 transition-all transform active:scale-[0.99]"
-                      >
-                        <Zap size={13} className="text-black fill-current" />
-                        <span>Enter Workspace as "{suggestedLocalName}" (Local Mode)</span>
-                      </button>
-                      <div className="flex items-center justify-between text-[10px] text-gray-400 px-1">
-                        <span>✓ Access all scripts & documents</span>
-                        <span>✓ 100% offline auto-save</span>
-                      </div>
-                    </div>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => continueLocally()}
-                      className="mt-1 w-full py-1.5 px-2.5 rounded bg-amber-400/20 hover:bg-amber-400/30 text-amber-300 font-bold text-[10px] uppercase tracking-wider flex items-center justify-center gap-1.5 transition-colors border border-amber-400/30"
-                    >
-                      <Zap size={11} className="text-amber-400" />
-                      <span>Continue as "{suggestedLocalName}" (Instant Local Mode)</span>
-                    </button>
-                  )}
-                </div>
-              )}
-
-              {takingLonger && loading && (
-                <div className="flex items-center justify-between p-2 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-300 text-[10px] animate-in fade-in">
-                  <span>Cloud server is slow to respond...</span>
+          {/* Feedback messages */}
+          {errorMessage && (
+            <div className="flex items-start gap-2.5 p-3 rounded-xl bg-red-950/40 border border-red-500/30 text-red-200 text-xs leading-relaxed animate-in fade-in">
+              <AlertCircle size={15} className="text-red-400 shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <p>{errorMessage}</p>
+                {errorMessage.includes('create an account') && (
                   <button
                     type="button"
-                    onClick={() => continueLocally()}
-                    className="font-bold underline hover:text-white transition-colors"
+                    onClick={() => switchTab('signup')}
+                    className="mt-1 text-[11px] font-bold text-[#f5a623] hover:underline flex items-center gap-1 cursor-pointer"
                   >
-                    Skip to Local Mode &rarr;
+                    Create a new account now <ArrowRight size={11} />
                   </button>
-                </div>
-              )}
+                )}
+                {errorMessage.includes('sign in below') && (
+                  <button
+                    type="button"
+                    onClick={() => switchTab('signin')}
+                    className="mt-1 text-[11px] font-bold text-[#f5a623] hover:underline flex items-center gap-1 cursor-pointer"
+                  >
+                    Switch to Sign In <ArrowRight size={11} />
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
 
-              {notice && (
-                <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[11px] font-medium leading-relaxed">
-                  <CheckCircle2 size={13} className="shrink-0 mt-0.5" />
-                  <span>{notice}</span>
-                </div>
-              )}
+          {successMessage && (
+            <div className="flex items-start gap-2.5 p-3 rounded-xl bg-emerald-950/40 border border-emerald-500/30 text-emerald-200 text-xs leading-relaxed animate-in fade-in">
+              <CheckCircle2 size={15} className="text-emerald-400 shrink-0 mt-0.5" />
+              <span>{successMessage}</span>
+            </div>
+          )}
 
+          {/* Cloud Views: Sign In or Register */}
+          {(activeTab === 'signin' || activeTab === 'signup') && (
+            <div className="flex flex-col gap-4">
+              {/* Google OAuth Button */}
               <button
-                type="submit"
-                disabled={loading || !email.trim() || !password}
-                className="w-full py-2.5 mt-1 rounded-lg bg-amber-400 text-black text-xs font-black uppercase hover:bg-amber-300 disabled:opacity-40 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2 shadow-md shadow-amber-400/20"
+                type="button"
+                onClick={handleGoogleSignIn}
+                disabled={loading || googleLoading}
+                className="w-full py-2.5 px-4 rounded-xl font-bold text-xs bg-white text-zinc-900 hover:bg-zinc-100 active:scale-[0.99] transition-all flex items-center justify-center gap-2.5 shadow-md disabled:opacity-50 cursor-pointer"
               >
-                {loading ? (
+                {googleLoading ? (
                   <>
-                    <Loader2 size={14} className="animate-spin" />
-                    <span>Processing...</span>
+                    <Loader2 size={15} className="animate-spin text-zinc-700" />
+                    <span>Connecting Google...</span>
                   </>
                 ) : (
                   <>
-                    <Cloud size={14} />
-                    <span>{cloudMode === 'signin' ? 'Sign In to Cloud' : 'Create Cloud Account'}</span>
+                    <GoogleIcon />
+                    <span>Continue with Google</span>
                   </>
                 )}
               </button>
 
-              {/* Quick Guest / Offline Bypass */}
-              <div className="flex items-center justify-center pt-1">
+              <div className="flex items-center gap-3">
+                <div className="flex-1 h-px bg-white/10" />
+                <span className="text-[10px] uppercase font-bold tracking-widest text-zinc-500">
+                  or with email
+                </span>
+                <div className="flex-1 h-px bg-white/10" />
+              </div>
+
+              <form 
+                onSubmit={activeTab === 'signin' ? handleSignIn : handleSignUp}
+                className="flex flex-col gap-3"
+              >
+                {activeTab === 'signup' && (
+                  <div className="relative">
+                    <User size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-500 pointer-events-none" />
+                    <input
+                      type="text"
+                      placeholder="Writer / Pen Name (optional)"
+                      value={writerName}
+                      onChange={(e) => setWriterName(e.target.value)}
+                      disabled={loading || googleLoading}
+                      className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white placeholder-zinc-500 text-xs focus:outline-hidden focus:border-[#f5a623] focus:bg-white/8 transition-all"
+                    />
+                  </div>
+                )}
+
+                <div className="relative">
+                  <Mail size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-500 pointer-events-none" />
+                  <input
+                    type="email"
+                    required
+                    placeholder="Email address"
+                    autoComplete="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    disabled={loading || googleLoading}
+                    className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white placeholder-zinc-500 text-xs focus:outline-hidden focus:border-[#f5a623] focus:bg-white/8 transition-all"
+                  />
+                </div>
+
+                <div className="relative">
+                  <Lock size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-500 pointer-events-none" />
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    required
+                    placeholder={activeTab === 'signup' ? 'Password (at least 6 characters)' : 'Password'}
+                    autoComplete={activeTab === 'signin' ? 'current-password' : 'new-password'}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    disabled={loading || googleLoading}
+                    className="w-full pl-10 pr-10 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white placeholder-zinc-500 text-xs focus:outline-hidden focus:border-[#f5a623] focus:bg-white/8 transition-all"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300 p-1"
+                    title={showPassword ? 'Hide password' : 'Show password'}
+                  >
+                    {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+                  </button>
+                </div>
+
+                {activeTab === 'signin' && (
+                  <div className="flex justify-end">
+                    <button
+                      type="button"
+                      onClick={() => switchTab('reset')}
+                      className="text-[11px] text-zinc-400 hover:text-[#f5a623] transition-colors"
+                    >
+                      Forgot password?
+                    </button>
+                  </div>
+                )}
+
+                <button
+                  type="submit"
+                  disabled={loading || googleLoading || !email.trim() || !password}
+                  className="w-full mt-1 py-3 px-4 rounded-xl font-black text-xs uppercase tracking-wider bg-gradient-to-r from-[#f5a623] to-[#ffb83f] text-black shadow-[0_4px_16px_rgba(245,166,35,0.3)] hover:brightness-105 active:scale-[0.99] transition-all flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                >
+                  {loading ? (
+                    <>
+                      <Loader2 size={15} className="animate-spin text-black" />
+                      <span>{activeTab === 'signin' ? 'Signing In...' : 'Creating Account...'}</span>
+                    </>
+                  ) : (
+                    <span>{activeTab === 'signin' ? 'Sign In to Studio' : 'Create Studio Account'}</span>
+                  )}
+                </button>
+              </form>
+            </div>
+          )}
+
+          {/* Reset Password Tab */}
+          {activeTab === 'reset' && (
+            <form onSubmit={handlePasswordReset} className="flex flex-col gap-3">
+              <div className="p-3 rounded-xl bg-zinc-900/60 border border-white/5 text-zinc-400 text-xs leading-relaxed">
+                Enter your account email. We will send you a secure link to reset your password.
+              </div>
+
+              <div className="relative">
+                <Mail size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-500 pointer-events-none" />
+                <input
+                  type="email"
+                  required
+                  placeholder="Your account email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  disabled={loading}
+                  className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white placeholder-zinc-500 text-xs focus:outline-hidden focus:border-[#f5a623] focus:bg-white/8 transition-all"
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={loading || !email.trim()}
+                className="w-full py-3 px-4 rounded-xl font-black text-xs uppercase tracking-wider bg-gradient-to-r from-[#f5a623] to-[#ffb83f] text-black shadow-[0_4px_16px_rgba(245,166,35,0.3)] hover:brightness-105 active:scale-[0.99] transition-all flex items-center justify-center gap-2 disabled:opacity-40 cursor-pointer"
+              >
+                {loading ? <Loader2 size={15} className="animate-spin" /> : <KeyRound size={15} />}
+                <span>Send Reset Link</span>
+              </button>
+
+              <div className="text-center mt-2">
                 <button
                   type="button"
-                  onClick={() => continueLocally('Screenwriter')}
-                  className="text-[11px] text-gray-400 hover:text-amber-300 font-medium transition-colors flex items-center gap-1"
+                  onClick={() => switchTab('signin')}
+                  className="text-xs text-zinc-400 hover:text-white transition-colors"
                 >
-                  <span>Continue without signing in as Guest</span>
-                  <ArrowRight size={11} />
+                  ← Back to Sign In
                 </button>
               </div>
             </form>
-          </div>
-        )}
+          )}
 
-        {/* LOCAL PROFILE TAB CONTENT */}
-        {tab === 'local' && (
-          <form onSubmit={handleLocalSubmit} className="flex flex-col gap-3.5">
-            <div className="p-3 rounded-lg bg-white/5 border border-white/5 text-[11px] text-gray-400 leading-relaxed">
-              Use a local writer handle for auto-saving scripts and notes on this machine without creating an online account.
-            </div>
-
-            <div className="relative">
-              <User size={13} className="absolute left-3 top-3 text-gray-400" />
-              <input
-                type="text"
-                required
-                autoFocus
-                value={localName}
-                onChange={(e) => setLocalName(e.target.value)}
-                placeholder="Pen Name or Screenwriter Name (e.g. Nolan)"
-                className="w-full bg-white/5 border border-white/10 text-white pl-9 pr-3 py-2 rounded-lg outline-none focus:border-amber-400/60 text-xs transition-colors"
-              />
-            </div>
-
-            {error && (
-              <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-[11px] font-medium leading-relaxed">
-                <AlertCircle size={13} className="shrink-0 mt-0.5" />
-                <span>{error.message}</span>
+          {/* Offline / Local Mode Tab */}
+          {activeTab === 'local' && (
+            <form onSubmit={handleOfflineMode} className="flex flex-col gap-4">
+              <div className="p-3.5 rounded-xl bg-zinc-900/60 border border-white/5 text-zinc-400 text-xs leading-relaxed flex flex-col gap-1.5">
+                <div className="flex items-center gap-1.5 text-zinc-200 font-bold uppercase tracking-wider text-[10px]">
+                  <CloudOff size={13} className="text-amber-400" />
+                  <span>Private Local Storage</span>
+                </div>
+                <p>
+                  Work completely offline without any cloud account. All scripts, beats, and vaults remain safely in this browser on your device.
+                </p>
               </div>
-            )}
 
-            <button
-              type="submit"
-              disabled={!localName.trim()}
-              className="w-full py-2.5 mt-1 rounded-lg bg-amber-400 text-black text-xs font-black uppercase hover:bg-amber-300 disabled:opacity-40 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2 shadow-md shadow-amber-400/20"
-            >
-              <span>Continue Locally as {localName.trim() || 'Writer'}</span>
-              <ArrowRight size={13} />
-            </button>
-          </form>
-        )}
+              <div className="relative">
+                <User size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-500 pointer-events-none" />
+                <input
+                  type="text"
+                  placeholder="Pen Name or Writer Name (optional)"
+                  value={localPenName}
+                  onChange={(e) => setLocalPenName(e.target.value)}
+                  className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white placeholder-zinc-500 text-xs focus:outline-hidden focus:border-amber-400 focus:bg-white/8 transition-all"
+                />
+              </div>
 
-        {/* Debug notice if available */}
-        {debug && (
-          <p className="text-center text-[9px] text-gray-500 font-mono leading-relaxed break-all bg-white/5 p-2 rounded">
-            {debug}
-          </p>
-        )}
+              <button
+                type="submit"
+                className="w-full py-3 px-4 rounded-xl font-bold text-xs uppercase tracking-wider bg-zinc-800 hover:bg-zinc-700 text-zinc-100 border border-white/10 transition-all flex items-center justify-center gap-2 cursor-pointer shadow-md"
+              >
+                <span>Continue as {localPenName.trim() ? `"${localPenName.trim()}"` : 'Guest Screenwriter'}</span>
+                <ArrowRight size={14} />
+              </button>
+            </form>
+          )}
+        </div>
       </div>
     </div>
   );

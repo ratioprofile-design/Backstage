@@ -544,7 +544,7 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
                           onClick={() => { setShowUserMenu(false); onOpenAuth(); }}
                           className="w-full flex items-center gap-2.5 px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-[#f5a623] hover:bg-[#f5a623]/10 border-b border-[#2a2a2a] transition-colors"
                         >
-                          <LogIn size={13} /> {translateUi('Connect Cloud Account', appLanguage)}
+                          <LogIn size={13} /> {translateUi('Sign In / Cloud Account', appLanguage)}
                         </button>
                       )}
                       <button

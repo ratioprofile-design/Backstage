@@ -342,12 +342,6 @@ const AppContent: React.FC = () => {
     return () => window.removeEventListener('backstage:show-welcome', handleShowWelcome);
   }, []);
 
-  // Auto-close auth modal if user successfully signs in
-  useEffect(() => {
-    if (currentUser && showAuthModal) {
-      setShowAuthModal(false);
-    }
-  }, [currentUser, showAuthModal]);
 
   // Reset project loading timeout whenever a new project starts loading
   useEffect(() => {

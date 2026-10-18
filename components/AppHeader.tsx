@@ -726,7 +726,7 @@ const AppHeader: React.FC<AppHeaderProps> = ({
           </div>
 
           {/* CLOUD / USER MENU */}
-          <div className="relative">
+          <div className="relative flex items-center gap-2">
             <button
               onClick={() => setShowUserMenu(v => !v)}
               className="relative w-8 h-8 rounded-full flex items-center justify-center transition-all focus:outline-none shrink-0 cursor-pointer"
@@ -776,7 +776,7 @@ const AppHeader: React.FC<AppHeaderProps> = ({
                           onClick={() => { setShowUserMenu(false); onOpenAuth(); }}
                           className="w-full flex items-center gap-2.5 px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-[#f5a623] hover:bg-[#f5a623]/10 border-b border-[#2a2a2a] transition-colors"
                         >
-                          <LogIn size={13} /> Connect Cloud Account
+                          <LogIn size={13} /> Sign In / Cloud Account
                         </button>
                       )}
                       <button

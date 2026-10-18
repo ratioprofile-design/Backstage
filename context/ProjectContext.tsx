@@ -14,6 +14,7 @@ import { isCausalityData, parseCausalityProject } from '../services/causalityPar
 import { getProductionDocuments, saveProductionDocuments, mergeProductionDocuments, syncDocumentsWithCloud } from '../services/documentsStorage';
 import { saveLargeProject, loadLargeProject, loadLargeDocuments } from '../services/largeStorage';
 import { optimizeTalentForCloud } from '../services/imageOptimizer';
+import { addRecentFile } from '../utils/recentFiles';
 
 const ProjectContext = (typeof window !== 'undefined' && (window as any).__BACKSTAGE_PROJECT_CONTEXT__)
   ? (window as any).__BACKSTAGE_PROJECT_CONTEXT__
@@ -33,9 +34,35 @@ const countWords = (html: string) => {
 };
 
 export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  // Auth State
-  const [currentUser, setCurrentUser] = useState<string | null>(() => localStorage.getItem('currentUser') || 'Default User');
-  const [supabaseUser, setSupabaseUser] = useState<any>(null);
+  // Auth State: Auto-discover session if Supabase has stored tokens in localStorage
+  const getStoredSupabaseUser = () => {
+    if (typeof localStorage === 'undefined') return null;
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k.startsWith('sb-') && k.endsWith('-auth-token')) {
+          const raw = localStorage.getItem(k);
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            const user = parsed?.user || parsed?.currentSession?.user;
+            if (user) return user;
+          }
+        }
+      }
+    } catch {}
+    return null;
+  };
+
+  const initialSupabaseUser = getStoredSupabaseUser();
+  const [supabaseUser, setSupabaseUser] = useState<any>(initialSupabaseUser);
+  const [currentUser, setCurrentUser] = useState<string | null>(() => {
+    if (initialSupabaseUser?.email) return initialSupabaseUser.email;
+    if (typeof localStorage === 'undefined') return null;
+    const stored = localStorage.getItem('currentUser');
+    if (stored && stored !== 'Default User') return stored;
+    try { localStorage.removeItem('currentUser'); } catch {}
+    return null;
+  });
   const [currentProjectId, setCurrentProjectId] = useState<string | null>(() => localStorage.getItem('currentProjectId') || 'empty-project');
   const [currentProjectName, setCurrentProjectName] = useState<string>(() => {
     const curId = typeof localStorage !== 'undefined' ? (localStorage.getItem('currentProjectId') || 'empty-project') : 'empty-project';
@@ -506,7 +533,18 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setHasUnsavedChanges(true);
   }, []);
 
-  // Monitor Supabase Auth & OAuth Callbacks
+  // Listen for local-mode login events dispatched by AuthScreen (offline mode)
+  useEffect(() => {
+    const handleLocalLogin = (e: Event) => {
+      const name = (e as CustomEvent).detail?.name || 'Screenwriter';
+      localStorage.setItem('currentUser', name);
+      setCurrentUser(name);
+    };
+    window.addEventListener('backstage:local-login', handleLocalLogin);
+    return () => window.removeEventListener('backstage:local-login', handleLocalLogin);
+  }, []);
+
+
   useEffect(() => {
     console.log('[ctx] auth effect running, isSupabaseConfigured=', isSupabaseConfigured);
     if (!isSupabaseConfigured) {
@@ -516,23 +554,57 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     let isMounted = true;
 
-    // Safety timeout: release splash screen within 2.5s even if network or auth hangs
+    // Safety timeout: release splash screen within 4s even if network or auth hangs
     const safetyTimer = setTimeout(() => {
       if (isMounted) {
         setIsInitialLoading(false);
       }
-    }, 600);
+    }, 4000);
 
     const initAuth = async () => {
       try {
-        // Handle OAuth callback parameters (?code=... or #access_token=...) from Supabase / Google
-        if (typeof window !== 'undefined') {
+        // 1. Handle OAuth callback parameters in hash (#access_token=...&refresh_token=...) from Supabase / Google
+        if (typeof window !== 'undefined' && window.location.hash) {
+          try {
+            const rawHash = window.location.hash.startsWith('#') ? window.location.hash.slice(1) : window.location.hash;
+            const hashParams = new URLSearchParams(rawHash);
+            const accessToken = hashParams.get('access_token');
+            const refreshToken = hashParams.get('refresh_token');
+            const errorParam = hashParams.get('error') || hashParams.get('error_description');
+
+            if (accessToken && refreshToken) {
+              console.log('[ctx] Found OAuth access_token in URL hash, establishing session...');
+              const { data, error } = await supabase.auth.setSession({
+                access_token: accessToken,
+                refresh_token: refreshToken,
+              });
+              if (data?.session) {
+                console.log('[ctx] Session set from URL hash for:', data.session.user.email);
+                setSupabaseUser(data.session.user);
+                const userEmail = data.session.user.email || 'Cloud User';
+                setCurrentUser(userEmail);
+                localStorage.setItem('currentUser', userEmail);
+                setCloudOffline(false);
+                refreshProjectList(data.session.user.id, data.session.user.email || undefined).catch(e => console.warn('[ctx] refreshProjectList failed:', e));
+              }
+              window.history.replaceState({}, document.title, window.location.pathname + window.location.search);
+            } else if (errorParam) {
+              console.warn('[ctx] OAuth hash error:', errorParam);
+              window.history.replaceState({}, document.title, window.location.pathname + window.location.search);
+            }
+          } catch (hashErr) {
+            console.warn('[ctx] Exception parsing OAuth hash:', hashErr);
+          }
+        }
+
+        // 2. Handle OAuth callback parameters in query string (?code=...) from PKCE flow
+        if (typeof window !== 'undefined' && window.location.search) {
           const url = new URL(window.location.href);
           const code = url.searchParams.get('code');
           const errorParam = url.searchParams.get('error') || url.searchParams.get('error_description');
 
           if (errorParam) {
-            console.warn('[ctx] OAuth error in URL:', errorParam);
+            console.warn('[ctx] OAuth error in URL search params:', errorParam);
             url.searchParams.delete('error');
             url.searchParams.delete('error_description');
             url.searchParams.delete('error_code');
@@ -542,9 +614,15 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
             try {
               const { data, error } = await supabase.auth.exchangeCodeForSession(code);
               if (error) {
-                console.warn('[ctx] exchangeCodeForSession failed:', error.message);
+                console.warn('[ctx] exchangeCodeForSession notice:', error.message);
               } else if (data?.session) {
                 console.log('[ctx] OAuth exchange succeeded for:', data.session.user.email);
+                setSupabaseUser(data.session.user);
+                const userEmail = data.session.user.email || 'Cloud User';
+                setCurrentUser(userEmail);
+                localStorage.setItem('currentUser', userEmail);
+                setCloudOffline(false);
+                refreshProjectList(data.session.user.id, data.session.user.email || undefined).catch(e => console.warn('[ctx] refreshProjectList failed:', e));
               }
             } catch (exchangeErr) {
               console.warn('[ctx] OAuth exchange exception:', exchangeErr);
@@ -556,6 +634,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
           }
         }
 
+        // 3. Retrieve or verify active Supabase session
         const { data: { session }, error } = await supabase.auth.getSession();
         if (error) throw error;
         
@@ -564,23 +643,46 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
         
         if (session) {
           setSupabaseUser(session.user);
-          setCurrentUser(session.user.email || 'Cloud User');
-          localStorage.setItem('currentUser', session.user.email || 'Cloud User');
+          const userEmail = session.user.email || 'Cloud User';
+          setCurrentUser(userEmail);
+          localStorage.setItem('currentUser', userEmail);
           setCloudOffline(false);
           refreshProjectList(session.user.id, session.user.email || undefined).catch(e => console.warn('[ctx] refreshProjectList failed:', e));
         } else {
-          const savedUser = localStorage.getItem('currentUser');
-          if (savedUser) {
-            setCurrentUser(savedUser);
+          // Fallback: check if session object exists in localStorage
+          const foundUser = getStoredSupabaseUser();
+          if (foundUser?.email) {
+            setSupabaseUser(foundUser);
+            setCurrentUser(foundUser.email);
+            localStorage.setItem('currentUser', foundUser.email);
+            setCloudOffline(false);
+          } else {
+            const savedUser = localStorage.getItem('currentUser');
+            if (savedUser && savedUser !== 'Default User') {
+              setCurrentUser(savedUser);
+            } else {
+              try { localStorage.removeItem('currentUser'); } catch {}
+              setCurrentUser(null);
+            }
           }
         }
       } catch (err) {
         clearTimeout(safetyTimer);
         if (!isMounted) return;
-        console.warn('[ctx] getSession error, falling back to offline mode:', err);
-        const savedUser = localStorage.getItem('currentUser');
-        if (savedUser) {
-          setCurrentUser(savedUser);
+        console.warn('[ctx] getSession notice, checking storage fallback:', err);
+        const foundUser = getStoredSupabaseUser();
+        if (foundUser?.email) {
+          setSupabaseUser(foundUser);
+          setCurrentUser(foundUser.email);
+          localStorage.setItem('currentUser', foundUser.email);
+        } else {
+          const savedUser = localStorage.getItem('currentUser');
+          if (savedUser && savedUser !== 'Default User') {
+            setCurrentUser(savedUser);
+          } else {
+            try { localStorage.removeItem('currentUser'); } catch {}
+            setCurrentUser(null);
+          }
         }
       } finally {
         if (isMounted) {
@@ -607,8 +709,10 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
           setProjectList([]);
         } else {
           const savedUser = localStorage.getItem('currentUser');
-          if (savedUser) {
+          if (savedUser && savedUser !== 'Default User') {
             setCurrentUser(savedUser);
+          } else {
+            setCurrentUser(null);
           }
         }
       }
@@ -1097,6 +1201,26 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const login = (username: string) => {
     localStorage.setItem('currentUser', username);
     setCurrentUser(username);
+  };
+
+  // loginWithSupabase: directly establishes both username & supabaseUser state
+  // Use this after a successful supabase auth call instead of login()
+  const loginWithSupabase = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) {
+        const userEmail = session.user.email || 'Cloud User';
+        setSupabaseUser(session.user);
+        setCurrentUser(userEmail);
+        localStorage.setItem('currentUser', userEmail);
+        setCloudOffline(false);
+        refreshProjectList(session.user.id, session.user.email || undefined).catch(e => console.warn('[ctx] refreshProjectList failed:', e));
+        return true;
+      }
+    } catch (e) {
+      console.warn('[ctx] loginWithSupabase getSession error:', e);
+    }
+    return false;
   };
 
   const logout = async () => {
@@ -2065,7 +2189,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   }, []);
 
   const value: ProjectContextType = {
-    beats, groups, connections, annotations, characterData, generatedShots, scratchpad, globalNotes, panX, panY, scale, nextId, nextAnnoId, activeBoardId, isTamilMode, tamilFontScale, tamilFontFamily, userDictionary, isOsInputMode, osInputShortcut, scriptConfig, scriptViewMode, scratchpadConfig, storyboardConfig, isStoryboardFeatureEnabled,     breakdownLanguage, breakdownLockedOnly, isPdfDropEnabled, isRedoEnabled, writingGoal, geminiApiKey: '', openrouterKey, setOpenrouterKey, generalAiModel, setGeneralAiModel, dailyStats, sessionStartCount, lastSessionDate, boardLayerOrder, characterDesignLocked, setCharacterDesignLocked: setCharacterDesignLockedWrapped, appTheme, appAccentColor, appLanguage, currentUser, currentProjectId, projectList, hasUnsavedChanges, schemaError, isSaving, fileHandle, filePath, setFilePath, isInitialLoading, isProjectLoading, projectLoadingMessage, isCloudMode: !!supabaseUser, supabaseUser, cloudOffline, login, logout, selectProject, createProject, deleteProject, renameProject, closeProject, clearSchemaError: () => { setSchemaError(null); if (supabaseUser) refreshProjectList(supabaseUser.id); }, setBeats: setBeatsWrapped, setGroups: setGroupsWrapped, setConnections: setConnectionsWrapped, setAnnotations: setAnnotationsWrapped, setCharacterData: setCharacterDataWrapped, setGeneratedShots, setScratchpad: setScratchpadWrapped, setGlobalNotes: setGlobalNotesWrapped, updateGeneratedShot: (id, u) => { setGeneratedShots(p => p.map(s => s.id === id ? { ...s, ...u } : s)); setHasUnsavedChanges(true); }, addGeneratedShot: (i) => { const n = { id: `shot-${Date.now()}`, shotSize: 'WIDE', angle: 'EYE LEVEL', description: '', subject: '', scene: '?', imageHistory: [] }; const s = [...generatedShots]; s.splice(i + 1, 0, n); setGeneratedShots(s); captureSnapshot(); }, removeGeneratedShot: (id) => { setGeneratedShots(p => p.filter(s => s.id !== id)); captureSnapshot(); }, moveGeneratedShot: (f, t) => { const s = [...generatedShots]; const [m] = s.splice(f, 1); s.splice(t, 0, m); setGeneratedShots(s); captureSnapshot(); }, setPan: (x, y) => { setPanX(x); setPanY(y); }, setScale, updateBeat, addBeat, reorderBeats, addGroup: (g) => { const id = nextId; setNextId(p => p + 1); setGroups(p => [...p, { ...g, id, boardId: activeBoardId }]); captureSnapshot(); }, updateGroup: (id, u) => { setGroups(p => p.map(g => g.id === id ? { ...g, ...u } : g)); setHasUnsavedChanges(true); }, removeGroup: (id) => { setGroups(p => p.filter(g => g.id !== id)); captureSnapshot(); }, loadProject: applyProjectState, saveProject, saveProjectAs, setActiveBoardId, setTamilMode, setTamilFontScale, setTamilFontFamily: setTamilFontFamilyWrapped, learnTamilWord: (e, t) => { setUserDictionary(p => { const c = p[e.toLowerCase()] || []; if (!c.includes(t)) return { ...p, [e.toLowerCase()]: [t, ...c] }; return p; }); }, setOsInputMode, setOsInputShortcut, setScriptConfig: setScriptConfigWrapped, setScriptViewMode, setScratchpadConfig, setStoryboardConfig, setStoryboardFeatureEnabled, setAppTheme, setAppAccentColor, setAppLanguage, setBreakdownLanguage, setBreakdownLockedOnly, setPdfDropEnabled, setRedoEnabled, setWritingGoal, setGeminiApiKey: () => {}, setBoardLayerOrder, setNextId, undo, redo, canUndo: historyIndexRef.current > 0, canRedo: historyIndexRef.current < historyRef.current.length - 1, captureSnapshot, downloadProject, autoGenerate5Scenes, autoGenerateScenes,
+    beats, groups, connections, annotations, characterData, generatedShots, scratchpad, globalNotes, panX, panY, scale, nextId, nextAnnoId, activeBoardId, isTamilMode, tamilFontScale, tamilFontFamily, userDictionary, isOsInputMode, osInputShortcut, scriptConfig, scriptViewMode, scratchpadConfig, storyboardConfig, isStoryboardFeatureEnabled,     breakdownLanguage, breakdownLockedOnly, isPdfDropEnabled, isRedoEnabled, writingGoal, geminiApiKey: '', openrouterKey, setOpenrouterKey, generalAiModel, setGeneralAiModel, dailyStats, sessionStartCount, lastSessionDate, boardLayerOrder, characterDesignLocked, setCharacterDesignLocked: setCharacterDesignLockedWrapped, appTheme, appAccentColor, appLanguage, currentUser, currentProjectId, projectList, hasUnsavedChanges, schemaError, isSaving, fileHandle, filePath, setFilePath, isInitialLoading, isProjectLoading, projectLoadingMessage, isCloudMode: !!supabaseUser, supabaseUser, cloudOffline, login, loginWithSupabase, logout, selectProject, createProject, deleteProject, renameProject, closeProject, clearSchemaError: () => { setSchemaError(null); if (supabaseUser) refreshProjectList(supabaseUser.id); }, setBeats: setBeatsWrapped, setGroups: setGroupsWrapped, setConnections: setConnectionsWrapped, setAnnotations: setAnnotationsWrapped, setCharacterData: setCharacterDataWrapped, setGeneratedShots, setScratchpad: setScratchpadWrapped, setGlobalNotes: setGlobalNotesWrapped, updateGeneratedShot: (id, u) => { setGeneratedShots(p => p.map(s => s.id === id ? { ...s, ...u } : s)); setHasUnsavedChanges(true); }, addGeneratedShot: (i) => { const n = { id: `shot-${Date.now()}`, shotSize: 'WIDE', angle: 'EYE LEVEL', description: '', subject: '', scene: '?', imageHistory: [] }; const s = [...generatedShots]; s.splice(i + 1, 0, n); setGeneratedShots(s); captureSnapshot(); }, removeGeneratedShot: (id) => { setGeneratedShots(p => p.filter(s => s.id !== id)); captureSnapshot(); }, moveGeneratedShot: (f, t) => { const s = [...generatedShots]; const [m] = s.splice(f, 1); s.splice(t, 0, m); setGeneratedShots(s); captureSnapshot(); }, setPan: (x, y) => { setPanX(x); setPanY(y); }, setScale, updateBeat, addBeat, reorderBeats, addGroup: (g) => { const id = nextId; setNextId(p => p + 1); setGroups(p => [...p, { ...g, id, boardId: activeBoardId }]); captureSnapshot(); }, updateGroup: (id, u) => { setGroups(p => p.map(g => g.id === id ? { ...g, ...u } : g)); setHasUnsavedChanges(true); }, removeGroup: (id) => { setGroups(p => p.filter(g => g.id !== id)); captureSnapshot(); }, loadProject: applyProjectState, saveProject, saveProjectAs, setActiveBoardId, setTamilMode, setTamilFontScale, setTamilFontFamily: setTamilFontFamilyWrapped, learnTamilWord: (e, t) => { setUserDictionary(p => { const c = p[e.toLowerCase()] || []; if (!c.includes(t)) return { ...p, [e.toLowerCase()]: [t, ...c] }; return p; }); }, setOsInputMode, setOsInputShortcut, setScriptConfig: setScriptConfigWrapped, setScriptViewMode, setScratchpadConfig, setStoryboardConfig, setStoryboardFeatureEnabled, setAppTheme, setAppAccentColor, setAppLanguage, setBreakdownLanguage, setBreakdownLockedOnly, setPdfDropEnabled, setRedoEnabled, setWritingGoal, setGeminiApiKey: () => {}, setBoardLayerOrder, setNextId, undo, redo, canUndo: historyIndexRef.current > 0, canRedo: historyIndexRef.current < historyRef.current.length - 1, captureSnapshot, downloadProject, autoGenerate5Scenes, autoGenerateScenes,
     userRole, updateUserRole, grokKey, setGrokKey,
     collaborators, setCollaborators: setCollaboratorsWrapped,
     talentPool, setTalentPool: setTalentPoolWrapped,
@@ -2090,7 +2214,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
 const noop = () => {};
 const fallbackProjectContextValue: ProjectContextType = {
   ...INITIAL_STATE,
-  currentUser: 'Default User',
+  currentUser: null,
   currentProjectId: 'empty-project',
   currentProjectName: 'My Screenplay',
   isCurrentProjectShared: false,
@@ -2142,6 +2266,7 @@ const fallbackProjectContextValue: ProjectContextType = {
   hasUnsavedChanges: false,
   setHasUnsavedChanges: noop,
   login: async () => {},
+  loginWithSupabase: async () => false,
   logout: async () => {},
   selectProject: async () => {},
   createProject: async () => {},
