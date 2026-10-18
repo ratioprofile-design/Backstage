@@ -2433,6 +2433,21 @@ export const DocumentTwoColumnEditor: React.FC<DocumentTwoColumnEditorProps> = (
               const chars = getSceneCharacters(scene);
               const effects = getSceneEffects(scene);
 
+              const cleanDisplayLocation = (locStr?: string) => {
+                if (!locStr) return '';
+                return locStr
+                  .replace(/(?:Characters?|கதாபாத்திரங்கள்|நடிகர்கள்|Actors?|Cast)\s*[:\-]?\s*.*$/i, '')
+                  .replace(/(?:Real\s*Location|Real\s*Loc)\s*[:\-]?\s*.*$/i, '')
+                  .replace(/\s*(?:பகல்|பகள்|இரவு|மாலை|காலை|அதிகாலை|Day|Night|Evening|Morning)(?=[^\u0B80-\u0BFFa-zA-Z]|$)/gi, '')
+                  .replace(/\s*(?:EXT\/INT|INT\/EXT|EXT|INT)\b/gi, '')
+                  .replace(/[|:\-\s\t]+$/, '')
+                  .replace(/^[|:\-\s\t]+/, '')
+                  .replace(/\s+/g, ' ')
+                  .trim();
+              };
+              const displayScriptLoc = cleanDisplayLocation(scene.location) || scene.location || 'Location';
+              const displayRealLoc = cleanDisplayLocation(scene.realLocation) || cleanDisplayLocation(scene.location) || scene.realLocation || 'Real Location';
+
               return (
                 <div
                   key={scene.id}
@@ -2493,7 +2508,7 @@ export const DocumentTwoColumnEditor: React.FC<DocumentTwoColumnEditorProps> = (
                             className="outline-none hover:bg-emerald-500/10 px-0.5 rounded font-medium break-words inline"
                             title="Click to edit script location"
                           >
-                            {scene.location || 'Location'}
+                            {displayScriptLoc}
                           </span>
                         </div>
 
@@ -2512,7 +2527,7 @@ export const DocumentTwoColumnEditor: React.FC<DocumentTwoColumnEditorProps> = (
                             className="outline-none hover:bg-emerald-500/10 px-0.5 rounded font-medium break-words inline"
                             title="Click to edit real shooting location"
                           >
-                            {scene.realLocation || scene.location || 'Real Location'}
+                            {displayRealLoc}
                           </span>
                         </div>
                       </div>

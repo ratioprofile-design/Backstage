@@ -79,12 +79,12 @@ export function parseScreenplayToTamilLeftRight(text: string, defaultTitle = '�
   let currentScene: TamilScene | null = null;
 
   // Regex patterns for Tamil & standard cinema conventions
-  const tamilSceneHeaderRegex = /^(?:காட்சி(?:\s*எண்)?|Scene(?:\s*no\.?)?|SCENE(?:\s*NO\.?)?|sc\s*no\.?|sc\.?\s*no\.?)\s*[:.\s\-]*(\d+[A-Za-z]?)(.*)/i;
+  const tamilSceneHeaderRegex = /^(?:காட்சி(?:\s*எண்)?|Scene(?:\s*no\.?)?|SCENE(?:\s*NO\.?)?|sc\s*no\.?|sc\.?\s*no\.?)\s*[:.\s\-]*(\d+(?:[A-Za-z]|[\/-][A-Za-z0-9]+)?)(.*)/i;
   const intExtHeaderRegex = /^(?:INT\.|EXT\.|INT\/EXT\.|I\/E\.)\s+(.+?)(?:[-–—]\s*(NIGHT|DAY|EVENING|MORNING|DAWN|DUSK|LATER|CONTINUOUS|NIG|EXT))?$/i;
-  const transitionRegex = /^(?:Fade\s*in|Fade\s*out|Cut\s*to|Dissolve\s*to|Fade\s*out\s*[-–—]\s*Fade\s*in|Montage|மாண்டேஜ்|காட்சி\s*மாற்றம்|இடைவேளை|முற்றும்|>.*<|.*TO:)$/i;
+  const transitionRegex = /^(?:Fade\s*in|Fade\s*out|Cut\s*to:?|Dissolve\s*to:?|Fade\s*out\s*[-–—]\s*Fade\s*in|Montage|மாண்டேஜ்:?|காட்சி\s*மாற்றம்|இடைவேளை:?|முற்றும்|>.*<|.*TO:?)$/i;
   
-  // Dialogue matching: "சுரேஷ் :" or "சுரேஷ்:" or "கதாபாத்திரம்: வசனம்"
-  const dialogueLineRegex = /^([\u0B80-\u0BFFa-zA-Z0-9\s.]{2,35})\s*:\s*(.*)$/;
+  // Dialogue matching: "சுரேஷ் :" or "சுரேஷ்:" or "கதாபாத்திரம்: வசனம்" or "பாஸ்டர் சேவியர் (சசிகுமார்):"
+  const dialogueLineRegex = /^([\u0B80-\u0BFFa-zA-Z0-9\s.()'\-]{2,50})\s*:\s*(.*)$/;
   const sfxRegex = /^(\(.*\)|SFX\s*:|BGM\s*:|ஒலி\s*:)/i;
 
   let lineIdx = 0;
@@ -107,10 +107,17 @@ export function parseScreenplayToTamilLeftRight(text: string, defaultTitle = '�
       let effects = 'None';
       let explicitChars: string[] | undefined = undefined;
 
-      const locMatch = rest.match(/(?:Script\s*Location|Location|இடம்|Loc(?:ation)?)\s*[:\-]?\s*(.*?)(?=\s*(?:Real\s*Location|Time|நேரம்|Effects?|[-|]|$))/i);
-      const realLocMatch = rest.match(/(?:Real\s*Location|Real\s*Loc)\s*[:\-]?\s*(.*?)(?=\s*(?:Time|நேரம்|Effects?|[-|]|$))/i);
-      const timeMatch = rest.match(/(?:Time|நேரம்)\s*[:\-]?\s*(.*?)(?=\s*(?:Effects?|Real|[-|]|$))/i);
-      const effMatch = rest.match(/(?:Effects?|Effect)\s*[:\-]?\s*(.*?)(?=\s*(?:[-|]|$))/i);
+      // Extract explicit characters/actors from the same line if present (e.g. நடிகர்கள்: YOGIBABU...)
+      const inlineCharMatch = rest.match(/(?:Characters?(?:\s*\([^)]*\))?|கதாபாத்திரங்கள்(?:\s*\([^)]*\))?|நடிகர்கள்(?:\s*\([^)]*\))?|Actors?|Cast)\s*[:\-]?\s*(.*?)(?=\s*(?:Script\s*Location|Location|Real\s*Location|Time|நேரம்|Effects?|[-|]|$))/i);
+      if (inlineCharMatch && inlineCharMatch[1].trim()) {
+        const rawC = inlineCharMatch[1].replace(/\s+(?:Effect|Time|நேரம்)\s*:.*/i, '').trim();
+        explicitChars = rawC.split(/[,;]|\s+and\s+/i).map(c => c.trim().replace(/^[–—\-\s,:]+/, '')).filter(Boolean);
+      }
+
+      const locMatch = rest.match(/(?:Script\s*Location|Location|இடம்|Loc(?:ation)?)\s*[:\-]?\s*(.*?)(?=\s*(?:Real\s*Location|Time|நேரம்|வகை|Type|Effects?|Characters?|கதாபாத்திரங்கள்|நடிகர்கள்|Actors?|Cast|[-|]|$))/i);
+      const realLocMatch = rest.match(/(?:Real\s*Location|Real\s*Loc)\s*[:\-]?\s*(.*?)(?=\s*(?:Time|நேரம்|Effects?|Characters?|கதாபாத்திரங்கள்|நடிகர்கள்|Actors?|Cast|[-|]|$))/i);
+      const timeMatch = rest.match(/(?:Time|நேரம்)\s*[:\-]?\s*(.*?)(?=\s*(?:Effects?|Real|Characters?|கதாபாத்திரங்கள்|நடிகர்கள்|Actors?|Cast|[-|]|$))/i);
+      const effMatch = rest.match(/(?:Effects?|Effect)\s*[:\-]?\s*(.*?)(?=\s*(?:Characters?|கதாபாத்திரங்கள்|நடிகர்கள்|Actors?|Cast|[-|]|$))/i);
 
       if (locMatch && locMatch[1].trim()) location = locMatch[1].trim();
       if (realLocMatch && realLocMatch[1].trim()) realLocation = realLocMatch[1].trim();
@@ -126,11 +133,11 @@ export function parseScreenplayToTamilLeftRight(text: string, defaultTitle = '�
           continue;
         }
 
-        const isScriptLoc = nextLine.match(/(?:Script\s*Location|Location|இடம்)\s*[:\-]?\s*(.*?)(?=\s*(?:Real\s*Location|Time|நேரம்|Effects?|[-|]|$))/i);
-        const isRealLoc = nextLine.match(/(?:Real\s*Location|Real\s*Loc)\s*[:\-]?\s*(.*?)(?=\s*(?:Time|நேரம்|Effects?|[-|]|$))/i);
-        const isTime = nextLine.match(/(?:Time|நேரம்)\s*[:\-]?\s*(.*?)(?=\s*(?:Effects?|Real|[-|]|$))/i);
+        const isScriptLoc = nextLine.match(/(?:Script\s*Location|Location|இடம்)\s*[:\-]?\s*(.*?)(?=\s*(?:Real\s*Location|Time|நேரம்|Effects?|Characters?|கதாபாத்திரங்கள்|நடிகர்கள்|Actors?|Cast|[-|]|$))/i);
+        const isRealLoc = nextLine.match(/(?:Real\s*Location|Real\s*Loc)\s*[:\-]?\s*(.*?)(?=\s*(?:Time|நேரம்|Effects?|Characters?|கதாபாத்திரங்கள்|நடிகர்கள்|Actors?|Cast|[-|]|$))/i);
+        const isTime = nextLine.match(/(?:Time|நேரம்)\s*[:\-]?\s*(.*?)(?=\s*(?:Effects?|Real|Characters?|கதாபாத்திரங்கள்|நடிகர்கள்|Actors?|Cast|[-|]|$))/i);
         const isEff = nextLine.match(/(?:Effects?|Effect)\s*[:\-]?\s*(.*)/i);
-        const isChar = nextLine.match(/(?:Characters?(?:\s*\([^)]*\))?|கதாபாத்திரங்கள்(?:\s*\([^)]*\))?)\s*[:\-]?\s*(.*)/i);
+        const isChar = nextLine.match(/(?:Characters?(?:\s*\([^)]*\))?|கதாபாத்திரங்கள்(?:\s*\([^)]*\))?|நடிகர்கள்(?:\s*\([^)]*\))?|Actors?|Cast)\s*[:\-]?\s*(.*)/i);
 
         if (isScriptLoc || isRealLoc || isTime || isEff || isChar) {
           if (isScriptLoc && isScriptLoc[1].trim()) location = isScriptLoc[1].trim();
@@ -138,7 +145,9 @@ export function parseScreenplayToTamilLeftRight(text: string, defaultTitle = '�
           if (isTime && isTime[1].trim()) timeOfDay = isTime[1].trim();
           if (isEff && isEff[1].trim()) effects = isEff[1].trim();
           if (isChar && isChar[1].trim()) {
-            explicitChars = isChar[1].split(',').map((c) => c.trim()).filter(Boolean);
+            const rawC = isChar[1].replace(/\s+(?:Effect|Time|நேரம்)\s*:.*/i, '').trim();
+            const parsed = rawC.split(/[,;]|\s+and\s+/i).map((c) => c.trim().replace(/^[–—\-\s,:]+/, '')).filter(Boolean);
+            explicitChars = explicitChars ? Array.from(new Set([...explicitChars, ...parsed])) : parsed;
           }
           nextIdx++;
         } else {
@@ -149,6 +158,35 @@ export function parseScreenplayToTamilLeftRight(text: string, defaultTitle = '�
       if (!location && !locMatch && rest.trim()) {
         const cleanedRest = rest.replace(/^[|:\s]+/, '').trim();
         if (cleanedRest) location = cleanedRest;
+      }
+
+      // Sanitize location & realLocation to strip out actor names, times, and INT/EXT keywords
+      const sanitizeLoc = (l: string) => {
+        if (!l) return '';
+        return l
+          .replace(/(?:Characters?|கதாபாத்திரங்கள்|நடிகர்கள்|Actors?|Cast)\s*[:\-]?\s*.*$/i, '')
+          .replace(/(?:Real\s*Location|Real\s*Loc)\s*[:\-]?\s*.*$/i, '')
+          .replace(/\s*(?:பகல்|பகள்|இரவு|மாலை|காலை|அதிகாலை|Day|Night|Evening|Morning)(?=[^\u0B80-\u0BFFa-zA-Z]|$)/gi, '')
+          .replace(/\s*(?:EXT\/INT|INT\/EXT|EXT|INT)\b/gi, '')
+          .replace(/[|:\-\s\t]+$/, '')
+          .replace(/^[|:\-\s\t]+/, '')
+          .replace(/\s+/g, ' ')
+          .trim();
+      };
+
+      location = sanitizeLoc(location);
+      realLocation = sanitizeLoc(realLocation) || location;
+
+      // Infer timeOfDay if still default
+      if (timeOfDay === 'Day / INT') {
+        const fullHeaderContext = `${rest} ${line}`;
+        const tMatch = fullHeaderContext.match(/(?:பகல்|பகள்|இரவு|மாலை|காலை|Day|Night|Evening|Morning)/i);
+        const ieMatch = fullHeaderContext.match(/(?:EXT\/INT|INT\/EXT|EXT|INT)/i);
+        if (tMatch || ieMatch) {
+          const tStr = tMatch ? (tMatch[0] === 'பகள்' ? 'பகல்' : tMatch[0]) : 'Day';
+          const ieStr = ieMatch ? ieMatch[0] : 'INT';
+          timeOfDay = `${tStr} / ${ieStr}`;
+        }
       }
 
       const sluglineText = `sc no: ${scNum}${location ? `     Script Location: ${location}` : ''}${timeOfDay ? `     Time: ${timeOfDay}` : ''}`;
@@ -235,7 +273,7 @@ export function parseScreenplayToTamilLeftRight(text: string, defaultTitle = '�
 
     // 4. Dialogue check (கதாபாத்திரம்: வசனம்)
     const diaMatch = line.match(dialogueLineRegex);
-    const isHeaderKeyword = /^(?:காட்சி|இடம்|நேரம்|sc\s*no|scene|location|time|effects?|characters?)/i.test(line);
+    const isHeaderKeyword = /^(?:காட்சி|இடம்|நேரம்|வகை|கதாபாத்திரங்கள்|நடிகர்கள்|வருடம்|காலம்|டைட்டல்|பாடல்|sc\s*no|scene|location|time|effects?|characters?|cast)/i.test(line);
     if (diaMatch && !isHeaderKeyword) {
       const charName = diaMatch[1].trim();
       let diaText = diaMatch[2].trim();
@@ -318,25 +356,50 @@ export function parseScreenplayToTamilLeftRight(text: string, defaultTitle = '�
  * Auto-extracts unique character names that appear in a scene
  */
 export function getSceneCharacters(scene: TamilScene): string[] {
-  if (scene.characters && scene.characters.length > 0) {
-    return scene.characters;
-  }
   const set = new Set<string>();
-  for (const item of scene.items) {
-    let name = (item.rightCharacter || '').trim();
-    if (!name && item.column === 'right') {
-      const text = (item.rightDialogue || item.rawText || '').trim();
-      const m = text.match(/^([\u0B80-\u0BFFa-zA-Z0-9\s.]{2,30})\s*:/);
-      if (m) name = m[1].trim();
-    }
-    if (name) {
-      if (name.endsWith(':')) name = name.slice(0, -1).trim();
-      name = name.replace(/\s*\([^)]*\)$/, '').trim(); // Remove parentheticals like (V.O.)
-      if (name && name !== 'கதாபாத்திரம்') {
-        set.add(name);
+
+  // 1. Explicit scene characters from metadata (கதாபாத்திரங்கள் / நடிகர்கள் / Characters)
+  if (Array.isArray(scene.characters) && scene.characters.length > 0) {
+    scene.characters.forEach(c => {
+      const clean = c.replace(/^[–—\-\s,:]+/, '').trim();
+      if (clean && !clean.toLowerCase().startsWith('effect') && !clean.toLowerCase().startsWith('time')) {
+        set.add(clean);
+      }
+    });
+  }
+
+  // 2. Check if scene.location, scene.realLocation, or scene.sluglineText has embedded 'நடிகர்கள்:' or 'கதாபாத்திரங்கள்:'
+  const fullMetaText = `${scene.location || ''} ${scene.realLocation || ''} ${scene.sluglineText || ''}`;
+  const embeddedCharMatch = fullMetaText.match(/(?:Characters?(?:\s*\([^)]*\))?|கதாபாத்திரங்கள்(?:\s*\([^)]*\))?|நடிகர்கள்(?:\s*\([^)]*\))?|Actors?|Cast)\s*[:\-]?\s*([^|\n]+)/i);
+  if (embeddedCharMatch && embeddedCharMatch[1]) {
+    const rawC = embeddedCharMatch[1].replace(/\s+(?:Effect|Time|நேரம்)\s*:.*/i, '').trim();
+    const chars = rawC.split(/[,;]|\s+and\s+/i).map(c => c.trim().replace(/^[–—\-\s,:]+/, '')).filter(Boolean);
+    chars.forEach(c => {
+      if (c && !c.toLowerCase().startsWith('effect') && !c.toLowerCase().startsWith('time')) {
+        set.add(c);
+      }
+    });
+  }
+
+  // 3. Speaking characters from scene dialogue items
+  if (Array.isArray(scene.items)) {
+    for (const item of scene.items) {
+      let name = (item.rightCharacter || '').trim();
+      if (!name && item.column === 'right') {
+        const text = (item.rightDialogue || item.rawText || '').trim();
+        const m = text.match(/^([\u0B80-\u0BFFa-zA-Z0-9\s.()'\-]{2,35})\s*:/);
+        if (m) name = m[1].trim();
+      }
+      if (name) {
+        if (name.endsWith(':')) name = name.slice(0, -1).trim();
+        name = name.replace(/\s*\([^)]*\)$/, '').trim(); // Remove parentheticals like (V.O.)
+        if (name && name !== 'கதாபாத்திரம்' && name !== 'நடிகர்கள்' && name !== 'வசனம்') {
+          set.add(name);
+        }
       }
     }
   }
+
   return Array.from(set);
 }
 

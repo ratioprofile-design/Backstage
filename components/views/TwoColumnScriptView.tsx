@@ -4650,8 +4650,38 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
                   {page.elements.map((elem, idx) => {
                     // CASE A: Scene Heading Element
                     if (elem.type === 'scene_header') {
-                      const charCount = elem.characters?.length || 0;
-                      const charListStr = elem.characters && elem.characters.length > 0 ? elem.characters.join(', ') : 'இல்லை';
+                      // Extract embedded character metadata if elem.characters is missing or empty
+                      const fullMetaText = `${elem.location || ''} ${elem.realLocation || ''} ${elem.sluglineText || ''}`;
+                      const embeddedMetaChars = (!elem.characters || elem.characters.length === 0)
+                        ? (fullMetaText.match(/(?:Characters?(?:\s*\([^)]*\))?|கதாபாத்திரங்கள்(?:\s*\([^)]*\))?|நடிகர்கள்(?:\s*\([^)]*\))?|Actors?|Cast)\s*[:\-]?\s*([^|\n]+)/i)?.[1]
+                            ?.replace(/\s+(?:Effect|Time|நேரம்)\s*:.*/i, '')
+                            ?.split(/[,;]|\s+and\s+/i)
+                            ?.map((c) => c.trim().replace(/^[–—\-\s,:]+/, ''))
+                            ?.filter((c) => Boolean(c) && !c.toLowerCase().startsWith('effect') && !c.toLowerCase().startsWith('time')) || [])
+                        : [];
+
+                      const effectiveChars = (elem.characters && elem.characters.length > 0)
+                        ? elem.characters
+                        : embeddedMetaChars;
+                      const charCount = effectiveChars.length;
+                      const charListStr = charCount > 0 ? effectiveChars.join(', ') : 'இல்லை';
+
+                      // Sanitize display location so embedded metadata like 'நடிகர்கள்: YOGIBABU...' or 'பகல் INT' doesn't repeat inside Script Location
+                      const cleanDisplayLocation = (locStr?: string) => {
+                        if (!locStr) return '';
+                        return locStr
+                          .replace(/(?:Characters?|கதாபாத்திரங்கள்|நடிகர்கள்|Actors?|Cast)\s*[:\-]?\s*.*$/i, '')
+                          .replace(/(?:Real\s*Location|Real\s*Loc)\s*[:\-]?\s*.*$/i, '')
+                          .replace(/\s*(?:பகல்|பகள்|இரவு|மாலை|காலை|அதிகாலை|Day|Night|Evening|Morning)(?=[^\u0B80-\u0BFFa-zA-Z]|$)/gi, '')
+                          .replace(/\s*(?:EXT\/INT|INT\/EXT|EXT|INT)\b/gi, '')
+                          .replace(/[|:\-\s\t]+$/, '')
+                          .replace(/^[|:\-\s\t]+/, '')
+                          .replace(/\s+/g, ' ')
+                          .trim();
+                      };
+
+                      const displayScriptLoc = cleanDisplayLocation(elem.location) || elem.location || 'Location';
+                      const displayRealLoc = cleanDisplayLocation(elem.realLocation) || cleanDisplayLocation(elem.location) || elem.realLocation || 'Real Location';
 
                       return (
                         <div
@@ -4773,7 +4803,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
                                         className="outline-none hover:bg-emerald-500/10 px-0.5 rounded font-medium break-words inline"
                                         title="Click to edit script location"
                                       >
-                                        {elem.location || 'Location'}
+                                        {displayScriptLoc}
                                       </span>
                                     </div>
 
@@ -4792,7 +4822,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
                                         className="outline-none hover:bg-emerald-500/10 px-0.5 rounded font-medium break-words inline"
                                         title="Click to edit real shooting location"
                                       >
-                                        {elem.realLocation || elem.location || 'Real Location'}
+                                        {displayRealLoc}
                                       </span>
                                     </div>
                                   </div>
@@ -4803,7 +4833,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
                                     <div className="flex-1 text-left leading-relaxed flex items-baseline flex-wrap">
                                       <span className="mr-1 inline">Characters({charCount}):</span>
                                       <SceneCharactersDropdown
-                                        characters={elem.characters || []}
+                                        characters={effectiveChars}
                                         allKnownCharacters={allKnownCharacters}
                                         onChange={(updated) => handleUpdateScene(elem.sceneId, { characters: updated })}
                                         onManageCharacters={() => setIsCharacterManagerOpen(true)}

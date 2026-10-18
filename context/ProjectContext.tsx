@@ -519,10 +519,9 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     // Safety timeout: release splash screen within 2.5s even if network or auth hangs
     const safetyTimer = setTimeout(() => {
       if (isMounted) {
-        console.log('[ctx] auth safety timer fired, releasing initial loading');
         setIsInitialLoading(false);
       }
-    }, 2500);
+    }, 600);
 
     const initAuth = async () => {
       try {
@@ -563,13 +562,12 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
         clearTimeout(safetyTimer);
         if (!isMounted) return;
         
-        console.log('[ctx] getSession result:', session ? `session for ${session.user.email}` : 'no session');
         if (session) {
           setSupabaseUser(session.user);
           setCurrentUser(session.user.email || 'Cloud User');
           localStorage.setItem('currentUser', session.user.email || 'Cloud User');
           setCloudOffline(false);
-          refreshProjectList(session.user.id).catch(e => console.warn('[ctx] refreshProjectList failed:', e));
+          refreshProjectList(session.user.id, session.user.email || undefined).catch(e => console.warn('[ctx] refreshProjectList failed:', e));
         } else {
           const savedUser = localStorage.getItem('currentUser');
           if (savedUser) {
@@ -600,7 +598,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
         setCurrentUser(session.user.email || 'Cloud User');
         localStorage.setItem('currentUser', session.user.email || 'Cloud User');
         setCloudOffline(false);
-        refreshProjectList(session.user.id).catch(e => console.warn('[ctx] refreshProjectList failed:', e));
+        refreshProjectList(session.user.id, session.user.email || undefined).catch(e => console.warn('[ctx] refreshProjectList failed:', e));
       } else {
         setSupabaseUser(null);
         if (_event === 'SIGNED_OUT') {
@@ -940,35 +938,48 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const selectProjectRef = useRef<((id: string, opts?: { silent?: boolean }) => Promise<void>) | null>(null);
 
-  const refreshProjectList = async (userId: string) => {
+  const refreshProjectList = async (userId: string, targetEmail?: string) => {
     try {
-      // Check for unsynced local offline projects to migrate to Supabase
+      // 1. Instant Cache: immediately render previously loaded cloud projects for this user
+      // so the project picker and dashboard appear with zero waiting time (0ms)!
+      try {
+        const cachedRaw = localStorage.getItem(`cached_cloud_projects_${userId}`);
+        if (cachedRaw) {
+          const cached = JSON.parse(cachedRaw);
+          if (Array.isArray(cached) && cached.length > 0) {
+            setProjectList(cached);
+          }
+        }
+      } catch {}
+
+      // 2. Background non-blocking migration of any unsaved local offline projects to Supabase.
+      // We NEVER block the UI, sign-in, or project loading on this bulk upload!
       const localListRaw = localStorage.getItem('projectList');
       if (localListRaw) {
-        try {
-          const localList = JSON.parse(localListRaw) as ProjectMetadata[];
-          if (localList.length > 0) {
-            for (const localProj of localList) {
-              const localDataRaw = localStorage.getItem(`project_data_${localProj.id}`);
-              const localData = localDataRaw ? JSON.parse(localDataRaw) : INITIAL_STATE;
-              
-              // Upload to Supabase
-              await upsertProject(localProj.id, userId, localProj.name, localData);
-              
-              // Clean up local data storage
-              localStorage.removeItem(`project_data_${localProj.id}`);
+        queueMicrotask(async () => {
+          try {
+            const localList = JSON.parse(localListRaw) as ProjectMetadata[];
+            if (localList.length > 0) {
+              for (const localProj of localList) {
+                const localDataRaw = localStorage.getItem(`project_data_${localProj.id}`);
+                const localData = localDataRaw ? JSON.parse(localDataRaw) : INITIAL_STATE;
+                await upsertProject(localProj.id, userId, localProj.name, localData);
+                localStorage.removeItem(`project_data_${localProj.id}`);
+              }
+              localStorage.removeItem('projectList');
             }
-            // Clear local project list since all are migrated
-            localStorage.removeItem('projectList');
+          } catch (syncErr) {
+            console.warn("[sync] Background unsynced projects migration failed:", syncErr);
           }
-        } catch (syncErr) {
-          console.warn("[sync] Unsynced projects migration failed:", syncErr);
-        }
+        });
       }
 
-      const dbProjects = await fetchUserProjects(userId);
-      const email = supabaseUser?.email || '';
-      const invited = email ? await fetchInvitedProjects(email) : [];
+      // 3. Concurrently fetch owned projects and invited projects in parallel!
+      const email = targetEmail || supabaseUser?.email || (typeof localStorage !== 'undefined' ? localStorage.getItem('currentUser') : '') || '';
+      const [dbProjects, invited] = await Promise.all([
+        fetchUserProjects(userId).catch(() => []),
+        email ? fetchInvitedProjects(email).catch(() => []) : Promise.resolve([])
+      ]);
 
       const ownedMapped: ProjectMetadata[] = dbProjects.map(p => ({
         id: p.id,
@@ -995,23 +1006,24 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       });
 
       setProjectList(combined);
+      try {
+        localStorage.setItem(`cached_cloud_projects_${userId}`, JSON.stringify(combined));
+      } catch {}
 
-      // CRITICAL FOR CROSS-DEVICE SYNC:
-      // When opening on a second computer or after sign-in, automatically select and hydrate
-      // the user's active cloud project so beats, 2-column scripts, and vault documents are immediately loaded.
-      if (combined.length > 0 && selectProjectRef.current) {
+      // 4. Cross-device sync / hydration:
+      // Respect if user closed project or is on welcome screen!
+      const isClosed = typeof localStorage !== 'undefined' && localStorage.getItem('backstage_project_closed') === 'true';
+      if (combined.length > 0 && selectProjectRef.current && !isClosed) {
         const curId = currentProjectId || (typeof localStorage !== 'undefined' ? localStorage.getItem('currentProjectId') : null);
         const isValidCurrent = curId && curId !== 'empty-project' && combined.some(p => p.id === curId);
 
         if (isValidCurrent && curId) {
-          // Hydrate active project state from cloud to ensure latest files from Computer A appear on Computer B
-          console.log('[ctx] Cross-device sync: Hydrating active cloud project:', curId);
+          // Hydrate active project state from cloud silently
           await selectProjectRef.current(curId, { silent: true });
-        } else {
-          // Second computer has no active project or is stuck on empty-project: auto-load top cloud project!
+        } else if (!curId || curId === 'empty-project') {
+          // Auto-select latest cloud project silently so we never freeze the screen with a spinner!
           const targetProj = combined[0];
-          console.log('[ctx] Cross-device sync: Auto-selecting latest cloud project on new computer:', targetProj.id, targetProj.name);
-          await selectProjectRef.current(targetProj.id);
+          await selectProjectRef.current(targetProj.id, { silent: true });
         }
       }
     } catch (err: any) {

@@ -84,44 +84,85 @@ export const supabase = isSupabaseConfigured
     })
   : mockSupabase as any;
 
+/**
+ * Executes a promise with an aggressive timeout.
+ * Prevents cloud hanging from freezing the UI or sign-in flow.
+ */
+export function withTimeout<T>(promise: PromiseLike<T>, ms: number, fallbackOrErrorMsg?: string | T): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      if (typeof fallbackOrErrorMsg === 'string') {
+        reject(new Error(fallbackOrErrorMsg));
+      } else if (fallbackOrErrorMsg !== undefined) {
+        resolve(fallbackOrErrorMsg as T);
+      } else {
+        reject(new Error(`Operation timed out after ${ms}ms`));
+      }
+    }, ms);
+
+    Promise.resolve(promise)
+      .then(res => {
+        clearTimeout(timer);
+        resolve(res);
+      })
+      .catch(err => {
+        clearTimeout(timer);
+        reject(err);
+      });
+  });
+}
+
 export const upsertProject = async (id: string, userId: string, name: string, data: any) => {
   if (!isSupabaseConfigured) return;
   
-  // Check if project already exists
-  const { data: existing, error: checkError } = await supabase
-    .from('projects')
-    .select('id, user_id, name')
-    .eq('id', id)
-    .maybeSingle();
+  try {
+    // Check if project already exists with timeout
+    const checkQuery = supabase
+      .from('projects')
+      .select('id, user_id, name')
+      .eq('id', id)
+      .maybeSingle();
 
-  if (existing && !checkError) {
-    const isOwner = existing.user_id === userId;
-    // Collaborator saving MUST NOT rename the cloud project!
-    // Only the project owner can update the project name.
-    const updatePayload: any = {
-      data,
-      updated_at: new Date().toISOString()
-    };
-    if (isOwner && name && !name.includes('(Invited by')) {
-      updatePayload.name = name;
-    }
-    const { error } = await supabase
-      .from('projects')
-      .update(updatePayload)
-      .eq('id', id);
-    if (error) throw error;
-  } else {
-    // New project: insert with current user as the owner
-    const { error } = await supabase
-      .from('projects')
-      .insert({
-        id,
-        user_id: userId,
-        name,
+    const { data: existing, error: checkError } = await withTimeout(
+      checkQuery as any,
+      6000,
+      { data: null, error: new Error('Timeout checking project') }
+    );
+
+    if (existing && !checkError) {
+      const isOwner = existing.user_id === userId;
+      // Collaborator saving MUST NOT rename the cloud project!
+      // Only the project owner can update the project name.
+      const updatePayload: any = {
         data,
         updated_at: new Date().toISOString()
-      });
-    if (error) throw error;
+      };
+      if (isOwner && name && !name.includes('(Invited by')) {
+        updatePayload.name = name;
+      }
+      const updateQuery = supabase
+        .from('projects')
+        .update(updatePayload)
+        .eq('id', id);
+
+      const { error } = await withTimeout(updateQuery as any, 8000, { error: null });
+      if (error) console.warn('[supabase] update error:', error);
+    } else {
+      // New project: insert with current user as the owner
+      const insertQuery = supabase
+        .from('projects')
+        .insert({
+          id,
+          user_id: userId,
+          name,
+          data,
+          updated_at: new Date().toISOString()
+        });
+      const { error } = await withTimeout(insertQuery as any, 8000, { error: null });
+      if (error) console.warn('[supabase] insert error:', error);
+    }
+  } catch (e) {
+    console.warn('[supabase] upsertProject exception caught:', e);
   }
 };
 
@@ -209,37 +250,73 @@ export const renameCloudProject = async (id: string, userId: string, newName: st
 export const fetchUserProjects = async (userId: string) => {
   if (!isSupabaseConfigured) return [];
   
-  const { data, error } = await supabase
-    .from('projects')
-    .select('id, name, updated_at')
-    .eq('user_id', userId)
-    .order('updated_at', { ascending: false });
+  try {
+    const query = supabase
+      .from('projects')
+      .select('id, name, updated_at')
+      .eq('user_id', userId)
+      .order('updated_at', { ascending: false });
 
-  if (error) {
-    throw error;
+    const { data, error } = await withTimeout(
+      query as any,
+      6000,
+      'fetchUserProjects timed out after 6000ms'
+    );
+
+    if (error) {
+      throw error;
+    }
+
+    if (data && Array.isArray(data)) {
+      try {
+        localStorage.setItem(`cached_cloud_projects_${userId}`, JSON.stringify(data));
+      } catch {}
+    }
+    return data || [];
+  } catch (err) {
+    console.warn('[supabase] fetchUserProjects fallback to cache:', err);
+    try {
+      const cached = localStorage.getItem(`cached_cloud_projects_${userId}`);
+      if (cached) return JSON.parse(cached);
+    } catch {}
+    return [];
   }
-  return data || [];
 };
 
 export const fetchProjectData = async (id: string) => {
   if (!isSupabaseConfigured) return null;
   
-  const { data, error } = await supabase
-    .from('projects')
-    .select('id, name, user_id, data')
-    .eq('id', id)
-    .single();
+  try {
+    const query = supabase
+      .from('projects')
+      .select('id, name, user_id, data')
+      .eq('id', id)
+      .single();
 
-  if (error) {
-    throw error;
+    const { data, error } = await withTimeout(
+      query as any,
+      8000,
+      'fetchProjectData timed out after 8000ms'
+    );
+
+    if (error) {
+      throw error;
+    }
+    if (!data) return null;
+    return {
+      ...(data.data || {}),
+      _projectName: data.name,
+      _ownerId: data.user_id,
+      _projectId: data.id
+    };
+  } catch (err) {
+    console.warn('[supabase] fetchProjectData failed or timed out:', err);
+    try {
+      const local = localStorage.getItem(`project_data_${id}`);
+      if (local) return JSON.parse(local);
+    } catch {}
+    return null;
   }
-  if (!data) return null;
-  return {
-    ...(data.data || {}),
-    _projectName: data.name,
-    _ownerId: data.user_id,
-    _projectId: data.id
-  };
 };
 
 export const inviteUserToProject = async (projectId: string, projectName: string, email: string, invitedBy?: string) => {
@@ -280,22 +357,33 @@ export const inviteUserToProject = async (projectId: string, projectName: string
 };
 
 export const fetchInvitedProjects = async (email: string) => {
+  if (!email) return [];
+
   if (isSupabaseConfigured) {
     try {
-      const { data, error } = await supabase
+      const invitesQuery = supabase
         .from('project_invites')
         .select('*')
         .eq('invitee_email', email.toLowerCase().trim());
+
+      const { data, error } = await withTimeout(
+        invitesQuery as any,
+        5000,
+        { data: null, error: new Error('Invited projects timeout') }
+      );
+
       if (!error && data && data.length > 0) {
         // Query the live projects table to get the true current name and updated timestamp
         const projectIds = data.map((inv: any) => inv.project_id).filter(Boolean);
         let projectMap = new Map<string, any>();
         if (projectIds.length > 0) {
           try {
-            const { data: projs } = await supabase
+            const projsQuery = supabase
               .from('projects')
               .select('id, name, updated_at')
               .in('id', projectIds);
+
+            const { data: projs } = await withTimeout(projsQuery as any, 4000, { data: null });
             if (projs) {
               projs.forEach((p: any) => projectMap.set(p.id, p));
             }

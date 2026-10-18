@@ -25,7 +25,8 @@ import {
   syncDocumentsWithCloud,
   mergeProductionDocuments,
   broadcastDocumentsUpdated,
-  SCENE_4_BREAKDOWN_SHEET_DATA
+  SCENE_4_BREAKDOWN_SHEET_DATA,
+  MASTER_BREAKDOWN_DOC_ID,
 } from '../../services/documentsStorage';
 import { loadLargeDocuments } from '../../services/largeStorage';
 import { supabase, isSupabaseConfigured, saveProjectDocumentsToProjectData } from '../../services/supabase';
@@ -996,6 +997,18 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
 
   // Breakdown Sheet Data & Table Structure
   const isBreakdownDoc = selectedDoc?.category === 'BREAKDOWN' || selectedDoc?.builtInType === 'breakdown' || !!selectedDoc?.sheetData;
+
+  // Check if active document is Markdown or Master Production Breakdown Sheet
+  const isMarkdownActiveDoc = Boolean(
+    selectedDoc && (
+      studioViewMode === 'markdown' ||
+      selectedDoc.fileType === 'md' ||
+      selectedDoc.fileName?.endsWith('.md') ||
+      selectedDoc.category === 'BREAKDOWN' ||
+      selectedDoc.builtInType === 'breakdown' ||
+      selectedDoc.id === MASTER_BREAKDOWN_DOC_ID
+    )
+  );
 
   const rawTableRows = useMemo(() => {
     if (!selectedDoc) return [];
@@ -4462,10 +4475,11 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
               </div>
             )}
 
-            {/* Studio Action Sub-Toolbar: Clean, De-Clustered Professional Toolbar */}
-            <div className={`h-11 px-4 border-b flex items-center justify-between gap-3 shrink-0 transition-colors overflow-x-auto scrollbar-none ${
-              isLight ? 'bg-white border-slate-200' : 'bg-[#141418]/90 border-[#222226]'
-            }`}>
+            {/* Studio Action Sub-Toolbar: Shown for PDFs, static documents, video and audio (Hidden for Markdown documents) */}
+            {!isMarkdownActiveDoc && (
+              <div className={`h-11 px-4 border-b flex items-center justify-between gap-3 shrink-0 transition-colors overflow-x-auto scrollbar-none ${
+                isLight ? 'bg-white border-slate-200' : 'bg-[#141418]/90 border-[#222226]'
+              }`}>
               {/* Group 1 (Left): Document Page Navigation & Zoom & Continuous/Single */}
               <div className="flex items-center gap-2 shrink-0">
                 {/* Page Stepper */}
@@ -4816,11 +4830,14 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                 </button>
               </div>
             </div>
+            )}
 
             {/* Document Paper & Media Reader Scroller */}
             <div
               ref={documentSheetRef}
-              className={`flex-1 overflow-auto p-8 flex justify-center ${
+              className={`flex-1 flex justify-center ${
+                isMarkdownActiveDoc ? 'overflow-hidden p-0' : 'overflow-auto p-8'
+              } ${
                 isLight ? 'bg-[#ebedf2]' : 'bg-[#0c0c0e]'
               }`}
               style={{
@@ -5276,10 +5293,11 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                     isLight={isLight}
                   />
                 </div>
-              ) : (studioViewMode === 'markdown' || selectedDoc?.fileType === 'md' || selectedDoc?.fileName?.endsWith('.md')) && selectedDoc ? (
+              ) : isMarkdownActiveDoc && selectedDoc ? (
                 /* NOTION / GOOGLE DOCS LIVE MARKDOWN STUDIO */
-                <div className="w-full h-full flex-1 min-h-[900px] flex justify-center">
+                <div className="w-full h-full flex-1 flex justify-center">
                   <MarkdownDocEditor
+                    key={selectedDoc.id}
                     document={selectedDoc}
                     isLight={isLight}
                     onSave={(updatedDoc) => {
@@ -5344,7 +5362,7 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                       style={{
                         fontFamily: FONT_STACK_MAP[docFontFamily] || FONT_STACK_MAP.sans,
                       }}
-                      className="word-document-page w-[794px] min-h-[1123px] px-14 py-14 relative transition-all rounded-xs bg-white text-slate-900 border border-slate-300 shadow-2xl"
+                      className="word-document-page w-[794px] min-h-[1123px] h-fit mb-16 px-14 py-14 relative transition-all rounded-xs bg-white text-slate-900 border border-slate-300 shadow-xs"
                     >
                       {/* Page Header */}
                       {showHeader && (
@@ -5442,10 +5460,10 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                           style={{
                             fontFamily: FONT_STACK_MAP[docFontFamily] || FONT_STACK_MAP.sans,
                           }}
-                          className={`word-document-page w-[794px] min-h-[1123px] px-14 py-14 relative transition-all cursor-text rounded-xs bg-white text-slate-900 border ${
+                          className={`word-document-page w-[794px] min-h-[1123px] h-fit px-14 py-14 relative transition-all cursor-text rounded-xs bg-white text-slate-900 border shadow-xs ${
                             isLight
-                              ? 'border-slate-300 shadow-[0_4px_25px_rgba(0,0,0,0.08)]'
-                              : 'border-zinc-700/80 shadow-[0_16px_40px_rgba(0,0,0,0.6)]'
+                              ? 'border-slate-300'
+                              : 'border-zinc-700/80'
                           }`}
                           onDoubleClick={toggleEditMode}
                         >

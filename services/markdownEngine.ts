@@ -1,5 +1,5 @@
 /**
- * Professional Markdown Engine for Notion / Google Docs hybrid editing.
+ * Professional Markdown Engine for Doc Canvas and Live Preview.
  * Handles bidirectional Markdown <-> HTML conversion, slash command parsing,
  * callouts, interactive task lists, tables, and statistics.
  */
@@ -24,7 +24,7 @@ export function calculateDocStats(markdownOrText: string): DocStats {
 }
 
 /**
- * Convert standard Markdown to rich, styled HTML for Notion/Docs canvas
+ * Convert standard Markdown to rich, styled HTML for Doc canvas
  */
 export function markdownToHtml(md: string): string {
   if (!md) return '';
@@ -40,7 +40,7 @@ export function markdownToHtml(md: string): string {
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;');
-    return `<pre class="notion-code-block my-4 p-4 rounded-xl bg-zinc-900 border border-zinc-700/60 font-mono text-xs overflow-x-auto text-amber-200/90 shadow-inner" data-lang="${lang || 'text'}"><code>${escaped}</code></pre>`;
+    return `<pre class="md-code-block my-4 p-4 rounded-xl bg-zinc-900 border border-zinc-700/60 font-mono text-xs overflow-x-auto text-amber-200/90 shadow-inner" data-lang="${lang || 'text'}"><code>${escaped}</code></pre>`;
   });
 
   // 3. Callout blocks (> [!NOTE] or > [!TIP] or > 💡)
@@ -53,14 +53,14 @@ export function markdownToHtml(md: string): string {
       CAUTION: { bg: 'rgba(217, 70, 239, 0.08)', border: 'rgba(217, 70, 239, 0.3)', text: '#e879f9', icon: '🚨' },
     };
     const c = colorMap[type] || colorMap.NOTE;
-    return `<div class="notion-callout my-4 p-4 rounded-xl flex items-start gap-3 border" style="background: ${c.bg}; border-color: ${c.border}; color: inherit;">
+    return `<div class="md-callout my-4 p-4 rounded-xl flex items-start gap-3 border" style="background: ${c.bg}; border-color: ${c.border}; color: inherit;">
       <span class="text-lg leading-none select-none">${c.icon}</span>
       <div class="flex-1 text-sm leading-relaxed">${content.trim()}</div>
     </div>`;
   });
 
   // 4. Blockquotes (> ...)
-  html = html.replace(/^>\s+(.+)$/gm, '<blockquote class="notion-quote my-3 pl-4 border-l-3 border-[#f5a623] italic opacity-85 text-sm leading-relaxed">$1</blockquote>');
+  html = html.replace(/^>\s+(.+)$/gm, '<blockquote class="md-quote my-3 pl-4 border-l-3 border-[#f5a623] italic opacity-85 text-sm leading-relaxed">$1</blockquote>');
 
   // 5. Headings
   html = html.replace(/^####\s+(.+)$/gm, '<h4 class="text-base font-bold tracking-tight mt-5 mb-2">$1</h4>');
@@ -69,15 +69,15 @@ export function markdownToHtml(md: string): string {
   html = html.replace(/^#\s+(.+)$/gm, '<h1 class="text-2xl sm:text-3xl font-extrabold tracking-tight mt-8 mb-4">$1</h1>');
 
   // 6. Horizontal Rules / Dividers
-  html = html.replace(/^(?:---|\*\*\*|___)$/gm, '<hr class="notion-divider my-6 border-t border-zinc-300 dark:border-zinc-700/60" />');
+  html = html.replace(/^(?:---|\*\*\*|___)$/gm, '<hr class="md-divider my-6 border-t border-zinc-300 dark:border-zinc-700/60" />');
 
   // 7. Checkboxes / Task list items (- [ ] or - [x])
-  html = html.replace(/^-\s+\[ \]\s+(.+)$/gm, `<div class="notion-task-item flex items-center gap-2.5 my-1.5 text-sm">
-    <input type="checkbox" class="notion-checkbox rounded cursor-pointer w-4 h-4 accent-[#f5a623]" />
+  html = html.replace(/^-\s+\[ \]\s+(.+)$/gm, `<div class="md-task-item flex items-center gap-2.5 my-1.5 text-sm">
+    <input type="checkbox" class="md-checkbox rounded cursor-pointer w-4 h-4 accent-[#f5a623]" />
     <span>$1</span>
   </div>`);
-  html = html.replace(/^-\s+\[[xX]\]\s+(.+)$/gm, `<div class="notion-task-item flex items-center gap-2.5 my-1.5 text-sm opacity-60 line-through">
-    <input type="checkbox" checked class="notion-checkbox rounded cursor-pointer w-4 h-4 accent-[#f5a623]" />
+  html = html.replace(/^-\s+\[[xX]\]\s+(.+)$/gm, `<div class="md-task-item flex items-center gap-2.5 my-1.5 text-sm opacity-60 line-through">
+    <input type="checkbox" checked class="md-checkbox rounded cursor-pointer w-4 h-4 accent-[#f5a623]" />
     <span>$1</span>
   </div>`);
 
@@ -104,7 +104,7 @@ export function markdownToHtml(md: string): string {
     const isSep = lines[1].replace(/[\s|:-]/g, '').length === 0;
     const bodyRows = (isSep ? lines.slice(2) : lines.slice(1)).map(parseRow);
 
-    let tbl = '<div class="my-4 overflow-x-auto"><table class="notion-table w-full border-collapse border border-zinc-300 dark:border-zinc-700 text-xs text-left">';
+    let tbl = '<div class="my-4 overflow-x-auto"><table class="md-table w-full border-collapse border border-zinc-300 dark:border-zinc-700 text-xs text-left">';
     tbl += '<thead><tr class="bg-zinc-100 dark:bg-zinc-800/80">';
     header.forEach((h) => {
       tbl += `<th class="border border-zinc-300 dark:border-zinc-700 p-2 font-bold">${h}</th>`;
@@ -193,22 +193,72 @@ export function htmlToMarkdown(html: string): string {
     return `\`\`\`\n${unescaped}\n\`\`\`\n\n`;
   });
 
+  // Tables: convert <table> elements to valid Markdown tables (| col | col |\n|---|---|\n| val | val |)
+  md = md.replace(/<table[^>]*>([\s\S]*?)<\/table>/gi, (_match, tableContent) => {
+    const rows: string[][] = [];
+    const rowMatches = tableContent.match(/<tr[^>]*>([\s\S]*?)<\/tr>/gi) || [];
+    rowMatches.forEach((rowHtml: string) => {
+      const cells: string[] = [];
+      const cellMatches = rowHtml.match(/<(?:th|td)[^>]*>([\s\S]*?)<\/(?:th|td)>/gi) || [];
+      cellMatches.forEach((cellHtml: string) => {
+        const text = cellHtml
+          .replace(/<(?:th|td)[^>]*>/i, '')
+          .replace(/<\/(?:th|td)>/i, '')
+          .replace(/<br\s*\/?>/gi, ' ')
+          .replace(/<[^>]+>/g, '')
+          .replace(/\|/g, '\\|')
+          .trim();
+        cells.push(text);
+      });
+      if (cells.length > 0) {
+        rows.push(cells);
+      }
+    });
+
+    if (rows.length === 0) return '';
+    const maxCols = Math.max(...rows.map((r) => r.length));
+    if (maxCols === 0) return '';
+
+    const lines: string[] = [];
+    const headerRow = [...rows[0]];
+    while (headerRow.length < maxCols) headerRow.push('');
+    lines.push(`| ${headerRow.join(' | ')} |`);
+    lines.push(`| ${Array(maxCols).fill('---').join(' | ')} |`);
+
+    for (let r = 1; r < rows.length; r++) {
+      const row = [...rows[r]];
+      while (row.length < maxCols) row.push('');
+      lines.push(`| ${row.join(' | ')} |`);
+    }
+
+    return '\n\n' + lines.join('\n') + '\n\n';
+  });
+
   // Callouts
-  md = md.replace(/<div class="notion-callout[^"]*"[^>]*>[\s\S]*?<div class="[^"]*">([\s\S]*?)<\/div>\s*<\/div>/gi, '> [!NOTE] $1\n\n');
+  md = md.replace(/<div[^>]*class="[^"]*(?:notion-callout|md-callout)[^"]*"[^>]*>([\s\S]*?)<\/div>\s*<\/div>/gi, (_match, inner) => {
+    const content = inner.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    return `> [!NOTE] ${content}\n\n`;
+  });
 
   // Blockquotes
-  md = md.replace(/<blockquote[^>]*>([\s\S]*?)<\/blockquote>/gi, '> $1\n\n');
+  md = md.replace(/<blockquote[^>]*>([\s\S]*?)<\/blockquote>/gi, (_match, inner) => {
+    const content = inner.replace(/<[^>]+>/g, ' ').trim();
+    return `> ${content}\n\n`;
+  });
 
-  // Checkboxes
-  md = md.replace(/<div class="notion-task-item[^"]*"[^>]*>[\s\S]*?<input type="checkbox"[^>]*checked[^>]*>[\s\S]*?<span>([\s\S]*?)<\/span>\s*<\/div>/gi, '- [x] $1\n');
-  md = md.replace(/<div class="notion-task-item[^"]*"[^>]*>[\s\S]*?<input type="checkbox"[^>]*>[\s\S]*?<span>([\s\S]*?)<\/span>\s*<\/div>/gi, '- [ ] $1\n');
+  // Checkboxes / Tasks
+  md = md.replace(/<div[^>]*class="[^"]*(?:notion-task-item|md-task-item)[^"]*"[^>]*>([\s\S]*?)<\/div>/gi, (_match, inner) => {
+    const isChecked = /checked/i.test(inner);
+    const text = inner.replace(/<input[^>]*>/gi, '').replace(/<[^>]+>/g, '').trim();
+    return `${isChecked ? '- [x]' : '- [ ]'} ${text}\n`;
+  });
 
   // Dividers
   md = md.replace(/<hr[^>]*\/?>/gi, '---\n\n');
 
   // Lists
-  md = md.replace(/<li class="[^"]*list-decimal[^"]*"[^>]*>([\s\S]*?)<\/li>/gi, '1. $1\n');
-  md = md.replace(/<li[^>]*>([\s\S]*?)<\/li>/gi, '- $1\n');
+  md = md.replace(/<li[^>]*class="[^"]*list-decimal[^"]*"[^>]*>([\s\S]*?)<\/li>/gi, (_match, inner) => `1. ${inner.replace(/<[^>]+>/g, '').trim()}\n`);
+  md = md.replace(/<li[^>]*>([\s\S]*?)<\/li>/gi, (_match, inner) => `- ${inner.replace(/<[^>]+>/g, '').trim()}\n`);
 
   // Inlines
   md = md.replace(/<strong>([\s\S]*?)<\/strong>/gi, '**$1**');

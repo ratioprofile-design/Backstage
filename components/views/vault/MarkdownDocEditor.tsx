@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { 
   Save, Download, Copy, Check, FileText, Eye, Columns, Code, 
-  Type, Bold, Italic, Underline, Strikethrough, 
-  List, Quote, Maximize2, Minimize2, Clock
+  Type, Bold, Italic, Underline, Strikethrough, Highlighter,
+  List, Quote, Maximize2, Minimize2, Clock,
+  BookOpen, Scroll, ZoomIn, ZoomOut, Layers, ChevronLeft, ChevronRight
 } from 'lucide-react';
 import { ProductionDocument } from '../../../types';
 import { 
@@ -13,6 +14,21 @@ import {
   SlashCommandItem, 
   DOCUMENT_EMOJIS 
 } from '../../../services/markdownEngine';
+import { paginateMarkdownContent, PageViewMode } from '../../../services/markdownPaginator';
+
+const FONT_STYLE_MAP: Record<string, string> = {
+  inter: 'Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+  calibri: 'Calibri, Candara, Segoe, "Segoe UI", Optima, Arial, sans-serif',
+  serif: 'Georgia, Cambria, "Times New Roman", Times, serif',
+  mono: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+};
+
+const FONT_SIZE_PX_MAP: Record<string, string> = {
+  sm: '13px',
+  md: '14.5px',
+  lg: '16px',
+  xl: '18px',
+};
 
 interface MarkdownDocEditorProps {
   document: ProductionDocument;
@@ -72,38 +88,122 @@ export const MarkdownDocEditor: React.FC<MarkdownDocEditorProps> = ({
   const editorContainerRef = useRef<HTMLDivElement>(null);
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const latestHtmlRef = useRef<string>(doc.htmlContent || markdownToHtml(markdown));
+  const markdownRef = useRef<string>(markdown);
+  markdownRef.current = markdown;
 
   // Statistics calculation
   const stats = useMemo(() => calculateDocStats(markdown), [markdown]);
 
-  // INITIALIZE CANVAS CONTENT ONCE (DO NOT tie dangerouslySetInnerHTML to state, so caret never jumps!)
-  useEffect(() => {
-    if (canvasRef.current) {
-      const initialHtml = doc.htmlContent || markdownToHtml(doc.textContent || markdown);
-      canvasRef.current.innerHTML = initialHtml;
-      latestHtmlRef.current = initialHtml;
-    }
-  }, [doc.id]);
+  // Typography state
+  const [docFontFamily, setDocFontFamily] = useState<'inter' | 'calibri' | 'serif' | 'mono'>('inter');
+  const [docFontSize, setDocFontSize] = useState<'sm' | 'md' | 'lg' | 'xl'>('md');
 
-  // When switching modes: sync HTML <-> Markdown smoothly
-  const handleSwitchMode = (newMode: 'canvas' | 'split' | 'raw') => {
-    if (newMode === 'canvas') {
-      // Switching into canvas: populate canvas with current markdown
-      if (canvasRef.current) {
-        const html = markdownToHtml(markdown);
-        canvasRef.current.innerHTML = html;
-        latestHtmlRef.current = html;
+  // Page Look: 'continuous' (infinite web flow) vs 'paginated' (discrete A4 print layout)
+  const [pageLook, setPageLook] = useState<PageViewMode>(() => {
+    if (typeof localStorage !== 'undefined') {
+      const saved = localStorage.getItem('backstage_md_page_look');
+      if (saved === 'continuous' || saved === 'paginated') return saved;
+    }
+    return 'paginated';
+  });
+
+  // Zoom Level for Paginated View
+  const [zoomLevel, setZoomLevel] = useState<number>(100);
+
+  // Dynamic pagination calculation (sub-millisecond)
+  const paginatedResult = useMemo(() => {
+    return paginateMarkdownContent(markdown, {
+      docTitle: title || 'Master Document',
+      docSubtitle: doc.category === 'BREAKDOWN' ? '1ST AD MASTER BREAKDOWN' : 'PRODUCTION CORE',
+      fontSize: docFontSize,
+      fontFamily: docFontFamily,
+    });
+  }, [markdown, title, doc.category, docFontSize, docFontFamily]);
+
+  // Stable ref callback: guarantees instant, non-blank hydration the millisecond the continuous canvas mounts
+  const setCanvasRef = useCallback((el: HTMLDivElement | null) => {
+    (canvasRef as any).current = el;
+    if (el) {
+      const currentHtml = markdownToHtml(markdownRef.current);
+      if (!el.innerHTML || el.innerHTML.trim() === '') {
+        el.innerHTML = currentHtml;
+        latestHtmlRef.current = currentHtml;
       }
-    } else {
-      // Switching to split or raw: populate markdown from canvas
-      if (canvasRef.current && editorMode === 'canvas') {
+    }
+  }, []);
+
+  // Hydrate continuous canvas whenever switching to continuous look or when document changes
+  useEffect(() => {
+    if (pageLook === 'continuous' && canvasRef.current) {
+      const targetHtml = markdownToHtml(markdownRef.current);
+      canvasRef.current.innerHTML = targetHtml;
+      latestHtmlRef.current = targetHtml;
+    }
+  }, [pageLook, doc.id]);
+
+  const handleTogglePageLook = (look: PageViewMode) => {
+    if (look === pageLook) return;
+
+    if (editorMode === 'canvas') {
+      if (pageLook === 'continuous' && canvasRef.current && hasChanges) {
+        // Only if user made real edits in continuous canvas do we sync canvas HTML to markdown!
         const html = canvasRef.current.innerHTML;
         latestHtmlRef.current = html;
         const converted = htmlToMarkdown(html);
-        setMarkdown(converted);
+        if (converted && converted.trim()) {
+          setMarkdown(converted);
+        }
+      }
+    }
+
+    setPageLook(look);
+    try {
+      localStorage.setItem('backstage_md_page_look', look);
+    } catch {}
+  };
+
+  const handlePaginatedCanvasInput = () => {
+    const pageEls = document.querySelectorAll<HTMLElement>('.paginated-canvas-page-content');
+    let combinedHtml = '';
+    pageEls.forEach((el) => {
+      combinedHtml += el.innerHTML;
+    });
+    if (combinedHtml) {
+      latestHtmlRef.current = combinedHtml;
+      setHasChanges(true);
+      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+      saveTimeoutRef.current = setTimeout(() => {
+        const converted = htmlToMarkdown(combinedHtml);
+        if (converted && converted.trim()) {
+          setMarkdown(converted);
+        }
+        performSave(true);
+      }, 1000);
+    }
+  };
+
+  // When switching modes: sync HTML <-> Markdown smoothly
+  const handleSwitchMode = (newMode: 'canvas' | 'split' | 'raw') => {
+    if (editorMode === 'canvas') {
+      if (pageLook === 'continuous' && canvasRef.current) {
+        const html = canvasRef.current.innerHTML;
+        latestHtmlRef.current = html;
+        const converted = htmlToMarkdown(html);
+        if (converted && converted.trim()) {
+          setMarkdown(converted);
+        }
       }
     }
     setEditorMode(newMode);
+    if (newMode === 'canvas') {
+      setTimeout(() => {
+        if (canvasRef.current && pageLook === 'continuous') {
+          const html = markdownToHtml(markdownRef.current);
+          canvasRef.current.innerHTML = html;
+          latestHtmlRef.current = html;
+        }
+      }, 0);
+    }
   };
 
   // Perform document save
@@ -390,8 +490,8 @@ export const MarkdownDocEditor: React.FC<MarkdownDocEditorProps> = ({
       <div className={`h-11 px-5 border-b flex items-center justify-between gap-4 shrink-0 shadow-xs z-20 ${
         isLight ? 'bg-white border-slate-200' : 'bg-[#15151a] border-[#222228]'
       }`}>
-        {/* Left: View Mode Switcher */}
-        <div className="flex items-center gap-2">
+        {/* Left: View Mode Switcher & Page Look Toggle */}
+        <div className="flex items-center gap-2 flex-wrap">
           <div className={`flex items-center p-0.5 rounded-lg border text-xs font-medium ${
             isLight ? 'bg-slate-100 border-slate-200' : 'bg-zinc-800/60 border-zinc-700/50'
           }`}>
@@ -402,7 +502,7 @@ export const MarkdownDocEditor: React.FC<MarkdownDocEditorProps> = ({
                   ? 'bg-[#f5a623] text-black font-bold shadow-xs'
                   : isLight ? 'text-slate-600 hover:text-slate-900' : 'text-zinc-400 hover:text-white'
               }`}
-              title="Notion / Google Docs Visual Canvas"
+              title="Doc Canvas (Visual Editor & Live Preview)"
             >
               <Eye size={12} />
               <span>Canvas</span>
@@ -433,36 +533,144 @@ export const MarkdownDocEditor: React.FC<MarkdownDocEditorProps> = ({
             </button>
           </div>
 
-          {/* Width Mode Toggle */}
-          <button
-            onClick={() => setIsFullWidth(!isFullWidth)}
-            className={`p-1 rounded-lg border transition-all text-xs flex items-center gap-1 ${
-              isLight ? 'border-slate-200 hover:bg-slate-100 text-slate-600' : 'border-zinc-800 hover:bg-zinc-800 text-zinc-400'
-            }`}
-            title={isFullWidth ? 'Standard Page Width' : 'Full Width Canvas'}
-          >
-            {isFullWidth ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
-          </button>
+          {/* Continuous vs Paginated Look Switcher */}
+          <div className={`flex items-center p-0.5 rounded-lg border text-xs font-medium ${
+            isLight ? 'bg-slate-100 border-slate-200' : 'bg-zinc-800/60 border-zinc-700/50'
+          }`}>
+            <button
+              onClick={() => handleTogglePageLook('continuous')}
+              className={`px-2 py-0.5 rounded-md transition-all flex items-center gap-1.5 cursor-pointer text-xs ${
+                pageLook === 'continuous'
+                  ? 'bg-[#f5a623] text-black font-bold shadow-xs'
+                  : isLight ? 'text-slate-600 hover:text-slate-900' : 'text-zinc-400 hover:text-white'
+              }`}
+              title="Continuous Web Look (Infinite Scroll / Smooth Flow)"
+            >
+              <Scroll size={12} />
+              <span>Continuous</span>
+            </button>
+            <button
+              onClick={() => handleTogglePageLook('paginated')}
+              className={`px-2 py-0.5 rounded-md transition-all flex items-center gap-1.5 cursor-pointer text-xs ${
+                pageLook === 'paginated'
+                  ? 'bg-[#f5a623] text-black font-bold shadow-xs'
+                  : isLight ? 'text-slate-600 hover:text-slate-900' : 'text-zinc-400 hover:text-white'
+              }`}
+              title="Paginated Look (A4 Print Sheets with Margins, Headers & Footers)"
+            >
+              <BookOpen size={12} />
+              <span>Paginated</span>
+            </button>
+          </div>
+
+          {/* Typography Control: Font Family + Size */}
+          <div className={`flex items-center gap-1 px-1.5 py-0.5 rounded-lg border text-xs shadow-xs ${
+            isLight ? 'bg-slate-100 border-slate-200 text-slate-700' : 'bg-zinc-800/60 border-zinc-700/50 text-zinc-300'
+          }`}>
+            <Type size={12} className="text-[#f5a623] shrink-0" />
+            <select
+              value={docFontFamily}
+              onChange={(e) => setDocFontFamily(e.target.value as any)}
+              className={`bg-transparent outline-none text-xs font-semibold cursor-pointer py-0.5 max-w-[95px] truncate ${
+                isLight ? 'text-slate-800' : 'text-zinc-200'
+              }`}
+              title="Document Font Family"
+            >
+              <option value="inter" className="bg-zinc-900 text-white">Inter</option>
+              <option value="calibri" className="bg-zinc-900 text-white">Calibri</option>
+              <option value="serif" className="bg-zinc-900 text-white">Georgia</option>
+              <option value="mono" className="bg-zinc-900 text-white">Mono</option>
+            </select>
+
+            <div className={`h-3 w-px mx-0.5 ${isLight ? 'bg-slate-300' : 'bg-zinc-700'}`} />
+
+            {/* Compact Size Selector */}
+            <div className="flex items-center gap-0.5">
+              {(['sm', 'md', 'lg', 'xl'] as const).map((sz) => (
+                <button
+                  key={sz}
+                  onClick={() => setDocFontSize(sz)}
+                  className={`w-4.5 h-4.5 rounded text-[9.5px] font-mono font-bold uppercase flex items-center justify-center transition-all cursor-pointer ${
+                    docFontSize === sz
+                      ? 'bg-[#f5a623] text-black shadow-xs'
+                      : isLight
+                      ? 'text-slate-500 hover:text-slate-900'
+                      : 'text-zinc-400 hover:text-white'
+                  }`}
+                  title={`Font size ${sz.toUpperCase()}`}
+                >
+                  {sz.charAt(0)}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Paginated Controls: Zoom & Page Count */}
+          {pageLook === 'paginated' && (
+            <div className={`flex items-center gap-1 px-1.5 py-0.5 rounded-lg border text-xs ${
+              isLight ? 'bg-slate-100 border-slate-200 text-slate-700' : 'bg-zinc-800/60 border-zinc-700/50 text-zinc-300'
+            }`}>
+              <button
+                onClick={() => setZoomLevel((z) => Math.max(50, z - 10))}
+                className="p-1 hover:text-[#f5a623] transition-colors cursor-pointer"
+                title="Zoom Out"
+              >
+                <ZoomOut size={12} />
+              </button>
+              <button
+                onClick={() => setZoomLevel(100)}
+                className="font-mono text-[10px] w-9 text-center font-bold hover:text-[#f5a623] cursor-pointer"
+                title="Reset Zoom to 100%"
+              >
+                {zoomLevel}%
+              </button>
+              <button
+                onClick={() => setZoomLevel((z) => Math.min(150, z + 10))}
+                className="p-1 hover:text-[#f5a623] transition-colors cursor-pointer"
+                title="Zoom In"
+              >
+                <ZoomIn size={12} />
+              </button>
+              <div className="w-[1px] h-3 bg-zinc-600/40 mx-0.5" />
+              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-500/10 text-[#f5a623] font-bold flex items-center gap-1">
+                <Layers size={10} />
+                <span>{paginatedResult.totalPages} {paginatedResult.totalPages === 1 ? 'Page' : 'Pages'}</span>
+              </span>
+            </div>
+          )}
+
+          {/* Width Mode Toggle (available in continuous canvas mode) */}
+          {pageLook === 'continuous' && editorMode === 'canvas' && (
+            <button
+              onClick={() => setIsFullWidth(!isFullWidth)}
+              className={`p-1 rounded-lg border transition-all text-xs flex items-center gap-1 cursor-pointer ${
+                isLight ? 'border-slate-200 hover:bg-slate-100 text-slate-600' : 'border-zinc-800 hover:bg-zinc-800 text-zinc-400'
+              }`}
+              title={isFullWidth ? 'Standard Page Width' : 'Full Width Canvas'}
+            >
+              {isFullWidth ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
+            </button>
+          )}
 
           {/* Theme Palette */}
           <div className="flex items-center gap-1 border-l pl-2 border-zinc-700/30">
             <button
               onClick={() => setDocTheme('default')}
-              className={`w-3.5 h-3.5 rounded-full border transition-all ${
+              className={`w-3.5 h-3.5 rounded-full border transition-all cursor-pointer ${
                 docTheme === 'default' ? 'ring-2 ring-[#f5a623]' : 'opacity-60'
               } ${isLight ? 'bg-white border-slate-300' : 'bg-zinc-900 border-zinc-700'}`}
               title="Modern Clean"
             />
             <button
               onClick={() => setDocTheme('paper')}
-              className={`w-3.5 h-3.5 rounded-full border transition-all bg-[#faf8f5] border-amber-200 ${
+              className={`w-3.5 h-3.5 rounded-full border transition-all cursor-pointer bg-[#faf8f5] border-amber-200 ${
                 docTheme === 'paper' ? 'ring-2 ring-[#f5a623]' : 'opacity-60'
               }`}
               title="Warm Paper"
             />
             <button
               onClick={() => setDocTheme('sepia')}
-              className={`w-3.5 h-3.5 rounded-full border transition-all bg-[#f4ecd8] border-amber-300 ${
+              className={`w-3.5 h-3.5 rounded-full border transition-all cursor-pointer bg-[#f4ecd8] border-amber-300 ${
                 docTheme === 'sepia' ? 'ring-2 ring-[#f5a623]' : 'opacity-60'
               }`}
               title="Sepia"
@@ -525,87 +733,204 @@ export const MarkdownDocEditor: React.FC<MarkdownDocEditorProps> = ({
       <div className="flex-1 flex overflow-hidden relative">
         {/* MODE 1: NOTION / GOOGLE DOCS CANVAS */}
         {editorMode === 'canvas' && (
-          <div className="flex-1 overflow-y-auto px-4 py-8 flex justify-center custom-scrollbar">
-            <div
-              className={`w-full transition-all duration-200 p-8 sm:p-12 rounded-2xl shadow-xl border ${
-                isFullWidth ? 'max-w-5xl' : 'max-w-3xl'
-              } ${
-                docTheme === 'paper'
-                  ? 'bg-[#faf8f5] text-slate-900 border-amber-200/60'
-                  : docTheme === 'sepia'
-                  ? 'bg-[#f4ecd8] text-amber-950 border-amber-300/60'
-                  : isLight
-                  ? 'bg-white text-slate-900 border-slate-200'
-                  : 'bg-[#18181d] text-zinc-100 border-zinc-800'
-              }`}
-            >
-              {/* Document Header (Icon + Title) */}
-              <div className="mb-6 group">
-                <div className="relative inline-block mb-2">
-                  <button
-                    onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-                    className="text-3xl p-1 rounded-xl hover:bg-black/5 dark:hover:bg-white/10 transition-transform active:scale-95 cursor-pointer"
-                    title="Change Document Icon"
-                  >
-                    {docIcon}
-                  </button>
+          pageLook === 'continuous' ? (
+            /* Continuous Canvas (Infinite Flow / Pageless) */
+            <div className="flex-1 overflow-y-auto px-4 py-8 flex justify-center items-start custom-scrollbar">
+              <div
+                className={`w-full h-fit min-h-full transition-all duration-200 p-8 sm:p-12 mb-20 rounded-xl border shadow-xs ${
+                  isFullWidth ? 'max-w-5xl' : 'max-w-3xl'
+                } ${
+                  docTheme === 'paper'
+                    ? 'bg-[#faf8f5] text-slate-900 border-amber-200/60'
+                    : docTheme === 'sepia'
+                    ? 'bg-[#f4ecd8] text-amber-950 border-amber-300/60'
+                    : isLight
+                    ? 'bg-white text-slate-900 border-slate-200'
+                    : 'bg-[#18181d] text-zinc-100 border-zinc-800'
+                }`}
+              >
+                {/* Document Header (Icon + Title) */}
+                <div className="mb-6 group">
+                  <div className="relative inline-block mb-2">
+                    <button
+                      onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+                      className="text-3xl p-1 rounded-xl hover:bg-black/5 dark:hover:bg-white/10 transition-transform active:scale-95 cursor-pointer"
+                      title="Change Document Icon"
+                    >
+                      {docIcon}
+                    </button>
 
-                  {/* Emoji Picker Popover */}
-                  {showEmojiPicker && (
-                    <div className="absolute top-12 left-0 z-50 p-2 rounded-xl shadow-2xl border bg-white dark:bg-zinc-900 border-slate-200 dark:border-zinc-700 flex flex-wrap gap-1.5 w-60 animate-in fade-in duration-100">
-                      {DOCUMENT_EMOJIS.map((emoji) => (
-                        <button
-                          key={emoji}
-                          onClick={() => {
-                            setDocIcon(emoji);
-                            setShowEmojiPicker(false);
+                    {/* Emoji Picker Popover */}
+                    {showEmojiPicker && (
+                      <div className="absolute top-12 left-0 z-50 p-2 rounded-xl shadow-lg border bg-white dark:bg-zinc-900 border-slate-200 dark:border-zinc-700 flex flex-wrap gap-1.5 w-60 animate-in fade-in duration-100">
+                        {DOCUMENT_EMOJIS.map((emoji) => (
+                          <button
+                            key={emoji}
+                            onClick={() => {
+                              setDocIcon(emoji);
+                              setShowEmojiPicker(false);
+                              setHasChanges(true);
+                            }}
+                            className="w-7 h-7 text-lg flex items-center justify-center rounded hover:bg-amber-500/20 cursor-pointer"
+                          >
+                            {emoji}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Editable Big Title */}
+                  <input
+                    type="text"
+                    value={title}
+                    onChange={(e) => {
+                      setTitle(e.target.value);
+                      setHasChanges(true);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        canvasRef.current?.focus();
+                      }
+                    }}
+                    placeholder="Untitled Document"
+                    className="w-full text-2xl sm:text-3xl font-black tracking-tight bg-transparent border-0 outline-none placeholder:opacity-30 focus:ring-0 leading-tight"
+                  />
+
+                  <div className="flex items-center gap-2 mt-2 text-[11px] opacity-40 font-mono">
+                    <span>Type <kbd className="px-1 py-0.5 rounded bg-black/10 dark:bg-white/10 font-bold">/</kbd> for commands</span>
+                    <span>&bull;</span>
+                    <span>Continuous Document Flow</span>
+                  </div>
+                </div>
+
+                {/* Editable Body Canvas - Caret is 100% preserved without jumping! */}
+                <div
+                  ref={setCanvasRef}
+                  contentEditable
+                  suppressContentEditableWarning
+                  onInput={handleCanvasInput}
+                  onKeyDown={handleCanvasKeyDown}
+                  className="outline-none min-h-[500px] leading-relaxed focus:ring-0 prose dark:prose-invert max-w-none"
+                  style={{
+                    fontFamily: FONT_STYLE_MAP[docFontFamily],
+                    fontSize: FONT_SIZE_PX_MAP[docFontSize],
+                  }}
+                />
+              </div>
+            </div>
+          ) : (
+            /* Paginated Canvas (Real Discrete A4 Printable Sheets) */
+            <div className={`flex-1 overflow-y-auto px-4 py-8 flex flex-col items-center custom-scrollbar ${
+              isLight ? 'bg-slate-200/70' : 'bg-[#0d0d11]'
+            }`}>
+              <div
+                className="flex flex-col items-center gap-8 transition-transform origin-top duration-150 pb-20 my-2"
+                style={{ transform: `scale(${zoomLevel / 100})` }}
+              >
+                {paginatedResult.pages.map((page, idx) => (
+                  <div
+                    key={page.pageNumber}
+                    className={`w-[794px] min-h-[1123px] h-fit px-14 py-12 relative rounded-xs border flex flex-col justify-between transition-all shadow-xs ${
+                      docTheme === 'paper'
+                        ? 'bg-[#faf8f5] text-slate-900 border-amber-200'
+                        : docTheme === 'sepia'
+                        ? 'bg-[#f4ecd8] text-amber-950 border-amber-300'
+                        : isLight
+                        ? 'bg-white text-slate-900 border-slate-300'
+                        : 'bg-[#18181d] text-zinc-100 border-zinc-700/80'
+                    }`}
+                  >
+                    {/* Running Header */}
+                    <div className="flex justify-between items-center text-[10px] pb-3 mb-6 border-b border-zinc-200 dark:border-zinc-800 text-zinc-400 font-mono uppercase tracking-wider select-none">
+                      <span className="font-semibold truncate max-w-sm flex items-center gap-1.5">
+                        <span>{docIcon}</span>
+                        <span>{page.runningHeader}</span>
+                      </span>
+                      <span className="px-2 py-0.5 rounded bg-amber-500/10 text-[#f5a623] font-bold text-[9px] tracking-widest">
+                        {doc.category || 'PRODUCTION MASTER'}
+                      </span>
+                    </div>
+
+                    {/* First page only: Title Banner */}
+                    {page.pageNumber === 1 && (
+                      <div className="mb-6 group">
+                        <div className="relative inline-block mb-2">
+                          <button
+                            onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+                            className="text-3xl p-1 rounded-xl hover:bg-black/5 dark:hover:bg-white/10 transition-transform active:scale-95 cursor-pointer"
+                            title="Change Document Icon"
+                          >
+                            {docIcon}
+                          </button>
+
+                          {/* Emoji Picker Popover */}
+                          {showEmojiPicker && (
+                            <div className="absolute top-12 left-0 z-50 p-2 rounded-xl shadow-2xl border bg-white dark:bg-zinc-900 border-slate-200 dark:border-zinc-700 flex flex-wrap gap-1.5 w-60 animate-in fade-in duration-100">
+                              {DOCUMENT_EMOJIS.map((emoji) => (
+                                <button
+                                  key={emoji}
+                                  onClick={() => {
+                                    setDocIcon(emoji);
+                                    setShowEmojiPicker(false);
+                                    setHasChanges(true);
+                                  }}
+                                  className="w-7 h-7 text-lg flex items-center justify-center rounded hover:bg-amber-500/20 cursor-pointer"
+                                >
+                                  {emoji}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Editable Big Title */}
+                        <input
+                          type="text"
+                          value={title}
+                          onChange={(e) => {
+                            setTitle(e.target.value);
                             setHasChanges(true);
                           }}
-                          className="w-7 h-7 text-lg flex items-center justify-center rounded hover:bg-amber-500/20 cursor-pointer"
-                        >
-                          {emoji}
-                        </button>
-                      ))}
+                          placeholder="Untitled Document"
+                          className="w-full text-2xl sm:text-3xl font-black tracking-tight bg-transparent border-0 outline-none placeholder:opacity-30 focus:ring-0 leading-tight"
+                        />
+
+                        <div className="flex items-center gap-2 mt-2 text-[11px] opacity-40 font-mono select-none">
+                          <span className="text-[#f5a623] font-bold">Sheet 1 of {paginatedResult.totalPages}</span>
+                          <span>&bull;</span>
+                          <span>Discrete A4 Print View</span>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Page Content Slice (Editable) */}
+                    <div
+                      contentEditable
+                      suppressContentEditableWarning
+                      className="paginated-canvas-page-content outline-none leading-relaxed prose dark:prose-invert max-w-none flex-1 overflow-visible"
+                      style={{
+                        fontFamily: FONT_STYLE_MAP[docFontFamily],
+                        fontSize: FONT_SIZE_PX_MAP[docFontSize],
+                      }}
+                      dangerouslySetInnerHTML={{ __html: page.html }}
+                      onInput={handlePaginatedCanvasInput}
+                      onKeyDown={handleCanvasKeyDown}
+                    />
+
+                    {/* Running Footer */}
+                    <div className="flex justify-between items-center text-[10px] pt-4 mt-8 border-t border-zinc-200 dark:border-zinc-800 text-zinc-400 font-mono select-none">
+                      <span>{page.runningFooter}</span>
+                      <span className="text-zinc-500 font-medium font-mono">
+                        Page {page.pageNumber} of {paginatedResult.totalPages} &bull; {page.wordCount} words
+                      </span>
                     </div>
-                  )}
-                </div>
-
-                {/* Editable Big Title */}
-                <input
-                  type="text"
-                  value={title}
-                  onChange={(e) => {
-                    setTitle(e.target.value);
-                    setHasChanges(true);
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      canvasRef.current?.focus();
-                    }
-                  }}
-                  placeholder="Untitled Document"
-                  className="w-full text-2xl sm:text-3xl font-black tracking-tight bg-transparent border-0 outline-none placeholder:opacity-30 focus:ring-0 leading-tight"
-                />
-
-                <div className="flex items-center gap-2 mt-2 text-[11px] opacity-40 font-mono">
-                  <span>Type <kbd className="px-1 py-0.5 rounded bg-black/10 dark:bg-white/10 font-bold">/</kbd> for commands</span>
-                  <span>&bull;</span>
-                  <span>Full Markdown editing</span>
-                </div>
+                  </div>
+                ))}
               </div>
-
-              {/* Editable Body Canvas - Caret is 100% preserved without jumping! */}
-              <div
-                ref={canvasRef}
-                contentEditable
-                suppressContentEditableWarning
-                onInput={handleCanvasInput}
-                onKeyDown={handleCanvasKeyDown}
-                className="outline-none min-h-[500px] leading-relaxed text-sm focus:ring-0 prose dark:prose-invert max-w-none"
-              />
             </div>
-          </div>
+          )
         )}
 
         {/* MODE 2: SPLIT VIEW (Markdown Editor Left + Live Preview Right) */}
@@ -614,7 +939,10 @@ export const MarkdownDocEditor: React.FC<MarkdownDocEditorProps> = ({
             {/* Left Pane: Markdown Textarea */}
             <div className="flex-1 flex flex-col h-full bg-zinc-50 dark:bg-[#121216] p-6 overflow-hidden">
               <div className="flex items-center justify-between pb-2 mb-2 border-b border-zinc-200 dark:border-zinc-800 text-xs font-mono text-zinc-400">
-                <span>Markdown Editor</span>
+                <span className="flex items-center gap-1.5">
+                  <Code size={12} className="text-[#f5a623]" />
+                  <span>Markdown Editor</span>
+                </span>
                 <span>Type '/' for blocks</span>
               </div>
               <textarea
@@ -632,21 +960,109 @@ export const MarkdownDocEditor: React.FC<MarkdownDocEditorProps> = ({
               />
             </div>
 
-            {/* Right Pane: Live Rendered Preview */}
-            <div className="flex-1 flex flex-col h-full p-8 overflow-y-auto custom-scrollbar bg-white dark:bg-[#18181d]">
-              <div className="flex items-center justify-between pb-2 mb-4 border-b border-zinc-200 dark:border-zinc-800 text-xs font-mono text-zinc-400">
-                <span>Live Preview</span>
-                <span>{stats.words} words</span>
+            {/* Right Pane: Live Rendered Preview (Continuous or Paginated) */}
+            {pageLook === 'continuous' ? (
+              <div className="flex-1 flex flex-col h-full p-8 overflow-y-auto custom-scrollbar bg-white dark:bg-[#18181d]">
+                <div className="flex items-center justify-between pb-2 mb-4 border-b border-zinc-200 dark:border-zinc-800 text-xs font-mono text-zinc-400">
+                  <span className="flex items-center gap-1.5 font-semibold text-zinc-300">
+                    <Scroll size={12} className="text-[#f5a623]" />
+                    <span>Continuous Live Preview</span>
+                  </span>
+                  <span>{stats.words} words</span>
+                </div>
+                <h1 className="text-2xl font-black mb-4 tracking-tight flex items-center gap-2">
+                  <span>{docIcon}</span>
+                  <span>{title}</span>
+                </h1>
+                <div 
+                  className="leading-relaxed prose dark:prose-invert max-w-none"
+                  style={{
+                    fontFamily: FONT_STYLE_MAP[docFontFamily],
+                    fontSize: FONT_SIZE_PX_MAP[docFontSize],
+                  }}
+                  dangerouslySetInnerHTML={{ __html: markdownToHtml(markdown) }}
+                />
               </div>
-              <h1 className="text-2xl font-black mb-4 tracking-tight flex items-center gap-2">
-                <span>{docIcon}</span>
-                <span>{title}</span>
-              </h1>
-              <div 
-                className="leading-relaxed text-sm prose dark:prose-invert max-w-none"
-                dangerouslySetInnerHTML={{ __html: markdownToHtml(markdown) }}
-              />
-            </div>
+            ) : (
+              <div className={`flex-1 flex flex-col h-full overflow-hidden ${
+                isLight ? 'bg-slate-200/60' : 'bg-[#0d0d10]'
+              }`}>
+                {/* Subheader bar with page navigation info */}
+                <div className="px-6 py-2.5 border-b border-zinc-200 dark:border-zinc-800/80 flex items-center justify-between text-xs font-mono text-zinc-400 bg-white/50 dark:bg-[#141418]/60 backdrop-blur-xs">
+                  <div className="flex items-center gap-2">
+                    <BookOpen size={13} className="text-[#f5a623]" />
+                    <span className="font-semibold text-zinc-200">A4 Printable Pages</span>
+                    <span className="text-zinc-600 dark:text-zinc-500">&bull;</span>
+                    <span>{paginatedResult.totalPages} {paginatedResult.totalPages === 1 ? 'Sheet' : 'Sheets'}</span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span>{stats.words} words</span>
+                    <span>&bull;</span>
+                    <span className="text-[#f5a623] font-semibold">{zoomLevel}% scale</span>
+                  </div>
+                </div>
+
+                {/* Stacked A4 Sheets Container */}
+                <div className="flex-1 overflow-y-auto p-8 custom-scrollbar flex flex-col items-center">
+                  <div 
+                    className="flex flex-col items-center gap-8 transition-transform origin-top duration-150 pb-16"
+                    style={{ transform: `scale(${zoomLevel / 100})` }}
+                  >
+                    {paginatedResult.pages.map((page) => (
+                      <div
+                        key={page.pageNumber}
+                        className={`w-[794px] min-h-[1123px] h-fit px-14 py-12 relative rounded-xs border flex flex-col justify-between transition-all shadow-xs ${
+                          docTheme === 'paper'
+                            ? 'bg-[#faf8f5] text-slate-900 border-amber-200'
+                            : docTheme === 'sepia'
+                            ? 'bg-[#f4ecd8] text-amber-950 border-amber-300'
+                            : isLight
+                            ? 'bg-white text-slate-900 border-slate-300'
+                            : 'bg-[#18181d] text-zinc-100 border-zinc-700/80'
+                        }`}
+                      >
+                        {/* Running Header */}
+                        <div className="flex justify-between items-center text-[10px] pb-3 mb-6 border-b border-zinc-200 dark:border-zinc-800 text-zinc-400 font-mono uppercase tracking-wider select-none">
+                          <span className="font-bold truncate max-w-sm flex items-center gap-1.5">
+                            <span>{docIcon}</span>
+                            <span>{page.runningHeader}</span>
+                          </span>
+                          <span className="px-2 py-0.5 rounded bg-amber-500/10 text-[#f5a623] font-bold text-[9px] tracking-widest">
+                            {doc.category || 'PRODUCTION MASTER'}
+                          </span>
+                        </div>
+
+                        {/* First Page Title Banner */}
+                        {page.pageNumber === 1 && (
+                          <div className="mb-6">
+                            <h1 className="text-2xl sm:text-3xl font-black tracking-tight flex items-center gap-3">
+                              <span>{docIcon}</span>
+                              <span>{title}</span>
+                            </h1>
+                          </div>
+                        )}
+
+                        {/* Page Content Slice */}
+                        <div 
+                          className="flex-1 leading-relaxed prose dark:prose-invert max-w-none overflow-visible"
+                          style={{
+                            fontFamily: FONT_STYLE_MAP[docFontFamily],
+                            fontSize: FONT_SIZE_PX_MAP[docFontSize],
+                          }}
+                          dangerouslySetInnerHTML={{ __html: page.html }}
+                        />
+
+                        {/* Running Footer */}
+                        <div className="flex justify-between items-center text-[10px] pt-4 mt-8 border-t border-zinc-200 dark:border-zinc-800 text-zinc-400 font-mono select-none">
+                          <span>{page.runningFooter}</span>
+                          <span className="text-zinc-500 font-medium">{page.wordCount} words</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -751,6 +1167,19 @@ export const MarkdownDocEditor: React.FC<MarkdownDocEditorProps> = ({
               title="Strikethrough"
             >
               <Strikethrough size={12} />
+            </button>
+            <button
+              onClick={() => {
+                document.execCommand('hiliteColor', false, '#fef08a');
+                if (editorMode === 'canvas') {
+                  if (pageLook === 'continuous') handleCanvasInput();
+                  else handlePaginatedCanvasInput();
+                }
+              }}
+              className="p-1 rounded hover:bg-zinc-800 text-amber-400 hover:text-amber-300"
+              title="Highlight Text"
+            >
+              <Highlighter size={12} />
             </button>
             <div className="w-[1px] h-3.5 bg-zinc-700 mx-1" />
             <button

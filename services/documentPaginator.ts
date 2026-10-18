@@ -177,11 +177,12 @@ function extractBlockElementsFromNode(node: Element): ContentBlock[] {
   const blocks: ContentBlock[] = [];
   const tag = node.tagName.toLowerCase();
 
-  // If node is a TABLE, check if it's large and can be row-split, or keep as atomic table block
-  if (tag === 'table') {
-    const text = node.textContent || '';
+  // If node is a TABLE or table container, preserve as atomic table block
+  if (tag === 'table' || (tag === 'div' && node.querySelector('table') && node.children.length === 1)) {
+    const tableEl = tag === 'table' ? node : node.querySelector('table')!;
+    const text = tableEl.textContent || '';
     blocks.push({
-      html: node.outerHTML,
+      html: tableEl.outerHTML,
       text,
       isHeading: false,
       vChars: getVisualLength(text),
@@ -191,8 +192,15 @@ function extractBlockElementsFromNode(node: Element): ContentBlock[] {
     return blocks;
   }
 
-  // Pure leaf block elements
-  if (/^(p|h[1-6]|blockquote|pre|hr|ul|ol)$/i.test(tag)) {
+  // Pure leaf block elements and custom components that must stay atomic
+  if (
+    /^(p|h[1-6]|blockquote|pre|hr|ul|ol|li)$/i.test(tag) ||
+    node.classList.contains('md-task-item') ||
+    node.classList.contains('md-callout') ||
+    node.classList.contains('md-code-block') ||
+    node.classList.contains('notion-task-item') ||
+    node.classList.contains('notion-callout')
+  ) {
     const html = node.outerHTML;
     const text = node.textContent || '';
     const isHeading = isSceneHeadingBlock(text, html);
@@ -482,100 +490,13 @@ export function paginateDocumentHtml(
     }
 
     // Case B: Block does not fit on current page.
-    // If this is a Scene Heading / Slugline and we already have content on this page, push to next page to keep with scene
-    if (block.isHeading && currentPageBlocks.length > 0) {
+    // Finish current page and place this intact block on the fresh page
+    if (currentPageBlocks.length > 0) {
       pushCurrentPage();
-      currentPageBlocks.push(block.html);
-      currentWords = block.wordCount;
-      currentChars = block.vChars;
-      continue;
     }
-
-    // Case C: Short block or page is nearly full (> 85% target)
-    const currentHeightBefore = measureBlocksCumulativeHeight(
-      currentPageBlocks,
-      contentWidthPx,
-      fontSize,
-      fontFamily
-    );
-    const remainingRoomPx = targetHeightPx - currentHeightBefore;
-
-    if (remainingRoomPx < 50 || block.vChars <= 60 || block.text.length <= 60) {
-      if (currentPageBlocks.length > 0) {
-        pushCurrentPage();
-      }
-      currentPageBlocks.push(block.html);
-      currentWords = block.wordCount;
-      currentChars = block.vChars;
-      continue;
-    }
-
-    // Case D: Multi-sentence paragraph that can be split across the page boundary to fill the page snuggly
-    const isSplittableText = !/<(?:table|tbody|thead|tr|td|th|ul|ol|li|div|blockquote|pre)/i.test(block.html);
-    if (!isSplittableText) {
-      if (currentPageBlocks.length > 0) {
-        pushCurrentPage();
-      }
-      currentPageBlocks.push(block.html);
-      currentWords = block.wordCount;
-      currentChars = block.vChars;
-      continue;
-    }
-
-    const sentences = block.text.match(/[^.!?\n;:,]+[.!?\n;:,]+(\s+|$)|[^.!?\n;:,]+$/g) || [block.text];
-    let part1Sentences: string[] = [];
-    let part2Sentences: string[] = [];
-    let fillingPart1 = true;
-
-    for (const s of sentences) {
-      if (fillingPart1) {
-        const testP1 = [...part1Sentences, s].join(' ').trim();
-        const testP1Html = `<p class="mb-1.5 leading-relaxed">${testP1}</p>`;
-        const testH = measureBlocksCumulativeHeight(
-          [...currentPageBlocks, testP1Html],
-          contentWidthPx,
-          fontSize,
-          fontFamily
-        );
-
-        if (testH <= targetHeightPx) {
-          part1Sentences.push(s);
-        } else {
-          fillingPart1 = false;
-          part2Sentences.push(s);
-        }
-      } else {
-        part2Sentences.push(s);
-      }
-    }
-
-    const part1Text = part1Sentences.join(' ').trim();
-    const part2Text = part2Sentences.join(' ').trim();
-
-    // If part 1 filled a meaningful portion of the page
-    if (part1Text && part1Sentences.length > 0) {
-      const part1Html = `<p class="mb-1.5 leading-relaxed">${part1Text}</p>`;
-      currentPageBlocks.push(part1Html);
-      currentWords += part1Text.split(/\s+/).length;
-      currentChars += getVisualLength(part1Text);
-
-      pushCurrentPage(); // Complete this page uniformly!
-
-      if (part2Text) {
-        const part2Html = `<p class="mb-1.5 leading-relaxed">${part2Text}</p>`;
-        currentPageBlocks.push(part2Html);
-        currentWords = part2Text.split(/\s+/).length;
-        currentChars = getVisualLength(part2Text);
-      }
-    } else {
-      // Could not split cleanly; push entire block to next page
-      if (currentPageBlocks.length > 0) {
-        pushCurrentPage();
-      }
-      currentPageBlocks.push(block.html);
-      currentWords = block.wordCount;
-      currentChars = block.vChars;
-    }
+    currentPageBlocks.push(block.html);
+    currentWords = block.wordCount;
+    currentChars = block.vChars;
   }
 
   // Final page

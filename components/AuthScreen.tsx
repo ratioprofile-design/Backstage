@@ -1,7 +1,61 @@
-import React, { useState, useEffect } from 'react';
-import { supabase } from '../services/supabase';
+import React, { useState, useEffect, useRef } from 'react';
+import { supabase, withTimeout } from '../services/supabase';
 import { useProject } from '../context/ProjectContext';
-import { Film, Mail, Lock, Loader2, AlertCircle, CheckCircle2, Cloud, X, User, ArrowRight, Laptop } from 'lucide-react';
+import { Film, Mail, Lock, Loader2, AlertCircle, CheckCircle2, Cloud, X, User, ArrowRight, Laptop, Zap, WifiOff } from 'lucide-react';
+
+interface AuthErrorInfo {
+  title: string;
+  message: string;
+  isGatewayTimeout: boolean;
+}
+
+const parseAuthError = (err: any): AuthErrorInfo => {
+  let rawMsg = '';
+  if (typeof err === 'string') {
+    rawMsg = err;
+  } else if (err?.message) {
+    rawMsg = err.message;
+  } else {
+    try {
+      rawMsg = JSON.stringify(err);
+    } catch {
+      rawMsg = 'An error occurred';
+    }
+  }
+
+  // Parse embedded JSON like '{"message":"Gateway Timeout"}'
+  try {
+    const trimmed = rawMsg.trim();
+    if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+      const parsed = JSON.parse(trimmed);
+      if (parsed.message) rawMsg = parsed.message;
+    }
+  } catch {}
+
+  const lower = rawMsg.toLowerCase();
+  const isGatewayTimeout =
+    lower.includes('gateway timeout') ||
+    lower.includes('504') ||
+    err?.status === 504 ||
+    lower.includes('failed to fetch') ||
+    lower.includes('network request failed') ||
+    lower.includes('networkerror');
+
+  if (isGatewayTimeout) {
+    return {
+      title: 'Cloud Database Offline (504 Gateway Timeout)',
+      message:
+        'The remote Supabase cloud authentication service is currently paused or unreachable. Backstage has full offline capabilities — all your screenplays, vault documents, and storyboard shots are saved locally.',
+      isGatewayTimeout: true,
+    };
+  }
+
+  return {
+    title: 'Authentication Failed',
+    message: rawMsg || 'Please check your credentials or continue in Local Mode.',
+    isGatewayTimeout: false,
+  };
+};
 
 interface AuthScreenProps {
   onClose?: () => void;
@@ -16,9 +70,11 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onClose, onSuccess }) => {
   const [password, setPassword] = useState('');
   const [localName, setLocalName] = useState(currentUser || '');
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [takingLonger, setTakingLonger] = useState(false);
+  const [error, setError] = useState<AuthErrorInfo | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [debug, setDebug] = useState<string | null>(null);
+  const takingLongerTimerRef = useRef<any>(null);
 
   // Auto-dismiss if session is established
   useEffect(() => {
@@ -39,61 +95,72 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onClose, onSuccess }) => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [onClose]);
 
-  // Handle OAuth redirect code if present in URL
-  useEffect(() => {
-    (async () => {
-      try {
-        const url = new URL(window.location.href);
-        const code = url.searchParams.get('code');
-        if (code) {
-          const { data, error } = await supabase.auth.exchangeCodeForSession(code);
-          if (error) {
-            setDebug(`Auth failed: ${error.message}`);
-          } else {
-            setDebug(`Authenticated as: ${data.user?.email}`);
-            url.searchParams.delete('code');
-            url.searchParams.delete('state');
-            window.history.replaceState({}, '', url.toString());
-            onSuccess?.();
-            onClose?.();
-          }
-        }
-      } catch (err: any) {
-        setDebug(`Auth debug error: ${err?.message || String(err)}`);
-      }
-    })();
-  }, [onSuccess, onClose]);
+  // Fast direct local bypass using the prefix of the email or pen name
+  const suggestedLocalName = (email.trim() ? email.split('@')[0] : localName.trim()) || 'Writer';
+
+  const continueLocally = (customName?: string) => {
+    const chosen = (customName || suggestedLocalName).trim() || 'Writer';
+    login(chosen);
+    onSuccess?.();
+    onClose?.();
+  };
 
   const handleCloudSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email.trim() || !password) return;
     setLoading(true);
+    setTakingLonger(false);
     setError(null);
     setNotice(null);
 
+    // If server takes longer than 2.5s, offer instant local bypass so user is never stuck
+    if (takingLongerTimerRef.current) clearTimeout(takingLongerTimerRef.current);
+    takingLongerTimerRef.current = setTimeout(() => {
+      setTakingLonger(true);
+    }, 2500);
+
     try {
       if (cloudMode === 'signin') {
-        const { data, error } = await supabase.auth.signInWithPassword({
+        // Enforce 6-second timeout race to prevent indefinite spinning
+        const signInPromise = supabase.auth.signInWithPassword({
           email: email.trim(),
           password,
         });
-        if (error) {
-          setError(error.message);
+
+        const { data, error: authErr } = await withTimeout(
+          signInPromise,
+          6000,
+          'Cloud server response timed out. You can continue instantly in offline/local mode below.'
+        );
+
+        if (takingLongerTimerRef.current) clearTimeout(takingLongerTimerRef.current);
+
+        if (authErr) {
+          setError(parseAuthError(authErr));
         } else {
-          if (data.user?.email) {
+          if (data?.user?.email) {
             login(data.user.email);
           }
           onSuccess?.();
           onClose?.();
         }
       } else {
-        const { data, error } = await supabase.auth.signUp({
+        const signUpPromise = supabase.auth.signUp({
           email: email.trim(),
           password,
         });
-        if (error) {
-          setError(error.message);
-        } else if (data.session) {
+
+        const { data, error: authErr } = await withTimeout(
+          signUpPromise,
+          6000,
+          'Cloud signup timed out. You can continue in offline/local mode.'
+        );
+
+        if (takingLongerTimerRef.current) clearTimeout(takingLongerTimerRef.current);
+
+        if (authErr) {
+          setError(parseAuthError(authErr));
+        } else if (data?.session) {
           if (data.user?.email) {
             login(data.user.email);
           }
@@ -104,9 +171,11 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onClose, onSuccess }) => {
         }
       }
     } catch (err: any) {
-      setError(err?.message || 'Something went wrong. Please try again.');
+      if (takingLongerTimerRef.current) clearTimeout(takingLongerTimerRef.current);
+      setError(parseAuthError(err));
     } finally {
       setLoading(false);
+      setTakingLonger(false);
     }
   };
 
@@ -114,12 +183,14 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onClose, onSuccess }) => {
     e.preventDefault();
     const trimmed = localName.trim();
     if (!trimmed) {
-      setError('Please enter a display name or pen name.');
+      setError({
+        title: 'Display Name Required',
+        message: 'Please enter a display name or pen name.',
+        isGatewayTimeout: false,
+      });
       return;
     }
-    login(trimmed);
-    onSuccess?.();
-    onClose?.();
+    continueLocally(trimmed);
   };
 
   const handleGoogle = async () => {
@@ -133,9 +204,9 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onClose, onSuccess }) => {
           redirectTo: window.location.origin,
         },
       });
-      if (error) setError(error.message);
+      if (error) setError(parseAuthError(error));
     } catch (err: any) {
-      setError(err?.message || 'Something went wrong. Please try again.');
+      setError(parseAuthError(err));
     } finally {
       setLoading(false);
     }
@@ -290,9 +361,65 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onClose, onSuccess }) => {
               </div>
 
               {error && (
-                <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-[11px] font-medium leading-relaxed">
-                  <AlertCircle size={13} className="shrink-0 mt-0.5" />
-                  <span>{error}</span>
+                <div
+                  className={`flex flex-col gap-2.5 p-3 rounded-xl border text-[11px] leading-relaxed transition-all ${
+                    error.isGatewayTimeout
+                      ? 'bg-amber-500/10 border-amber-500/30 text-amber-200'
+                      : 'bg-red-500/10 border-red-500/20 text-red-300'
+                  }`}
+                >
+                  <div className="flex items-start gap-2.5">
+                    {error.isGatewayTimeout ? (
+                      <WifiOff size={16} className="shrink-0 mt-0.5 text-amber-400" />
+                    ) : (
+                      <AlertCircle size={15} className="shrink-0 mt-0.5 text-red-400" />
+                    )}
+                    <div className="flex flex-col gap-0.5">
+                      <span className="font-bold text-xs text-white tracking-wide">
+                        {error.title}
+                      </span>
+                      <span className="text-gray-300 leading-normal">{error.message}</span>
+                    </div>
+                  </div>
+
+                  {error.isGatewayTimeout ? (
+                    <div className="mt-1 flex flex-col gap-2 pt-2 border-t border-amber-500/20">
+                      <button
+                        type="button"
+                        onClick={() => continueLocally(email.trim() || undefined)}
+                        className="w-full py-2.5 px-3 rounded-lg bg-amber-400 hover:bg-amber-300 text-black font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 shadow-lg shadow-amber-400/20 transition-all transform active:scale-[0.99]"
+                      >
+                        <Zap size={13} className="text-black fill-current" />
+                        <span>Enter Workspace as "{suggestedLocalName}" (Local Mode)</span>
+                      </button>
+                      <div className="flex items-center justify-between text-[10px] text-gray-400 px-1">
+                        <span>✓ Access all scripts & documents</span>
+                        <span>✓ 100% offline auto-save</span>
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => continueLocally()}
+                      className="mt-1 w-full py-1.5 px-2.5 rounded bg-amber-400/20 hover:bg-amber-400/30 text-amber-300 font-bold text-[10px] uppercase tracking-wider flex items-center justify-center gap-1.5 transition-colors border border-amber-400/30"
+                    >
+                      <Zap size={11} className="text-amber-400" />
+                      <span>Continue as "{suggestedLocalName}" (Instant Local Mode)</span>
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {takingLonger && loading && (
+                <div className="flex items-center justify-between p-2 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-300 text-[10px] animate-in fade-in">
+                  <span>Cloud server is slow to respond...</span>
+                  <button
+                    type="button"
+                    onClick={() => continueLocally()}
+                    className="font-bold underline hover:text-white transition-colors"
+                  >
+                    Skip to Local Mode &rarr;
+                  </button>
                 </div>
               )}
 
@@ -320,6 +447,18 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onClose, onSuccess }) => {
                   </>
                 )}
               </button>
+
+              {/* Quick Guest / Offline Bypass */}
+              <div className="flex items-center justify-center pt-1">
+                <button
+                  type="button"
+                  onClick={() => continueLocally('Screenwriter')}
+                  className="text-[11px] text-gray-400 hover:text-amber-300 font-medium transition-colors flex items-center gap-1"
+                >
+                  <span>Continue without signing in as Guest</span>
+                  <ArrowRight size={11} />
+                </button>
+              </div>
             </form>
           </div>
         )}
@@ -347,7 +486,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onClose, onSuccess }) => {
             {error && (
               <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-[11px] font-medium leading-relaxed">
                 <AlertCircle size={13} className="shrink-0 mt-0.5" />
-                <span>{error}</span>
+                <span>{error.message}</span>
               </div>
             )}
 

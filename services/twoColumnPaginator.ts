@@ -451,12 +451,28 @@ export function paginateTwoColumnScript(
 
     let scenePageCount = 1;
 
+    const sanitizeLoc = (l?: string) => {
+      if (!l) return '';
+      return l
+        .replace(/(?:Characters?|கதாபாத்திரங்கள்|நடிகர்கள்|Actors?|Cast)\s*[:\-]?\s*.*$/i, '')
+        .replace(/(?:Real\s*Location|Real\s*Loc)\s*[:\-]?\s*.*$/i, '')
+        .replace(/\s*(?:பகல்|பகள்|இரவு|மாலை|காலை|அதிகாலை|Day|Night|Evening|Morning)(?=[^\u0B80-\u0BFFa-zA-Z]|$)/gi, '')
+        .replace(/\s*(?:EXT\/INT|INT\/EXT|EXT|INT)\b/gi, '')
+        .replace(/[|:\-\s\t]+$/, '')
+        .replace(/^[|:\-\s\t]+/, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+    };
+
+    const cleanLoc = sanitizeLoc(scene.location) || scene.location;
+    const cleanRealLoc = sanitizeLoc(scene.realLocation) || cleanLoc;
+
     const page1Header: PageSceneHeadingElement = {
       type: 'scene_header',
       sceneId: scene.id,
       sceneNumber: scene.sceneNumber,
-      location: scene.location,
-      realLocation: scene.realLocation,
+      location: cleanLoc,
+      realLocation: cleanRealLoc,
       timeOfDay: scene.timeOfDay,
       sluglineText: scene.sluglineText,
       characters: sceneChars,
@@ -564,8 +580,8 @@ export function paginateTwoColumnScript(
           type: 'scene_header',
           sceneId: scene.id,
           sceneNumber: scene.sceneNumber,
-          location: scene.location,
-          realLocation: scene.realLocation,
+          location: cleanLoc,
+          realLocation: cleanRealLoc,
           timeOfDay: scene.timeOfDay,
           sluglineText: `Sc No: ${scene.sceneNumber} - Page ${scenePageCount}`,
           characters: sceneChars,

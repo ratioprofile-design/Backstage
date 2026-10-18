@@ -322,6 +322,7 @@ const AppContent: React.FC = () => {
 
 
   const [loadingTimedOut, setLoadingTimedOut] = useState(false);
+  const [projectLoadingTimedOut, setProjectLoadingTimedOut] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
 
   // When user signs out or exits a project, redirect to welcome screen to pick another project
@@ -348,11 +349,22 @@ const AppContent: React.FC = () => {
     }
   }, [currentUser, showAuthModal]);
 
-  // Safety fallback: if session restoration takes more than 1s, proceed into workspace
+  // Reset project loading timeout whenever a new project starts loading
+  useEffect(() => {
+    if (isProjectLoading) {
+      setProjectLoadingTimedOut(false);
+      const timer = setTimeout(() => {
+        setProjectLoadingTimedOut(true);
+      }, 2000);
+      return () => clearTimeout(timer);
+    }
+  }, [isProjectLoading]);
+
+  // Safety fallback: if session restoration takes more than 600ms, proceed into workspace
   useEffect(() => {
     const timer = setTimeout(() => {
       setLoadingTimedOut(true);
-    }, 1000);
+    }, 600);
     return () => clearTimeout(timer);
   }, []);
 
@@ -758,10 +770,10 @@ const AppContent: React.FC = () => {
     isSettingsOpen, isImportModalOpen, isInboxOpen, openBeatIds
   ]);
 
-  if ((isInitialLoading && !loadingTimedOut) || isProjectLoading) {
+  if ((isInitialLoading && !loadingTimedOut) || (isProjectLoading && !projectLoadingTimedOut)) {
       return (
           <div 
-            onClick={() => setLoadingTimedOut(true)}
+            onClick={() => { setLoadingTimedOut(true); setProjectLoadingTimedOut(true); }}
             className="fixed inset-0 bg-[#060609] flex flex-col items-center justify-center font-sans cursor-pointer select-none z-[9999]"
             title="Click to enter workspace"
           >

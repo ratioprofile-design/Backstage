@@ -11,6 +11,8 @@ import {
   isSupabaseConfigured
 } from './supabase';
 import { saveLargeDocuments, loadLargeDocuments } from './largeStorage';
+import { markdownToHtml } from './markdownEngine';
+import { SANGILI_DOCUMENT_ID, getSangiliDocument } from './sangiliScriptData';
 
 const STORAGE_KEY = 'backstage_production_documents';
 
@@ -78,6 +80,206 @@ export function createSyntheticAudioDataUrl(frequency = 440, durationSec = 2): s
 
 const SAMPLE_AUDIO_1 = createSyntheticAudioDataUrl(380, 3);
 const SAMPLE_AUDIO_2 = createSyntheticAudioDataUrl(440, 4);
+
+export const MASTER_BREAKDOWN_DOC_ID = 'doc-master-breakdown';
+
+export function generateMasterBreakdownMarkdown(projectState?: any): string {
+  const title = projectState?.title || 'Production Feature';
+  const beats = Array.isArray(projectState?.beats) && projectState.beats.length > 0 ? projectState.beats : null;
+
+  if (beats) {
+    let scRows = '';
+    const deptItems: Record<string, string[]> = {
+      'Cast & Characters': [],
+      'Stunts & Action': [],
+      'Hero Props & Art': [],
+      'SFX & Practical Effects': [],
+      'VFX & Technical': [],
+      'Safety & Medic': [],
+    };
+
+    beats.forEach((b: any, idx: number) => {
+      const scNum = b.sceneNumber || idx + 1;
+      const slug = b.slug ? `${b.slug.prefix || 'INT.'} ${b.slug.location || 'LOCATION'} - ${b.slug.time || 'DAY'}` : (b.title || `Scene ${scNum}`);
+      const bd = b.breakdown || b.breakdownData || {};
+
+      const castList: string[] = Array.isArray(bd.CAST) ? bd.CAST.map((c: any) => typeof c === 'string' ? c : c.name).filter(Boolean) : [];
+      if (b.characterNames && Array.isArray(b.characterNames)) {
+        b.characterNames.forEach((n: string) => { if (!castList.includes(n)) castList.push(n); });
+      }
+      const propsList: string[] = Array.isArray(bd.PROPS) ? bd.PROPS.map((p: any) => typeof p === 'string' ? p : p.name).filter(Boolean) : [];
+      const stuntsList: string[] = Array.isArray(bd.STUNTS) ? bd.STUNTS.map((s: any) => typeof s === 'string' ? s : s.name).filter(Boolean) : [];
+      const sfxList: string[] = Array.isArray(bd.SFX) ? bd.SFX.map((s: any) => typeof s === 'string' ? s : s.name).filter(Boolean) : [];
+      const vfxList: string[] = Array.isArray(bd.VFX) ? bd.VFX.map((v: any) => typeof v === 'string' ? v : v.name).filter(Boolean) : [];
+      const safetyList: string[] = Array.isArray(bd.SAFETY) ? bd.SAFETY.map((s: any) => typeof s === 'string' ? s : s.name).filter(Boolean) : [];
+
+      castList.forEach((c) => { if (!deptItems['Cast & Characters'].includes(c)) deptItems['Cast & Characters'].push(c); });
+      stuntsList.forEach((s) => { if (!deptItems['Stunts & Action'].includes(s)) deptItems['Stunts & Action'].push(s); });
+      propsList.forEach((p) => { if (!deptItems['Hero Props & Art'].includes(p)) deptItems['Hero Props & Art'].push(p); });
+      sfxList.forEach((s) => { if (!deptItems['SFX & Practical Effects'].includes(s)) deptItems['SFX & Practical Effects'].push(s); });
+      vfxList.forEach((v) => { if (!deptItems['VFX & Technical'].includes(v)) deptItems['VFX & Technical'].push(v); });
+      safetyList.forEach((s) => { if (!deptItems['Safety & Medic'].includes(s)) deptItems['Safety & Medic'].push(s); });
+
+      const castStr = castList.length ? castList.join(', ') : '—';
+      const propsStr = propsList.length ? propsList.join(', ') : '—';
+      const actionStr = [...stuntsList, ...sfxList].length ? [...stuntsList, ...sfxList].join(', ') : '—';
+      const techStr = vfxList.length ? vfxList.join(', ') : 'Standard Coverage';
+      const safeStr = safetyList.length ? safetyList.join(', ') : 'Standard Set Protocol';
+
+      scRows += `| **Sc. ${scNum}** | ${slug} | ${castStr} | ${propsStr} | ${actionStr} | ${techStr} | ${safeStr} |\n`;
+    });
+
+    return `# MASTER PRODUCTION BREAKDOWN SHEET
+**Project:** ${title}  
+**Department:** 1st AD / Production Management  
+**Master Document:** Unified Production Matrix (Markdown)  
+**Total Scenes Cataloged:** ${beats.length}  
+
+> [!NOTE]
+> This is the single, unified **Master Production Breakdown Sheet** for **${title}**. All departments, scenes, cast requirements, and safety protocols are consolidated here in clean Markdown.
+
+---
+
+## 1. Master Scene Breakdown Matrix
+
+| Sc # | Slugline / Setting | Cast & Extras | Props & Set Dressing | Stunts & SFX | VFX & Camera | Safety Directives |
+| :---: | :--- | :--- | :--- | :--- | :--- | :--- |
+${scRows}
+---
+
+## 2. Master Department Requirements & Checklists
+
+### 👥 Cast & Characters
+${deptItems['Cast & Characters'].length ? deptItems['Cast & Characters'].map(c => `- [ ] **${c}**`).join('\n') : '- [ ] Standard Cast'}
+
+### 💥 Stunts & Action Rigging
+${deptItems['Stunts & Action'].length ? deptItems['Stunts & Action'].map(s => `- [ ] ${s}`).join('\n') : '- [ ] No major stunt rigs'}
+
+### 🗝️ Hero Props & Art Department
+${deptItems['Hero Props & Art'].length ? deptItems['Hero Props & Art'].map(p => `- [ ] ${p}`).join('\n') : '- [ ] Standard hand props'}
+
+### 🔥 SFX & Practical Pyrotechnics
+${deptItems['SFX & Practical Effects'].length ? deptItems['SFX & Practical Effects'].map(s => `- [ ] ${s}`).join('\n') : '- [ ] Atmosphere / Haze only'}
+
+### 🎬 Visual Effects (VFX Plates) & Technical
+${deptItems['VFX & Technical'].length ? deptItems['VFX & Technical'].map(v => `- [ ] ${v}`).join('\n') : '- [ ] Clean background plates'}
+
+### 🛡️ Safety, Fire & Medical Directives
+${deptItems['Safety & Medic'].length ? deptItems['Safety & Medic'].map(s => `- [ ] ${s}`).join('\n') : '- [ ] Certified on-set medic and fire marshal on standby'}
+
+---
+
+## 3. Production Notes & Directives
+
+1. **Continuity Protocol:** Script Supervisor to verify hero props handoff between all consecutive scenes.
+2. **Audio & Atmos:** Sound department to capture 60-second room tone for every unique location setup.
+3. **Safety First:** Dedicated safety briefing prior to call time whenever stunts or practical effects are active.
+`;
+  }
+
+  // Default Master Breakdown Sheet when beats are not yet loaded
+  return `# MASTER PRODUCTION BREAKDOWN SHEET
+**Project:** ${title}  
+**Unit:** 1st AD / Production Management  
+**Master Document:** Unified Production Matrix (Markdown)  
+**Status:** Approved Master Breakdown  
+
+> [!NOTE]
+> This is the single, unified **Master Production Breakdown Sheet**. All scenes, cast rosters, department requirements, stunts, props, and safety protocols are consolidated here in clean Markdown for rapid editing and live preview.
+
+---
+
+## 1. Production Overview
+
+| Metric | Specification |
+| :--- | :--- |
+| **Document Type** | Master Production Breakdown Sheet (.md) |
+| **Supervising Unit** | 1st Assistant Director & Production Core |
+| **Total Scenes** | 4 Key Production Sequences |
+| **Lead Cast** | Maya (Heroine), Sterling (Vault Director), Security Detail |
+| **Key Departments** | Cast, Stunts, Props, SFX, VFX, Sound, Set Dressing, Safety |
+
+---
+
+## 2. Master Scene Breakdown Matrix
+
+| Sc # | Slugline / Setting | Cast & Extras | Props & Set Dressing | Stunts & SFX | VFX & Camera | Safety Directives |
+| :---: | :--- | :--- | :--- | :--- | :--- | :--- |
+| **Sc. 1** | EXT. CHENNAI HARBOR DOCKS - NIGHT | Maya, Harbor Lookout | Tactical Binoculars, Heavy Rope | Wet Slip Hazard, Night Wind | 35mm Anamorphic, Drone Establishing | PFDs near water edge; medic on standby |
+| **Sc. 2** | INT. SUB-LEVEL ACCESS CORRIDOR - NIGHT | Maya | Security Keycard, Lockpick Kit | Ventilation Grate Breach | Low-angle handheld tracker | Dust masks for vent duct crawling |
+| **Sc. 3** | INT. PERIMETER LASER CORRIDOR - NIGHT | Maya, Tactical Officers (x2) | Thermal Visor, Wire Snips | Acrobatic Laser Avoidance | Anamorphic Red Perimeter Glow | Eye protection from laser rig beams |
+| **Sc. 4** | INT. CENTRAL DATA VAULT & INCINERATOR - NIGHT | Maya, Sterling, Tactical Officers (x4) | Optical Core Amber Key, Land Deeds Dossier, Brass Wheel | 15ft Catwalk Drop, Combat at Incinerator Lip, Spark Discharge | Golden Holographic Stream (VFX), 50mm Kowa | 2 Fire Safety Marshals with CO2 extinguishers |
+
+---
+
+## 3. Master Department Requirements & Checklists
+
+### 👥 Cast & Extras Roster
+- [ ] **Maya (Lead / Heroine)** — Tactical stealth jumpsuit, wired earpiece, wet boots
+- [ ] **Sterling (Vault Security Director)** — Bespoke charcoal 3-piece suit, gold cufflinks
+- [ ] **Vault Security Tactical Officers (x4)** — Kevlar tactical vests, riot visors, sidearms
+- [ ] **Harbor Lookout** — Weathered oilskin slicker, handheld VHF radio
+
+### 💥 Stunts & Action Rigging
+- [ ] **Catwalk Drop & Decelerator Rig** (Maya 15ft drop from ceiling vent to steel catwalk; load tested)
+- [ ] **Incinerator Edge Hand-to-Hand Sequence** (Choreographed edge fall with safety harness & catch mats)
+- [ ] **Breakaway Glass Panels** (Sugar glass display panes pre-scored for impact)
+
+### 🗝️ Hero Props & Art Department
+- [ ] **Optical Core Access Key** — Hero prop: amber cylindrical cryo-key with illuminated laser etching
+- [ ] **Classified Land Deeds Dossier** — Vintage Tamil Nadu land revenue records, charred edges (3 duplicates)
+- [ ] **Industrial Incinerator Release Wheel** — Heavy cast-brass wheel with release pin & pressure gauge
+- [ ] **Tactical Thermal Visor & Lockpick Set** — Maya's operative kit
+
+### 🔥 SFX & Pyrotechnics
+- [ ] **Severed Conduit Spark Discharge** — Controlled pyro electrical arc box from severed trunk
+- [ ] **Incinerator Heat Glow & Paper Ash Updraft** — Amber heating coils with lightweight burnt ash updraft
+- [ ] **Atmospheric Haze (Level 2)** — Oil-free haze machine continuous on south intake vent
+
+### 🎬 Visual Effects (VFX Plates) & Technical
+- [ ] **Golden Holographic Data Stream** — Volumetric stream plate from core pedestal; tracking dots
+- [ ] **Digital Core Readouts** — Multi-monitor LED graphics sync plate
+- [ ] **Camera Package** — 50mm Kowa Anamorphic on 12-ft south wall slider track
+
+### 🛡️ Safety, Fire & Medical Directives
+- [ ] **Fire Safety Marshals** — 2 dedicated certified marshals on standby with Class C fire suppression
+- [ ] **High-Fall Decelerator Inspection** — Stunt coordinator sign-off prior to first take
+- [ ] **Paramedic Unit** — On-set ambulance & trauma kit staged at Stage B bay doors
+
+---
+
+## 4. Production Notes & Directives
+
+1. **Prop Duplication:** 3 identical amber optical core keys provided (1 hero illuminated, 1 stunt rubber tip, 1 static backup).
+2. **Audio Sync:** 40Hz subterranean turbine drone will play through cast wireless earpieces during takes for authentic vocal projection.
+3. **Daily Sign-off:** 1st AD and Stunt Coordinator must sign off on safety clearance before lighting the incinerator pit.
+`;
+}
+
+export function createMasterBreakdownDocument(projectState?: any, projectId?: string): ProductionDocument {
+  const content = generateMasterBreakdownMarkdown(projectState);
+  const now = new Date().toISOString();
+  return {
+    id: MASTER_BREAKDOWN_DOC_ID,
+    projectId: projectId || undefined,
+    title: 'Master Production Breakdown',
+    titleTa: 'முதன்மை தயாரிப்பு முறிவு தாள்',
+    category: 'BREAKDOWN',
+    fileType: 'md',
+    fileName: 'Master_Production_Breakdown.md',
+    fileSize: `${Math.round(content.length / 1024) || 6} KB`,
+    pageCount: 1,
+    uploadedAt: now,
+    updatedAt: now,
+    builtInType: 'breakdown',
+    author: '1st AD Breakdown Supervisor',
+    textContent: content,
+    htmlContent: markdownToHtml(content),
+    status: 'approved',
+    tags: ['Master Sheet', 'Breakdown', 'Markdown', '1st AD'],
+    annotations: [],
+  };
+}
 
 export const SCENE_4_BREAKDOWN_SHEET_DATA: any[][] = [
   ['#', 'Category', 'Element / Item Name', 'Department', 'Notes / Specifications', 'Status'],
@@ -284,29 +486,77 @@ export function getProductionDocuments(projectId?: string): ProductionDocument[]
       } catch (parseErr) {}
     }
 
+    const isBreakdownTrash = (doc: ProductionDocument) =>
+      doc.id === 'doc-bd-1' ||
+      doc.id.startsWith('harvest-breakdown-') ||
+      doc.fileName?.startsWith('Breakdown_Sc') ||
+      (doc.category === 'BREAKDOWN' && doc.id !== MASTER_BREAKDOWN_DOC_ID);
+
     const filtered = parsed.filter(
       (doc: ProductionDocument) =>
         doc.id !== 'doc-ranga-1' &&
         doc.fileName !== 'Pilot_Ranga_Screenplay.docx' &&
-        !(doc.title && doc.title.includes('பைலட் ரங்கா'))
+        !(doc.title && doc.title.includes('பைலட் ரங்கா')) &&
+        !isBreakdownTrash(doc)
     );
 
-    // Auto-migration: ensure doc-bd-1 breakdown document has sheetData if present
     let hasMigrated = filtered.length !== parsed.length;
+
+    // Ensure exactly ONE Master Production Breakdown sheet exists
+    const hasMaster = filtered.some((d: ProductionDocument) => d.id === MASTER_BREAKDOWN_DOC_ID);
+    if (!hasMaster) {
+      hasMigrated = true;
+      filtered.unshift(createMasterBreakdownDocument(undefined, activeProjId));
+    }
+
+    // Ensure SANGILI Master Screenplay exists in the vault and is staged to script
+    const hasSangili = filtered.some((d: ProductionDocument) => d.id === SANGILI_DOCUMENT_ID);
+    if (!hasSangili) {
+      hasMigrated = true;
+      filtered.unshift(getSangiliDocument(activeProjId));
+    }
+
     const migrated = filtered.map((doc: ProductionDocument) => {
-      if (doc.id === 'doc-bd-1') {
-        if (!doc.sheetData || doc.sheetData.length <= 1 || !doc.htmlContent || !doc.htmlContent.includes('doc-delete-row-btn')) {
+      if (doc.id === MASTER_BREAKDOWN_DOC_ID) {
+        if (!doc.textContent || doc.fileType !== 'md' || doc.fileName !== 'Master_Production_Breakdown.md') {
           hasMigrated = true;
+          const content = doc.textContent || generateMasterBreakdownMarkdown();
           return {
             ...doc,
-            sheetData: SCENE_4_BREAKDOWN_SHEET_DATA,
-            htmlContent: SCENE_4_BREAKDOWN_HTML,
-            textContent: `Scene 4 Breakdown Sheet: 16 Production Elements across 10 Departments.\nCast: Maya, Sterling\nExtras: Vault Security Tactical Officers\nStunts: Catwalk Drop & Decelerator Rig, Incinerator Combat\nProps: Optical Core Access Key, Land Deeds Dossier, Brass Release Wheel\nSFX & VFX: Conduit Spark Discharge, Incinerator Heat Glow, Golden Holographic Stream\nSound: Subterranean Turbine Drone, Pneumatic Door Slam\nSet Dressing: Core Server Racks\nLighting: Anamorphic Flare & Laser Grid\nSafety: Fire Safety Standby`,
+            fileType: 'md',
+            fileName: 'Master_Production_Breakdown.md',
+            textContent: content,
+            htmlContent: markdownToHtml(content),
+            builtInType: 'breakdown',
+            category: 'BREAKDOWN',
+          };
+        }
+      }
+      if (doc.id === SANGILI_DOCUMENT_ID) {
+        if (!doc.isStagedToScript || !doc.twoColumnData || !doc.twoColumnData.scenes || doc.twoColumnData.scenes.length === 0) {
+          hasMigrated = true;
+          const sangiliMaster = getSangiliDocument(activeProjId);
+          return {
+            ...sangiliMaster,
+            ...doc,
+            isStagedToScript: true,
+            isLeftRightFormat: true,
+            hasTwoColumnScript: true,
+            category: 'SCRIPT' as const,
+            twoColumnData: sangiliMaster.twoColumnData,
           };
         }
       }
       return doc;
     });
+
+    if (typeof localStorage !== 'undefined') {
+      try {
+        if (!localStorage.getItem('active_two_column_doc_id')) {
+          localStorage.setItem('active_two_column_doc_id', SANGILI_DOCUMENT_ID);
+        }
+      } catch {}
+    }
 
     // If we have an in-memory cache, merge non-destructively so in-memory uploaded docs or heavy binaries are never lost
     let result = migrated;
@@ -315,7 +565,8 @@ export function getProductionDocuments(projectId?: string): ProductionDocument[]
         (doc: ProductionDocument) =>
           doc.id !== 'doc-ranga-1' &&
           doc.fileName !== 'Pilot_Ranga_Screenplay.docx' &&
-          !(doc.title && doc.title.includes('பைலட் ரங்கா'))
+          !(doc.title && doc.title.includes('பைலட் ரங்கா')) &&
+          !isBreakdownTrash(doc)
       );
       result = mergeProductionDocuments(migrated, inMemoryDocsCache[activeProjId]);
     }
@@ -347,7 +598,8 @@ export function getProductionDocuments(projectId?: string): ProductionDocument[]
         (doc: ProductionDocument) =>
           doc.id !== 'doc-ranga-1' &&
           doc.fileName !== 'Pilot_Ranga_Screenplay.docx' &&
-          !(doc.title && doc.title.includes('பைலட் ரங்கா'))
+          !(doc.title && doc.title.includes('பைலட் ரங்கா')) &&
+          !isBreakdownTrash(doc)
       );
       const prevCount = result.length;
       result = mergeProductionDocuments(result, filteredFallback);
@@ -1056,42 +1308,16 @@ export function saveNoteToVault(
  * Save a 1st AD Scene Breakdown Sheet to Vault
  */
 export function saveBreakdownToVault(
-  sceneTitle: string,
-  sceneNumber: string,
-  itemsCount: number,
-  htmlPreview?: string,
-  sheetData?: any[][]
+  _sceneTitle?: string,
+  _sceneNumber?: string,
+  _itemsCount?: number,
+  _htmlPreview?: string,
+  _sheetData?: any[][]
 ): ProductionDocument {
-  const finalSheetData = sheetData || [
-    ['#', 'Category', 'Element / Item Name', 'Department', 'Notes / Specifications', 'Status'],
-    ['1', 'CAST', `${sceneTitle} Cast`, 'Cast', 'Key Scene Cast', 'Confirmed']
-  ];
-
-  const finalHtml = htmlPreview || generateBreakdownHtmlTable(
-    sceneNumber,
-    sceneTitle,
-    finalSheetData,
-    `Production Breakdown for Scene ${sceneNumber}: ${sceneTitle}`,
-    'DAY 1',
-    '1 PG'
-  );
-
-  return addProductionDocument({
-    title: `Scene ${sceneNumber} Breakdown Sheet (${sceneTitle})`,
-    titleTa: `காட்சி ${sceneNumber} குறிப்பு தாள்`,
-    category: 'BREAKDOWN',
-    fileType: 'breakdown',
-    fileName: `Breakdown_Scene_${sceneNumber}.pdf`,
-    fileSize: `${Math.max(250, itemsCount * 45)} KB`,
-    pageCount: 1,
-    builtInType: 'breakdown',
-    sheetData: finalSheetData,
-    htmlContent: finalHtml,
-    textContent: `Breakdown Sheet for Scene ${sceneNumber}: ${sceneTitle}. Total Elements: ${itemsCount || (finalSheetData.length - 1)}`,
-    author: '1st AD Breakdown Supervisor',
-    status: 'approved',
-    tags: ['Breakdown', `Scene ${sceneNumber}`, '1st AD'],
-  });
+  const existingDocs = getProductionDocuments();
+  const master = existingDocs.find(d => d.id === MASTER_BREAKDOWN_DOC_ID);
+  if (master) return master;
+  return createMasterBreakdownDocument();
 }
 
 /**
@@ -1270,47 +1496,21 @@ export function harvestProjectArtifacts(project: any, explicitProjectId?: string
         });
       }
 
-      // 3. Harvest breakdowns from beats
-      const beatBd = b.breakdown || b.breakdownData;
-      if (beatBd && Object.keys(beatBd).length > 0) {
-        const breakdownDocId = `harvest-breakdown-${b.id}`;
-        if (!existingIds.has(breakdownDocId)) {
-          const sheetData = buildBreakdownSheetDataFromBeat(b);
-          const breakdownHtml = generateBreakdownHtmlTable(
-            b.sceneNumber || b.id,
-            b.title || `${b.slug?.prefix || 'INT.'} ${b.slug?.location || 'LOCATION'} - ${b.slug?.time || 'DAY'}`,
-            sheetData,
-            b.content ? b.content.replace(/<[^>]*>/g, ' ').slice(0, 160) : undefined,
-            'DAY 1',
-            b.pages || '1 PG'
-          );
-          const breakdownSummary = Object.entries(beatBd)
-            .map(([cat, items]: [string, any]) => `${cat.toUpperCase()}: ${Array.isArray(items) ? items.join(', ') : items}`)
-            .join('\n');
-
-          newDocs.push({
-            id: breakdownDocId,
-            title: `Sc. ${b.sceneNumber || b.id} Breakdown Sheet (${b.title || 'Scene'})`,
-            titleTa: `காட்சி ${b.sceneNumber} குறிப்பு தாள்`,
-            category: 'BREAKDOWN',
-            fileType: 'breakdown',
-            fileName: `Breakdown_Sc${b.sceneNumber || b.id}.pdf`,
-            fileSize: '380 KB',
-            pageCount: 1,
-            uploadedAt: new Date().toISOString(),
-            builtInType: 'breakdown',
-            author: '1st AD Breakdown Supervisor',
-            sheetData,
-            htmlContent: breakdownHtml,
-            textContent: `SCENE ${b.sceneNumber || b.id} BREAKDOWN:\n${breakdownSummary}`,
-            status: 'approved',
-            tags: [`Scene ${b.sceneNumber}`, 'Breakdown', '1st AD'],
-            annotations: [],
-          });
-          existingIds.add(breakdownDocId);
-        }
-      }
     });
+  }
+
+  // 3. Ensure Exactly ONE Master Production Breakdown Sheet (Pure Markdown, no Notion table)
+  if (!existingIds.has(MASTER_BREAKDOWN_DOC_ID)) {
+    const masterDoc = createMasterBreakdownDocument(project, projId);
+    newDocs.push(masterDoc);
+    existingIds.add(MASTER_BREAKDOWN_DOC_ID);
+  }
+
+  // 3b. Ensure SANGILI Master Shooting Script is present and staged
+  if (!existingIds.has(SANGILI_DOCUMENT_ID)) {
+    const sangiliDoc = getSangiliDocument(projId);
+    newDocs.unshift(sangiliDoc);
+    existingIds.add(SANGILI_DOCUMENT_ID);
   }
 
   // 4. Harvest Storyboard Shots (Pictures)
