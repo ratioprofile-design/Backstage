@@ -455,7 +455,7 @@ export interface ProjectContextType extends ProjectState {
   updateGroup: (id: number, updates: Partial<Group>) => void;
   removeGroup: (id: number) => void;
 
-  loadProject: (data: ProjectState | any, options?: { projectName?: string }) => void;
+  loadProject: (data: ProjectState | any, options?: { projectName?: string; isLocalOnly?: boolean; targetProjectId?: string }) => void;
   saveProject: () => void;
   saveProjectAs: () => Promise<void>;
   downloadProject: () => void;

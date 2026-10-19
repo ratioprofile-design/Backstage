@@ -160,7 +160,20 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   
   const [fileHandle, setFileHandle] = useState<any | null>(null);
+  const fileHandleRef = useRef<any>(null);
   const [filePath, setFilePath] = useState<string | null>(null);
+  const filePathRef = useRef<string | null>(null);
+  const initialHydrationDoneRef = useRef(false);
+
+  const setFilePathWrapped = useCallback((path: string | null) => {
+    filePathRef.current = path;
+    setFilePath(path);
+  }, []);
+
+  const setFileHandleWrapped = useCallback((handle: any) => {
+    fileHandleRef.current = handle;
+    setFileHandle(handle);
+  }, []);
 
   // Intercept window close in Tauri if there are unsaved changes
   useEffect(() => {
@@ -769,6 +782,9 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
 
     const handleWindowFocus = () => {
+      if (filePathRef.current || fileHandleRef.current) return;
+      const curProj = projectList.find(p => p.id === currentProjectId);
+      if (curProj?.isLocalOnly) return;
       if (supabaseUser) {
         refreshProjectList(supabaseUser.id, supabaseUser.email);
       } else {
@@ -787,7 +803,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     };
   }, [supabaseUser]);
 
-  const applyProjectState = useCallback((data: any, options?: { projectName?: string; targetProjectId?: string }) => {
+  const applyProjectState = useCallback((data: any, options?: { projectName?: string; targetProjectId?: string; isLocalOnly?: boolean }) => {
     if (!data) return;
 
     isImportingRef.current = true;
@@ -831,12 +847,13 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (isCausality || options?.projectName || options?.targetProjectId) {
       const newProjId = options?.targetProjectId || `proj_${Date.now()}`;
       const projName = options?.projectName || (cleanData as any).projectName || (cleanData as any).name || (isCausality ? 'Imported Causality Story' : 'Screenplay');
+      const isLocal = options?.isLocalOnly !== undefined ? options.isLocalOnly : Boolean(filePathRef.current || fileHandleRef.current || !supabaseUser);
       const newMeta: ProjectMetadata = {
         id: newProjId,
         name: projName,
         created: Date.now(),
         lastModified: Date.now(),
-        isLocalOnly: !supabaseUser
+        isLocalOnly: isLocal
       };
 
       setCurrentProjectId(newProjId);
@@ -1017,6 +1034,11 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (!isSupabaseConfigured || !currentProjectId || !supabaseUser) return;
 
     // Stable listener that doesn't close/reopen on every state change
+    const currentProjMeta = projectList.find(p => p.id === currentProjectId);
+    if (filePathRef.current || fileHandleRef.current || currentProjMeta?.isLocalOnly) {
+      return;
+    }
+
     const channel = supabase
       .channel(`project_changes_${currentProjectId}`)
       .on(
@@ -1097,6 +1119,9 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     // Periodic fallback polling to guarantee sync between collaborators (every 8s)
     const pollInterval = setInterval(async () => {
       if (!currentProjectId || currentProjectId === 'empty-project') return;
+      if (filePathRef.current || fileHandleRef.current) return;
+      const curProj = projectList.find(p => p.id === currentProjectId);
+      if (curProj?.isLocalOnly) return;
       if (hasUnsavedChangesRef.current || isSavingRef.current) return;
       try {
         const remote = await fetchProjectData(currentProjectId);
@@ -1207,19 +1232,22 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       } catch {}
 
       // 4. Cross-device sync / hydration:
-      // Respect if user closed project or is on welcome screen!
+      // ONLY run on initial startup once! Never auto-select or overwrite if a local file is open or active project exists!
       const isClosed = typeof localStorage !== 'undefined' && localStorage.getItem('backstage_project_closed') === 'true';
-      if (combined.length > 0 && selectProjectRef.current && !isClosed) {
-        const curId = currentProjectId || (typeof localStorage !== 'undefined' ? localStorage.getItem('currentProjectId') : null);
-        const isValidCurrent = curId && curId !== 'empty-project' && combined.some(p => p.id === curId);
+      if (!initialHydrationDoneRef.current && combined.length > 0 && selectProjectRef.current && !isClosed) {
+        initialHydrationDoneRef.current = true;
+        if (filePathRef.current || fileHandleRef.current) return;
 
-        if (isValidCurrent && curId) {
-          // Hydrate active project state from cloud silently
+        const curId = currentProjectId || (typeof localStorage !== 'undefined' ? localStorage.getItem('currentProjectId') : null);
+        const curProj = combined.find(p => p.id === curId);
+
+        if (curId && curId !== 'empty-project' && curProj && !curProj.isLocalOnly) {
           await selectProjectRef.current(curId, { silent: true });
-        } else if (!curId || curId === 'empty-project') {
-          // Auto-select latest cloud project silently so we never freeze the screen with a spinner!
-          const targetProj = combined[0];
-          await selectProjectRef.current(targetProj.id, { silent: true });
+        } else if ((!curId || curId === 'empty-project') && !filePathRef.current) {
+          const cloudProjects = combined.filter(p => !p.isLocalOnly);
+          if (cloudProjects.length > 0) {
+            await selectProjectRef.current(cloudProjects[0].id, { silent: true });
+          }
         }
       }
     } catch (err: any) {
@@ -1341,7 +1369,9 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       localStorage.setItem('backstage_project_closed', 'true');
     } catch {}
     setFileHandle(null);
+    fileHandleRef.current = null;
     setFilePath(null);
+    filePathRef.current = null;
     applyProjectState(INITIAL_STATE);
     setPanX(INITIAL_STATE.panX);
     setPanY(INITIAL_STATE.panY);
@@ -1354,7 +1384,9 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const createProject = async (name: string) => {
     setFileHandle(null);
+    fileHandleRef.current = null;
     setFilePath(null);
+    filePathRef.current = null;
     const id = `proj_${Date.now()}`;
     // Zero-template clean state for brand new project
     const emptyState: ProjectState & { documents: any[] } = {
@@ -1500,19 +1532,23 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const selectProject = async (id: string, opts?: { silent?: boolean }) => {
     setFileHandle(null);
+    fileHandleRef.current = null;
     setFilePath(null);
+    filePathRef.current = null;
     let resolvedName = '';
     let isInvitedProj = false;
 
+    const existingInList = projectList.find(p => p.id === id);
+    const isLocalProject = existingInList?.isLocalOnly || !supabaseUser;
+
     if (!opts?.silent) {
       setIsProjectLoading(true);
-      const existingInList = projectList.find(p => p.id === id);
       const knownName = existingInList?.name || localStorage.getItem(`project_name_${id}`) || 'Screenplay';
-      setProjectLoadingMessage(`Syncing "${knownName}" from Backstage Cloud...`);
+      setProjectLoadingMessage(isLocalProject ? `Opening "${knownName}"...` : `Syncing "${knownName}" from Backstage Cloud...`);
     }
 
     try {
-      if (supabaseUser) {
+      if (supabaseUser && !isLocalProject) {
         try {
           const data = await fetchProjectData(id);
           const cleanData = data || INITIAL_STATE;
@@ -1633,21 +1669,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }).catch(() => {});
   }, []);
 
-  // Sync on window focus (cloud mode only — the local window is the sole writer otherwise,
-  // and re-fetching can overwrite in-progress work with stale storage/file data)
-  useEffect(() => {
-      const handleFocus = () => {
-          if (isImportingRef.current) return;
-          if (filePath) return;
-          const currentProj = projectList.find(p => p.id === currentProjectId);
-          if (currentProj?.isLocalOnly) return;
-          if (supabaseUser && currentProjectId && currentProjectId !== 'empty-project' && !hasUnsavedChangesRef.current && !isSavingRef.current) {
-              selectProject(currentProjectId, { silent: true });
-          }
-      };
-      window.addEventListener('focus', handleFocus);
-      return () => window.removeEventListener('focus', handleFocus);
-  }, [supabaseUser, currentProjectId, selectProject]);
+  // Focus-triggered project reload removed to prevent overwriting active local files with stale cloud data
 
   const deleteProject = async (id: string) => {
     if (supabaseUser) {
@@ -1751,9 +1773,12 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const idbSaved = await saveLargeProject(currentProjectId || 'empty-project', projectData);
     if (idbSaved) saved = true;
 
-    // 2. Cloud (when signed in to Supabase)
+    // 2. Cloud (when signed in to Supabase and NOT a local-only file)
     let cloudErrorDetail: string | null = null;
-    if (supabaseUser) {
+    const currentProjMetaForSave = projectList.find(p => p.id === currentProjectId);
+    const isLocalFileOnly = Boolean(filePathRef.current || fileHandleRef.current || currentProjMetaForSave?.isLocalOnly);
+
+    if (supabaseUser && !isLocalFileOnly) {
       try {
         setCloudSyncStatus(prev => ({
           ...prev,
@@ -2487,7 +2512,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   }, []);
 
   const value: ProjectContextType = {
-    beats, groups, connections, annotations, characterData, generatedShots, scratchpad, globalNotes, panX, panY, scale, nextId, nextAnnoId, activeBoardId, isTamilMode, tamilFontScale, tamilFontFamily, userDictionary, isOsInputMode, osInputShortcut, scriptConfig, scriptViewMode, scratchpadConfig, storyboardConfig, isStoryboardFeatureEnabled,     breakdownLanguage, breakdownLockedOnly, isPdfDropEnabled, isRedoEnabled, writingGoal, geminiApiKey: '', openrouterKey, setOpenrouterKey, generalAiModel, setGeneralAiModel, dailyStats, sessionStartCount, lastSessionDate, boardLayerOrder, characterDesignLocked, setCharacterDesignLocked: setCharacterDesignLockedWrapped, appTheme, appAccentColor, appLanguage, currentUser, currentProjectId, projectList, hasUnsavedChanges, schemaError, isSaving, fileHandle, filePath, setFilePath, isInitialLoading, isProjectLoading, projectLoadingMessage, isCloudMode: !!supabaseUser, supabaseUser, cloudOffline, login, loginWithSupabase, logout, selectProject, createProject, deleteProject, renameProject, closeProject, clearSchemaError: () => { setSchemaError(null); if (supabaseUser) refreshProjectList(supabaseUser.id); }, setBeats: setBeatsWrapped, setGroups: setGroupsWrapped, setConnections: setConnectionsWrapped, setAnnotations: setAnnotationsWrapped, setCharacterData: setCharacterDataWrapped, setGeneratedShots, setScratchpad: setScratchpadWrapped, setGlobalNotes: setGlobalNotesWrapped, updateGeneratedShot: (id, u) => { setGeneratedShots(p => p.map(s => s.id === id ? { ...s, ...u } : s)); setHasUnsavedChanges(true); }, addGeneratedShot: (i) => { const n = { id: `shot-${Date.now()}`, shotSize: 'WIDE', angle: 'EYE LEVEL', description: '', subject: '', scene: '?', imageHistory: [] }; const s = [...generatedShots]; s.splice(i + 1, 0, n); setGeneratedShots(s); captureSnapshot(); }, removeGeneratedShot: (id) => { setGeneratedShots(p => p.filter(s => s.id !== id)); captureSnapshot(); }, moveGeneratedShot: (f, t) => { const s = [...generatedShots]; const [m] = s.splice(f, 1); s.splice(t, 0, m); setGeneratedShots(s); captureSnapshot(); }, setPan: (x, y) => { setPanX(x); setPanY(y); }, setScale, updateBeat, addBeat, reorderBeats, addGroup: (g) => { const id = nextId; setNextId(p => p + 1); setGroups(p => [...p, { ...g, id, boardId: activeBoardId }]); captureSnapshot(); }, updateGroup: (id, u) => { setGroups(p => p.map(g => g.id === id ? { ...g, ...u } : g)); setHasUnsavedChanges(true); }, removeGroup: (id) => { setGroups(p => p.filter(g => g.id !== id)); captureSnapshot(); }, loadProject: applyProjectState, saveProject, saveProjectAs, setActiveBoardId, setTamilMode, setTamilFontScale, setTamilFontFamily: setTamilFontFamilyWrapped, learnTamilWord: (e, t) => { setUserDictionary(p => { const c = p[e.toLowerCase()] || []; if (!c.includes(t)) return { ...p, [e.toLowerCase()]: [t, ...c] }; return p; }); }, setOsInputMode, setOsInputShortcut, setScriptConfig: setScriptConfigWrapped, setScriptViewMode, setScratchpadConfig, setStoryboardConfig, setStoryboardFeatureEnabled, setAppTheme, setAppAccentColor, setAppLanguage, setBreakdownLanguage, setBreakdownLockedOnly, setPdfDropEnabled, setRedoEnabled, setWritingGoal, setGeminiApiKey: () => {}, setBoardLayerOrder, setNextId, undo, redo, canUndo: historyIndexRef.current > 0, canRedo: historyIndexRef.current < historyRef.current.length - 1, captureSnapshot, downloadProject, autoGenerate5Scenes, autoGenerateScenes,
+    beats, groups, connections, annotations, characterData, generatedShots, scratchpad, globalNotes, panX, panY, scale, nextId, nextAnnoId, activeBoardId, isTamilMode, tamilFontScale, tamilFontFamily, userDictionary, isOsInputMode, osInputShortcut, scriptConfig, scriptViewMode, scratchpadConfig, storyboardConfig, isStoryboardFeatureEnabled,     breakdownLanguage, breakdownLockedOnly, isPdfDropEnabled, isRedoEnabled, writingGoal, geminiApiKey: '', openrouterKey, setOpenrouterKey, generalAiModel, setGeneralAiModel, dailyStats, sessionStartCount, lastSessionDate, boardLayerOrder, characterDesignLocked, setCharacterDesignLocked: setCharacterDesignLockedWrapped, appTheme, appAccentColor, appLanguage, currentUser, currentProjectId, projectList, hasUnsavedChanges, schemaError, isSaving, fileHandle, filePath, setFilePath: setFilePathWrapped, isInitialLoading, isProjectLoading, projectLoadingMessage, isCloudMode: !!supabaseUser, supabaseUser, cloudOffline, login, loginWithSupabase, logout, selectProject, createProject, deleteProject, renameProject, closeProject, clearSchemaError: () => { setSchemaError(null); if (supabaseUser) refreshProjectList(supabaseUser.id); }, setBeats: setBeatsWrapped, setGroups: setGroupsWrapped, setConnections: setConnectionsWrapped, setAnnotations: setAnnotationsWrapped, setCharacterData: setCharacterDataWrapped, setGeneratedShots, setScratchpad: setScratchpadWrapped, setGlobalNotes: setGlobalNotesWrapped, updateGeneratedShot: (id, u) => { setGeneratedShots(p => p.map(s => s.id === id ? { ...s, ...u } : s)); setHasUnsavedChanges(true); }, addGeneratedShot: (i) => { const n = { id: `shot-${Date.now()}`, shotSize: 'WIDE', angle: 'EYE LEVEL', description: '', subject: '', scene: '?', imageHistory: [] }; const s = [...generatedShots]; s.splice(i + 1, 0, n); setGeneratedShots(s); captureSnapshot(); }, removeGeneratedShot: (id) => { setGeneratedShots(p => p.filter(s => s.id !== id)); captureSnapshot(); }, moveGeneratedShot: (f, t) => { const s = [...generatedShots]; const [m] = s.splice(f, 1); s.splice(t, 0, m); setGeneratedShots(s); captureSnapshot(); }, setPan: (x, y) => { setPanX(x); setPanY(y); }, setScale, updateBeat, addBeat, reorderBeats, addGroup: (g) => { const id = nextId; setNextId(p => p + 1); setGroups(p => [...p, { ...g, id, boardId: activeBoardId }]); captureSnapshot(); }, updateGroup: (id, u) => { setGroups(p => p.map(g => g.id === id ? { ...g, ...u } : g)); setHasUnsavedChanges(true); }, removeGroup: (id) => { setGroups(p => p.filter(g => g.id !== id)); captureSnapshot(); }, loadProject: applyProjectState, saveProject, saveProjectAs, setActiveBoardId, setTamilMode, setTamilFontScale, setTamilFontFamily: setTamilFontFamilyWrapped, learnTamilWord: (e, t) => { setUserDictionary(p => { const c = p[e.toLowerCase()] || []; if (!c.includes(t)) return { ...p, [e.toLowerCase()]: [t, ...c] }; return p; }); }, setOsInputMode, setOsInputShortcut, setScriptConfig: setScriptConfigWrapped, setScriptViewMode, setScratchpadConfig, setStoryboardConfig, setStoryboardFeatureEnabled, setAppTheme, setAppAccentColor, setAppLanguage, setBreakdownLanguage, setBreakdownLockedOnly, setPdfDropEnabled, setRedoEnabled, setWritingGoal, setGeminiApiKey: () => {}, setBoardLayerOrder, setNextId, undo, redo, canUndo: historyIndexRef.current > 0, canRedo: historyIndexRef.current < historyRef.current.length - 1, captureSnapshot, downloadProject, autoGenerate5Scenes, autoGenerateScenes,
     userRole, updateUserRole, grokKey, setGrokKey,
     collaborators, setCollaborators: setCollaboratorsWrapped,
     talentPool, setTalentPool: setTalentPoolWrapped,

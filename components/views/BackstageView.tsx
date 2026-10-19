@@ -589,7 +589,7 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard, onClos
         try {
           const data = JSON.parse(event.target?.result as string);
           const projName = file.name.replace(/\.[^/.]+$/, "");
-          loadProject(data, { projectName: projName });
+          loadProject(data, { projectName: projName, isLocalOnly: true });
           alert("Project Loaded Successfully!");
           if (onNavigateToBoard) {
             onNavigateToBoard();
@@ -622,8 +622,8 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard, onClos
             const content = await fs.readTextFile(selected as string);
             const data = JSON.parse(content);
             const projName = (selected as string).split(/[/\\]/).pop()?.replace(/\.[^/.]+$/, '') || 'Imported Project';
-            loadProject(data, { projectName: projName });
             setFilePath(selected as string);
+            loadProject(data, { projectName: projName, isLocalOnly: true });
             addRecentFile(selected as string, projName);
             try { localStorage.setItem("backstage_project_closed", "false"); } catch {}
             alert("Project Loaded Successfully!");

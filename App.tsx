@@ -409,8 +409,8 @@ const AppContent: React.FC = () => {
       if (!fs) return false;
       const content = await fs.readTextFile(path);
       const projName = path.split(/[/\\]/).pop()?.replace(/\.[^/.]+$/, '') || 'Imported Project';
-      loadProject(JSON.parse(content), { projectName: projName });
       setFilePath(path);
+      loadProject(JSON.parse(content), { projectName: projName, isLocalOnly: true });
       setRecentFiles(addRecentFile(path, projName));
       try { localStorage.setItem("backstage_project_closed", "false"); } catch {}
       return true;
@@ -454,7 +454,7 @@ const AppContent: React.FC = () => {
               try {
                 const parsed = JSON.parse(event.target?.result as string);
                 const projName = file.name.replace(/\.[^/.]+$/, "");
-                loadProject(parsed, { projectName: projName });
+                loadProject(parsed, { projectName: projName, isLocalOnly: true });
                 setRecentFiles(addRecentFile(file.name, projName));
                 setShowWelcome(false);
               } catch (err) {
@@ -494,8 +494,8 @@ const AppContent: React.FC = () => {
       if (fs) {
         await fs.writeTextFile(safePath, JSON.stringify(fresh, null, 2));
       }
-      loadProject(fresh, { projectName: projName });
       setFilePath(safePath);
+      loadProject(fresh, { projectName: projName, isLocalOnly: true });
       setRecentFiles(addRecentFile(safePath, projName));
       setShowWelcome(false);
       try { localStorage.setItem('backstage_project_closed', 'false'); } catch {}
