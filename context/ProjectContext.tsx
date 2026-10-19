@@ -2498,7 +2498,10 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     appZoomLevel, setAppZoomLevel,
     cloudSyncStatus, triggerCloudSync,
     currentProjectName,
-    isCurrentProjectShared: Boolean(projectList.find(p => p.id === currentProjectId)?.isInvited || (collaborators && collaborators.length > 0)),
+    isCurrentProjectShared: Boolean(
+      projectList.find(p => p.id === currentProjectId)?.isInvited || 
+      (Array.isArray(collaborators) && collaborators.some(c => c.email && c.email.toLowerCase().trim() !== supabaseUser?.email?.toLowerCase().trim()))
+    ),
     refreshProjects,
     publishProjectToCloud,
     setHasUnsavedChanges

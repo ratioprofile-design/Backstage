@@ -141,8 +141,10 @@ const AppHeader: React.FC<AppHeaderProps> = ({
   }, [filePath, fileHandle, activeProjectName]);
 
   const isShared = useMemo(() => {
-      return Boolean(activeProject?.isInvited || isCurrentProjectShared);
-  }, [activeProject, isCurrentProjectShared]);
+      const userEmail = supabaseUser?.email?.toLowerCase().trim();
+      const otherCollabs = (collaborators || []).filter(c => c.email && c.email.toLowerCase().trim() !== userEmail);
+      return Boolean(activeProject?.isInvited || activeProject?.invitedBy || otherCollabs.length > 0);
+  }, [activeProject, collaborators, supabaseUser]);
 
   const isCloudActive = isCloudMode;
 

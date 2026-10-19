@@ -374,7 +374,13 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard, onClos
     }
     return currentProjectName || activeProject?.name || 'Backstage Screenplay';
   }, [filePath, fileHandle, currentProjectName, activeProject]);
-  const isCurrentShared = Boolean(activeProject?.isInvited || isCurrentProjectShared || (collaborators && collaborators.length > 0));
+  const otherCollaborators = useMemo(() => {
+    const userEmail = supabaseUser?.email?.toLowerCase().trim();
+    if (!userEmail) return [];
+    return (collaborators || []).filter(c => c.email && c.email.toLowerCase().trim() !== userEmail);
+  }, [collaborators, supabaseUser]);
+
+  const isCurrentShared = Boolean(activeProject?.isInvited || activeProject?.invitedBy || otherCollaborators.length > 0);
   const isCurrentCloud = Boolean(supabaseUser && !activeProject?.isLocalOnly && !filePath);
 
   const [isRenamingActiveProject, setIsRenamingActiveProject] = useState(false);
@@ -1307,7 +1313,7 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard, onClos
                                     </span>
                                   ) : isCurrentCloud ? (
                                     <span className="px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 flex items-center gap-1">
-                                      <Cloud size={10} /> Cloud Synced
+                                      <Cloud size={10} /> Cloud Synced Screenplay
                                     </span>
                                   ) : (
                                     <span className="px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-zinc-700/60 text-zinc-300 border border-zinc-600/60 flex items-center gap-1">
@@ -1410,7 +1416,7 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard, onClos
                             <div className="flex items-center gap-2">
                               {isCurrentShared ? (
                                 <span>
-                                  <strong className="text-amber-400">Live Team Collaboration</strong>: {activeProject?.invitedBy ? `Shared with you by ${activeProject.invitedBy}. ` : 'Owned by you and shared with team. '}
+                                  <strong className="text-amber-400">Live Team Collaboration</strong>: {activeProject?.invitedBy ? `Shared with you by ${activeProject.invitedBy}. ` : `Owned by you and shared with ${otherCollaborators.length} collaborator${otherCollaborators.length > 1 ? 's' : ''}. `}
                                   All screenplay edits, character sheets, and documents sync in real time.
                                 </span>
                               ) : isCurrentCloud ? (
@@ -1486,6 +1492,15 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard, onClos
                                 <span>{isRefreshingProjects ? 'Syncing...' : 'Refresh'}</span>
                               </button>
 
+                              <button
+                                type="button"
+                                onClick={isTauri() ? handleLoadTauriFile : () => fileInputRef.current?.click()}
+                                className="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-white/5 hover:bg-white/10 border border-white/10 text-gray-300 hover:text-white transition-all flex items-center gap-1.5 cursor-pointer"
+                                title="Open a saved .bst file from Desktop or disk"
+                              >
+                                <Folder size={12} className="text-amber-400" />
+                                <span>Open File...</span>
+                              </button>
                               <button
                                 type="button"
                                 onClick={() => {
@@ -1671,7 +1686,7 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard, onClos
                                                 )}
                                               </div>
                                               <span className="text-[10px] text-gray-400 font-mono block mt-0.5">
-                                                {proj.lastModified ? `Updated ${new Date(proj.lastModified).toLocaleDateString()}` : 'Cloud Project'}
+                                                {isCurrent && otherCollaborators.length > 0 ? `Shared with ${otherCollaborators.length} collaborator${otherCollaborators.length > 1 ? 's' : ''}` : (proj.lastModified ? `Updated ${new Date(proj.lastModified).toLocaleDateString()}` : 'Cloud Screenplay')}
                                               </span>
                                             </div>
                                           </div>
