@@ -1996,9 +1996,14 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
     setHasUnsavedChanges(true);
   };
 
-  // Scroll smoothly and center item in viewport
-  const scrollToItem = useCallback((itemId: string, behavior: ScrollBehavior = 'smooth') => {
-    // If in single page mode, ensure the page holding this item is displayed
+  const isElementInViewport = (el: HTMLElement) => {
+    const rect = el.getBoundingClientRect();
+    const vh = window.innerHeight || document.documentElement.clientHeight;
+    return rect.top >= 65 && rect.bottom <= vh - 65;
+  };
+
+  // Snappy viewport scrolling: only scrolls if the target item is genuinely off-screen
+  const scrollToItem = useCallback((itemId: string, behavior: ScrollBehavior = 'auto', force = false) => {
     if (pageViewMode === 'single') {
       const pageIdx = pages.findIndex((p) =>
         p.elements.some((el) => el.type === 'item' && el.item.id === itemId)
@@ -2008,18 +2013,17 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
       }
     }
 
-    const performScroll = () => {
-      const el =
-        document.getElementById(`script-row-card-${itemId}`) ||
-        document.getElementById(`script-row-${itemId}`) ||
-        document.querySelector(`[data-item-row-id="${itemId}"]`);
-      if (el) {
-        el.scrollIntoView({ behavior, block: 'center', inline: 'nearest' });
-      }
-    };
+    const el = (
+      document.getElementById(`script-row-card-${itemId}`) ||
+      document.getElementById(`script-row-${itemId}`) ||
+      document.querySelector(`[data-item-row-id="${itemId}"]`)
+    ) as HTMLElement | null;
 
-    performScroll();
-    requestAnimationFrame(performScroll);
+    if (el) {
+      if (force || !isElementInViewport(el)) {
+        el.scrollIntoView({ behavior, block: 'nearest', inline: 'nearest' });
+      }
+    }
   }, [pageViewMode, pages, currentSinglePage]);
 
   // Delete item and smoothly advance selection to the adjacent paragraph
@@ -2979,19 +2983,17 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
     window.addEventListener('mouseup', handleMouseUp);
   }, [selectedItemIds]);
 
-  // Focus item for keyboard editing
+  // Focus item for keyboard editing with zero perceptible latency
   const focusScriptItem = (
     itemId: string,
     targetField: 'auto' | 'action' | 'dialogue' | 'character' = 'auto',
     caretPosition: 'start' | 'end' = 'end'
   ) => {
-    scrollToItem(itemId, 'smooth');
+    scrollToItem(itemId, 'auto');
 
-    setTimeout(() => {
-      let targetEl: HTMLElement | null = null;
-      const rowContainer = document.querySelector(`[data-item-row-id="${itemId}"]`);
-      if (!rowContainer) return;
-
+    let targetEl: HTMLElement | null = null;
+    const rowContainer = document.querySelector(`[data-item-row-id="${itemId}"]`);
+    if (rowContainer) {
       if (targetField === 'character') {
         targetEl = rowContainer.querySelector(`[data-char-container="${itemId}"] input`) as HTMLInputElement | null;
       } else if (targetField === 'dialogue') {
@@ -2999,46 +3001,45 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
       } else if (targetField === 'action') {
         targetEl = rowContainer.querySelector(`[data-col="left"] [data-item-id="${itemId}"], [data-item-id="${itemId}"]`) as HTMLElement | null;
       } else {
-        // Auto: check if right column with filled character
         const charInput = rowContainer.querySelector(`[data-char-container="${itemId}"] input`) as HTMLInputElement | null;
         const dialogueEl = rowContainer.querySelector(`[data-col="right"] [data-item-id="${itemId}"]`) as HTMLElement | null;
         if (dialogueEl && charInput && charInput.value.trim().length > 0) {
           targetEl = dialogueEl;
-        } else if (charInput) {
+        } else if (charInput && !charInput.value.trim()) {
           targetEl = charInput;
         } else {
           targetEl = rowContainer.querySelector(`[data-item-id="${itemId}"]`) as HTMLElement | null;
         }
       }
+    }
 
-      if (targetEl) {
-        targetEl.dispatchEvent(new CustomEvent('start-edit', { bubbles: true, detail: { caretPosition } }));
-        targetEl.focus();
-        if (targetEl instanceof HTMLInputElement) {
-          if (caretPosition === 'start') {
-            targetEl.setSelectionRange(0, 0);
-          } else {
-            const len = targetEl.value.length;
-            targetEl.setSelectionRange(len, len);
-          }
+    if (targetEl) {
+      targetEl.focus();
+      targetEl.dispatchEvent(new CustomEvent('start-edit', { bubbles: true, detail: { caretPosition } }));
+      if (targetEl instanceof HTMLInputElement) {
+        if (caretPosition === 'start') {
+          targetEl.setSelectionRange(0, 0);
         } else {
-          const sel = window.getSelection();
-          if (sel) {
-            const range = document.createRange();
-            range.selectNodeContents(targetEl);
-            range.collapse(caretPosition === 'start');
-            sel.removeAllRanges();
-            sel.addRange(range);
-          }
+          const len = targetEl.value.length;
+          targetEl.setSelectionRange(len, len);
+        }
+      } else {
+        const sel = window.getSelection();
+        if (sel) {
+          const range = document.createRange();
+          range.selectNodeContents(targetEl);
+          range.collapse(caretPosition === 'start');
+          sel.removeAllRanges();
+          sel.addRange(range);
         }
       }
-    }, 40);
+    }
   };
 
   // Jump focus to next row during keyboard editing
   const handleFocusNextRow = (
     currentItemId: string,
-    targetField: 'card' | 'auto' | 'action' | 'dialogue' | 'character' = 'card'
+    targetField: 'card' | 'auto' | 'action' | 'dialogue' | 'character' = 'auto'
   ) => {
     const idx = orderedItemIds.indexOf(currentItemId);
     if (idx !== -1 && idx < orderedItemIds.length - 1) {
@@ -3049,7 +3050,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
         const cardEl = document.getElementById(`script-row-card-${nextId}`);
         if (cardEl) {
           cardEl.focus({ preventScroll: true });
-          scrollToItem(nextId, 'smooth');
+          scrollToItem(nextId, 'auto');
         }
       } else {
         focusScriptItem(nextId, targetField, 'start');
@@ -3062,7 +3063,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
   // Jump focus to previous row during keyboard editing
   const handleFocusPrevRow = (
     currentItemId: string,
-    targetField: 'card' | 'auto' | 'action' | 'dialogue' | 'character' = 'card'
+    targetField: 'card' | 'auto' | 'action' | 'dialogue' | 'character' = 'auto'
   ) => {
     const idx = orderedItemIds.indexOf(currentItemId);
     if (idx > 0) {
@@ -3073,7 +3074,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
         const cardEl = document.getElementById(`script-row-card-${prevId}`);
         if (cardEl) {
           cardEl.focus({ preventScroll: true });
-          scrollToItem(prevId, 'smooth');
+          scrollToItem(prevId, 'auto');
         }
       } else {
         focusScriptItem(prevId, targetField, 'end');
@@ -3332,7 +3333,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
             setSelectedItemIds(new Set([nextId]));
           }
           setLastSelectedId(nextId);
-          scrollToItem(nextId, 'smooth');
+          scrollToItem(nextId, 'auto');
 
           const cardEl = document.getElementById(`script-row-card-${nextId}`);
           if (cardEl) cardEl.focus({ preventScroll: true });
@@ -3363,7 +3364,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
             setSelectedItemIds(new Set([prevId]));
           }
           setLastSelectedId(prevId);
-          scrollToItem(prevId, 'smooth');
+          scrollToItem(prevId, 'auto');
 
           const cardEl = document.getElementById(`script-row-card-${prevId}`);
           if (cardEl) cardEl.focus({ preventScroll: true });

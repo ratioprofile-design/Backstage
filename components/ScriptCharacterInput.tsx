@@ -104,7 +104,7 @@ export const ScriptCharacterInput: React.FC<ScriptCharacterInputProps> = ({
     onChange(selected);
     setIsOpen(false);
     if (onNext) {
-      setTimeout(() => onNext(), 50);
+      requestAnimationFrame(() => onNext());
     }
   };
 

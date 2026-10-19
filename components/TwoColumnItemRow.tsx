@@ -154,7 +154,6 @@ export const EditableBlock: React.FC<EditableBlockProps> = ({
 }) => {
   const elRef = useRef<HTMLElement | null>(null);
   const isFocusedRef = useRef(false);
-  const [isEditing, setIsEditing] = useState(false);
   const lastEmittedValueRef = useRef(value || '');
   const debounceTimerRef = useRef<any>(null);
 
@@ -177,7 +176,6 @@ export const EditableBlock: React.FC<EditableBlockProps> = ({
       ) {
         return;
       }
-      // If genuine external change occurred while focused (e.g. undo/redo or external split):
       el.innerText = targetVal;
       lastEmittedValueRef.current = targetVal;
       return;
@@ -196,8 +194,6 @@ export const EditableBlock: React.FC<EditableBlockProps> = ({
     if (!el) return;
 
     const handleStartEdit = (e: any) => {
-      setIsEditing(true);
-      el.contentEditable = 'true';
       el.focus();
       const caretPosition = e.detail?.caretPosition || 'end';
       const sel = window.getSelection();
@@ -238,7 +234,6 @@ export const EditableBlock: React.FC<EditableBlockProps> = ({
   }, []);
 
   const handleInput = () => {
-    // Zero layout reflow on keystroke! Do not read DOM .innerText synchronously while user types.
     if (debounceTimerRef.current) {
       clearTimeout(debounceTimerRef.current);
     }
@@ -248,21 +243,16 @@ export const EditableBlock: React.FC<EditableBlockProps> = ({
       const latest = (el.innerText || '').replace(/\r?\n$/, '');
       lastEmittedValueRef.current = latest;
       onUpdateText(latest);
-    }, 600);
+    }, 350);
   };
 
   const handleFocus = (e: React.FocusEvent<HTMLElement>) => {
     isFocusedRef.current = true;
-    setIsEditing(true);
     onFocus?.(e);
   };
 
   const handleBlur = (e: React.FocusEvent<HTMLElement>) => {
     isFocusedRef.current = false;
-    setIsEditing(false);
-    if (elRef.current) {
-      elRef.current.contentEditable = 'false';
-    }
     if (debounceTimerRef.current) {
       clearTimeout(debounceTimerRef.current);
       debounceTimerRef.current = null;
@@ -275,48 +265,8 @@ export const EditableBlock: React.FC<EditableBlockProps> = ({
     onBlur?.(e);
   };
 
-  const handleDoubleClick = (e: React.MouseEvent<HTMLElement>) => {
-    e.stopPropagation();
-    setIsEditing(true);
-    const el = elRef.current;
-    if (el) {
-      el.contentEditable = 'true';
-      el.focus();
-
-      const doc = document as any;
-      let range: Range | null = null;
-      if (doc.caretRangeFromPoint) {
-        range = doc.caretRangeFromPoint(e.clientX, e.clientY);
-      } else if (doc.caretPositionFromPoint) {
-        const pos = doc.caretPositionFromPoint(e.clientX, e.clientY);
-        if (pos) {
-          range = document.createRange();
-          range.setStart(pos.offsetNode, pos.offset);
-          range.collapse(true);
-        }
-      }
-      const sel = window.getSelection();
-      if (sel) {
-        sel.removeAllRanges();
-        if (range) {
-          sel.addRange(range);
-        } else {
-          const r = document.createRange();
-          r.selectNodeContents(el);
-          r.collapse(false);
-          sel.addRange(r);
-        }
-      }
-    }
-  };
-
   const handleClick = (e: React.MouseEvent<HTMLElement>) => {
-    if (isEditing) {
-      // While editing, allow normal click and caret navigation inside text
-      e.stopPropagation();
-      return;
-    }
-    // When not editing, trigger onClick to select the card block
+    // Single click: native caret placement, notifies selection without blocking editing
     onClick?.(e);
   };
 
@@ -324,21 +274,16 @@ export const EditableBlock: React.FC<EditableBlockProps> = ({
     <Component
       ref={elRef as any}
       data-item-id={dataItemId}
-      contentEditable={isEditing}
+      contentEditable={true}
       suppressContentEditableWarning
       onInput={handleInput}
       onFocus={handleFocus}
       onBlur={handleBlur}
       onKeyDown={onKeyDown}
       onClick={handleClick}
-      onDoubleClick={handleDoubleClick}
-      className={`${className || ''} ${
-        isEditing
-          ? 'outline-none ring-2 ring-emerald-500/50 rounded cursor-text'
-          : 'cursor-pointer select-none'
-      }`}
+      className={`outline-none cursor-text focus:ring-1 focus:ring-emerald-500/50 rounded transition-colors ${className || ''}`}
       style={style}
-      title={isEditing ? title : 'Double-click to edit text'}
+      title={title || 'Click to edit'}
     />
   );
 };
@@ -1169,19 +1114,17 @@ export const TwoColumnItemRow: React.FC<TwoColumnItemRowProps> = React.memo(
                             return;
                           }
 
-                          // ArrowDown: Move to next row (default to block selection)
+                          // ArrowDown: Move seamlessly to next row's text
                           if (e.key === 'ArrowDown' && (e.altKey || isCaretOnLastLine(e.currentTarget))) {
                             e.preventDefault();
-                            e.currentTarget.blur();
-                            onFocusNextRow?.(item.id, 'card');
+                            onFocusNextRow?.(item.id, 'auto');
                             return;
                           }
 
-                          // ArrowUp: Move to previous row (default to block selection)
+                          // ArrowUp: Move seamlessly to previous row's text
                           if (e.key === 'ArrowUp' && (e.altKey || isCaretOnFirstLine(e.currentTarget))) {
                             e.preventDefault();
-                            e.currentTarget.blur();
-                            onFocusPrevRow?.(item.id, 'card');
+                            onFocusPrevRow?.(item.id, 'auto');
                             return;
                           }
 
@@ -1335,19 +1278,17 @@ export const TwoColumnItemRow: React.FC<TwoColumnItemRowProps> = React.memo(
                             return;
                           }
 
-                          // ArrowDown: Move to next row (default to block selection)
+                          // ArrowDown: Move seamlessly to next row's text
                           if (e.key === 'ArrowDown' && (e.altKey || isCaretOnLastLine(e.currentTarget))) {
                             e.preventDefault();
-                            e.currentTarget.blur();
-                            onFocusNextRow?.(item.id, 'card');
+                            onFocusNextRow?.(item.id, 'auto');
                             return;
                           }
 
-                          // ArrowUp: Move to previous row (default to block selection)
+                          // ArrowUp: Move seamlessly to previous row's text
                           if (e.key === 'ArrowUp' && (e.altKey || isCaretOnFirstLine(e.currentTarget))) {
                             e.preventDefault();
-                            e.currentTarget.blur();
-                            onFocusPrevRow?.(item.id, 'card');
+                            onFocusPrevRow?.(item.id, 'auto');
                             return;
                           }
 
@@ -1541,6 +1482,7 @@ export const TwoColumnItemRow: React.FC<TwoColumnItemRowProps> = React.memo(
       prev.dragOverPosition === next.dragOverPosition &&
       prev.isLight === next.isLight &&
       prev.isFirstItemInScene === next.isFirstItemInScene &&
+      prev.isContinuousSpeaker === next.isContinuousSpeaker &&
       prev.columnSplitPercent === next.columnSplitPercent &&
       prev.columnGutterPx === next.columnGutterPx &&
       prev.showDivider === next.showDivider &&
