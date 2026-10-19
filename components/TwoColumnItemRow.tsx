@@ -194,7 +194,7 @@ export const EditableBlock: React.FC<EditableBlockProps> = ({
     if (!el) return;
 
     const handleStartEdit = (e: any) => {
-      el.focus();
+      el.focus({ preventScroll: true });
       const caretPosition = e.detail?.caretPosition || 'end';
       const sel = window.getSelection();
       if (sel) {
@@ -1031,14 +1031,14 @@ export const TwoColumnItemRow: React.FC<TwoColumnItemRowProps> = React.memo(
                             onNext={() => {
                               const diaEl = (document.querySelector(`[data-item-row-id="${item.id}"] [data-col="right"] [data-item-id="${item.id}"]`) as HTMLElement) ||
                                 (document.querySelector(`[data-item-id="${item.id}"]`) as HTMLElement);
-                              if (diaEl) diaEl.focus();
+                              if (diaEl) diaEl.focus({ preventScroll: true });
                             }}
                             onPrev={() => {
                               onFocusPrevRow?.(item.id, 'dialogue');
                             }}
                             onArrowLeft={() => {
                               const leftEl = document.querySelector(`[data-item-row-id="${item.id}"] [data-col="left"] [data-item-id="${item.id}"]`) as HTMLElement;
-                              if (leftEl) leftEl.focus();
+                              if (leftEl) leftEl.focus({ preventScroll: true });
                               else onFocusPrevRow?.(item.id, 'action');
                             }}
                             onEscape={() => {
@@ -1134,7 +1134,7 @@ export const TwoColumnItemRow: React.FC<TwoColumnItemRowProps> = React.memo(
                             const diaEl =
                               (document.querySelector(`[data-char-container="${item.id}"] input`) as HTMLElement) ||
                               (document.querySelector(`[data-item-row-id="${item.id}"] [data-col="right"] [data-item-id="${item.id}"]`) as HTMLElement);
-                            if (diaEl) diaEl.focus();
+                            if (diaEl) diaEl.focus({ preventScroll: true });
                             return;
                           }
 
@@ -1152,7 +1152,7 @@ export const TwoColumnItemRow: React.FC<TwoColumnItemRowProps> = React.memo(
                             const diaEl =
                               (document.querySelector(`[data-char-container="${item.id}"] input`) as HTMLElement) ||
                               (document.querySelector(`[data-item-row-id="${item.id}"] [data-col="right"] [data-item-id="${item.id}"]`) as HTMLElement);
-                            if (diaEl) diaEl.focus();
+                            if (diaEl) diaEl.focus({ preventScroll: true });
                             return;
                           }
 
@@ -1297,10 +1297,10 @@ export const TwoColumnItemRow: React.FC<TwoColumnItemRowProps> = React.memo(
                             e.preventDefault();
                             const charEl = document.querySelector(`[data-char-container="${item.id}"] input`) as HTMLElement;
                             if (charEl) {
-                              charEl.focus();
+                              charEl.focus({ preventScroll: true });
                             } else {
                               const leftEl = document.querySelector(`[data-item-row-id="${item.id}"] [data-col="left"] [data-item-id="${item.id}"]`) as HTMLElement;
-                              if (leftEl) leftEl.focus();
+                              if (leftEl) leftEl.focus({ preventScroll: true });
                             }
                             return;
                           }
@@ -1318,10 +1318,10 @@ export const TwoColumnItemRow: React.FC<TwoColumnItemRowProps> = React.memo(
                             e.preventDefault();
                             const charEl = document.querySelector(`[data-char-container="${item.id}"] input`) as HTMLElement;
                             if (charEl) {
-                              charEl.focus();
+                              charEl.focus({ preventScroll: true });
                             } else {
                               const leftEl = document.querySelector(`[data-item-row-id="${item.id}"] [data-col="left"] [data-item-id="${item.id}"]`) as HTMLElement;
-                              if (leftEl) leftEl.focus();
+                              if (leftEl) leftEl.focus({ preventScroll: true });
                             }
                             return;
                           }

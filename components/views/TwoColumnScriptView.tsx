@@ -1996,14 +1996,8 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
     setHasUnsavedChanges(true);
   };
 
-  const isElementInViewport = (el: HTMLElement) => {
-    const rect = el.getBoundingClientRect();
-    const vh = window.innerHeight || document.documentElement.clientHeight;
-    return rect.top >= 65 && rect.bottom <= vh - 65;
-  };
-
-  // Snappy viewport scrolling: only scrolls if the target item is genuinely off-screen
-  const scrollToItem = useCallback((itemId: string, behavior: ScrollBehavior = 'auto', force = false) => {
+  // Centered viewport scrolling so active row remains centered at eye-level
+  const scrollToItem = useCallback((itemId: string, behavior: ScrollBehavior = 'smooth') => {
     if (pageViewMode === 'single') {
       const pageIdx = pages.findIndex((p) =>
         p.elements.some((el) => el.type === 'item' && el.item.id === itemId)
@@ -2013,16 +2007,22 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
       }
     }
 
-    const el = (
-      document.getElementById(`script-row-card-${itemId}`) ||
-      document.getElementById(`script-row-${itemId}`) ||
-      document.querySelector(`[data-item-row-id="${itemId}"]`)
-    ) as HTMLElement | null;
+    const getTargetEl = () =>
+      (document.getElementById(`script-row-card-${itemId}`) ||
+       document.getElementById(`script-row-${itemId}`) ||
+       document.querySelector(`[data-item-row-id="${itemId}"]`)) as HTMLElement | null;
 
+    const el = getTargetEl();
     if (el) {
-      if (force || !isElementInViewport(el)) {
-        el.scrollIntoView({ behavior, block: 'nearest', inline: 'nearest' });
-      }
+      el.scrollIntoView({ behavior, block: 'center', inline: 'nearest' });
+    } else {
+      // If element is not yet in DOM (e.g. single-page transition), scroll once mounted
+      requestAnimationFrame(() => {
+        const deferredEl = getTargetEl();
+        if (deferredEl) {
+          deferredEl.scrollIntoView({ behavior, block: 'center', inline: 'nearest' });
+        }
+      });
     }
   }, [pageViewMode, pages, currentSinglePage]);
 
@@ -2209,16 +2209,17 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
 
   // Reliable auto-focus for newly inserted script item
   const focusNewScriptItem = (newItemId: string, column: 'left' | 'right' | 'center', attempt = 0) => {
+    scrollToItem(newItemId, 'smooth');
     if (column === 'right') {
       const charInput = document.querySelector(`[data-char-container="${newItemId}"] input`) as HTMLInputElement;
       if (charInput) {
-        charInput.focus();
+        charInput.focus({ preventScroll: true });
         return;
       }
     }
     const el = document.querySelector(`[data-item-id="${newItemId}"]`) as HTMLElement;
     if (el) {
-      el.focus();
+      el.focus({ preventScroll: true });
       const sel = window.getSelection();
       if (sel) {
         const range = document.createRange();
@@ -2989,7 +2990,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
     targetField: 'auto' | 'action' | 'dialogue' | 'character' = 'auto',
     caretPosition: 'start' | 'end' = 'end'
   ) => {
-    scrollToItem(itemId, 'auto');
+    scrollToItem(itemId, 'smooth');
 
     let targetEl: HTMLElement | null = null;
     const rowContainer = document.querySelector(`[data-item-row-id="${itemId}"]`);
@@ -3014,7 +3015,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
     }
 
     if (targetEl) {
-      targetEl.focus();
+      targetEl.focus({ preventScroll: true });
       targetEl.dispatchEvent(new CustomEvent('start-edit', { bubbles: true, detail: { caretPosition } }));
       if (targetEl instanceof HTMLInputElement) {
         if (caretPosition === 'start') {
@@ -3050,7 +3051,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
         const cardEl = document.getElementById(`script-row-card-${nextId}`);
         if (cardEl) {
           cardEl.focus({ preventScroll: true });
-          scrollToItem(nextId, 'auto');
+          scrollToItem(nextId, 'smooth');
         }
       } else {
         focusScriptItem(nextId, targetField, 'start');
@@ -3074,7 +3075,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
         const cardEl = document.getElementById(`script-row-card-${prevId}`);
         if (cardEl) {
           cardEl.focus({ preventScroll: true });
-          scrollToItem(prevId, 'auto');
+          scrollToItem(prevId, 'smooth');
         }
       } else {
         focusScriptItem(prevId, targetField, 'end');
@@ -3333,7 +3334,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
             setSelectedItemIds(new Set([nextId]));
           }
           setLastSelectedId(nextId);
-          scrollToItem(nextId, 'auto');
+          scrollToItem(nextId, 'smooth');
 
           const cardEl = document.getElementById(`script-row-card-${nextId}`);
           if (cardEl) cardEl.focus({ preventScroll: true });
@@ -3364,7 +3365,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
             setSelectedItemIds(new Set([prevId]));
           }
           setLastSelectedId(prevId);
-          scrollToItem(prevId, 'auto');
+          scrollToItem(prevId, 'smooth');
 
           const cardEl = document.getElementById(`script-row-card-${prevId}`);
           if (cardEl) cardEl.focus({ preventScroll: true });
@@ -3378,7 +3379,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
             const firstId = orderedItemIds[0];
             setSelectedItemIds(new Set([firstId]));
             setLastSelectedId(firstId);
-            scrollToItem(firstId);
+            scrollToItem(firstId, 'smooth');
             const cardEl = document.getElementById(`script-row-card-${firstId}`);
             if (cardEl) cardEl.focus({ preventScroll: true });
             return;
@@ -3392,7 +3393,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
             const lastId = orderedItemIds[orderedItemIds.length - 1];
             setSelectedItemIds(new Set([lastId]));
             setLastSelectedId(lastId);
-            scrollToItem(lastId);
+            scrollToItem(lastId, 'smooth');
             const cardEl = document.getElementById(`script-row-card-${lastId}`);
             if (cardEl) cardEl.focus({ preventScroll: true });
             return;
@@ -3458,7 +3459,8 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
                 `[data-char-container="${targetId}"] input`
               ) as HTMLInputElement | null;
               if (charInput) {
-                charInput.focus();
+                scrollToItem(targetId, 'smooth');
+                charInput.focus({ preventScroll: true });
                 // Without preventDefault, the typed character naturally types into the character input
                 return;
               }
