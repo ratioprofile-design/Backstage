@@ -296,13 +296,13 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
 
   return (
     <div 
-      className="fixed inset-0 z-[2500] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-in fade-in duration-200"
+      className="fixed inset-0 z-[2500] flex items-center justify-center p-4 bg-black/90 animate-in fade-in duration-150"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose?.();
       }}
     >
       <div 
-        className="relative w-full max-w-[440px] rounded-2xl bg-[#121218] border border-white/10 shadow-[0_30px_100px_rgba(0,0,0,0.9),0_0_0_1px_rgba(245,166,35,0.08)] overflow-hidden flex flex-col"
+        className="relative w-full max-w-[440px] rounded-2xl bg-[#121218] border border-white/10 shadow-2xl overflow-hidden flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Amber brand top line glow */}

@@ -6,6 +6,7 @@ import {
   fetchProjectDocumentsFromCloud, 
   fetchStorageFilesFromCloud,
   deleteProjectDocumentFromCloud,
+  deleteProjectDocumentsFromProjectData,
   uploadDocumentBinaryToStorage,
   fetchProjectData,
   supabase,
@@ -541,7 +542,8 @@ export function getProductionDocuments(projectId?: string): ProductionDocument[]
       doc.id === 'doc-bd-1' ||
       doc.id.startsWith('harvest-breakdown-') ||
       doc.fileName?.startsWith('Breakdown_Sc') ||
-      (doc.category === 'BREAKDOWN' && doc.id !== MASTER_BREAKDOWN_DOC_ID);
+      doc.id === MASTER_BREAKDOWN_DOC_ID ||
+      (doc.category === 'BREAKDOWN' && doc.builtInType === 'breakdown');
 
     const filtered = parsed.filter(
       (doc: ProductionDocument) =>
@@ -556,12 +558,7 @@ export function getProductionDocuments(projectId?: string): ProductionDocument[]
 
     let hasMigrated = filtered.length !== parsed.length;
 
-    // Ensure exactly ONE Master Production Breakdown sheet exists IF not explicitly deleted
-    const hasMaster = filtered.some((d: ProductionDocument) => d.id === MASTER_BREAKDOWN_DOC_ID);
-    if (!hasMaster && !tombstones.has(MASTER_BREAKDOWN_DOC_ID)) {
-      hasMigrated = true;
-      filtered.unshift(createMasterBreakdownDocument(undefined, activeProjId));
-    }
+    // Do NOT auto-create Master Production Breakdown sheet (respect collaborator & user preferences)
 
     // Ensure SANGILI Master Screenplay exists in the vault and is staged to script IF not explicitly deleted
     const hasSangili = filtered.some((d: ProductionDocument) => d.id === SANGILI_DOCUMENT_ID);
@@ -1139,19 +1136,42 @@ export async function syncDocumentsWithCloud(
 
     const cloudDocsPool: ProductionDocument[] = [];
 
-    // Collect all documents from project_documents table
+    // Helper to identify and purge any breakdown materials that may have been auto-injected previously
+    const isBreakdownDoc = (doc: any) =>
+      !doc ||
+      doc.id === 'doc-bd-1' ||
+      doc.id === MASTER_BREAKDOWN_DOC_ID ||
+      (typeof doc.id === 'string' && doc.id.startsWith('harvest-breakdown-')) ||
+      (typeof doc.fileName === 'string' && (doc.fileName.startsWith('Breakdown_Sc') || doc.fileName === 'Master_Production_Breakdown.md')) ||
+      (doc.category === 'BREAKDOWN' && doc.builtInType === 'breakdown');
+
+    // Purge breakdown materials from local docs
+    localDocs = localDocs.filter((d) => !isBreakdownDoc(d));
+
+    // Collect all documents from project_documents table (excluding breakdown docs)
     if (Array.isArray(tableDocs) && tableDocs.length > 0) {
-      cloudDocsPool.push(...tableDocs);
+      cloudDocsPool.push(...tableDocs.filter((d) => !isBreakdownDoc(d)));
     }
 
-    // Collect all documents from projects.data.documents array
+    // Process Cloud Tombstones first: if any documents were deleted in cloud by collaborator, purge them locally!
+    if (projData && Array.isArray(projData.deletedDocumentIds) && projData.deletedDocumentIds.length > 0) {
+      recordDocumentDeletion(projData.deletedDocumentIds, projectId);
+      const cloudDeletedSet = new Set(projData.deletedDocumentIds);
+      localDocs = localDocs.filter((d) => !cloudDeletedSet.has(d.id));
+    }
+
+    // Collect all documents from projects.data.documents array (excluding tombstoned IDs and breakdown materials)
     if (projData && Array.isArray(projData.documents) && projData.documents.length > 0) {
-      cloudDocsPool.push(...projData.documents);
+      const currentTombstones = getDeletedDocumentIds(projectId);
+      const validCloudDocs = projData.documents.filter(
+        (d: any) => d && d.id && !currentTombstones.has(d.id) && !isBreakdownDoc(d)
+      );
+      cloudDocsPool.push(...validCloudDocs);
     }
 
-    // Collect any standalone uploaded files from Supabase Storage
+    // Collect any standalone uploaded files from Supabase Storage (excluding breakdown materials)
     if (Array.isArray(storageDocs) && storageDocs.length > 0) {
-      cloudDocsPool.push(...storageDocs);
+      cloudDocsPool.push(...storageDocs.filter((d) => !isBreakdownDoc(d)));
     }
 
     if (cloudDocsPool.length === 0) {
@@ -1165,11 +1185,11 @@ export async function syncDocumentsWithCloud(
       return localDocs;
     }
 
-    // Merge all cloud documents together first (deduplicating across table, JSON, and storage)
-    const unifiedCloudDocs = mergeProductionDocuments([], cloudDocsPool);
+    // Merge all cloud documents together first (deduplicating across table, JSON, and storage, excluding breakdown materials)
+    const unifiedCloudDocs = mergeProductionDocuments([], cloudDocsPool).filter((d) => !isBreakdownDoc(d));
 
     // Merge cloud and local non-destructively so in-flight or offline docs are never overwritten
-    const merged = mergeProductionDocuments(localDocs, unifiedCloudDocs);
+    const merged = mergeProductionDocuments(localDocs, unifiedCloudDocs).filter((d) => !isBreakdownDoc(d));
 
     // CRITICAL FOR CROSS-LAPTOP SYNC: Push merged documents to projects.data.documents so the other laptop receives ALL files immediately!
     if (merged && merged.length > 0) {
@@ -1318,8 +1338,11 @@ export function deleteProductionDocuments(
     }).catch(() => {});
   });
 
-  // 6. Delete from Supabase Cloud table
+  // 6. Delete from Supabase Cloud table & projects.data.documents & append tombstone & broadcast
   if (activeProjId && isSupabaseConfigured) {
+    deleteProjectDocumentsFromProjectData(activeProjId, idList).catch((err) => {
+      console.warn('[DocStorage] Cloud projects.data deletion notice:', err);
+    });
     idList.forEach((id) => {
       deleteProjectDocumentFromCloud(activeProjId, id).catch(() => {});
     });
@@ -1645,12 +1668,7 @@ export function harvestProjectArtifacts(project: any, explicitProjectId?: string
     });
   }
 
-  // 3. Ensure Exactly ONE Master Production Breakdown Sheet (Pure Markdown, no Notion table)
-  if (!existingIds.has(MASTER_BREAKDOWN_DOC_ID)) {
-    const masterDoc = createMasterBreakdownDocument(project, projId);
-    newDocs.push(masterDoc);
-    existingIds.add(MASTER_BREAKDOWN_DOC_ID);
-  }
+  // 3. Master Production Breakdown Sheet is not auto-injected
 
   // 3b. Ensure SANGILI Master Shooting Script is present and staged
   if (!existingIds.has(SANGILI_DOCUMENT_ID)) {

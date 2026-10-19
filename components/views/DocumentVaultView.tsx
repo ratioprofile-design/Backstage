@@ -12,7 +12,8 @@ import {
   BreakdownCategory
 } from '../../types';
 import { 
-  getProductionDocuments, 
+  getProductionDocuments,
+  recordDocumentDeletion, 
   saveProductionDocuments, 
   addProductionDocument,
   archiveProductionDocument,
@@ -639,6 +640,29 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
             saveProductionDocuments(next, currentProjectId, true);
             return next;
           });
+        }
+      )
+      .on(
+        'broadcast',
+        { event: 'vault_documents_deleted' },
+        (msg: any) => {
+          const payload = msg.payload || msg;
+          const deletedIds: string[] = payload?.deletedIds || (payload?.docId ? [payload.docId] : []);
+          if (deletedIds.length > 0) {
+            console.log('[DocumentVault] Live deletion broadcast received from collaborator:', deletedIds);
+            recordDocumentDeletion(deletedIds, currentProjectId);
+            setDocuments((prevDocs) => {
+              const cleaned = prevDocs.filter((d) => !deletedIds.includes(d.id));
+              saveProductionDocuments(cleaned, currentProjectId, true);
+              return cleaned;
+            });
+            setSelectedDocIds((prev) => {
+              const next = new Set(prev);
+              deletedIds.forEach((id) => next.delete(id));
+              return next;
+            });
+            showToast(`🗑️ Collaborator removed ${deletedIds.length} document(s)`);
+          }
         }
       )
       .subscribe();

@@ -547,15 +547,25 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     let isMounted = true;
 
-    // Safety timeout: release splash screen within 4s even if network or auth hangs
+    // Fast-boot detection: If no OAuth callback is in the URL, release splash immediately (350ms max safety)
+    // Low-spec 2-core i5 laptops must never be stuck waiting on network roundtrips before displaying UI!
+    const hasOAuth = typeof window !== 'undefined' && (
+      (window.location.hash && (window.location.hash.includes('access_token') || window.location.hash.includes('error'))) ||
+      (window.location.search && (window.location.search.includes('code=') || window.location.search.includes('error=')))
+    );
+
     const safetyTimer = setTimeout(() => {
       if (isMounted) {
         setIsInitialLoading(false);
       }
-    }, 4000);
+    }, hasOAuth ? 1800 : 350);
 
     const initAuth = async () => {
       try {
+        if (!hasOAuth) {
+          // Unblock workspace immediately so low-spec machines have zero startup freeze
+          setIsInitialLoading(false);
+        }
         // 1. Handle OAuth callback parameters in hash (#access_token=...&refresh_token=...) from Supabase / Google
         if (typeof window !== 'undefined' && window.location.hash) {
           try {

@@ -94,15 +94,11 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
         }
       });
 
-      // Background fallback poll every 6s while Welcome Screen is active
-      pollInterval = setInterval(loadInvites, 6000);
-
-      // Auto-refresh when collaborator returns to the app tab/window
+      // Auto-refresh when collaborator returns to the app tab/window (no heavy interval polling on 2-core CPUs)
       const handleFocus = () => loadInvites();
       window.addEventListener('focus', handleFocus);
 
       return () => {
-        if (pollInterval) clearInterval(pollInterval);
         window.removeEventListener('focus', handleFocus);
         if (channel) {
           import('../services/supabase').then(({ supabase }) => {
@@ -369,20 +365,23 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
   };
 
   return (
-    <div className={`fixed inset-0 z-[700] ${isLight ? 'bg-slate-900/35' : 'bg-[#07070a]/90'} flex items-center justify-center p-4 sm:p-6 md:p-8 font-sans select-none overflow-hidden transition-colors duration-300 backdrop-blur-md`}>
-      {/* Background Ambient Glows */}
+    <div className={`fixed inset-0 z-[700] ${isLight ? 'bg-slate-900/40' : 'bg-[#07070a]/95'} flex items-center justify-center p-4 sm:p-6 md:p-8 font-sans select-none overflow-hidden transition-colors duration-300`}>
+      {/* GPU-Friendly Ambient Radial Glows (Instant rasterization, no heavy 160px blur shaders) */}
       <div 
-        className={`absolute -top-[15%] -left-[10%] w-[550px] h-[550px] rounded-full blur-[140px] pointer-events-none transition-opacity duration-300 ${isLight ? 'opacity-15' : 'opacity-25'}`}
-        style={{ background: appAccentColor }}
+        className="absolute inset-0 pointer-events-none transition-opacity duration-300"
+        style={{
+          background: isLight 
+            ? `radial-gradient(circle at 10% 10%, ${appAccentColor}20 0%, transparent 45%), radial-gradient(circle at 90% 90%, #38bdf815 0%, transparent 45%)`
+            : `radial-gradient(circle at 10% 10%, ${appAccentColor}25 0%, transparent 45%), radial-gradient(circle at 90% 90%, #2563eb18 0%, transparent 45%)`
+        }}
       />
-      <div className={`absolute -bottom-[20%] -right-[10%] w-[600px] h-[600px] rounded-full ${isLight ? 'bg-sky-400/15' : 'bg-blue-600/15'} blur-[160px] pointer-events-none`} />
 
-      {/* Main Glassmorphic Studio Hub Container */}
+      {/* Main Studio Hub Container */}
       <div className={`relative w-full max-w-[1020px] h-[660px] max-h-[92vh] ${
         isLight 
-          ? 'bg-white/95 border-slate-200/90 text-slate-900 shadow-[0_25px_80px_rgba(15,23,42,0.18)]' 
-          : 'bg-[#101116]/95 border-white/10 text-white shadow-[0_25px_80px_rgba(0,0,0,0.85)]'
-      } border rounded-2xl backdrop-blur-2xl flex flex-col md:flex-row overflow-hidden transition-all duration-300`}>
+          ? 'bg-white border-slate-200 text-slate-900 shadow-[0_25px_80px_rgba(15,23,42,0.18)]' 
+          : 'bg-[#101116] border-white/10 text-white shadow-[0_25px_80px_rgba(0,0,0,0.85)]'
+      } border rounded-2xl flex flex-col md:flex-row overflow-hidden transition-all duration-300`}>
 
         {/* Top-Right Quick Controls (Theme Toggle & Dismiss Button) */}
         <div className="absolute top-4 right-4 z-30 flex items-center gap-2">

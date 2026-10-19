@@ -944,17 +944,97 @@ export const fetchStorageFilesFromCloud = async (projectId: string): Promise<any
 };
 
 /**
+ * Permanently delete document IDs from projects.data.documents in Supabase
+ * and append them to projects.data.deletedDocumentIds (cloud tombstone registry).
+ * Also broadcasts 'vault_documents_deleted' to live collaborators.
+ */
+export const deleteProjectDocumentsFromProjectData = async (
+  projectId: string,
+  docIds: string[]
+): Promise<boolean> => {
+  if (!isSupabaseConfigured || !projectId || !docIds || docIds.length === 0) return false;
+  const toDeleteSet = new Set(docIds);
+  try {
+    const { data: projectRow, error: fetchErr } = await supabase
+      .from('projects')
+      .select('id, data')
+      .eq('id', projectId)
+      .maybeSingle();
+
+    if (fetchErr || !projectRow) {
+      console.warn('[Supabase] deleteProjectDocumentsFromProjectData fetch error:', fetchErr);
+      return false;
+    }
+
+    const existingData = projectRow.data || {};
+    const existingDocs: any[] = Array.isArray(existingData.documents) ? existingData.documents : [];
+    const remainingDocs = existingDocs.filter((d: any) => d && d.id && !toDeleteSet.has(d.id));
+
+    // Append to cloud tombstone list so all collaborators receive permanent deletion
+    const existingDeletedIds: string[] = Array.isArray(existingData.deletedDocumentIds)
+      ? existingData.deletedDocumentIds
+      : [];
+    const updatedDeletedIds = Array.from(new Set([...existingDeletedIds, ...docIds]));
+
+    const updatedData = {
+      ...existingData,
+      documents: remainingDocs,
+      deletedDocumentIds: updatedDeletedIds,
+      lastModified: Date.now()
+    };
+
+    const { error: updateErr } = await supabase
+      .from('projects')
+      .update({
+        data: updatedData,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', projectId);
+
+    if (updateErr) {
+      console.warn('[Supabase] Failed to update projects.data for deleted documents:', updateErr);
+      return false;
+    }
+
+    // Broadcast deletion in real time to all collaborator browsers
+    try {
+      const channel = supabase.channel(`vault_realtime_${projectId}`);
+      channel.send({
+        type: 'broadcast',
+        event: 'vault_documents_deleted',
+        payload: {
+          projectId,
+          deletedIds: docIds,
+          timestamp: Date.now()
+        }
+      }).catch(() => {});
+    } catch {}
+
+    console.log(`[Supabase] Successfully purged ${docIds.length} documents from cloud project data.`);
+    return true;
+  } catch (err) {
+    console.warn('[Supabase] deleteProjectDocumentsFromProjectData exception:', err);
+    return false;
+  }
+};
+
+/**
  * Delete a document from Supabase Cloud
  */
 export const deleteProjectDocumentFromCloud = async (projectId: string, docId: string): Promise<boolean> => {
   if (!isSupabaseConfigured || !projectId || !docId) return false;
   try {
-    const { error } = await supabase
+    // 1. Delete from PostgreSQL table
+    await supabase
       .from('project_documents')
       .delete()
       .eq('project_id', projectId)
       .eq('id', docId);
-    return !error;
+
+    // 2. Delete from projects.data.documents & append tombstone in cloud
+    await deleteProjectDocumentsFromProjectData(projectId, [docId]);
+
+    return true;
   } catch (err) {
     return false;
   }
