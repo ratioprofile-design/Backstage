@@ -47,6 +47,8 @@ export function generateTwoColumnPrintHtml(
   const { pages, totalPages } = pagination;
   const documentName = (screenplay.title || 'Screenplay').trim();
 
+  let lastSpeakerInDocScene = '';
+
   const pagesHtml = pages.map((page) => {
     const isFirstPage = page.pageNumber === 1;
 
@@ -59,6 +61,9 @@ export function generateTwoColumnPrintHtml(
       })
       .map((elem) => {
         if (elem.type === 'scene_header') {
+          if (!elem.isContinued) {
+            lastSpeakerInDocScene = '';
+          }
           const chars = elem.characters || [];
           const charsStr = chars.length > 0 ? chars.join(', ') : 'None';
 
@@ -137,6 +142,18 @@ export function generateTwoColumnPrintHtml(
           charName = charName.slice(0, -1).trim();
         }
 
+        const contdRegex = /\s*\(\s*(?:CONT['’.]?D\.?|CONTINUES|CONTINUED|தொடர்ச்சி|தொடர்கிறது)\s*\)/i;
+        const charHasContd = contdRegex.test(charName);
+        const normSpeaker = charName.replace(/\s*\([^)]*\)$/, '').trim().toUpperCase();
+        const isContinuous = Boolean(normSpeaker && lastSpeakerInDocScene && lastSpeakerInDocScene === normSpeaker);
+        if (normSpeaker && (isRight || diaText)) {
+          lastSpeakerInDocScene = normSpeaker;
+        }
+
+        const displayCharName = isContinuous && !charHasContd
+          ? `${charName} <span style="font-size: 11px; font-style: italic; font-weight: normal; opacity: 0.85;">(continues)</span>`
+          : charName;
+
         const leftActionText = (item.leftAction || (!isRight ? item.rawText : '') || '').trim();
         const isPureDialogue = !leftActionText && Boolean(charName || diaText);
         const isSimultaneous = Boolean(leftActionText && (charName || diaText));
@@ -158,7 +175,7 @@ export function generateTwoColumnPrintHtml(
             <div style="width: ${options.columnSplitPercent}%; padding-right: 14px; box-sizing: border-box; text-align: ${isPureDialogue ? 'right' : actionAlign}; white-space: pre-wrap; word-break: break-word;">
               ${
                 isPureDialogue && charName
-                  ? `<div style="font-weight: ${charBold}; color: ${charColor}; text-align: right; line-height: ${options.baseLineHeight};">${charName} :</div>`
+                  ? `<div style="font-weight: ${charBold}; color: ${charColor}; text-align: right; line-height: ${options.baseLineHeight};">${displayCharName} :</div>`
                   : leftActionText
                   ? `<span style="color: ${actionColor}; font-weight: ${itemFontWeight}; font-style: ${itemFontStyle}; line-height: ${options.baseLineHeight};">${leftActionText}</span>`
                   : ''

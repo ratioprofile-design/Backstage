@@ -1029,6 +1029,45 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
   // Defer heavy script pagination so active typing receives 100% main thread priority
   const deferredScreenplayData = useDeferredValue(screenplayData);
 
+  // Continuous Dialogue Speaker Identification:
+  // Detects when the same character speaks consecutively within a scene (with or without action in-between)
+  const continuousSpeakerItemIds = useMemo(() => {
+    const ids = new Set<string>();
+    if (!screenplayData?.scenes) return ids;
+
+    const normalize = (name?: string) => {
+      if (!name) return '';
+      let clean = name.trim();
+      if (clean.endsWith(':')) clean = clean.slice(0, -1).trim();
+      clean = clean.replace(/\s*\([^)]*\)$/, '').trim();
+      return clean.toUpperCase();
+    };
+
+    screenplayData.scenes.forEach((scene) => {
+      let lastSpeaker = '';
+      if (Array.isArray(scene.items)) {
+        scene.items.forEach((item) => {
+          if (item.column === 'right' || item.type === 'dialogue') {
+            let char = (item.rightCharacter || '').trim();
+            if (!char && item.rawText) {
+              const m = item.rawText.match(/^([\u0B80-\u0BFFa-zA-Z0-9\s.]{2,30})\s*:\s*(.*)$/);
+              if (m) char = m[1].trim();
+            }
+            const norm = normalize(char);
+            if (norm) {
+              if (lastSpeaker && lastSpeaker === norm) {
+                ids.add(item.id);
+              }
+              lastSpeaker = norm;
+            }
+          }
+        });
+      }
+    });
+
+    return ids;
+  }, [screenplayData]);
+
   // Run Dedicated Pagination Engine
   const paginationResult = useMemo(() => {
     return paginateTwoColumnScript(deferredScreenplayData, layoutOptions);
@@ -5053,6 +5092,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
                         item={item}
                         isSelected={isSelected}
                         isFirstItemInScene={isFirstItemInScene}
+                        isContinuousSpeaker={continuousSpeakerItemIds.has(item.id)}
                         columnSplitPercent={layoutOptions.columnSplitPercent}
                         columnGutterPx={layoutOptions.columnGutterPx ?? 16}
                         showDivider={layoutOptions.showDivider}

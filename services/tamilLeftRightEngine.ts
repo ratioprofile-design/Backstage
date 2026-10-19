@@ -998,6 +998,8 @@ export function generateTamilLeftRightHtml(data: TamilScreenplayData): string {
           <tbody>
     `;
 
+    let lastSpeakerInHtmlScene = '';
+
     scene.items.forEach((item) => {
       if (item.column === 'center' || item.type === 'transition' || item.type === 'title') {
         html += `
@@ -1020,6 +1022,18 @@ export function generateTamilLeftRightHtml(data: TamilScreenplayData): string {
         }
         if (charName.endsWith(':')) charName = charName.slice(0, -1).trim();
 
+        const contdRegex = /\s*\(\s*(?:CONT['’.]?D\.?|CONTINUES|CONTINUED|தொடர்ச்சி|தொடர்கிறது)\s*\)/i;
+        const charHasContd = contdRegex.test(charName);
+        const normSpeaker = charName ? charName.replace(/\s*\([^)]*\)$/, '').trim().toUpperCase() : '';
+        const isContinuous = Boolean(normSpeaker && lastSpeakerInHtmlScene && lastSpeakerInHtmlScene === normSpeaker);
+        if (normSpeaker && (isRight || diaText)) {
+          lastSpeakerInHtmlScene = normSpeaker;
+        }
+
+        const displayHtmlChar = isContinuous && !charHasContd
+          ? `${charName || 'கதாபாத்திரம்'} <span style="font-style: italic; font-size: 11px; opacity: 0.85;">(continues)</span>`
+          : (charName || 'கதாபாத்திரம்');
+
         const actionContent = !isRight ? (item.leftAction || item.rawText || '') : '';
 
         html += `
@@ -1028,7 +1042,7 @@ export function generateTamilLeftRightHtml(data: TamilScreenplayData): string {
             <td style="padding: 8px 12px 8px 0; font-size: 13.5px; line-height: 1.6; border-right: 1px dashed rgba(148, 163, 184, 0.35);">
               ${isRight ? `
                 <div style="text-align: right; font-weight: 800; color: #0284c7;">
-                  ${charName || 'கதாபாத்திரம்'} :
+                  ${displayHtmlChar} :
                 </div>
               ` : actionContent ? `
                 <div style="text-align: justify;">${actionContent}</div>
@@ -1626,6 +1640,8 @@ export async function generateTamilLeftRightDocx(
       });
     }
 
+    let lastSpeakerInDocxScene = '';
+
     effectiveItems.forEach((item) => {
       const itemColor = item.textColor ? item.textColor.replace('#', '').toUpperCase() : undefined;
       const validItemColor = itemColor && /^[0-9A-F]{6}$/i.test(itemColor) ? itemColor : undefined;
@@ -1691,24 +1707,59 @@ export async function generateTamilLeftRightDocx(
             ? AlignmentType.RIGHT
             : AlignmentType.LEFT;
 
+        const contdRegex = /\s*\(\s*(?:CONT['’.]?D\.?|CONTINUES|CONTINUED|தொடர்ச்சி|தொடர்கிறது)\s*\)/i;
+        const charHasContd = contdRegex.test(charName);
+        const normSpeaker = charName ? charName.replace(/\s*\([^)]*\)$/, '').trim().toUpperCase() : '';
+        const isContinuous = Boolean(normSpeaker && lastSpeakerInDocxScene && lastSpeakerInDocxScene === normSpeaker);
+        if (normSpeaker && (isRight || diaText)) {
+          lastSpeakerInDocxScene = normSpeaker;
+        }
+
         const leftParas: Paragraph[] = [];
         if (isRight) {
           // Dialogue Row: Character Name on Left TableCell, Right-Aligned with ":"
+          const charChildren: TextRun[] = [
+            new TextRun({
+              text: charName || 'கதாபாத்திரம்',
+              bold: isCharBold,
+              boldComplexScript: isCharBold,
+              size: fontSizeHalfPt,
+              sizeComplexScript: fontSizeHalfPt,
+              color: charColor,
+              font: fontObj,
+            }),
+          ];
+          if (isContinuous && !charHasContd) {
+            charChildren.push(
+              new TextRun({
+                text: ' (continues)',
+                italics: true,
+                bold: false,
+                boldComplexScript: false,
+                size: Math.max(16, fontSizeHalfPt - 4),
+                sizeComplexScript: Math.max(16, fontSizeHalfPt - 4),
+                color: charColor,
+                font: fontObj,
+              })
+            );
+          }
+          charChildren.push(
+            new TextRun({
+              text: ' :',
+              bold: isCharBold,
+              boldComplexScript: isCharBold,
+              size: fontSizeHalfPt,
+              sizeComplexScript: fontSizeHalfPt,
+              color: charColor,
+              font: fontObj,
+            })
+          );
+
           leftParas.push(
             new Paragraph({
               alignment: AlignmentType.RIGHT,
               spacing: { before: elemSpacingBefore, after: 60 },
-              children: [
-                new TextRun({
-                  text: `${charName || 'கதாபாத்திரம்'} :`,
-                  bold: isCharBold,
-                  boldComplexScript: isCharBold,
-                  size: fontSizeHalfPt,
-                  sizeComplexScript: fontSizeHalfPt,
-                  color: charColor,
-                  font: fontObj,
-                }),
-              ],
+              children: charChildren,
             })
           );
         } else {

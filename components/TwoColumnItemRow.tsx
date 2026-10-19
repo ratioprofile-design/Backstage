@@ -68,6 +68,7 @@ export interface TwoColumnItemRowProps {
   splitActionByComma?: boolean;
   splitActionIncludeDot?: boolean;
   onSplitActionByComma?: (itemId: string, text: string) => void;
+  isContinuousSpeaker?: boolean;
   showToast: (msg: string) => void;
 }
 
@@ -389,6 +390,7 @@ export const TwoColumnItemRow: React.FC<TwoColumnItemRowProps> = React.memo(
     splitActionByComma = false,
     splitActionIncludeDot = false,
     onSplitActionByComma,
+    isContinuousSpeaker = false,
     showToast,
   }) => {
     const [isColorPickerOpen, setIsColorPickerOpen] = useState(false);
@@ -534,9 +536,9 @@ export const TwoColumnItemRow: React.FC<TwoColumnItemRowProps> = React.memo(
             <GripVertical size={14} className="stroke-[2.2]" />
           </div>
 
-          {/* Hover Quick Action Toolbar */}
+          {/* Hover Quick Action Toolbar - Anchored at top-right corner to NEVER obscure character name at the center divider */}
           <div
-            className={`absolute -top-4 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-all z-30 flex items-center gap-1 border rounded-xl px-1.5 py-0.5 shadow-xl backdrop-blur-xs ${
+            className={`absolute -top-3.5 right-4 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-20 hover:!opacity-100 hover:!pointer-events-auto transition-all z-30 flex items-center gap-1 border rounded-xl px-1.5 py-0.5 shadow-xl backdrop-blur-xs ${
               isLight
                 ? 'bg-white/95 text-slate-700 border-slate-200/90 shadow-[0_8px_25px_rgba(0,0,0,0.12)]'
                 : 'bg-zinc-950/95 dark:bg-zinc-900 border-zinc-700/90 text-zinc-100'
@@ -1070,43 +1072,61 @@ export const TwoColumnItemRow: React.FC<TwoColumnItemRowProps> = React.memo(
                     }
                     if (char.endsWith(':')) char = char.slice(0, -1).trim();
 
+                    const contdRegex = /\s*\(\s*(?:CONT['’.]?D\.?|CONTINUES|CONTINUED|தொடர்ச்சி|தொடர்கிறது)\s*\)/i;
+                    const charHasContd = contdRegex.test(char);
+
                     return (
-                      <div data-char-container={item.id} className="w-full flex items-start justify-end gap-1 pt-0.5">
-                        <ScriptCharacterInput
-                          value={char || ''}
-                          suggestions={allKnownCharacters}
-                          onChange={(val) => onUpdateCharacter(item.id, val)}
-                          onManageCharacters={onOpenCharacterManager}
-                          onNext={() => {
-                            const diaEl = (document.querySelector(`[data-item-row-id="${item.id}"] [data-col="right"] [data-item-id="${item.id}"]`) as HTMLElement) ||
-                              (document.querySelector(`[data-item-id="${item.id}"]`) as HTMLElement);
-                            if (diaEl) diaEl.focus();
-                          }}
-                          onPrev={() => {
-                            onFocusPrevRow?.(item.id, 'dialogue');
-                          }}
-                          onArrowLeft={() => {
-                            const leftEl = document.querySelector(`[data-item-row-id="${item.id}"] [data-col="left"] [data-item-id="${item.id}"]`) as HTMLElement;
-                            if (leftEl) leftEl.focus();
-                            else onFocusPrevRow?.(item.id, 'action');
-                          }}
-                          onEscape={() => {
-                            onEscapeToCard?.(item.id);
-                          }}
-                          placeholder="கதாபாத்திரம்"
-                          style={{ color: characterColor }}
-                          className={`text-xs uppercase text-right bg-transparent border-b border-transparent hover:border-zinc-500 focus:border-sky-400 outline-none w-auto min-w-[70px] max-w-[240px] transition-colors ${
-                            characterNameBold !== false ? 'font-black' : 'font-medium'
-                          }`}
-                        />
-                        <span
-                          style={{ color: characterColor }}
-                          className={`text-xs select-none ${
-                            characterNameBold !== false ? 'font-black' : 'font-medium'
-                          }`}
-                        >
-                          :
-                        </span>
+                      <div data-char-container={item.id} className="w-full flex items-start justify-end gap-1 pt-0.5 relative z-10">
+                        <div className="flex flex-wrap items-baseline justify-end gap-1 max-w-full">
+                          <ScriptCharacterInput
+                            value={char || ''}
+                            suggestions={allKnownCharacters}
+                            onChange={(val) => onUpdateCharacter(item.id, val)}
+                            onManageCharacters={onOpenCharacterManager}
+                            onNext={() => {
+                              const diaEl = (document.querySelector(`[data-item-row-id="${item.id}"] [data-col="right"] [data-item-id="${item.id}"]`) as HTMLElement) ||
+                                (document.querySelector(`[data-item-id="${item.id}"]`) as HTMLElement);
+                              if (diaEl) diaEl.focus();
+                            }}
+                            onPrev={() => {
+                              onFocusPrevRow?.(item.id, 'dialogue');
+                            }}
+                            onArrowLeft={() => {
+                              const leftEl = document.querySelector(`[data-item-row-id="${item.id}"] [data-col="left"] [data-item-id="${item.id}"]`) as HTMLElement;
+                              if (leftEl) leftEl.focus();
+                              else onFocusPrevRow?.(item.id, 'action');
+                            }}
+                            onEscape={() => {
+                              onEscapeToCard?.(item.id);
+                            }}
+                            placeholder="கதாபாத்திரம்"
+                            style={{ color: characterColor }}
+                            className={`text-xs uppercase text-right bg-transparent border-b border-transparent hover:border-zinc-500 focus:border-sky-400 outline-none w-auto min-w-[70px] max-w-[240px] transition-colors cursor-text ${
+                              characterNameBold !== false ? 'font-black' : 'font-medium'
+                            }`}
+                          />
+                          {isContinuousSpeaker && !charHasContd && (
+                            <span
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onUpdateCharacter(item.id, `${char} (continues)`);
+                              }}
+                              style={{ color: characterColor || '#0284c7' }}
+                              className="text-[11px] font-serif italic select-none opacity-85 hover:opacity-100 hover:underline cursor-pointer transition-opacity whitespace-nowrap"
+                              title="Continuous dialogue: character speaks consecutively. Click to bake (continues) permanently into character name."
+                            >
+                              (continues)
+                            </span>
+                          )}
+                          <span
+                            style={{ color: characterColor }}
+                            className={`text-xs select-none ${
+                              characterNameBold !== false ? 'font-black' : 'font-medium'
+                            }`}
+                          >
+                            :
+                          </span>
+                        </div>
                       </div>
                     );
                   })()

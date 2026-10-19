@@ -372,6 +372,44 @@ export const DocumentTwoColumnEditor: React.FC<DocumentTwoColumnEditorProps> = (
     return parseScreenplayToTamilLeftRight(rawText, doc.title);
   });
 
+  // Continuous Dialogue Speaker Identification:
+  const continuousSpeakerItemIds = useMemo(() => {
+    const ids = new Set<string>();
+    if (!screenplayData?.scenes) return ids;
+
+    const normalize = (name?: string) => {
+      if (!name) return '';
+      let clean = name.trim();
+      if (clean.endsWith(':')) clean = clean.slice(0, -1).trim();
+      clean = clean.replace(/\s*\([^)]*\)$/, '').trim();
+      return clean.toUpperCase();
+    };
+
+    screenplayData.scenes.forEach((scene) => {
+      let lastSpeaker = '';
+      if (Array.isArray(scene.items)) {
+        scene.items.forEach((item) => {
+          if (item.column === 'right' || item.type === 'dialogue') {
+            let char = (item.rightCharacter || '').trim();
+            if (!char && item.rawText) {
+              const m = item.rawText.match(/^([\u0B80-\u0BFFa-zA-Z0-9\s.]{2,30})\s*:\s*(.*)$/);
+              if (m) char = m[1].trim();
+            }
+            const norm = normalize(char);
+            if (norm) {
+              if (lastSpeaker && lastSpeaker === norm) {
+                ids.add(item.id);
+              }
+              lastSpeaker = norm;
+            }
+          }
+        });
+      }
+    });
+
+    return ids;
+  }, [screenplayData]);
+
   // Customizable Editor Preferences (persisted in localStorage)
   const [prefs, setPrefs] = useState<TwoColumnEditorPreferences>(() => {
     try {
@@ -2701,7 +2739,7 @@ export const DocumentTwoColumnEditor: React.FC<DocumentTwoColumnEditorProps> = (
                         </button>
 
                         {/* Hover Quick Arrows Tool (Appears on hover for instant 1-click movement) */}
-                        <div className="absolute -top-3.5 right-3 opacity-0 group-hover:opacity-100 transition-opacity z-20 flex items-center gap-1 bg-zinc-950 border border-zinc-700/80 rounded-xl px-1.5 py-0.5 shadow-lg">
+                        <div className="absolute -top-3.5 right-3 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-20 hover:!opacity-100 hover:!pointer-events-auto transition-all z-20 flex items-center gap-1 bg-zinc-950 border border-zinc-700/80 rounded-xl px-1.5 py-0.5 shadow-lg">
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
@@ -2822,16 +2860,33 @@ export const DocumentTwoColumnEditor: React.FC<DocumentTwoColumnEditorProps> = (
                                   }
                                   if (char.endsWith(':')) char = char.slice(0, -1).trim();
 
+                                  const contdRegex = /\s*\(\s*(?:CONT['’.]?D\.?|CONTINUES|CONTINUED|தொடர்ச்சி|தொடர்கிறது)\s*\)/i;
+                                  const charHasContd = contdRegex.test(char);
+
                                   return (
-                                    <div data-char-container={item.id} className="w-full flex items-start justify-end gap-1 pt-0.5">
-                                      <ScriptCharacterInput
-                                        value={char || ''}
-                                        suggestions={allKnownCharacters}
-                                        onChange={(val) => handleUpdateItemCharacter(item.id, val)}
-                                        placeholder="கதாபாத்திரம்"
-                                        className={`${getCharFontSizeClass(prefs.characterFontSize)} ${getCharWeightClass(prefs.characterWeight)} ${prefs.characterTransform === 'uppercase' ? 'uppercase' : ''} text-right ${getCharColorClass(prefs.characterColor, isLight)} bg-transparent border-b border-transparent hover:border-zinc-500 focus:border-sky-400 outline-none w-auto min-w-[70px] max-w-[280px] transition-colors`}
-                                      />
-                                      <span className={`${getCharColorClass(prefs.characterColor, isLight)} font-bold ${getCharFontSizeClass(prefs.characterFontSize)} select-none`}>:</span>
+                                    <div data-char-container={item.id} className="w-full flex items-start justify-end gap-1 pt-0.5 relative z-10">
+                                      <div className="flex flex-wrap items-baseline justify-end gap-1 max-w-full">
+                                        <ScriptCharacterInput
+                                          value={char || ''}
+                                          suggestions={allKnownCharacters}
+                                          onChange={(val) => handleUpdateItemCharacter(item.id, val)}
+                                          placeholder="கதாபாத்திரம்"
+                                          className={`${getCharFontSizeClass(prefs.characterFontSize)} ${getCharWeightClass(prefs.characterWeight)} ${prefs.characterTransform === 'uppercase' ? 'uppercase' : ''} text-right ${getCharColorClass(prefs.characterColor, isLight)} bg-transparent border-b border-transparent hover:border-zinc-500 focus:border-sky-400 outline-none w-auto min-w-[70px] max-w-[280px] transition-colors cursor-text`}
+                                        />
+                                        {continuousSpeakerItemIds.has(item.id) && !charHasContd && (
+                                          <span
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              handleUpdateItemCharacter(item.id, `${char} (continues)`);
+                                            }}
+                                            className={`text-[11px] font-serif italic select-none opacity-85 hover:opacity-100 hover:underline cursor-pointer transition-opacity whitespace-nowrap ${getCharColorClass(prefs.characterColor, isLight)}`}
+                                            title="Continuous dialogue: character speaks consecutively. Click to bake (continues) permanently into character name."
+                                          >
+                                            (continues)
+                                          </span>
+                                        )}
+                                        <span className={`${getCharColorClass(prefs.characterColor, isLight)} font-bold ${getCharFontSizeClass(prefs.characterFontSize)} select-none`}>:</span>
+                                      </div>
                                     </div>
                                   );
                                 })()
