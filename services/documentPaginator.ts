@@ -159,6 +159,27 @@ function measureBlocksCumulativeHeight(
   return estimateHtmlHeightFallback(combinedHtml, fontSize);
 }
 
+/**
+ * Computes exact block height mathematically in O(1) time without triggering DOM reflows.
+ */
+export function measureBlockHeight(
+  block: ContentBlock,
+  fontSize: 'sm' | 'md' | 'lg' | 'xl' = 'md'
+): number {
+  const metrics = FONT_METRICS_MAP[fontSize] || FONT_METRICS_MAP.md;
+  if (block.isTable) {
+    const trCount = (block.html.match(/<tr\b/gi) || []).length || 1;
+    return trCount * (metrics.lineHeightPx + 14) + 40;
+  }
+  if (block.isHeading) {
+    if (/<h1\b/i.test(block.html)) return metrics.lineHeightPx * 2.2 + 24;
+    if (/<h2\b/i.test(block.html)) return metrics.lineHeightPx * 1.8 + 20;
+    return metrics.lineHeightPx * 1.5 + 16;
+  }
+  const lines = Math.max(1, Math.ceil((block.vChars || 1) / metrics.charsPerLine));
+  return lines * metrics.lineHeightPx + metrics.pMarginPx;
+}
+
 interface ContentBlock {
   html: string;
   text: string;
@@ -284,25 +305,23 @@ function splitTableIntoPageChunks(
       return `<table ${tableAttrs}>\n${theadHtml}\n<tbody>\n${rowsHtml.join('\n')}\n</tbody>\n</table>`;
     };
 
+    const metrics = FONT_METRICS_MAP[fontSize] || FONT_METRICS_MAP.md;
+    let accumulatedChunkHeight = 40; // thead height
+
     for (let i = 0; i < dataRows.length; i++) {
       const rowHtml = dataRows[i].outerHTML;
-      const testChunkRows = [...currentRowChunk, rowHtml];
-      const testTableHtml = buildTableChunkHtml(testChunkRows);
+      const rowText = dataRows[i].textContent || '';
+      const rowLines = Math.max(1, Math.ceil(getVisualLength(rowText) / 120));
+      const rowHeight = rowLines * metrics.lineHeightPx + 14;
 
-      const measuredH = measureBlocksCumulativeHeight(
-        [testTableHtml],
-        contentWidthPx,
-        fontSize,
-        fontFamily
-      );
-
-      if (measuredH <= currentLimitPx || currentRowChunk.length === 0) {
+      if (accumulatedChunkHeight + rowHeight <= currentLimitPx || currentRowChunk.length === 0) {
         currentRowChunk.push(rowHtml);
+        accumulatedChunkHeight += rowHeight;
       } else {
-        // Current chunk is full; push completed table chunk and start a fresh page chunk
         tableChunks.push(buildTableChunkHtml(currentRowChunk));
         currentRowChunk = [rowHtml];
-        currentLimitPx = pageHeightPx - 60; // Fresh page gets full height (with margin for table header)
+        currentLimitPx = pageHeightPx - 60;
+        accumulatedChunkHeight = 40 + rowHeight;
       }
     }
 
@@ -385,8 +404,9 @@ export function paginateDocumentHtml(
     }];
   }
 
-  // 2. Distribute blocks across pages using cumulative DOM measurement
+  // 2. Distribute blocks across pages using ultra-fast O(1) mathematical block metrics
   let currentPageBlocks: string[] = [];
+  let currentPageHeight = 0;
   let currentWords = 0;
   let currentChars = 0;
   let totalWordCount = 0;
@@ -404,44 +424,35 @@ export function paginateDocumentHtml(
     totalWordCount += currentWords;
     totalCharCount += currentChars;
     currentPageBlocks = [];
+    currentPageHeight = 0;
     currentWords = 0;
     currentChars = 0;
   };
 
   for (let i = 0; i < blocks.length; i++) {
     const block = blocks[i];
+    const blockHeight = measureBlockHeight(block, fontSize);
 
     // SPECIAL HANDLING: Multi-row Tables that exceed available page room
     if (block.isTable || /<table\b/i.test(block.html)) {
-      const currentHeightBefore = measureBlocksCumulativeHeight(
-        currentPageBlocks,
-        contentWidthPx,
-        fontSize,
-        fontFamily
-      );
-      const remainingRoomPx = Math.max(0, targetHeightPx - currentHeightBefore);
-
-      const tableHeight = measureBlocksCumulativeHeight(
-        [block.html],
-        contentWidthPx,
-        fontSize,
-        fontFamily
-      );
+      const remainingRoomPx = Math.max(0, targetHeightPx - currentPageHeight);
 
       // Fits on current page
-      if (tableHeight <= remainingRoomPx) {
+      if (blockHeight <= remainingRoomPx) {
         currentPageBlocks.push(block.html);
+        currentPageHeight += blockHeight;
         currentWords += block.wordCount;
         currentChars += block.vChars;
         continue;
       }
 
       // Doesn't fit on current page. Can it fit on an empty fresh page?
-      if (tableHeight <= targetHeightPx) {
+      if (blockHeight <= targetHeightPx) {
         if (currentPageBlocks.length > 0) {
           pushCurrentPage();
         }
         currentPageBlocks.push(block.html);
+        currentPageHeight = blockHeight;
         currentWords = block.wordCount;
         currentChars = block.vChars;
         continue;
@@ -466,35 +477,28 @@ export function paginateDocumentHtml(
           pushCurrentPage();
         }
         currentPageBlocks.push(chunk);
+        currentPageHeight += Math.round(blockHeight / tableChunks.length);
         currentWords += Math.round(block.wordCount / tableChunks.length);
         currentChars += Math.round(block.vChars / tableChunks.length);
       });
       continue;
     }
 
-    // Standard Block: Check if adding this block to the current page exceeds target height
-    const testCumulativeHtml = [...currentPageBlocks, block.html];
-    const candidateHeight = measureBlocksCumulativeHeight(
-      testCumulativeHtml,
-      contentWidthPx,
-      fontSize,
-      fontFamily
-    );
-
-    // Case A: Block fits cleanly on current page
-    if (candidateHeight <= targetHeightPx) {
+    // Standard Block: Check if adding this block to current page exceeds target height
+    if (currentPageHeight + blockHeight <= targetHeightPx) {
       currentPageBlocks.push(block.html);
+      currentPageHeight += blockHeight;
       currentWords += block.wordCount;
       currentChars += block.vChars;
       continue;
     }
 
-    // Case B: Block does not fit on current page.
-    // Finish current page and place this intact block on the fresh page
+    // Block does not fit on current page; flush page and put block on new page
     if (currentPageBlocks.length > 0) {
       pushCurrentPage();
     }
     currentPageBlocks.push(block.html);
+    currentPageHeight = blockHeight;
     currentWords = block.wordCount;
     currentChars = block.vChars;
   }

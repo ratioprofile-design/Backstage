@@ -16,6 +16,7 @@ import { TwoColumnSceneSidebar } from '../TwoColumnSceneSidebar';
 import { TwoColumnFindReplace } from '../TwoColumnFindReplace';
 import { TwoColumnExportModal } from '../TwoColumnExportModal';
 import { printTwoColumnVector } from '../../services/twoColumnExportEngine';
+import { cleanDisplayLocation } from './TwoColumnScriptView';
 import { splitActionTextIntoShots, healOrphanedNumeralItems } from '../../services/twoColumnPaginator';
 import confetti from 'canvas-confetti';
 import html2canvas from 'html2canvas';
@@ -539,7 +540,20 @@ export const DocumentTwoColumnEditor: React.FC<DocumentTwoColumnEditorProps> = (
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
   }, [handleUndo, handleRedo]);
 
+  // Progressive Scene Mounting for instant split-second launch
+  const INITIAL_SCENE_MOUNT_COUNT = 12;
+  const [renderedSceneLimit, setRenderedSceneLimit] = useState<number>(INITIAL_SCENE_MOUNT_COUNT);
+
+  useEffect(() => {
+    if (renderedSceneLimit >= screenplayData.scenes.length) return;
+    const timer = setTimeout(() => {
+      setRenderedSceneLimit(screenplayData.scenes.length);
+    }, 60);
+    return () => clearTimeout(timer);
+  }, [renderedSceneLimit, screenplayData.scenes.length]);
+
   const handleSelectScene = (sceneId: string) => {
+    setRenderedSceneLimit(screenplayData.scenes.length);
     setActiveSceneId(sceneId);
     try {
       localStorage.setItem(`backstage_2col_scene_${documentId}`, sceneId);
@@ -722,26 +736,73 @@ export const DocumentTwoColumnEditor: React.FC<DocumentTwoColumnEditorProps> = (
         items: scene.items.map((item) => {
           if (idsToMove.has(item.id)) {
             // Determine text preservation
-            let text = item.rawText || item.leftAction || item.rightDialogue || '';
+            const wasDialogue = item.column === 'right' || item.type === 'dialogue' || !!item.rightDialogue;
+            let text = (wasDialogue && item.rightDialogue ? item.rightDialogue : (item.rawText || item.leftAction || item.rightDialogue || '')).trim();
             let char = item.rightCharacter || '';
 
-            // If moving to right and text has "NAME: DIALOGUE" pattern, extract character
-            if (targetColumn === 'right' && !char) {
-              const colonMatch = text.match(/^([\u0B80-\u0BFFa-zA-Z0-9\s.]{2,30})\s*:\s*(.*)$/);
-              if (colonMatch) {
-                char = colonMatch[1].trim();
-                text = colonMatch[2].trim();
+            // 1. Moving to Right (Dialogue Column)
+            if (targetColumn === 'right') {
+              if (!char) {
+                const colonMatch = text.match(/^([\u0B80-\u0BFFa-zA-Z0-9\s.]{2,30})\s*:\s*(.*)$/);
+                if (colonMatch) {
+                  char = colonMatch[1].trim();
+                  text = colonMatch[2].trim();
+                }
               }
+              return {
+                ...item,
+                column: 'right',
+                type: 'dialogue',
+                leftAction: undefined,
+                rightDialogue: text,
+                rightCharacter: char,
+                rawText: char ? `${char} : ${text}` : text,
+              };
             }
 
+            // 2. Moving to Left (Action Column)
+            if (targetColumn === 'left') {
+              // When dialogue gets changed to action description, the character name/matter disappears
+              let actionText = text;
+              if (char && char.trim()) {
+                const escaped = char.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                const knownRegex = new RegExp('^\\s*' + escaped + '\\s*(?:\\([^)]*\\))?\\s*[:\\-–—]?\\s*', 'i');
+                actionText = actionText.replace(knownRegex, '').trim();
+              }
+              const colonMatch = actionText.match(/^\[?([\u0B80-\u0BFFa-zA-Z0-9\s.\-_]+(?:\([^)]*\))?)\]?\s*[:\-–—]\s*(.*)$/);
+              if (colonMatch) {
+                actionText = colonMatch[2].trim();
+              }
+              return {
+                ...item,
+                column: 'left',
+                type: 'action',
+                leftAction: actionText,
+                rightDialogue: undefined,
+                rightCharacter: undefined,
+                rawText: actionText,
+              };
+            }
+
+            // 3. Moving to Center (Transition / Title)
+            let centerText = text;
+            if (char && char.trim()) {
+              const escaped = char.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+              const knownRegex = new RegExp('^\\s*' + escaped + '\\s*(?:\\([^)]*\\))?\\s*[:\\-–—]?\\s*', 'i');
+              centerText = centerText.replace(knownRegex, '').trim();
+            }
+            const colonMatchCenter = centerText.match(/^\[?([\u0B80-\u0BFFa-zA-Z0-9\s.\-_]+(?:\([^)]*\))?)\]?\s*[:\-–—]\s*(.*)$/);
+            if (colonMatchCenter) {
+              centerText = colonMatchCenter[2].trim();
+            }
             return {
               ...item,
-              column: targetColumn,
-              type: targetColumn === 'center' ? 'title' : targetColumn === 'right' ? 'dialogue' : 'action',
-              leftAction: targetColumn === 'left' ? text : undefined,
-              rightDialogue: targetColumn === 'right' ? text : undefined,
-              rightCharacter: targetColumn === 'right' ? char : undefined,
-              rawText: text,
+              column: 'center',
+              type: 'title',
+              leftAction: undefined,
+              rightDialogue: undefined,
+              rightCharacter: undefined,
+              rawText: centerText,
             };
           }
           return item;
@@ -1664,6 +1725,18 @@ export const DocumentTwoColumnEditor: React.FC<DocumentTwoColumnEditorProps> = (
 
   const selectedCount = selectedItemIds.size;
 
+  const docScrollTimerRef = useRef<any>(null);
+  const handleDocScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    const top = e.currentTarget.scrollTop;
+    if (docScrollTimerRef.current) clearTimeout(docScrollTimerRef.current);
+    docScrollTimerRef.current = setTimeout(() => {
+      try {
+        localStorage.setItem(`backstage_2col_scroll_${documentId}`, String(top));
+        localStorage.setItem('backstage_last_2col_scroll', String(top));
+      } catch {}
+    }, 250);
+  }, [documentId]);
+
   return (
     <div className={`relative flex flex-col w-full h-full overflow-hidden ${isLight ? 'bg-slate-100 text-slate-900' : 'bg-[#0d0d11] text-zinc-100'}`}>
       
@@ -2377,13 +2450,7 @@ export const DocumentTwoColumnEditor: React.FC<DocumentTwoColumnEditorProps> = (
 
         <div
           ref={scrollContainerRef}
-          onScroll={(e) => {
-            try {
-              const top = e.currentTarget.scrollTop;
-              localStorage.setItem(`backstage_2col_scroll_${documentId}`, String(top));
-              localStorage.setItem('backstage_last_2col_scroll', String(top));
-            } catch {}
-          }}
+          onScroll={handleDocScroll}
           className="flex-1 overflow-y-auto px-4 py-8 flex flex-col items-center"
         >
         <div
@@ -2430,23 +2497,32 @@ export const DocumentTwoColumnEditor: React.FC<DocumentTwoColumnEditorProps> = (
              ===================================================================== */}
           <div className="space-y-6">
             {screenplayData.scenes.map((scene, sceneIndex) => {
+              // Progressive windowing: off-screen scenes beyond fast-path render placeholder card
+              if (sceneIndex >= renderedSceneLimit && !isGeneratingDocx && !isExportingPdf && !isFindReplaceOpen) {
+                return (
+                  <div
+                    key={scene.id}
+                    id={`scene-header-${scene.id}`}
+                    data-scene-id={scene.id}
+                    className={`p-4 rounded-lg border flex items-center justify-between transition-colors ${
+                      isLight ? 'bg-white/70 border-slate-200 text-slate-700' : 'bg-zinc-900/60 border-zinc-800 text-zinc-300'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <span className="px-2 py-0.5 rounded font-black font-mono text-xs bg-emerald-500/20 text-emerald-400">
+                        SC {scene.sceneNumber || sceneIndex + 1}
+                      </span>
+                      <span className="text-xs font-semibold">{scene.location || 'Location'}</span>
+                    </div>
+                    <span className="text-[11px] text-zinc-500 font-mono">{scene.items?.length || 0} blocks</span>
+                  </div>
+                );
+              }
+
               const chars = getSceneCharacters(scene);
               const effects = getSceneEffects(scene);
-
-              const cleanDisplayLocation = (locStr?: string) => {
-                if (!locStr) return '';
-                return locStr
-                  .replace(/(?:Characters?|கதாபாத்திரங்கள்|நடிகர்கள்|Actors?|Cast)\s*[:\-]?\s*.*$/i, '')
-                  .replace(/(?:Real\s*Location|Real\s*Loc)\s*[:\-]?\s*.*$/i, '')
-                  .replace(/\s*(?:பகல்|பகள்|இரவு|மாலை|காலை|அதிகாலை|Day|Night|Evening|Morning)(?=[^\u0B80-\u0BFFa-zA-Z]|$)/gi, '')
-                  .replace(/\s*(?:EXT\/INT|INT\/EXT|EXT|INT)\b/gi, '')
-                  .replace(/[|:\-\s\t]+$/, '')
-                  .replace(/^[|:\-\s\t]+/, '')
-                  .replace(/\s+/g, ' ')
-                  .trim();
-              };
               const displayScriptLoc = cleanDisplayLocation(scene.location) || scene.location || 'Location';
-              const displayRealLoc = cleanDisplayLocation(scene.realLocation) || cleanDisplayLocation(scene.location) || scene.realLocation || 'Real Location';
+              const displayRealLoc = cleanDisplayLocation(scene.realLocation) || displayScriptLoc || scene.realLocation || 'Real Location';
 
               return (
                 <div

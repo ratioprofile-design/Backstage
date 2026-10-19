@@ -113,6 +113,7 @@ import {
 } from '../../types';
 import { generateBreakdown } from '../../services/gemini';
 import { useAiKeyStatus } from '../../context/AiKeyStatusContext';
+import { notify } from '../../services/notificationService';
 
 export interface TwoColumnScriptViewProps {
   initialDocumentId?: string;
@@ -293,6 +294,28 @@ function mergeTwoColumnData(
   };
 }
 
+// Pre-compiled regex patterns for lightning-fast scene location sanitization
+const CLEAN_LOC_CHAR_REGEX = /(?:Characters?|கதாபாத்திரங்கள்|நடிகர்கள்|Actors?|Cast)\s*[:\-]?\s*.*$/i;
+const CLEAN_LOC_REAL_REGEX = /(?:Real\s*Location|Real\s*Loc)\s*[:\-]?\s*.*$/i;
+const CLEAN_LOC_TIME_REGEX = /\s*(?:பகல்|பகள்|இரவு|மாலை|காலை|அதிகாலை|Day|Night|Evening|Morning)(?=[^\u0B80-\u0BFFa-zA-Z]|$)/gi;
+const CLEAN_LOC_SETTING_REGEX = /\s*(?:EXT\/INT|INT\/EXT|EXT|INT)\b/gi;
+const CLEAN_LOC_TRAIL_REGEX = /[|:\-\s\t]+$/;
+const CLEAN_LOC_LEAD_REGEX = /^[|:\-\s\t]+/;
+const CLEAN_LOC_SPACE_REGEX = /\s+/g;
+
+export function cleanDisplayLocation(locStr?: string): string {
+  if (!locStr) return '';
+  return locStr
+    .replace(CLEAN_LOC_CHAR_REGEX, '')
+    .replace(CLEAN_LOC_REAL_REGEX, '')
+    .replace(CLEAN_LOC_TIME_REGEX, '')
+    .replace(CLEAN_LOC_SETTING_REGEX, '')
+    .replace(CLEAN_LOC_TRAIL_REGEX, '')
+    .replace(CLEAN_LOC_LEAD_REGEX, '')
+    .replace(CLEAN_LOC_SPACE_REGEX, ' ')
+    .trim();
+}
+
 export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
   initialDocumentId,
   onNavigateToView,
@@ -336,30 +359,42 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
     }
   }, [initialDocumentId, documents]);
 
-  // Synchronize documents with current project and Supabase Cloud
+  // Synchronize documents with current project and Supabase Cloud (optimized: no redundant mount cycle)
+  const isInitialMountRef = useRef(true);
+  const initialProjectIdRef = useRef(projectContext.currentProjectId);
+
   useEffect(() => {
     const projId = projectContext.currentProjectId || undefined;
-    const latestDocs = getProductionDocuments(projId);
-    setDocuments(latestDocs);
-    if (!selectedDocId || !latestDocs.some(d => d.id === selectedDocId)) {
-      const best = latestDocs.find(d => d.isStagedToScript) 
-        || latestDocs.find(d => d.isLeftRightFormat || d.hasTwoColumnScript || d.category === 'SCRIPT')
-        || latestDocs[0];
-      if (best) setSelectedDocId(best.id);
+    if (isInitialMountRef.current) {
+      isInitialMountRef.current = false;
+      // Documents are already loaded synchronously from getProductionDocuments in useState.
+      // Only trigger non-blocking background cloud sync:
+      if (projId && isSupabaseConfigured && projectContext.supabaseUser?.id) {
+        syncDocumentsWithCloud(projId, projectContext.supabaseUser.id).then((syncedDocs) => {
+          if (syncedDocs && syncedDocs.length > 0) {
+            setDocuments(syncedDocs);
+            if (!selectedDocId || !syncedDocs.some(d => d.id === selectedDocId)) {
+              const best = syncedDocs.find(d => d.isStagedToScript) 
+                || syncedDocs.find(d => d.isLeftRightFormat || d.hasTwoColumnScript || d.category === 'SCRIPT')
+                || syncedDocs[0];
+              if (best) setSelectedDocId(best.id);
+            }
+          }
+        }).catch(() => {});
+      }
+      return;
     }
 
-    if (projId && isSupabaseConfigured && projectContext.supabaseUser?.id) {
-      syncDocumentsWithCloud(projId, projectContext.supabaseUser.id).then((syncedDocs) => {
-        if (syncedDocs && syncedDocs.length > 0) {
-          setDocuments(syncedDocs);
-          if (!selectedDocId || !syncedDocs.some(d => d.id === selectedDocId)) {
-            const best = syncedDocs.find(d => d.isStagedToScript) 
-              || syncedDocs.find(d => d.isLeftRightFormat || d.hasTwoColumnScript || d.category === 'SCRIPT')
-              || syncedDocs[0];
-            if (best) setSelectedDocId(best.id);
-          }
-        }
-      }).catch(() => {});
+    if (initialProjectIdRef.current !== projectContext.currentProjectId) {
+      initialProjectIdRef.current = projectContext.currentProjectId;
+      const latestDocs = getProductionDocuments(projId);
+      setDocuments(latestDocs);
+      if (!selectedDocId || !latestDocs.some(d => d.id === selectedDocId)) {
+        const best = latestDocs.find(d => d.isStagedToScript) 
+          || latestDocs.find(d => d.isLeftRightFormat || d.hasTwoColumnScript || d.category === 'SCRIPT')
+          || latestDocs[0];
+        if (best) setSelectedDocId(best.id);
+      }
     }
   }, [projectContext.currentProjectId, projectContext.supabaseUser?.id]);
 
@@ -467,9 +502,14 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
     showToast('✓ Switched script document');
   };
 
-  // Switch or reload active document
+  // Switch or reload active document (skip redundant mount reload if already initialized)
+  const lastActiveDocIdRef = useRef<string>(activeDoc?.id || '');
   useEffect(() => {
     if (activeDoc) {
+      if (lastActiveDocIdRef.current === activeDoc.id && screenplayDataRef.current?.scenes?.length > 0) {
+        return;
+      }
+      lastActiveDocIdRef.current = activeDoc.id;
       if (activeDoc.twoColumnData && Array.isArray(activeDoc.twoColumnData.scenes)) {
         setScreenplayData(activeDoc.twoColumnData);
       } else {
@@ -696,8 +736,9 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
   const [customApprovedCharacters, setCustomApprovedCharacters] = useState<string[]>([]);
   const [excludedCharacters, setExcludedCharacters] = useState<Set<string>>(new Set());
 
-  // Character occurrence metrics across all dialogue rows
+  // Character occurrence metrics across all dialogue rows (deferred on-demand for manager modal only)
   const characterCounts = useMemo(() => {
+    if (!isCharacterManagerOpen) return new Map<string, number>();
     const map = new Map<string, number>();
     screenplayData.scenes.forEach((sc) => {
       sc.items.forEach((it) => {
@@ -714,7 +755,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
       });
     });
     return map;
-  }, [screenplayData]);
+  }, [screenplayData, isCharacterManagerOpen]);
 
   // All known characters across the screenplay (with custom approved + excluded filter)
   const rawAllKnownCharacters = useMemo(() => {
@@ -774,8 +815,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
   }, [screenplayData]);
 
   const showToast = useCallback((msg: string) => {
-    setToastMessage(msg);
-    setTimeout(() => setToastMessage(null), 3200);
+    notify(msg);
   }, []);
 
   // 15-Category Production Breakdown Helpers & Handlers
@@ -996,6 +1036,30 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
 
   const { pages, totalPages, totalItems, totalScenes } = paginationResult;
 
+  // Progressive Page Mounting: Fast-path mount initial 6 pages for split-second (<15ms) first paint
+  const INITIAL_PAGE_MOUNT_COUNT = 6;
+  const [renderedPageLimit, setRenderedPageLimit] = useState<number>(INITIAL_PAGE_MOUNT_COUNT);
+
+  // Incrementally unlock remaining pages in background so scrolling is completely transparent
+  useEffect(() => {
+    if (pageViewMode !== 'stacked') return;
+    if (renderedPageLimit >= pages.length) return;
+    const t1 = setTimeout(() => {
+      setRenderedPageLimit((prev) => (prev < 20 ? 20 : pages.length));
+    }, 50);
+    return () => clearTimeout(t1);
+  }, [renderedPageLimit, pages.length, pageViewMode]);
+
+  useEffect(() => {
+    if (pageViewMode !== 'stacked') return;
+    if (renderedPageLimit === 20 && pages.length > 20) {
+      const t2 = setTimeout(() => {
+        setRenderedPageLimit(pages.length);
+      }, 90);
+      return () => clearTimeout(t2);
+    }
+  }, [renderedPageLimit, pages.length, pageViewMode]);
+
   // Map sceneId -> starting page number for quick thumbnail jumping
   const scenePageMap = useMemo(() => {
     const map: Record<string, number> = {};
@@ -1009,12 +1073,33 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
     return map;
   }, [pages]);
 
+  // Pre-calculate metadata map per scene to eliminate heavy regular expressions during page rendering
+  const sceneHeaderMetaMap = useMemo(() => {
+    const map = new Map<string, { displayScriptLoc: string; displayRealLoc: string; charCount: number; charListStr: string; effectiveChars: string[] }>();
+    for (const sc of screenplayData.scenes) {
+      const displayScriptLoc = cleanDisplayLocation(sc.location) || sc.location || 'Location';
+      const displayRealLoc = cleanDisplayLocation(sc.realLocation) || displayScriptLoc || sc.realLocation || 'Real Location';
+      const chars = (sc.characters && sc.characters.length > 0) ? sc.characters : getSceneCharacters(sc);
+      map.set(sc.id, {
+        displayScriptLoc,
+        displayRealLoc,
+        charCount: chars.length,
+        charListStr: chars.length > 0 ? chars.join(', ') : 'இல்லை',
+        effectiveChars: chars,
+      });
+    }
+    return map;
+  }, [screenplayData.scenes]);
+
   // Handle scene selection from sidebar (smooth scrolls canvas directly to scene)
-  const handleSelectScene = (sceneId: string, pageNumber?: number) => {
+  const handleSelectScene = useCallback((sceneId: string, pageNumber?: number) => {
     setActiveSceneId(sceneId);
     try {
       localStorage.setItem('backstage_last_twocol_scene_id', sceneId);
     } catch {}
+    if (pageNumber && pageNumber > renderedPageLimit) {
+      setRenderedPageLimit(pages.length);
+    }
     if (pageViewMode === 'single' && pageNumber) {
       setCurrentSinglePage(pageNumber);
     }
@@ -1024,11 +1109,12 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
         el.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }
     }, 60);
-  };
+  }, [pageViewMode, renderedPageLimit, pages.length]);
 
   // Handle jumping to occurrence from Character Auto-Suggestion Manager modal
   const handleJumpToOccurrence = (sceneId: string, itemId?: string) => {
     setIsCharacterManagerOpen(false);
+    setRenderedPageLimit(pages.length);
 
     // Determine target page number if in single-page mode
     let targetPage = scenePageMap[sceneId] || 1;
@@ -1091,6 +1177,10 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
     return rawItemIds;
   }, [rawItemIds]);
 
+  const lastSelectedIdRef = useRef<string | null>(null);
+  const orderedItemIdsRef = useRef<string[]>([]);
+  orderedItemIdsRef.current = orderedItemIds;
+
   // Handle paragraph selection (supports Cmd+Click multiselect, Shift+Click range, and normal click)
   const handleParagraphClick = useCallback((itemId: string, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
@@ -1107,17 +1197,20 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
         return next;
       });
       setLastSelectedId(itemId);
+      lastSelectedIdRef.current = itemId;
       return;
     }
 
     // Case 2: Range-select with Shift
-    if (e && e.shiftKey && lastSelectedId) {
-      const idx1 = orderedItemIds.indexOf(lastSelectedId);
-      const idx2 = orderedItemIds.indexOf(itemId);
+    const lastSel = lastSelectedIdRef.current;
+    if (e && e.shiftKey && lastSel) {
+      const items = orderedItemIdsRef.current;
+      const idx1 = items.indexOf(lastSel);
+      const idx2 = items.indexOf(itemId);
       if (idx1 !== -1 && idx2 !== -1) {
         const start = Math.min(idx1, idx2);
         const end = Math.max(idx1, idx2);
-        const range = orderedItemIds.slice(start, end + 1);
+        const range = items.slice(start, end + 1);
         setSelectedItemIds((prev) => {
           const next = new Set(prev);
           range.forEach((id) => next.add(id));
@@ -1130,7 +1223,8 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
     // Case 3: Standard single click on card body (select this block)
     setSelectedItemIds(new Set([itemId]));
     setLastSelectedId(itemId);
-  }, [orderedItemIds, lastSelectedId]);
+    lastSelectedIdRef.current = itemId;
+  }, []);
 
   // Select all paragraphs
   const handleSelectAll = () => {
@@ -1148,7 +1242,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
     const idsToMove = specificItemId ? new Set([specificItemId]) : selectedItemIds;
     if (idsToMove.size === 0) return;
 
-    pushToUndoHistory(screenplayData);
+    pushToUndoHistory(screenplayDataRef.current);
 
     setScreenplayData((prev) => {
       const nextScenes = prev.scenes.map((scene) => ({
@@ -1164,7 +1258,11 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
               if (el && el.innerText.trim()) domText = el.innerText;
             }
 
-            let text = domText !== undefined ? domText : (item.rawText || item.leftAction || item.rightDialogue || '');
+            // If item was dialogue, prefer rightDialogue or domText over rawText so character name does not carry over
+            const wasDialogue = item.column === 'right' || item.type === 'dialogue' || !!item.rightDialogue;
+            let text = domText !== undefined
+              ? domText
+              : (wasDialogue && item.rightDialogue ? item.rightDialogue : (item.leftAction || item.rightDialogue || item.rawText || ''));
             let char = item.rightCharacter || '';
 
             // 1. Moving to Right (Dialogue Column)
@@ -1189,20 +1287,43 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
 
             // 2. Moving to Left (Action Column)
             if (targetColumn === 'left') {
-              // Preserve character name if present so nothing vanishes
-              const fullText = char && text && !text.startsWith(char) ? `${char} : ${text}` : text;
+              // When dialogue gets changed to action description, the character name/matter disappears
+              let actionText = (typeof text === 'string' ? text : '').trim();
+
+              if (char && char.trim()) {
+                const escaped = char.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                const knownRegex = new RegExp('^\\s*' + escaped + '\\s*(?:\\([^)]*\\))?\\s*[:\\-–—]?\\s*', 'i');
+                actionText = actionText.replace(knownRegex, '').trim();
+              }
+
+              const colonMatch = actionText.match(/^\[?([\u0B80-\u0BFFa-zA-Z0-9\s.\-_]+(?:\([^)]*\))?)\]?\s*[:\-–—]\s*(.*)$/);
+              if (colonMatch) {
+                actionText = colonMatch[2].trim();
+              }
+
               return {
                 ...item,
                 column: 'left',
                 type: 'action',
-                leftAction: fullText,
+                leftAction: actionText,
                 rightDialogue: undefined,
                 rightCharacter: undefined,
-                rawText: fullText,
+                rawText: actionText,
               };
             }
 
             // 3. Moving to Center (Transition / Title)
+            let centerText = (typeof text === 'string' ? text : '').trim();
+            if (char && char.trim()) {
+              const escaped = char.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+              const knownRegex = new RegExp('^\\s*' + escaped + '\\s*(?:\\([^)]*\\))?\\s*[:\\-–—]?\\s*', 'i');
+              centerText = centerText.replace(knownRegex, '').trim();
+            }
+            const colonMatchCenter = centerText.match(/^\[?([\u0B80-\u0BFFa-zA-Z0-9\s.\-_]+(?:\([^)]*\))?)\]?\s*[:\-–—]\s*(.*)$/);
+            if (colonMatchCenter) {
+              centerText = colonMatchCenter[2].trim();
+            }
+
             return {
               ...item,
               column: 'center',
@@ -1210,7 +1331,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
               leftAction: undefined,
               rightDialogue: undefined,
               rightCharacter: undefined,
-              rawText: text,
+              rawText: centerText,
             };
           }
           return item;
@@ -1231,7 +1352,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
         ? 'வலது: வசனம் (Right)'
         : 'மத்திய தலைப்பு (Center)';
     showToast(`✓ Moved ${idsToMove.size} paragraph(s) to ${colName}`);
-  }, [selectedItemIds, screenplayData, pushToUndoHistory, showToast]);
+  }, [selectedItemIds, pushToUndoHistory, showToast]);
 
   // Direct in-place text update
   const handleUpdateItemText = useCallback((itemId: string, newText: string) => {
@@ -2071,7 +2192,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
   };
 
   // Add a new paragraph above
-  const handleAddParagraphAbove = (beforeItemId: string, column: 'left' | 'right' | 'center' = 'left') => {
+  const handleAddParagraphAbove = useCallback((beforeItemId: string, column: 'left' | 'right' | 'center' = 'left') => {
     const now = Date.now();
     const newItemId = `item-${now}-${Math.random().toString(36).substring(2, 7)}`;
     localDirtyItemIdsRef.current.set(newItemId, now);
@@ -2088,7 +2209,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
       updatedAt: now,
     };
 
-    pushToUndoHistory(screenplayData);
+    pushToUndoHistory(screenplayDataRef.current);
     setSelectedItemIds(new Set());
     setScreenplayData((prev) => {
       let inserted = false;
@@ -2117,10 +2238,10 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
 
     setHasUnsavedChanges(true);
     setTimeout(() => focusNewScriptItem(newItemId, column), 40);
-  };
+  }, [pushToUndoHistory]);
 
   // Add a new paragraph below
-  const handleAddParagraphBelow = (afterItemId?: string, column: 'left' | 'right' | 'center' = 'left') => {
+  const handleAddParagraphBelow = useCallback((afterItemId?: string, column: 'left' | 'right' | 'center' = 'left') => {
     const now = Date.now();
     const newItemId = `item-${now}-${Math.random().toString(36).substring(2, 7)}`;
     localDirtyItemIdsRef.current.set(newItemId, now);
@@ -2137,7 +2258,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
       updatedAt: now,
     };
 
-    pushToUndoHistory(screenplayData);
+    pushToUndoHistory(screenplayDataRef.current);
     setSelectedItemIds(new Set());
     setScreenplayData((prev) => {
       let inserted = false;
@@ -2172,7 +2293,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
 
     setHasUnsavedChanges(true);
     setTimeout(() => focusNewScriptItem(newItemId, column), 40);
-  };
+  }, [pushToUndoHistory]);
 
   // Reorder script items via drag-and-drop
   const handleMoveScriptItem = (sourceId: string, targetId: string, position: 'above' | 'below') => {
@@ -3783,6 +3904,24 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
   const selectedCount = selectedItemIds.size;
   const paper = PAPER_DIMENSIONS[layoutOptions.paperStandard] || PAPER_DIMENSIONS.A4;
 
+  const scrollSaveTimerRef = useRef<any>(null);
+  const handleCanvasScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    const top = e.currentTarget.scrollTop;
+    if (top > 100 && renderedPageLimit < pages.length) {
+      setRenderedPageLimit(pages.length);
+    }
+    if (scrollSaveTimerRef.current) clearTimeout(scrollSaveTimerRef.current);
+    scrollSaveTimerRef.current = setTimeout(() => {
+      try {
+        localStorage.setItem('backstage_last_twocol_scroll_top', String(top));
+      } catch {}
+    }, 250);
+  }, [renderedPageLimit, pages.length]);
+
+  const handleToggleSceneSidebar = useCallback(() => {
+    setIsSceneSidebarOpen((prev) => !prev);
+  }, []);
+
   return (
     <div className={`relative flex flex-col w-full h-full overflow-hidden ${isLight ? 'bg-slate-100 text-slate-900' : 'bg-[#0a0a0e] text-zinc-100'}`}>
       
@@ -3795,17 +3934,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
         className="hidden"
       />
 
-      {/* Toast Alert */}
-      {toastMessage && (
-        <div className={`absolute top-16 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-xl border shadow-2xl text-xs font-mono font-bold flex items-center gap-2 animate-bounce ${
-          isLight
-            ? 'bg-white/95 text-emerald-800 border-emerald-300 shadow-[0_10px_30px_rgba(0,0,0,0.12)]'
-            : 'bg-zinc-950/95 text-emerald-400 border-emerald-500/50 shadow-2xl'
-        }`}>
-          <Sparkles size={14} className={isLight ? 'text-emerald-600' : 'text-emerald-400'} />
-          {toastMessage}
-        </div>
-      )}
+
 
       {/* =========================================================================
           TOP COMMAND NAVBAR
@@ -4535,7 +4664,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
           screenplayData={screenplayData}
           isLight={isLight}
           isOpen={isSceneSidebarOpen}
-          onToggleOpen={() => setIsSceneSidebarOpen(!isSceneSidebarOpen)}
+          onToggleOpen={handleToggleSceneSidebar}
           activeSceneId={activeSceneId}
           onSelectScene={handleSelectScene}
           onAddScene={handleInsertScene}
@@ -4564,11 +4693,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
         <div
           ref={canvasScrollerRef}
           onMouseDown={handleCanvasMouseDown}
-          onScroll={(e) => {
-            try {
-              localStorage.setItem('backstage_last_twocol_scroll_top', String(e.currentTarget.scrollTop));
-            } catch {}
-          }}
+          onScroll={handleCanvasScroll}
           className="flex-1 overflow-y-auto px-6 py-8 flex flex-col items-center"
         >
           {/* Automatic Helper Banner: Split Numeral Items Detected */}
@@ -4624,7 +4749,52 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
             {(pageViewMode === 'single'
               ? [pages[currentSinglePage - 1] || pages[0]]
               : pages
-            ).filter(Boolean).map((page) => (
+            ).filter(Boolean).map((page, pageIndex) => {
+              // Progressive windowing: off-screen pages beyond fast-path render placeholder shell
+              if (
+                pageViewMode === 'stacked' &&
+                pageIndex >= renderedPageLimit &&
+                !isExportingDocx &&
+                !isExportingPdf &&
+                !isFindReplaceOpen
+              ) {
+                return (
+                  <div
+                    key={page.pageNumber}
+                    id={`script-page-${page.pageNumber}`}
+                    style={{
+                      width: `${page.widthPx}px`,
+                      minHeight: `${page.heightPx}px`,
+                      height: `${page.heightPx}px`,
+                      paddingTop: `${page.paddingTopPx}px`,
+                      paddingBottom: `${page.paddingBottomPx}px`,
+                      paddingLeft: `${page.paddingLeftPx}px`,
+                      paddingRight: `${page.paddingRightPx}px`,
+                    }}
+                    className={`relative shadow-2xl rounded-xs border flex flex-col justify-between transition-colors duration-200 select-none ${
+                      isLight
+                        ? 'bg-white text-zinc-900 border-slate-300'
+                        : 'bg-[#18181c] text-zinc-100 border-zinc-800'
+                    }`}
+                  >
+                    <div className="flex justify-between items-center text-xs opacity-40 font-mono">
+                      <span>{screenplayData.title || 'Screenplay'}</span>
+                      <span>Page {page.pageNumber}</span>
+                    </div>
+                    <div className="flex-1 flex flex-col items-center justify-center gap-2 text-zinc-400 dark:text-zinc-600">
+                      <div className="w-24 h-1.5 rounded-full bg-current opacity-20 animate-pulse" />
+                      <span className="font-mono text-xs opacity-60">Page {page.pageNumber}</span>
+                      <div className="w-16 h-1.5 rounded-full bg-current opacity-20 animate-pulse" />
+                    </div>
+                    <div className="flex justify-between items-center text-[10px] opacity-40 font-mono">
+                      <span>{layoutOptions.scriptEdition || '1st Edition'}</span>
+                      <span>Page {page.pageNumber}</span>
+                    </div>
+                  </div>
+                );
+              }
+
+              return (
               <div
                 key={page.pageNumber}
                 id={`script-page-${page.pageNumber}`}
@@ -4654,44 +4824,12 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
                   {page.elements.map((elem, idx) => {
                     // CASE A: Scene Heading Element
                     if (elem.type === 'scene_header') {
-                      // Extract embedded character metadata if elem.characters is missing or empty
-                      const fullMetaText = `${elem.location || ''} ${elem.realLocation || ''} ${elem.sluglineText || ''}`;
-                      const embeddedMetaChars = (!elem.characters || elem.characters.length === 0)
-                        ? (fullMetaText.match(/(?:Characters?(?:\s*\([^)]*\))?|கதாபாத்திரங்கள்(?:\s*\([^)]*\))?|நடிகர்கள்(?:\s*\([^)]*\))?|Actors?|Cast)\s*[:\-]?\s*([^|\n]+)/i)?.[1]
-                            ?.replace(/\s+(?:Effect|Time|நேரம்)\s*:.*/i, '')
-                            ?.split(/[,;]|\s+and\s+/i)
-                            ?.map((c) => c.trim().replace(/^[–—\-\s,:]+/, ''))
-                            ?.filter((c) => Boolean(c) && !c.toLowerCase().startsWith('effect') && !c.toLowerCase().startsWith('time')) || [])
-                        : [];
-
-                      // If still no characters in script metadata, fallback to dialogue speaking characters in this scene
-                      const matchingScene = screenplayData.scenes.find(s => s.id === elem.sceneId);
-                      const speakingCharsFallback = (!elem.characters || elem.characters.length === 0) && embeddedMetaChars.length === 0 && matchingScene
-                        ? getSceneCharacters(matchingScene)
-                        : [];
-
-                      const effectiveChars = (elem.characters && elem.characters.length > 0)
-                        ? elem.characters
-                        : (embeddedMetaChars.length > 0 ? embeddedMetaChars : speakingCharsFallback);
-                      const charCount = effectiveChars.length;
-                      const charListStr = charCount > 0 ? effectiveChars.join(', ') : 'இல்லை';
-
-                      // Sanitize display location so embedded metadata like 'நடிகர்கள்: YOGIBABU...' or 'பகல் INT' doesn't repeat inside Script Location
-                      const cleanDisplayLocation = (locStr?: string) => {
-                        if (!locStr) return '';
-                        return locStr
-                          .replace(/(?:Characters?|கதாபாத்திரங்கள்|நடிகர்கள்|Actors?|Cast)\s*[:\-]?\s*.*$/i, '')
-                          .replace(/(?:Real\s*Location|Real\s*Loc)\s*[:\-]?\s*.*$/i, '')
-                          .replace(/\s*(?:பகல்|பகள்|இரவு|மாலை|காலை|அதிகாலை|Day|Night|Evening|Morning)(?=[^\u0B80-\u0BFFa-zA-Z]|$)/gi, '')
-                          .replace(/\s*(?:EXT\/INT|INT\/EXT|EXT|INT)\b/gi, '')
-                          .replace(/[|:\-\s\t]+$/, '')
-                          .replace(/^[|:\-\s\t]+/, '')
-                          .replace(/\s+/g, ' ')
-                          .trim();
-                      };
-
-                      const displayScriptLoc = cleanDisplayLocation(elem.location) || elem.location || 'Location';
-                      const displayRealLoc = cleanDisplayLocation(elem.realLocation) || cleanDisplayLocation(elem.location) || elem.realLocation || 'Real Location';
+                      const cachedMeta = sceneHeaderMetaMap.get(elem.sceneId);
+                      const displayScriptLoc = cachedMeta?.displayScriptLoc || elem.location || 'Location';
+                      const displayRealLoc = cachedMeta?.displayRealLoc || elem.realLocation || displayScriptLoc || 'Real Location';
+                      const effectiveChars = cachedMeta?.effectiveChars || elem.characters || [];
+                      const charCount = cachedMeta?.charCount ?? effectiveChars.length;
+                      const charListStr = cachedMeta?.charListStr || (effectiveChars.length > 0 ? effectiveChars.join(', ') : 'இல்லை');
 
                       return (
                         <div
@@ -5011,7 +5149,8 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
                   </span>
                 </div>
               </div>
-            ))}
+            );
+          })}
 
             {/* "+ Add Next Scene (New Page)" Floating Bottom Action Bar */}
             {pages.length > 0 && (

@@ -96,7 +96,9 @@ class SidebarErrorBoundary extends (React.Component as any) {
   }
   render() {
     if ((this as any).state.hasError) {
-      return (
+
+
+    return (
         <div className="p-6 flex flex-col items-center justify-center h-full text-center gap-3">
           <AlertCircle size={32} style={{ color: 'var(--app-accent, #f5a623)' }} />
           <h4 className="text-xs font-bold uppercase tracking-wider">Sidebar Display Protected</h4>
@@ -838,6 +840,16 @@ const ContextMenuItem = ({ icon: Icon, label, onClick, danger, submenu, active, 
 };
 
 const ScriptView: React.FC<{ onNavigateToView?: (view: any) => void }> = ({ onNavigateToView }) => {
+  const scriptScrollTimerRef = useRef<any>(null);
+  const handleScriptScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    const top = e.currentTarget.scrollTop;
+    if (scriptScrollTimerRef.current) clearTimeout(scriptScrollTimerRef.current);
+    scriptScrollTimerRef.current = setTimeout(() => {
+      try {
+        localStorage.setItem('backstage_last_script_scroll_top', String(top));
+      } catch {}
+    }, 250);
+  }, []);
   const { beats, groups, connections, updateBeat, addBeat, setBeats, setConnections, scriptViewMode, setScriptViewMode, scriptConfig, setScriptConfig, scratchpadConfig, characterData, breakdownLanguage, setBreakdownLanguage, scratchpad, setScratchpad, globalNotes, setGlobalNotes, captureSnapshot, reorderBeats, setActiveBoardId, appTheme, appAccentColor = '#f5a623', generalAiModel, openrouterKey, userRole, isTamilMode, tamilFontScale, tamilFontFamily } = useProject();
   const { aiAvailable } = useAiKeyStatus();
   const isScriptReadOnly = false;
@@ -2153,11 +2165,7 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: any) => void }> = ({ onNa
         <div className="flex-1 flex overflow-hidden">
             <div 
               ref={scrollerRef} 
-              onScroll={(e) => {
-                try {
-                  localStorage.setItem('backstage_last_script_scroll_top', String(e.currentTarget.scrollTop));
-                } catch {}
-              }}
+              onScroll={handleScriptScroll}
               className={`flex-1 overflow-y-auto relative flex flex-col items-center pb-96 custom-scrollbar ${isLight ? 'bg-slate-200/80' : 'bg-[#121212]'}`}
             >
                 <div className="transition-transform duration-200 origin-top py-10" style={{ transform: `scale(${zoom})` }}>

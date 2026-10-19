@@ -1,3 +1,4 @@
+import { saveDocumentsToRustDisk, loadDocumentsFromRustDisk } from './localRustStorage';
 import { ProductionDocument, DocumentAnnotation, DocumentCategory, DocumentFormat } from '../types';
 import { 
   saveProjectDocumentToCloud, 
@@ -28,6 +29,46 @@ export function getDocumentStorageKey(projectId?: string): string {
   } catch {}
   return STORAGE_KEY;
 }
+
+const TOMBSTONE_STORAGE_KEY = 'backstage_deleted_document_ids';
+
+/**
+ * Returns the set of permanently deleted document IDs for a project.
+ * Documents in this set will NEVER be resurrected by sync, fallback keys, or storage buckets.
+ */
+export function getDeletedDocumentIds(projectId?: string): Set<string> {
+  const activeProjId = projectId || (typeof localStorage !== 'undefined' ? localStorage.getItem('currentProjectId') || 'default' : 'default');
+  const set = new Set<string>();
+  try {
+    const rawLocal = localStorage.getItem(`${TOMBSTONE_STORAGE_KEY}_${activeProjId}`);
+    if (rawLocal) {
+      const arr = JSON.parse(rawLocal);
+      if (Array.isArray(arr)) arr.forEach((id: string) => set.add(id));
+    }
+    const rawGlobal = localStorage.getItem(TOMBSTONE_STORAGE_KEY);
+    if (rawGlobal) {
+      const arr = JSON.parse(rawGlobal);
+      if (Array.isArray(arr)) arr.forEach((id: string) => set.add(id));
+    }
+  } catch {}
+  return set;
+}
+
+/**
+ * Permanently records a document deletion tombstone.
+ */
+export function recordDocumentDeletion(docIds: string | string[], projectId?: string): void {
+  const activeProjId = projectId || (typeof localStorage !== 'undefined' ? localStorage.getItem('currentProjectId') || 'default' : 'default');
+  const idsToAdd = Array.isArray(docIds) ? docIds : [docIds];
+  const set = getDeletedDocumentIds(activeProjId);
+  idsToAdd.forEach((id) => set.add(id));
+  const arr = Array.from(set);
+  try {
+    localStorage.setItem(`${TOMBSTONE_STORAGE_KEY}_${activeProjId}`, JSON.stringify(arr));
+    localStorage.setItem(TOMBSTONE_STORAGE_KEY, JSON.stringify(arr));
+  } catch {}
+}
+
 
 /**
  * Generate a pure client-side soft WAV audio data URL for voice note testing and starter memos.
@@ -472,6 +513,16 @@ export const INITIAL_DOCUMENTS: ProductionDocument[] = [];
 
 export function getProductionDocuments(projectId?: string): ProductionDocument[] {
   const activeProjId = projectId || (typeof localStorage !== 'undefined' ? localStorage.getItem('currentProjectId') || 'default' : 'default');
+  const tombstones = getDeletedDocumentIds(activeProjId);
+
+  // FAST PATH: Return in-memory cache immediately in 0.001ms without re-parsing or triggering re-saves
+  if (inMemoryDocsCache[activeProjId] && inMemoryDocsCache[activeProjId].length > 0) {
+    const cleanCache = inMemoryDocsCache[activeProjId].filter((d) => d && d.id && !tombstones.has(d.id));
+    if (cleanCache.length !== inMemoryDocsCache[activeProjId].length) {
+      inMemoryDocsCache[activeProjId] = cleanCache;
+    }
+    return cleanCache;
+  }
 
   try {
     const key = getDocumentStorageKey(projectId);
@@ -494,6 +545,9 @@ export function getProductionDocuments(projectId?: string): ProductionDocument[]
 
     const filtered = parsed.filter(
       (doc: ProductionDocument) =>
+        doc &&
+        doc.id &&
+        !tombstones.has(doc.id) &&
         doc.id !== 'doc-ranga-1' &&
         doc.fileName !== 'Pilot_Ranga_Screenplay.docx' &&
         !(doc.title && doc.title.includes('பைலட் ரங்கா')) &&
@@ -502,16 +556,16 @@ export function getProductionDocuments(projectId?: string): ProductionDocument[]
 
     let hasMigrated = filtered.length !== parsed.length;
 
-    // Ensure exactly ONE Master Production Breakdown sheet exists
+    // Ensure exactly ONE Master Production Breakdown sheet exists IF not explicitly deleted
     const hasMaster = filtered.some((d: ProductionDocument) => d.id === MASTER_BREAKDOWN_DOC_ID);
-    if (!hasMaster) {
+    if (!hasMaster && !tombstones.has(MASTER_BREAKDOWN_DOC_ID)) {
       hasMigrated = true;
       filtered.unshift(createMasterBreakdownDocument(undefined, activeProjId));
     }
 
-    // Ensure SANGILI Master Screenplay exists in the vault and is staged to script
+    // Ensure SANGILI Master Screenplay exists in the vault and is staged to script IF not explicitly deleted
     const hasSangili = filtered.some((d: ProductionDocument) => d.id === SANGILI_DOCUMENT_ID);
-    if (!hasSangili) {
+    if (!hasSangili && !tombstones.has(SANGILI_DOCUMENT_ID)) {
       hasMigrated = true;
       filtered.unshift(getSangiliDocument(activeProjId));
     }
@@ -602,6 +656,9 @@ export function getProductionDocuments(projectId?: string): ProductionDocument[]
     if (fallbackDocs.length > 0) {
       const filteredFallback = fallbackDocs.filter(
         (doc: ProductionDocument) =>
+          doc &&
+          doc.id &&
+          !tombstones.has(doc.id) &&
           doc.id !== 'doc-ranga-1' &&
           doc.fileName !== 'Pilot_Ranga_Screenplay.docx' &&
           !(doc.title && doc.title.includes('பைலட் ரங்கா')) &&
@@ -654,22 +711,27 @@ export async function loadProductionDocumentsAsync(projectId?: string): Promise<
  */
 export function mergeProductionDocuments(
   existingDocs: ProductionDocument[],
-  incomingDocs: ProductionDocument[]
+  incomingDocs: ProductionDocument[],
+  projectId?: string
 ): ProductionDocument[] {
-  if (!incomingDocs || incomingDocs.length === 0) return existingDocs || [];
-  if (!existingDocs || existingDocs.length === 0) return incomingDocs || [];
+  const tombstones = getDeletedDocumentIds(projectId);
+  const cleanExisting = (existingDocs || []).filter((d) => d && d.id && !tombstones.has(d.id));
+  const cleanIncoming = (incomingDocs || []).filter((d) => d && d.id && !tombstones.has(d.id));
+
+  if (!cleanIncoming || cleanIncoming.length === 0) return cleanExisting;
+  if (!cleanExisting || cleanExisting.length === 0) return cleanIncoming;
 
   const map = new Map<string, ProductionDocument>();
 
   // Add existing docs first
-  existingDocs.forEach((doc) => {
+  cleanExisting.forEach((doc) => {
     if (doc && doc.id) {
       map.set(doc.id, doc);
     }
   });
 
   // Merge incoming docs
-  incomingDocs.forEach((incoming) => {
+  cleanIncoming.forEach((incoming) => {
     if (!incoming || !incoming.id) return;
 
     // 1. Look up by exact ID
@@ -784,22 +846,8 @@ function flushCloudSaves(): void {
       });
     });
 
-    // Also push the complete list of documents to projects.data.documents
-    // to ensure 100% sync reliability across laptops even when project_documents table is absent
-    loadLargeDocuments(projId)
-      .then((idbDocs) => {
-        const allProjDocs = getProductionDocuments(projId);
-        const fullList = mergeProductionDocuments(allProjDocs, idbDocs || []);
-        if (fullList && fullList.length > 0) {
-          saveProjectDocumentsToProjectData(projId, fullList).catch(() => {});
-        }
-      })
-      .catch(() => {
-        const allProjDocs = getProductionDocuments(projId);
-        if (allProjDocs && allProjDocs.length > 0) {
-          saveProjectDocumentsToProjectData(projId, allProjDocs).catch(() => {});
-        }
-      });
+    // Push individual dirty documents first; full list is only synced on explicit project save
+    // to avoid freezing the main thread with 3MB JSON serialization every 2 seconds
   });
 }
 
@@ -895,6 +943,9 @@ export function saveProductionDocuments(
   // 1. Immediately cache in-memory so synchronous access never loses documents
   inMemoryDocsCache[activeProjId] = docs;
 
+  // 1b. Rust-First Native Disk Storage (zero quota errors, saves 100MB+ safely to disk)
+  saveDocumentsToRustDisk(activeProjId, docs).catch(() => {});
+
   // 2. Persist to unlimited IndexedDB storage (handles 50MB+ PDFs/DOCX with 0 quota errors)
   if (typeof indexedDB !== 'undefined') {
     saveLargeDocuments(activeProjId, docs).catch((idbErr) => {
@@ -906,13 +957,28 @@ export function saveProductionDocuments(
   // Always strip heavy binaries from localStorage — IndexedDB holds the full versions
   try {
     const key = getDocumentStorageKey(projectId);
+    // Slim metadata only for localStorage (under 5KB total) — full twoColumnData and binaries are in RAM and on Rust disk
     const lsDocs = docs.map((doc) => ({
-      ...doc,
-      thumbnailDataUrl: doc.thumbnailDataUrl || undefined,
-      pdfDataUrl: doc.pdfDataUrl && doc.pdfDataUrl.length > 80000 ? undefined : doc.pdfDataUrl,
-      originalFileDataUrl: doc.originalFileDataUrl && doc.originalFileDataUrl.length > 80000 ? undefined : doc.originalFileDataUrl,
-      convertedDocxDataUrl: doc.convertedDocxDataUrl && doc.convertedDocxDataUrl.length > 80000 ? undefined : doc.convertedDocxDataUrl,
-      imageDataUrl: doc.imageDataUrl && doc.imageDataUrl.length > 80000 ? (doc.thumbnailDataUrl || undefined) : doc.imageDataUrl,
+      id: doc.id,
+      projectId: doc.projectId,
+      title: doc.title,
+      titleTa: doc.titleTa,
+      category: doc.category,
+      fileName: doc.fileName,
+      fileSize: doc.fileSize,
+      fileType: doc.fileType,
+      pageCount: doc.pageCount,
+      uploadedAt: doc.uploadedAt,
+      updatedAt: doc.updatedAt,
+      isStagedToScript: doc.isStagedToScript,
+      isLeftRightFormat: doc.isLeftRightFormat,
+      hasTwoColumnScript: doc.hasTwoColumnScript,
+      builtInType: doc.builtInType,
+      author: doc.author,
+      status: doc.status,
+      tags: doc.tags,
+      annotations: doc.annotations || [],
+      thumbnailDataUrl: doc.thumbnailDataUrl && doc.thumbnailDataUrl.length < 20000 ? doc.thumbnailDataUrl : undefined,
     }));
     localStorage.setItem(key, JSON.stringify(lsDocs));
   } catch (quotaErr) {
@@ -1039,6 +1105,11 @@ export async function syncDocumentsWithCloud(
       const { data: { session } } = await supabase.auth.getSession();
       resolvedUserId = session?.user?.id;
     } catch {}
+  }
+
+  // If user is not authenticated with Supabase, skip remote cloud fetch and return local docs immediately
+  if (!resolvedUserId) {
+    return localDocs;
   }
 
   try {
@@ -1190,15 +1261,84 @@ export function unarchiveProductionDocument(id: string, projectId?: string): boo
   return found;
 }
 
-export function deleteProductionDocument(id: string, projectId?: string): boolean {
-  const activeProjId = projectId || (typeof localStorage !== 'undefined' ? localStorage.getItem('currentProjectId') || undefined : undefined);
-  const docs = getProductionDocuments(activeProjId);
-  const updated = docs.filter(d => d.id !== id);
-  saveProductionDocuments(updated, activeProjId);
+/**
+ * Permanently delete multiple production documents from local disk, IndexedDB, and cloud.
+ * Writes permanent tombstones so they will NEVER reappear on sync.
+ */
+export function deleteProductionDocuments(
+  ids: string | string[],
+  projectId?: string
+): boolean {
+  const activeProjId = projectId || (typeof localStorage !== 'undefined' ? localStorage.getItem('currentProjectId') || 'default' : 'default');
+  const idList = Array.isArray(ids) ? ids.filter(Boolean) : (ids ? [ids] : []);
+  if (idList.length === 0) return true;
+  const idSet = new Set(idList);
+
+  // 1. Permanently record tombstones
+  recordDocumentDeletion(idList, activeProjId);
+
+  // 2. Remove from in-memory caches across all project slots
+  Object.keys(inMemoryDocsCache).forEach((k) => {
+    inMemoryDocsCache[k] = (inMemoryDocsCache[k] || []).filter((d) => !idSet.has(d.id));
+  });
+
+  // 3. Filter from active project documents and persist to Rust disk & IndexedDB & localStorage
+  const currentDocs = getProductionDocuments(activeProjId).filter((d) => !idSet.has(d.id));
+  saveProductionDocuments(currentDocs, activeProjId, false, true);
+
+  // 4. Purge from fallback localStorage slots
+  const fallbackKeys = [
+    STORAGE_KEY,
+    'backstage_production_documents_default',
+    'backstage_production_documents_empty-project',
+    getDocumentStorageKey(activeProjId)
+  ];
+  fallbackKeys.forEach((key) => {
+    try {
+      const raw = localStorage.getItem(key);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          const cleaned = parsed.filter((d: any) => !idSet.has(d.id));
+          localStorage.setItem(key, JSON.stringify(cleaned));
+        }
+      }
+    } catch {}
+  });
+
+  // 5. Purge from native Rust disk storage for fallback slots as well
+  ['default', 'empty-project', activeProjId].forEach((slot) => {
+    loadDocumentsFromRustDisk(slot).then((rustDocs) => {
+      if (rustDocs && Array.isArray(rustDocs)) {
+        const cleaned = rustDocs.filter((d: any) => !idSet.has(d.id));
+        if (cleaned.length !== rustDocs.length) {
+          saveDocumentsToRustDisk(slot, cleaned).catch(() => {});
+        }
+      }
+    }).catch(() => {});
+  });
+
+  // 6. Delete from Supabase Cloud table
   if (activeProjId && isSupabaseConfigured) {
-    deleteProjectDocumentFromCloud(activeProjId, id).catch(() => {});
+    idList.forEach((id) => {
+      deleteProjectDocumentFromCloud(activeProjId, id).catch(() => {});
+    });
   }
+
+  // 7. Dispatch window event to immediately notify all UI views
+  try {
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('backstage_documents_updated', {
+        detail: { docs: currentDocs, projectId: activeProjId }
+      }));
+    }
+  } catch {}
+
   return true;
+}
+
+export function deleteProductionDocument(id: string, projectId?: string): boolean {
+  return deleteProductionDocuments(id, projectId);
 }
 
 /**

@@ -498,6 +498,7 @@ export const saveProjectDocumentToCloud = async (
         resolvedUserId = session?.user?.id;
       } catch {}
     }
+    if (!resolvedUserId) return false;
 
     let pdfUrl = doc.pdfDataUrl || null;
     let originalFileUrl = doc.originalFileDataUrl || null;

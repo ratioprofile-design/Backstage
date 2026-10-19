@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
-  Sun, Moon, Sparkles, Check,
+  Sun, Moon, Sparkles, Check, Zap,
   CircleDot, MoveRight, MoveDown, Slash, Diamond, Layers
 } from 'lucide-react';
 import { useProject } from '../context/ProjectContext';
@@ -13,6 +13,7 @@ interface ThemeToggleButtonProps {
 }
 
 const ANIM_STYLE_NAMES: Record<ThemeAnimationStyle, { name: string; icon: React.ComponentType<any> }> = {
+  instant: { name: 'Instant (0ms)', icon: Zap },
   circle: { name: 'Radial Bloom', icon: CircleDot },
   'wipe-right': { name: 'Cinematic Wipe', icon: MoveRight },
   'wipe-down': { name: 'Curtain Drop', icon: MoveDown },
@@ -30,7 +31,7 @@ export const ThemeToggleButton: React.FC<ThemeToggleButtonProps> = ({
     appTheme,
     setAppTheme,
     appAccentColor = '#f5a623',
-    themeAnimationStyle = 'circle',
+    themeAnimationStyle = 'instant',
     setThemeAnimationStyle,
   } = useProject();
 

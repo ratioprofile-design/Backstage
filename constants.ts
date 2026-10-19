@@ -189,7 +189,7 @@ export const INITIAL_STATE: ProjectState = {
   appAccentColor: '#f5a623',
   appLanguage: 'english',
   navLayout: 'vertical',
-  themeAnimationStyle: 'circle',
+  themeAnimationStyle: 'instant',
 
   panX: 0,
   panY: 0,

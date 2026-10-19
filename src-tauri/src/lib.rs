@@ -1,3 +1,5 @@
+mod storage;
+
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
 
 fn create_menu<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result<Menu<R>> {
@@ -95,6 +97,15 @@ pub fn run() {
   tauri::Builder::default()
     .plugin(tauri_plugin_fs::init())
     .plugin(tauri_plugin_dialog::init())
+    .invoke_handler(tauri::generate_handler![
+      storage::save_project_local,
+      storage::load_project_local,
+      storage::list_local_projects,
+      storage::delete_project_local,
+      storage::get_storage_stats,
+      storage::save_documents_local,
+      storage::load_documents_local,
+    ])
     .menu(create_menu)
     .on_menu_event(|app, event| {
       use tauri::Emitter;

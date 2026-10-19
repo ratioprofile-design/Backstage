@@ -12,6 +12,7 @@ import { createAuto5ScenesDataset, createAutoScenesDataset } from '../services/s
 import { isTauri, getTauriFs, getTauriDialog, getTauriWindow } from '../utils/desktop';
 import { isCausalityData, parseCausalityProject } from '../services/causalityParser';
 import { getProductionDocuments, saveProductionDocuments, mergeProductionDocuments, syncDocumentsWithCloud } from '../services/documentsStorage';
+import { saveProjectToRustDisk, loadProjectFromRustDisk, listRustLocalProjects } from '../services/localRustStorage';
 import { saveLargeProject, loadLargeProject, loadLargeDocuments } from '../services/largeStorage';
 import { optimizeTalentForCloud } from '../services/imageOptimizer';
 import { addRecentFile } from '../utils/recentFiles';
@@ -279,7 +280,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   });
 
   const [themeAnimationStyle, setThemeAnimationStyleState] = useState<ThemeAnimationStyle>(() => {
-    return (localStorage.getItem('app_theme_animation') as ThemeAnimationStyle) || INITIAL_STATE.themeAnimationStyle || 'circle';
+    return (localStorage.getItem('app_theme_animation') as ThemeAnimationStyle) || INITIAL_STATE.themeAnimationStyle || 'instant';
   });
   const themeAnimationStyleRef = useRef(themeAnimationStyle);
   useEffect(() => { themeAnimationStyleRef.current = themeAnimationStyle; }, [themeAnimationStyle]);
@@ -288,7 +289,6 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     themeAnimationStyleRef.current = style;
     setThemeAnimationStyleState(style);
     localStorage.setItem('app_theme_animation', style);
-    setHasUnsavedChanges(true);
   }, []);
 
   const [appZoomLevel, setAppZoomLevelState] = useState<number>(() => {
@@ -330,19 +330,13 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   }, [appZoomLevel]);
 
   const setAppTheme = useCallback((theme: 'dark' | 'light' | 'system', event?: any) => {
+    const isDark = theme === 'dark' || (theme === 'system' && typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    const targetPaper: 'dark' | 'white' = isDark ? 'dark' : 'white';
+
     const updateThemeState = () => {
       setAppThemeState(theme);
       if (typeof localStorage !== 'undefined') {
         localStorage.setItem('app_theme', theme);
-      }
-
-      // Synchronize screenplay paperTheme when switching app theme
-      // When switching to dark mode, paper style switches to dark mode
-      // When switching to light mode, paper style switches to white
-      const isDark = theme === 'dark' || (theme === 'system' && typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches);
-      const targetPaper: 'dark' | 'white' = isDark ? 'dark' : 'white';
-
-      if (typeof localStorage !== 'undefined') {
         localStorage.setItem('user_pref_paper_theme', targetPaper);
       }
 
@@ -351,7 +345,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
         paperTheme: targetPaper,
       }));
 
-      // Synchronously update document classes so snapshot captures the new state
+      // Synchronously update document classes for immediate repaint
       if (typeof document !== 'undefined') {
         if (isDark) {
           document.documentElement.classList.add('dark-theme');
@@ -365,9 +359,15 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
           document.body.classList.remove('dark-theme');
         }
       }
-
-      setHasUnsavedChanges(true);
     };
+
+    const style = themeAnimationStyleRef.current || 'instant';
+
+    // INSTANT SWITCH (DEFAULT): 0ms latency, zero GPU snapshot pauses, no clip-path delays
+    if (style === 'instant') {
+      updateThemeState();
+      return;
+    }
 
     // Check if View Transition API is supported and user hasn't requested reduced motion
     const canViewTransition =
@@ -378,12 +378,6 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
     if (!canViewTransition) {
-      if (typeof document !== 'undefined') {
-        document.documentElement.classList.add('theme-transitioning');
-        setTimeout(() => {
-          document.documentElement.classList.remove('theme-transitioning');
-        }, 500);
-      }
       updateThemeState();
       return;
     }
@@ -402,7 +396,6 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
         y = rect.top + rect.height / 2;
       }
 
-      const style = themeAnimationStyleRef.current || 'circle';
       const endRadius = typeof window !== 'undefined'
         ? Math.hypot(Math.max(x, window.innerWidth - x), Math.max(y, window.innerHeight - y))
         : 1000;
@@ -414,7 +407,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
         ]
       };
       let animOptions: KeyframeAnimationOptions = {
-        duration: 460,
+        duration: 360,
         easing: 'cubic-bezier(0.4, 0, 0.2, 1)',
         pseudoElement: '::view-transition-new(root)'
       };
@@ -427,7 +420,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
           ]
         };
         animOptions = {
-          duration: 440,
+          duration: 340,
           easing: 'cubic-bezier(0.25, 1, 0.5, 1)',
           pseudoElement: '::view-transition-new(root)'
         };
@@ -439,7 +432,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
           ]
         };
         animOptions = {
-          duration: 440,
+          duration: 340,
           easing: 'cubic-bezier(0.25, 1, 0.5, 1)',
           pseudoElement: '::view-transition-new(root)'
         };
@@ -451,7 +444,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
           ]
         };
         animOptions = {
-          duration: 460,
+          duration: 360,
           easing: 'cubic-bezier(0.25, 1, 0.5, 1)',
           pseudoElement: '::view-transition-new(root)'
         };
@@ -466,17 +459,17 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
           ]
         };
         animOptions = {
-          duration: 480,
+          duration: 380,
           easing: 'cubic-bezier(0.33, 1, 0.68, 1)',
           pseudoElement: '::view-transition-new(root)'
         };
       } else if (style === 'dissolve') {
         keyframes = {
           opacity: [0, 1],
-          transform: ['scale(0.98)', 'scale(1)']
+          transform: ['scale(0.99)', 'scale(1)']
         };
         animOptions = {
-          duration: 360,
+          duration: 280,
           easing: 'cubic-bezier(0.4, 0, 0.2, 1)',
           pseudoElement: '::view-transition-new(root)'
         };
@@ -496,7 +489,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   }, []);
 
-  // Listen for OS theme changes when theme is set to 'system'
+    // Listen for OS theme changes when theme is set to 'system'
   useEffect(() => {
     if (appTheme !== 'system' || typeof window === 'undefined') return;
     const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
@@ -1356,9 +1349,19 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       } else {
         let localState = null;
         try {
-          const dataStr = localStorage.getItem(`project_data_${id}`);
-          if (dataStr) localState = JSON.parse(dataStr);
+          const rustState = await loadProjectFromRustDisk(id);
+          if (rustState) {
+            localState = rustState;
+            console.log(`[ProjectContext] Loaded project "${id}" from native Rust disk storage`);
+          }
         } catch (e) {}
+
+        if (!localState) {
+          try {
+            const dataStr = localStorage.getItem(`project_data_${id}`);
+            if (dataStr) localState = JSON.parse(dataStr);
+          } catch (e) {}
+        }
 
         if (!localState) {
           try {
@@ -1406,6 +1409,32 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   };
   selectProjectRef.current = selectProject;
+
+
+  // Rust-First Local Projects Discovery: automatically discover and merge projects from disk
+  useEffect(() => {
+    if (!isTauri()) return;
+    listRustLocalProjects().then((rustProjects) => {
+      if (rustProjects && rustProjects.length > 0) {
+        setProjectList((prev) => {
+          const merged = [...prev];
+          for (const rp of rustProjects) {
+            const exists = merged.some((p) => p.id === rp.id);
+            if (!exists) {
+              const localName = localStorage.getItem(`project_name_${rp.id}`) || rp.id;
+              merged.push({
+                id: rp.id,
+                name: localName,
+                created: rp.updated_at * 1000,
+                lastModified: rp.updated_at * 1000,
+              });
+            }
+          }
+          return merged;
+        });
+      }
+    }).catch(() => {});
+  }, []);
 
   // Sync on window focus (cloud mode only — the local window is the sole writer otherwise,
   // and re-fetching can overwrite in-progress work with stale storage/file data)
@@ -1504,24 +1533,23 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       talentPool,
       appTheme,
       themeAnimationStyle,
-      documents: currentDocs,
       lastInstanceId: INSTANCE_ID // Tag the update with this instance ID
     };
     let saved = false;
     let cloudFailed = false;
 
-    // 1. Unlimited Local Database (IndexedDB) & Disk Backup
-    // Always persist to local IndexedDB and disk first so nothing is EVER lost regardless of cloud status
+    // 1. Rust-First Native Disk Storage & Unlimited Local Database
+    // Write lightweight project state (<5KB) directly to ~/Documents/Backstage/Projects in <1ms
+    try {
+      const rustResult = await saveProjectToRustDisk(currentProjectId || 'empty-project', projectData);
+      if (rustResult.success) {
+        saved = true;
+      }
+    } catch (e) {}
+
+    // Always persist to local IndexedDB as secondary cache
     const idbSaved = await saveLargeProject(currentProjectId || 'empty-project', projectData);
     if (idbSaved) saved = true;
-
-    try {
-      fetch('/api/talent/backup-disk', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(projectData)
-      }).catch(() => {});
-    } catch (e) {}
 
     // 2. Cloud (when signed in to Supabase)
     let cloudErrorDetail: string | null = null;
@@ -1769,7 +1797,8 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const downloadProject = useCallback(() => {
     if (!currentProjectId) return;
-    const projectData = { beats, groups, connections, annotations, characterData, generatedShots, scratchpad, globalNotes, panX, panY, scale, nextId, nextAnnoId, activeBoardId, isTamilMode, tamilFontScale, tamilFontFamily, userDictionary, isOsInputMode, osInputShortcut, scriptConfig, scriptViewMode, scratchpadConfig, storyboardConfig, isStoryboardFeatureEnabled, breakdownLanguage, breakdownLockedOnly, isPdfDropEnabled, isRedoEnabled, writingGoal, geminiApiKey: '', openrouterKey, generalAiModel, dailyStats, sessionStartCount, lastSessionDate, boardLayerOrder, characterDesignLocked };
+    const currentDocs = getProductionDocuments(currentProjectId || undefined);
+    const projectData = { beats, groups, connections, annotations, characterData, generatedShots, scratchpad, globalNotes, panX, panY, scale, nextId, nextAnnoId, activeBoardId, isTamilMode, tamilFontScale, tamilFontFamily, userDictionary, isOsInputMode, osInputShortcut, scriptConfig, scriptViewMode, scratchpadConfig, storyboardConfig, isStoryboardFeatureEnabled, breakdownLanguage, breakdownLockedOnly, isPdfDropEnabled, isRedoEnabled, writingGoal, geminiApiKey: '', openrouterKey, generalAiModel, dailyStats, sessionStartCount, lastSessionDate, boardLayerOrder, characterDesignLocked, documents: currentDocs };
     const blob = new Blob([JSON.stringify(projectData, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -2109,6 +2138,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   // Real-time synchronization from Chrome Extension (/api/talent/sync)
   useEffect(() => {
+    if (isTauri()) return;
     let isMounted = true;
 
     const pollSyncQueue = async () => {

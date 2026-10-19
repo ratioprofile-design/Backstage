@@ -110,15 +110,18 @@ export const MarkdownDocEditor: React.FC<MarkdownDocEditorProps> = ({
   // Zoom Level for Paginated View
   const [zoomLevel, setZoomLevel] = useState<number>(100);
 
-  // Dynamic pagination calculation (sub-millisecond)
+  // Dynamic pagination calculation (sub-millisecond, only when paginated look is active)
   const paginatedResult = useMemo(() => {
+    if (pageLook !== 'paginated') {
+      return { totalPages: 1, pages: [], totalWordCount: stats.words, totalCharCount: stats.characters };
+    }
     return paginateMarkdownContent(markdown, {
       docTitle: title || 'Master Document',
       docSubtitle: doc.category === 'BREAKDOWN' ? '1ST AD MASTER BREAKDOWN' : 'PRODUCTION CORE',
       fontSize: docFontSize,
       fontFamily: docFontFamily,
     });
-  }, [markdown, title, doc.category, docFontSize, docFontFamily]);
+  }, [pageLook, markdown, title, doc.category, docFontSize, docFontFamily, stats.words, stats.characters]);
 
   // Stable ref callback: guarantees instant, non-blank hydration the millisecond the continuous canvas mounts
   const setCanvasRef = useCallback((el: HTMLDivElement | null) => {

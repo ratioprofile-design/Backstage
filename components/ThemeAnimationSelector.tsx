@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useProject } from '../context/ProjectContext';
 import { ThemeAnimationStyle } from '../types';
 import {
+  Zap,
   CircleDot,
   MoveRight,
   MoveDown,
@@ -25,6 +26,15 @@ export interface ThemeAnimationOption {
 }
 
 export const THEME_ANIMATION_OPTIONS: ThemeAnimationOption[] = [
+  {
+    id: 'instant',
+    name: 'Instant (0ms)',
+    tagline: 'Zero-latency instant toggle',
+    description: 'Instantaneous mode switch without transition delays or GPU overhead. Fastest performance.',
+    badge: 'Recommended',
+    icon: Zap,
+    previewCss: 'radial-gradient(circle, rgba(245,166,35,0.4) 0%, transparent 70%)',
+  },
   {
     id: 'circle',
     name: 'Radial Bloom',
@@ -93,7 +103,7 @@ export const ThemeAnimationSelector: React.FC<ThemeAnimationSelectorProps> = ({
   showTestButton = true,
 }) => {
   const {
-    themeAnimationStyle = 'circle',
+    themeAnimationStyle = 'instant',
     setThemeAnimationStyle,
     appTheme = 'dark',
     setAppTheme,

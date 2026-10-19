@@ -85,18 +85,10 @@ export const NavigationProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     } catch (e) {}
   }, [currentView]);
 
-  // Primary view navigation function
+  // Primary view navigation function (Instantaneous 0ms switch without artificial delays)
   const navigateToView = useCallback((nextView: ViewMode, isHistoryAction = false) => {
     setCurrentViewInternal((prevView) => {
       if (nextView === prevView) return prevView;
-
-      const viewName = VIEW_NAMES[nextView] || nextView;
-      setPageLoadingMessage(`Loading ${viewName}...`);
-      if (pageLoadingTimerRef.current) clearTimeout(pageLoadingTimerRef.current);
-
-      pageLoadingTimerRef.current = setTimeout(() => {
-        setPageLoadingMessage(null);
-      }, 450);
 
       if (!isHistoryAction) {
         setHistoryStack((prevStack) => {

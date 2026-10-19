@@ -50,6 +50,17 @@ export interface SceneMetadataInfo {
  * Detects INT / EXT / I/E from script text, scene headers, and timeOfDay.
  * Strips technical noise to yield clean time strings like "மாலை&இரவு", "DAY", "NIGHT".
  */
+// Pre-compiled regex patterns to eliminate repeated compilation overhead
+const IE_REGEX = /\b(?:I\/E|INT[\s\/\\]*EXT|INT\.?[\s\/\\]*EXT\.?|I\s*[\/\\]\s*E|IE|உள்\s*[\/\\]\s*வெளி|உள்ளகம்\s*[\/\\]\s*வெளியகம்)\b/i;
+const EXT_REGEX = /\b(?:EXT|EXTERIOR|வெளி|வெளியகம்)\b|[\/\-_]EXT\b|\bEXT[\/\-_]/i;
+const INT_REGEX = /\b(?:INT|INTERIOR|உள்|உள்ளகம்)\b|[\/\-_]INT\b|\bINT[\/\-_]/i;
+const EXT_CLUES_REGEX = /(?:காடு|ரோடு|தெரு|சாலை|பாலம்|கடற்கரை|கடல்|மலை|தோட்டம்|மைதானம்|forest|road|street|beach|outside|ground|exterior)/i;
+const INT_CLUES_REGEX = /(?:வீடு|அறை|அலுவலகம்|ஆபீஸ்|ஹால்|சமையலறை|பள்ளி|கல்லூரி|மருத்துவமனை|house|room|office|hall|hospital|home|kitchen|interior)/i;
+const TIME_STRIP_1 = /\s*[\/\-–]\s*(?:INT|EXT|I\/E|IE|INTERIOR|EXTERIOR|உள்|வெளி|உள்ளகம்|வெளியகம்)\b/gi;
+const TIME_STRIP_2 = /\b(?:INT|EXT|I\/E|IE|INTERIOR|EXTERIOR|உள்|வெளி|உள்ளகம்|வெளியகம்)\s*[\/\-–]\s*/gi;
+const TIME_STRIP_3 = /\b(?:INT|EXT|I\/E|IE)\b/gi;
+const TIME_TRIM = /^[\/\-–|:]+|[\/\-–|:]+$/g;
+
 export function parseSceneMetadata(scene: TamilScene): SceneMetadataInfo {
   const timeRaw = (scene.timeOfDay || '').trim();
   const locRaw = (scene.location || '').trim();
@@ -59,23 +70,18 @@ export function parseSceneMetadata(scene: TamilScene): SceneMetadataInfo {
 
   // 1. Setting: I/E, EXT, INT
   let setting: 'INT' | 'EXT' | 'I/E' = 'INT';
-  const ieRegex = /\b(?:I\/E|INT[\s\/\\]*EXT|INT\.?[\s\/\\]*EXT\.?|I\s*[\/\\]\s*E|IE|உள்\s*[\/\\]\s*வெளி|உள்ளகம்\s*[\/\\]\s*வெளியகம்)\b/i;
-  const extRegex = /\b(?:EXT|EXTERIOR|வெளி|வெளியகம்)\b|[\/\-_]EXT\b|\bEXT[\/\-_]/i;
-  const intRegex = /\b(?:INT|INTERIOR|உள்|உள்ளகம்)\b|[\/\-_]INT\b|\bINT[\/\-_]/i;
 
-  if (ieRegex.test(combined)) {
+  if (IE_REGEX.test(combined)) {
     setting = 'I/E';
-  } else if (extRegex.test(combined)) {
+  } else if (EXT_REGEX.test(combined)) {
     setting = 'EXT';
-  } else if (intRegex.test(combined)) {
+  } else if (INT_REGEX.test(combined)) {
     setting = 'INT';
   } else {
     // Contextual clues from location when not explicitly marked
-    const extClues = /(?:காடு|ரோடு|தெரு|சாலை|பாலம்|கடற்கரை|கடல்|மலை|தோட்டம்|மைதானம்|forest|road|street|beach|outside|ground|exterior)/i;
-    const intClues = /(?:வீடு|அறை|அலுவலகம்|ஆபீஸ்|ஹால்|சமையலறை|பள்ளி|கல்லூரி|மருத்துவமனை|house|room|office|hall|hospital|home|kitchen|interior)/i;
-    if (extClues.test(combined)) {
+    if (EXT_CLUES_REGEX.test(combined)) {
       setting = 'EXT';
-    } else if (intClues.test(combined)) {
+    } else if (INT_CLUES_REGEX.test(combined)) {
       setting = 'INT';
     } else {
       setting = 'INT';
@@ -84,10 +90,10 @@ export function parseSceneMetadata(scene: TamilScene): SceneMetadataInfo {
 
   // 2. Clean display time (strip INT / EXT / IE / etc. while preserving compound times like மாலை&இரவு)
   let displayTime = timeRaw
-    .replace(/\s*[\/\-–]\s*(?:INT|EXT|I\/E|IE|INTERIOR|EXTERIOR|உள்|வெளி|உள்ளகம்|வெளியகம்)\b/gi, '')
-    .replace(/\b(?:INT|EXT|I\/E|IE|INTERIOR|EXTERIOR|உள்|வெளி|உள்ளகம்|வெளியகம்)\s*[\/\-–]\s*/gi, '')
-    .replace(/\b(?:INT|EXT|I\/E|IE)\b/gi, '')
-    .replace(/^[\/\-–|:]+|[\/\-–|:]+$/g, '')
+    .replace(TIME_STRIP_1, '')
+    .replace(TIME_STRIP_2, '')
+    .replace(TIME_STRIP_3, '')
+    .replace(TIME_TRIM, '')
     .trim();
 
   if (!displayTime) {
@@ -143,7 +149,8 @@ export function parseSceneMetadata(scene: TamilScene): SceneMetadataInfo {
   };
 }
 
-export const TwoColumnSceneSidebar: React.FC<TwoColumnSceneSidebarProps> = ({
+export const TwoColumnSceneSidebar: React.FC<TwoColumnSceneSidebarProps> = React.memo(({
+
   screenplayData,
   isLight = false,
   isOpen,
@@ -734,4 +741,20 @@ export const TwoColumnSceneSidebar: React.FC<TwoColumnSceneSidebarProps> = ({
       </div>
     </aside>
   );
-};
+}, (prev, next) => {
+  if (prev.isOpen !== next.isOpen) return false;
+  if (prev.isLight !== next.isLight) return false;
+  if (prev.activeSceneId !== next.activeSceneId) return false;
+  if (prev.className !== next.className) return false;
+  if (prev.screenplayData.scenes.length !== next.screenplayData.scenes.length) return false;
+  
+  // Fast check: did any scene header or block count change?
+  for (let i = 0; i < prev.screenplayData.scenes.length; i++) {
+    const ps = prev.screenplayData.scenes[i];
+    const ns = next.screenplayData.scenes[i];
+    if (ps.id !== ns.id || ps.sceneNumber !== ns.sceneNumber || ps.location !== ns.location || ps.timeOfDay !== ns.timeOfDay || ps.items.length !== ns.items.length) {
+      return false;
+    }
+  }
+  return true;
+});

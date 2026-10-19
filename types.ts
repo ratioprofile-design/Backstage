@@ -264,7 +264,7 @@ export interface CharacterData {
   billingNumber?: number;
 }
 
-export type ThemeAnimationStyle = 'circle' | 'wipe-right' | 'wipe-down' | 'diagonal' | 'diamond' | 'dissolve';
+export type ThemeAnimationStyle = 'instant' | 'circle' | 'wipe-right' | 'wipe-down' | 'diagonal' | 'diamond' | 'dissolve';
 
 export interface CausalityLane {
   id: string;
@@ -1231,6 +1231,7 @@ export interface ProductionDocument {
   youtubeEmbedUrl?: string;
   isStagedToScript?: boolean; // When staged in Script page, displays Script icon
   htmlContent?: string;
+  content?: string;
   textContent?: string;
   sheetData?: any[][];
   builtInType?: 'lookbook' | 'callsheet' | 'safety' | 'permit' | 'contract' | 'script' | 'breakdown' | 'schedule' | 'storyboard' | 'excalidraw' | 'audio' | 'note' | 'snapshot' | 'export';

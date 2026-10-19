@@ -18,6 +18,7 @@ import {
   archiveProductionDocument,
   unarchiveProductionDocument,
   deleteProductionDocument,
+  deleteProductionDocuments,
   saveVoiceNoteToVault,
   saveNoteToVault,
   harvestProjectArtifacts,
@@ -30,6 +31,7 @@ import {
   MASTER_BREAKDOWN_DOC_ID,
 } from '../../services/documentsStorage';
 import { loadLargeDocuments } from '../../services/largeStorage';
+import { notify } from '../../services/notificationService';
 import { supabase, isSupabaseConfigured, saveProjectDocumentsToProjectData } from '../../services/supabase';
 import * as XLSX from 'xlsx';
 import { parseUniversalFile } from '../../services/documentParser';
@@ -246,19 +248,23 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
   });
   const [isCloudSyncing, setIsCloudSyncing] = useState<boolean>(false);
 
-  // Synchronize documents with current project, IndexedDB, and Supabase Cloud
+  // Synchronize documents with current project, IndexedDB, and Supabase Cloud (Non-blocking)
+  const initialProjectIdRef = useRef(currentProjectId);
   useEffect(() => {
     let isMounted = true;
-    const local = getProductionDocuments(currentProjectId || undefined);
-    setDocuments(local);
-    const savedDocId = typeof localStorage !== 'undefined' ? (localStorage.getItem('backstage_last_vault_doc_id') || localStorage.getItem('active_two_column_doc_id')) : null;
-    if (savedDocId && local.some((d) => d.id === savedDocId)) {
-      setSelectedDocId(savedDocId);
-    } else if (!selectedDocId || !local.some(d => d.id === selectedDocId)) {
-      setSelectedDocId(local[0]?.id || '');
+    if (initialProjectIdRef.current !== currentProjectId) {
+      initialProjectIdRef.current = currentProjectId;
+      const local = getProductionDocuments(currentProjectId || undefined);
+      setDocuments(local);
+      const savedDocId = typeof localStorage !== 'undefined' ? (localStorage.getItem('backstage_last_vault_doc_id') || localStorage.getItem('active_two_column_doc_id')) : null;
+      if (savedDocId && local.some((d) => d.id === savedDocId)) {
+        setSelectedDocId(savedDocId);
+      } else if (!selectedDocId || !local.some(d => d.id === selectedDocId)) {
+        setSelectedDocId(local[0]?.id || '');
+      }
     }
 
-    // Hydrate from IndexedDB in case large files/PDFs were stored there
+    // Hydrate from IndexedDB asynchronously in case large files/PDFs were stored there
     loadLargeDocuments(currentProjectId || 'empty-project').then((idbDocs) => {
       if (!isMounted || !idbDocs || idbDocs.length === 0) return;
       setDocuments((prevDocs) => {
@@ -270,9 +276,10 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
       });
     }).catch(err => console.warn('[DocVault] IndexedDB hydration note:', err));
 
-    if (currentProjectId) {
+    // Cloud synchronization runs purely in the background without holding up page rendering
+    if (currentProjectId && supabaseUser?.id) {
       setIsCloudSyncing(true);
-      syncDocumentsWithCloud(currentProjectId, supabaseUser?.id)
+      syncDocumentsWithCloud(currentProjectId, supabaseUser.id)
         .then((synced) => {
           if (!isMounted) return;
           if (synced && synced.length > 0) {
@@ -296,9 +303,24 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
     };
   }, [currentProjectId, supabaseUser?.id]);
 
-  // Synchronize Inverted Index & Memory Pool with Vault Bridge
+  // Synchronize Inverted Index & Memory Pool with Vault Bridge (deferred for instant mount)
   useEffect(() => {
-    vaultBridge.syncDocuments(documents);
+    const timer = setTimeout(() => {
+      vaultBridge.syncDocuments(documents);
+    }, 120);
+    return () => clearTimeout(timer);
+  }, [documents]);
+
+  // Clean up selectedDocIds if documents are deleted or modified
+  useEffect(() => {
+    setSelectedDocIds((prev) => {
+      if (prev.size === 0) return prev;
+      const valid = new Set<string>();
+      prev.forEach((id) => {
+        if (documents.some((d) => d.id === id)) valid.add(id);
+      });
+      return valid.size === prev.size ? prev : valid;
+    });
   }, [documents]);
   
   // Tamil Left-Right (இருபக்க திரைக்கதை வடிவம்) Modal & Conversion State
@@ -314,19 +336,12 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
   const [youtubeTitleInput, setYoutubeTitleInput] = useState<string>('');
   const [youtubeNotesInput, setYoutubeNotesInput] = useState<string>('');
 
-  // Gallery Hub vs. Studio Mode (Automatically resumes where the user left off)
-  const [inStudioMode, setInStudioMode] = useState<boolean>(() => {
-    if (typeof localStorage !== 'undefined') {
-      const savedMode = localStorage.getItem('backstage_last_vault_mode');
-      const savedDocId = localStorage.getItem('backstage_last_vault_doc_id') || localStorage.getItem('active_two_column_doc_id');
-      const current = getProductionDocuments(currentProjectId || undefined);
-      if (savedMode === 'two-column' && savedDocId && current.some((d) => d.id === savedDocId)) {
-        return true;
-      }
-    }
-    return false;
-  });
+  // Gallery Hub vs. Studio Mode (Defaults to fast Gallery Hub on vault navigation)
+  const [inStudioMode, setInStudioMode] = useState<boolean>(false);
   const [galleryViewMode, setGalleryViewMode] = useState<'gallery' | 'table' | 'kanban' | 'timeline'>('gallery');
+  // Multi-Selection State
+  const [selectedDocIds, setSelectedDocIds] = useState<Set<string>>(new Set());
+  const [lastSelectedDocId, setLastSelectedDocId] = useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<string>('ALL');
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
   const [newTagInput, setNewTagInput] = useState<string>('');
@@ -465,11 +480,9 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
   const [startPoint, setStartPoint] = useState<{ x: number; y: number } | null>(null);
   const [currentRect, setCurrentRect] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
 
-  // Toast message
-  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  // Unified Toast / Notification System
   const showToast = (msg: string) => {
-    setToastMessage(msg);
-    setTimeout(() => setToastMessage(null), 3500);
+    notify(msg);
   };
 
   const clientInstanceIdRef = useRef<string>(Math.random().toString(36).substring(2, 11));
@@ -498,7 +511,7 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
 
   // Real-time Supabase Channel for instant multi-user cross-browser synchronization & Postgres DB changes
   useEffect(() => {
-    if (!isSupabaseConfigured || !currentProjectId) return;
+    if (!isSupabaseConfigured || !currentProjectId || !supabaseUser?.id) return;
 
     // Use a dedicated vault channel so unmounting/resubscribing never tears down ProjectContext
     const channel = supabase
@@ -690,16 +703,19 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
     }
   };
 
-  // Auto-Harvest App Artifacts on mount or project switch
+  // Auto-Harvest App Artifacts on mount or project switch (deferred so page renders in 0ms)
   useEffect(() => {
-    try {
-      const { addedCount, documents: updated } = harvestProjectArtifacts(projectContext, currentProjectId || undefined);
-      if (addedCount > 0 || (updated && updated.length > documents.length)) {
-        setDocuments((prev) => mergeProductionDocuments(prev, updated));
+    const timer = setTimeout(() => {
+      try {
+        const { addedCount, documents: updated } = harvestProjectArtifacts(projectContext, currentProjectId || undefined);
+        if (addedCount > 0 || (updated && updated.length > documents.length)) {
+          setDocuments((prev) => mergeProductionDocuments(prev, updated));
+        }
+      } catch (e) {
+        console.warn('Auto-harvesting skipped on mount:', e);
       }
-    } catch (e) {
-      console.warn('Auto-harvesting skipped on mount:', e);
-    }
+    }, 300);
+    return () => clearTimeout(timer);
   }, [currentProjectId]);
 
   // Manual Trigger for Syncing App Artifacts
@@ -833,6 +849,8 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
         }
         setIsNewDocMenuOpen(false);
         setIsMoreActionsMenuOpen(false);
+        setSelectedDocIds(new Set());
+        setLastSelectedDocId(null);
       }
     };
     window.addEventListener('click', handleGlobalClick);
@@ -862,6 +880,10 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
   const handleDocCardContextMenu = (e: React.MouseEvent, doc: ProductionDocument) => {
     e.preventDefault();
     e.stopPropagation();
+    if (!selectedDocIds.has(doc.id)) {
+      setSelectedDocIds(new Set([doc.id]));
+      setLastSelectedDocId(doc.id);
+    }
     const menuWidth = 260;
     const menuHeight = 420;
     const x = Math.min(e.clientX, window.innerWidth - menuWidth - 16);
@@ -1269,9 +1291,11 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
     });
   }, [documents, selectedCategory, searchQuery, sortBy, selectedTag]);
 
-  // Precision Document Pagination Engine
+  // Precision Document Pagination Engine (runs ONLY when user is actively inside the Reader Page Studio view)
   const paginatedDoc = useMemo(() => {
-    if (!selectedDoc) return { totalPages: 1, pages: [] };
+    if (!inStudioMode || studioViewMode !== 'page' || !selectedDoc) {
+      return { totalPages: selectedDoc?.pageCount || 1, pages: [] };
+    }
     const content = editedHtmlContent || selectedDoc.htmlContent;
     const targetHeightPx = showHeader && showFooter ? 880 : showHeader || showFooter ? 920 : 960;
 
@@ -1296,6 +1320,8 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
       pages: [],
     };
   }, [
+    inStudioMode,
+    studioViewMode,
     selectedDoc?.id,
     selectedDoc?.htmlContent,
     selectedDoc?.textContent,
@@ -1465,7 +1491,116 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
     }
   };
 
-  // PERMANENTLY DELETE DOCUMENT
+  // MULTI-SELECTION HANDLERS
+  const handleToggleSelect = (docId: string, e?: React.MouseEvent) => {
+    if (e) {
+      e.stopPropagation();
+    }
+    setSelectedDocIds((prev) => {
+      const next = new Set(prev);
+      if (e?.shiftKey && lastSelectedDocId && filteredDocuments.length > 0) {
+        const prevIdx = filteredDocuments.findIndex((d) => d.id === lastSelectedDocId);
+        const currIdx = filteredDocuments.findIndex((d) => d.id === docId);
+        if (prevIdx !== -1 && currIdx !== -1) {
+          const start = Math.min(prevIdx, currIdx);
+          const end = Math.max(prevIdx, currIdx);
+          for (let i = start; i <= end; i++) {
+            next.add(filteredDocuments[i].id);
+          }
+          return next;
+        }
+      }
+
+      if (next.has(docId)) {
+        next.delete(docId);
+      } else {
+        next.add(docId);
+      }
+      return next;
+    });
+    setLastSelectedDocId(docId);
+  };
+
+  const handleSelectAll = () => {
+    if (filteredDocuments.length > 0 && selectedDocIds.size === filteredDocuments.length) {
+      setSelectedDocIds(new Set());
+    } else {
+      setSelectedDocIds(new Set(filteredDocuments.map((d) => d.id)));
+    }
+  };
+
+  const handleClearSelection = () => {
+    setSelectedDocIds(new Set());
+    setLastSelectedDocId(null);
+  };
+
+  // PERMANENTLY DELETE MULTIPLE DOCUMENTS (Tombstoned forever, never reappears)
+  const handleBulkDelete = () => {
+    if (selectedDocIds.size === 0) return;
+    const count = selectedDocIds.size;
+    const idsToDelete: string[] = Array.from<string>(selectedDocIds);
+
+    if (
+      window.confirm(
+        `Are you sure you want to permanently delete ${count} selected document${count > 1 ? 's' : ''}?\n\nThis will permanently purge them from your vault, local disk, and cloud sync. They will NEVER reappear.`
+      )
+    ) {
+      deleteProductionDocuments(idsToDelete, currentProjectId || undefined);
+      const updated = getProductionDocuments(currentProjectId || undefined);
+      updateDocuments(updated);
+      setSelectedDocIds(new Set());
+      setLastSelectedDocId(null);
+      if (inStudioMode && selectedDocId && idsToDelete.includes(selectedDocId)) {
+        setInStudioMode(false);
+        setSelectedDocId(updated[0]?.id || '');
+      }
+      showToast(`🗑️ Permanently deleted ${count} document${count > 1 ? 's' : ''}`);
+    }
+  };
+
+  // ARCHIVE MULTIPLE DOCUMENTS
+  const handleBulkArchive = () => {
+    if (selectedDocIds.size === 0) return;
+    const count = selectedDocIds.size;
+    const idsToArchive: string[] = Array.from<string>(selectedDocIds);
+
+    if (confirm(`Archive ${count} selected document${count > 1 ? 's' : ''} into Vault Archive?`)) {
+      idsToArchive.forEach((id: string) => {
+        archiveProductionDocument(id, currentProjectId || undefined);
+      });
+      const updated = getProductionDocuments(currentProjectId || undefined);
+      updateDocuments(updated);
+      setSelectedDocIds(new Set());
+      setLastSelectedDocId(null);
+      showToast(`🗄️ Archived ${count} document${count > 1 ? 's' : ''}`);
+    }
+  };
+
+  // Global Keyboard Shortcuts for Multi-Selection (⌘A for Select All, ⌘Del / Del for Bulk Delete)
+  useEffect(() => {
+    const handleSelectionKeyDown = (e: KeyboardEvent) => {
+      const activeEl = document.activeElement;
+      const isInput =
+        activeEl?.tagName === 'INPUT' ||
+        activeEl?.tagName === 'TEXTAREA' ||
+        (activeEl as HTMLElement)?.isContentEditable;
+
+      if (isInput || inStudioMode) return;
+
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'a' || e.key === 'A')) {
+        e.preventDefault();
+        handleSelectAll();
+      } else if ((e.key === 'Backspace' || e.key === 'Delete') && selectedDocIds.size > 0 && (e.metaKey || e.ctrlKey || e.key === 'Delete')) {
+        e.preventDefault();
+        handleBulkDelete();
+      }
+    };
+
+    window.addEventListener('keydown', handleSelectionKeyDown);
+    return () => window.removeEventListener('keydown', handleSelectionKeyDown);
+  }, [inStudioMode, selectedDocIds, filteredDocuments]);
+
+  // PERMANENTLY DELETE DOCUMENT (Tombstoned forever, never reappears)
   const handleDeleteDocument = (e?: React.MouseEvent, docId?: string, docTitle?: string) => {
     if (e) {
       e.preventDefault();
@@ -1476,17 +1611,27 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
     const docToDelete = documents.find((d) => d.id === targetId);
     const title = docTitle || docToDelete?.title || 'this document';
 
-    if (window.confirm(`Are you sure you want to delete "${title}"?\n\nThis will remove the document from your vault and cloud storage.`)) {
-      deleteProductionDocument(targetId, currentProjectId || undefined);
+    if (
+      window.confirm(
+        `Are you sure you want to permanently delete "${title}"?\n\nThis will completely purge the document from your vault, local disk, and cloud sync. It will NEVER reappear.`
+      )
+    ) {
+      deleteProductionDocuments(targetId, currentProjectId || undefined);
       const updated = getProductionDocuments(currentProjectId || undefined);
       updateDocuments(updated);
+      setSelectedDocIds((prev) => {
+        const next = new Set(prev);
+        next.delete(targetId);
+        return next;
+      });
       if (inStudioMode && selectedDocId === targetId) {
         setInStudioMode(false);
-        setSelectedDocId(null);
+        setSelectedDocId(updated[0]?.id || '');
       }
-      showToast(`🗑️ Deleted "${title}"`);
+      showToast(`🗑️ Permanently deleted "${title}"`);
     }
   };
+
 
   // ARCHIVE DOCUMENT
   const handleArchiveDocument = (e: React.MouseEvent, docId: string) => {
@@ -2778,13 +2923,7 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
         </div>
       )}
 
-      {/* Toast Notification */}
-      {toastMessage && (
-        <div className="fixed top-5 right-6 z-50 px-4 py-2.5 rounded-xl bg-zinc-900/95 border border-[#f5a623]/50 text-white font-medium text-xs shadow-2xl flex items-center gap-2.5 animate-in fade-in slide-in-from-top-3 backdrop-blur-md">
-          <Sparkles size={16} className="text-[#f5a623]" />
-          {toastMessage}
-        </div>
-      )}
+
 
       {/* =========================================================================
           TOP HEADER: VAULT NAVIGATION & MASTER ACTION BAR
@@ -3699,41 +3838,7 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
               </div>
             ) : (
               <>
-                {/* RESUME WHERE YOU LEFT OFF BANNER */}
-                {(() => {
-                  const savedDocId = typeof localStorage !== 'undefined' ? (localStorage.getItem('backstage_last_vault_doc_id') || localStorage.getItem('active_two_column_doc_id')) : null;
-                  const recentDoc = savedDocId ? documents.find(d => d.id === savedDocId) : null;
-                  if (!recentDoc) return null;
-                  return (
-                    <div className="mb-6 p-4 rounded-2xl border border-emerald-500/30 bg-gradient-to-r from-emerald-500/10 via-emerald-500/5 to-transparent flex flex-wrap items-center justify-between gap-4 shadow-lg backdrop-blur-md">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-xl bg-emerald-500 text-black flex items-center justify-center font-bold shadow-md">
-                          <Columns size={20} />
-                        </div>
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <span className="text-[10px] font-mono font-black uppercase tracking-wider px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-                              Resume Where You Left Off
-                            </span>
-                            <span className="text-[11px] text-zinc-400 flex items-center gap-1 font-mono">
-                              <Cloud size={11} className="text-emerald-400" /> Realtime Cloud Synced
-                            </span>
-                          </div>
-                          <h3 className="text-sm font-bold text-zinc-100 mt-0.5">
-                            {recentDoc.title}
-                          </h3>
-                        </div>
-                      </div>
-                      <button
-                        onClick={() => handleModifyDocument(recentDoc)}
-                        className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-bold text-xs flex items-center gap-2 shadow-md transition-all cursor-pointer"
-                      >
-                        <span>Continue 2-Column Script</span>
-                        <ChevronRight size={14} />
-                      </button>
-                    </div>
-                  );
-                })()}
+
 
                 {/* -------------------------------------------------------------
                     LAYOUT 1: VISUAL CARD GALLERY VIEW
@@ -3748,15 +3853,26 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                       const isAudio = (doc.category === 'VOICE_NOTE' || doc.category === 'AUDIO' || doc.fileType === 'audio' || !!doc.audioUrl) && !isVideo && !isYouTube;
                       const isImage = (doc.fileType === 'image' || !!doc.imageDataUrl || !!doc.thumbnailDataUrl || (doc.fileName && /\.(png|jpe?g|webp|svg|gif|bmp)$/i.test(doc.fileName)) || doc.category === 'LOOKBOOK') && !isYouTube && !isVideo;
                       const isPlayingThis = playingDocId === doc.id;
+                      const isSelected = selectedDocIds.has(doc.id);
 
                       return (
                         <div
                           key={doc.id}
-                          onClick={() => handlePreviewDocument(doc)}
+                          onClick={(e) => {
+                            if (e.metaKey || e.ctrlKey || e.shiftKey) {
+                              handleToggleSelect(doc.id, e);
+                            } else if (selectedDocIds.size > 0) {
+                              handleToggleSelect(doc.id, e);
+                            } else {
+                              handlePreviewDocument(doc);
+                            }
+                          }}
                           onContextMenu={(e) => handleDocCardContextMenu(e, doc)}
-                          title="Click to preview document • Right-click to modify"
+                          title={selectedDocIds.size > 0 ? "Click to toggle selection • Shift+Click for range" : "Click to preview document • ⌘-click to multi-select • Right-click to modify"}
                           className={`group relative rounded-2xl border transition-all duration-200 cursor-pointer flex flex-col overflow-hidden hover:shadow-xl hover:-translate-y-0.5 ${
-                            isLight
+                            isSelected
+                              ? 'ring-2 ring-emerald-500 border-emerald-500/80 shadow-emerald-500/10 shadow-lg ' + (isLight ? 'bg-emerald-50/50' : 'bg-[#141a18]')
+                              : isLight
                               ? 'bg-white border-slate-200/90 hover:border-[#f5a623]'
                               : 'bg-[#141418] border-[#25252b] hover:border-[#f5a623]/80 hover:bg-[#18181f]'
                           }`}
@@ -3970,8 +4086,24 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                               </div>
                             )}
 
-                            {/* Top Badge: Category Pill & Script Staged Badge (ONLY shown when staged!) */}
-                            <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5 flex-wrap z-10">
+                            {/* Top Badge: Selection Checkbox, Category Pill & Script Staged Badge */}
+                            <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5 flex-wrap z-20">
+                              {/* Selection Checkbox */}
+                              <button
+                                type="button"
+                                onClick={(e) => handleToggleSelect(doc.id, e)}
+                                aria-label={isSelected ? `Deselect ${doc.title}` : `Select ${doc.title}`}
+                                className={`w-6 h-6 rounded-lg flex items-center justify-center transition-all cursor-pointer shadow-md ${
+                                  isSelected
+                                    ? 'bg-emerald-500 text-black border border-emerald-400 scale-105'
+                                    : selectedDocIds.size > 0
+                                    ? 'bg-black/75 border border-white/40 text-transparent hover:border-emerald-400 hover:bg-black/90'
+                                    : 'opacity-0 group-hover:opacity-100 bg-black/60 border border-white/30 text-transparent hover:border-emerald-400 hover:bg-black/80'
+                                }`}
+                                title={isSelected ? "Deselect" : "Select (⌘-click)"}
+                              >
+                                <Check size={14} className={isSelected ? 'stroke-[3] text-black' : 'opacity-0'} />
+                              </button>
                               {isDocumentStagedToScript(doc) && (
                                 <span className="px-2 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider border backdrop-blur-md shadow-sm bg-emerald-500/25 text-emerald-300 border-emerald-500/40 flex items-center gap-1" title="Staged in Script Page">
                                   <Columns size={10} className="text-emerald-400" />
@@ -4191,7 +4323,29 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                         <tr className={`border-b font-mono font-bold text-[11px] uppercase tracking-wider ${
                           isLight ? 'bg-slate-50 text-slate-500 border-slate-200' : 'bg-zinc-900/60 text-zinc-400 border-zinc-800'
                         }`}>
-                          <th className="p-3.5 pl-5">Document Title & Filename</th>
+                          <th className="p-3.5 pl-4 w-10 text-center">
+                            <button
+                              type="button"
+                              onClick={handleSelectAll}
+                              className={`w-4 h-4 rounded flex items-center justify-center transition-all border cursor-pointer mx-auto ${
+                                filteredDocuments.length > 0 && selectedDocIds.size === filteredDocuments.length
+                                  ? 'bg-emerald-500 border-emerald-400 text-black'
+                                  : selectedDocIds.size > 0
+                                  ? 'bg-emerald-500/30 border-emerald-500 text-emerald-400'
+                                  : isLight
+                                  ? 'border-slate-300 hover:border-emerald-500'
+                                  : 'border-zinc-700 hover:border-emerald-500'
+                              }`}
+                              title={selectedDocIds.size === filteredDocuments.length ? "Deselect all" : "Select all (⌘A)"}
+                            >
+                              {selectedDocIds.size === filteredDocuments.length ? (
+                                <Check size={12} className="stroke-[3]" />
+                              ) : selectedDocIds.size > 0 ? (
+                                <div className="w-2 h-0.5 bg-emerald-400 rounded-full" />
+                              ) : null}
+                            </button>
+                          </th>
+                          <th className="p-3.5 pl-2">Document Title & Filename</th>
                           <th className="p-3.5">Category</th>
                           <th className="p-3.5">Format</th>
                           <th className="p-3.5">Author</th>
@@ -4206,18 +4360,44 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                           const style = CATEGORY_STYLES[doc.category] || CATEGORY_STYLES.OTHER;
                           const isAudio = doc.category === 'VOICE_NOTE' || doc.fileType === 'audio' || !!doc.audioUrl;
                           const isPlayingThis = playingDocId === doc.id;
+                          const isSelected = selectedDocIds.has(doc.id);
 
                           return (
                             <tr
                               key={doc.id}
-                              onClick={() => handlePreviewDocument(doc)}
+                              onClick={(e) => {
+                                if (e.metaKey || e.ctrlKey || e.shiftKey) {
+                                  handleToggleSelect(doc.id, e);
+                                } else if (selectedDocIds.size > 0) {
+                                  handleToggleSelect(doc.id, e);
+                                } else {
+                                  handlePreviewDocument(doc);
+                                }
+                              }}
                               onContextMenu={(e) => handleDocCardContextMenu(e, doc)}
-                              title="Click to preview document • Right-click to modify"
+                              title={selectedDocIds.size > 0 ? "Click to toggle selection" : "Click to preview document • ⌘-click to multi-select • Right-click to modify"}
                               className={`transition-colors cursor-pointer group ${
-                                isLight ? 'hover:bg-slate-50' : 'hover:bg-zinc-800/40'
+                                isSelected
+                                  ? (isLight ? 'bg-emerald-50/80 border-l-4 border-l-emerald-500' : 'bg-emerald-950/30 border-l-4 border-l-emerald-500')
+                                  : (isLight ? 'hover:bg-slate-50' : 'hover:bg-zinc-800/40')
                               }`}
                             >
-                              <td className="p-3.5 pl-5">
+                              <td className="p-3.5 pl-4 w-10 text-center" onClick={(e) => handleToggleSelect(doc.id, e)}>
+                                <button
+                                  type="button"
+                                  onClick={(e) => handleToggleSelect(doc.id, e)}
+                                  className={`w-4 h-4 rounded flex items-center justify-center transition-all border cursor-pointer mx-auto ${
+                                    isSelected
+                                      ? 'bg-emerald-500 border-emerald-400 text-black'
+                                      : isLight
+                                      ? 'border-slate-300 hover:border-emerald-500'
+                                      : 'border-zinc-700 hover:border-emerald-500'
+                                  }`}
+                                >
+                                  {isSelected && <Check size={12} className="stroke-[3] text-black" />}
+                                </button>
+                              </td>
+                              <td className="p-3.5 pl-2">
                                 <div className="flex items-center gap-3">
                                   <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 border ${style.badgeBg} ${style.badgeText} ${style.border}`}>
                                     {isAudio ? <Mic size={15} /> : doc.imageDataUrl ? <ImageIcon size={15} /> : <FileText size={15} />}
@@ -4630,6 +4810,61 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                   </div>
                 )}
               </>
+            )}
+          
+            {/* Floating Batch Action Bar */}
+            {selectedDocIds.size > 0 && !inStudioMode && (
+              <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 px-5 py-3 rounded-2xl bg-zinc-950/95 border border-zinc-700/80 shadow-2xl backdrop-blur-xl text-white animate-in slide-in-from-bottom-5 duration-200">
+                <div className="flex items-center gap-2 pr-3 border-r border-zinc-800">
+                  <span className="w-6 h-6 rounded-lg bg-emerald-500 text-black font-black text-xs flex items-center justify-center">
+                    {selectedDocIds.size}
+                  </span>
+                  <span className="text-xs font-bold text-zinc-200">
+                    selected
+                  </span>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleSelectAll}
+                  className="px-2.5 py-1.5 rounded-xl text-xs font-semibold text-zinc-300 hover:text-white hover:bg-zinc-800 transition-colors cursor-pointer"
+                >
+                  {selectedDocIds.size === filteredDocuments.length ? 'Deselect All' : `Select All (${filteredDocuments.length})`}
+                </button>
+
+                <div className="h-4 w-px bg-zinc-800" />
+
+                <button
+                  type="button"
+                  onClick={handleBulkArchive}
+                  className="px-3 py-1.5 rounded-xl text-xs font-bold bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700/80 flex items-center gap-1.5 transition-all cursor-pointer shadow-sm"
+                  title="Archive selected documents safely"
+                >
+                  <Archive size={13} className="text-zinc-400" />
+                  <span>Archive</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleBulkDelete}
+                  className="px-3.5 py-1.5 rounded-xl text-xs font-bold bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white border border-rose-500/40 hover:border-rose-500 flex items-center gap-1.5 transition-all cursor-pointer shadow-sm group/del"
+                  title="Permanently delete selected documents completely (never reappears)"
+                >
+                  <Trash2 size={13} className="text-rose-400 group-hover/del:text-white" />
+                  <span>Delete Permanently ({selectedDocIds.size})</span>
+                </button>
+
+                <div className="h-4 w-px bg-zinc-800" />
+
+                <button
+                  type="button"
+                  onClick={handleClearSelection}
+                  className="p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors cursor-pointer"
+                  title="Clear selection (Esc)"
+                >
+                  <X size={15} />
+                </button>
+              </div>
             )}
           </div>
         </div>
@@ -6923,6 +7158,17 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                   <ArchiveRestore size={13} />
                   <span>Restore from Archive</span>
                 </button>
+              ) : selectedDocIds.size > 1 ? (
+                <button
+                  onClick={(e) => {
+                    setContextMenu({ isOpen: false, x: 0, y: 0 });
+                    handleBulkArchive();
+                  }}
+                  className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs flex items-center gap-2 hover:bg-zinc-800 text-zinc-400 hover:text-amber-400 transition-colors cursor-pointer"
+                >
+                  <Archive size={13} />
+                  <span>Archive {selectedDocIds.size} Selected</span>
+                </button>
               ) : (
                 <button
                   onClick={(e) => {
@@ -6938,18 +7184,32 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
               )}
 
               {/* Delete Document Button */}
-              <button
-                onClick={(e) => {
-                  const doc = contextMenu.targetDoc!;
-                  setContextMenu({ isOpen: false, x: 0, y: 0 });
-                  handleDeleteDocument(e, doc.id, doc.title);
-                }}
-                className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs flex items-center gap-2 hover:bg-rose-500/20 text-rose-400 font-bold transition-colors cursor-pointer mt-0.5"
-              >
-                <Trash2 size={13} className="text-rose-400" />
-                <span className="flex-1">Delete Document</span>
-                <span className="text-[10px] text-rose-500/80 font-mono">Del</span>
-              </button>
+              {selectedDocIds.size > 1 ? (
+                <button
+                  onClick={(e) => {
+                    setContextMenu({ isOpen: false, x: 0, y: 0 });
+                    handleBulkDelete();
+                  }}
+                  className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs flex items-center gap-2 hover:bg-rose-500/20 text-rose-400 font-bold transition-colors cursor-pointer mt-0.5"
+                >
+                  <Trash2 size={13} className="text-rose-400" />
+                  <span className="flex-1">Delete {selectedDocIds.size} Selected Permanently</span>
+                  <span className="text-[10px] text-rose-500/80 font-mono">⌘Del</span>
+                </button>
+              ) : (
+                <button
+                  onClick={(e) => {
+                    const doc = contextMenu.targetDoc!;
+                    setContextMenu({ isOpen: false, x: 0, y: 0 });
+                    handleDeleteDocument(e, doc.id, doc.title);
+                  }}
+                  className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs flex items-center gap-2 hover:bg-rose-500/20 text-rose-400 font-bold transition-colors cursor-pointer mt-0.5"
+                >
+                  <Trash2 size={13} className="text-rose-400" />
+                  <span className="flex-1">Delete Document</span>
+                  <span className="text-[10px] text-rose-500/80 font-mono">Del</span>
+                </button>
+              )}
             </>
           ) : (
             /* Canvas Right-Click: Subtle Creation & Sync Actions */

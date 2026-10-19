@@ -35,6 +35,7 @@ import { AIAssistantModal } from './components/AIAssistantModal';
 import RoleSelectorModal from './components/RoleSelectorModal';
 import { CausalityImportModal } from './components/CausalityImportModal';
 import { FloatingWindowManager } from './components/FloatingWindowManager';
+import { NotificationToastContainer } from './components/NotificationToastContainer';
 import { ViewMode, ScriptConfig, AppTask, ProjectState } from './types';
 import { INITIAL_STATE } from './constants';
 import { Loader2, Film, Cloud } from 'lucide-react';
@@ -1052,6 +1053,9 @@ const AppContent: React.FC = () => {
           setCurrentView('board');
         }}
       />
+
+      {/* Global Top-Right Subtle Notification & Alert Toast Stack */}
+      <NotificationToastContainer />
     </>
   );
 };
