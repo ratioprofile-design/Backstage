@@ -44,6 +44,7 @@ export interface TwoColumnPaginationOptions {
   scriptEditionDate?: string; // Running footer edition date (e.g. '09 Oct 2026')
   splitActionByComma?: boolean; // Split action blocks at commas into single shot paragraphs (default false)
   splitActionIncludeDot?: boolean; // Also split action blocks at periods/dots into single shot paragraphs (default false)
+  isExporting?: boolean; // Live editor vs PDF/Docx export (preserves empty editable rows)
 }
 
 /**
@@ -485,8 +486,21 @@ export function paginateTwoColumnScript(
     currentPageElements.push(page1Header);
     currentHeightUsed += headingHeightPx;
 
-    // 2. Scene Items (filter out empty ghost items to eliminate random vertical voids and phantom pages)
-    const effectiveItems: TamilScriptItem[] = scene.items.filter((it) => !isItemEmpty(it));
+    // 2. Scene Items (preserve rows in live editor mode so empty/draft items are visible and navigable)
+    const effectiveItems: TamilScriptItem[] =
+      scene.items.length === 0
+        ? [
+            {
+              id: `item-${scene.id}-init`,
+              type: 'action',
+              column: 'left',
+              leftAction: '',
+              rawText: '',
+            },
+          ]
+        : options.isExporting
+        ? (scene.items.filter((it) => !isItemEmpty(it)).length > 0 ? scene.items.filter((it) => !isItemEmpty(it)) : [scene.items[0]])
+        : [...scene.items];
     if (options.autoEndSceneCutTo === true && !hasEndSceneTransition(effectiveItems)) {
       effectiveItems.push({
         id: `auto-cut-to-${scene.id}`,

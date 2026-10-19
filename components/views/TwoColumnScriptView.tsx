@@ -1195,7 +1195,10 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
     const set = new Set<string>();
     const list: string[] = [];
     screenplayData.scenes.forEach((sc) => {
-      sc.items.forEach((it) => {
+      const items = (sc.items && sc.items.length > 0)
+        ? sc.items
+        : [{ id: `item-${sc.id}-init`, type: 'action' as const, column: 'left' as const, leftAction: '', rawText: '' }];
+      items.forEach((it) => {
         set.add(it.id);
         list.push(it.id);
       });
@@ -1998,12 +2001,16 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
 
   // Centered viewport scrolling so active row remains centered at eye-level
   const scrollToItem = useCallback((itemId: string, behavior: ScrollBehavior = 'smooth') => {
-    if (pageViewMode === 'single') {
-      const pageIdx = pages.findIndex((p) =>
-        p.elements.some((el) => el.type === 'item' && el.item.id === itemId)
-      );
-      if (pageIdx !== -1 && pageIdx + 1 !== currentSinglePage) {
-        setCurrentSinglePage(pageIdx + 1);
+    // Ensure the page holding this item is mounted beyond fast-path limit
+    for (let pIdx = 0; pIdx < pages.length; pIdx++) {
+      if (pages[pIdx].elements.some((el) => (el as any).item?.id === itemId)) {
+        if (pIdx >= renderedPageLimit) {
+          setRenderedPageLimit(pages.length);
+        }
+        if (pageViewMode === 'single' && pIdx + 1 !== currentSinglePage) {
+          setCurrentSinglePage(pIdx + 1);
+        }
+        break;
       }
     }
 
@@ -2016,7 +2023,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
     if (el) {
       el.scrollIntoView({ behavior, block: 'center', inline: 'nearest' });
     } else {
-      // If element is not yet in DOM (e.g. single-page transition), scroll once mounted
+      // If element is not yet in DOM (e.g. cross-scene page transition), scroll once mounted
       requestAnimationFrame(() => {
         const deferredEl = getTargetEl();
         if (deferredEl) {
@@ -2024,7 +2031,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
         }
       });
     }
-  }, [pageViewMode, pages, currentSinglePage]);
+  }, [pageViewMode, pages, currentSinglePage, renderedPageLimit]);
 
   // Delete item and smoothly advance selection to the adjacent paragraph
   const handleDeleteItem = useCallback((itemId: string, e?: React.MouseEvent) => {
@@ -2984,56 +2991,74 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
     window.addEventListener('mouseup', handleMouseUp);
   }, [selectedItemIds]);
 
-  // Focus item for keyboard editing with zero perceptible latency
+  // Focus item for keyboard editing with resilient cross-scene fallback
   const focusScriptItem = (
     itemId: string,
     targetField: 'auto' | 'action' | 'dialogue' | 'character' = 'auto',
-    caretPosition: 'start' | 'end' = 'end'
+    caretPosition: 'start' | 'end' = 'end',
+    attempt = 0
   ) => {
     scrollToItem(itemId, 'smooth');
 
-    let targetEl: HTMLElement | null = null;
-    const rowContainer = document.querySelector(`[data-item-row-id="${itemId}"]`);
-    if (rowContainer) {
-      if (targetField === 'character') {
-        targetEl = rowContainer.querySelector(`[data-char-container="${itemId}"] input`) as HTMLInputElement | null;
-      } else if (targetField === 'dialogue') {
-        targetEl = rowContainer.querySelector(`[data-col="right"] [data-item-id="${itemId}"], [data-item-id="${itemId}"]`) as HTMLElement | null;
-      } else if (targetField === 'action') {
-        targetEl = rowContainer.querySelector(`[data-col="left"] [data-item-id="${itemId}"], [data-item-id="${itemId}"]`) as HTMLElement | null;
-      } else {
-        const charInput = rowContainer.querySelector(`[data-char-container="${itemId}"] input`) as HTMLInputElement | null;
-        const dialogueEl = rowContainer.querySelector(`[data-col="right"] [data-item-id="${itemId}"]`) as HTMLElement | null;
-        if (dialogueEl && charInput && charInput.value.trim().length > 0) {
-          targetEl = dialogueEl;
-        } else if (charInput && !charInput.value.trim()) {
-          targetEl = charInput;
+    const tryFocus = () => {
+      let targetEl: HTMLElement | null = null;
+      const rowContainer = document.querySelector(`[data-item-row-id="${itemId}"]`);
+      if (rowContainer) {
+        if (targetField === 'character') {
+          targetEl = rowContainer.querySelector(`[data-char-container="${itemId}"] input`) as HTMLInputElement | null;
+        } else if (targetField === 'dialogue') {
+          targetEl = rowContainer.querySelector(`[data-col="right"] [data-item-id="${itemId}"], [data-item-id="${itemId}"]`) as HTMLElement | null;
+        } else if (targetField === 'action') {
+          targetEl = rowContainer.querySelector(`[data-col="left"] [data-item-id="${itemId}"], [data-item-id="${itemId}"]`) as HTMLElement | null;
         } else {
-          targetEl = rowContainer.querySelector(`[data-item-id="${itemId}"]`) as HTMLElement | null;
+          const charInput = rowContainer.querySelector(`[data-char-container="${itemId}"] input`) as HTMLInputElement | null;
+          const dialogueEl = rowContainer.querySelector(`[data-col="right"] [data-item-id="${itemId}"]`) as HTMLElement | null;
+          if (dialogueEl && charInput && charInput.value.trim().length > 0) {
+            targetEl = dialogueEl;
+          } else if (charInput && !charInput.value.trim()) {
+            targetEl = charInput;
+          } else {
+            targetEl = rowContainer.querySelector(`[data-item-id="${itemId}"]`) as HTMLElement | null;
+          }
         }
       }
-    }
 
-    if (targetEl) {
-      targetEl.focus({ preventScroll: true });
-      targetEl.dispatchEvent(new CustomEvent('start-edit', { bubbles: true, detail: { caretPosition } }));
-      if (targetEl instanceof HTMLInputElement) {
-        if (caretPosition === 'start') {
-          targetEl.setSelectionRange(0, 0);
+      if (targetEl) {
+        targetEl.focus({ preventScroll: true });
+        targetEl.dispatchEvent(new CustomEvent('start-edit', { bubbles: true, detail: { caretPosition } }));
+        if (targetEl instanceof HTMLInputElement) {
+          if (caretPosition === 'start') {
+            targetEl.setSelectionRange(0, 0);
+          } else {
+            const len = targetEl.value.length;
+            targetEl.setSelectionRange(len, len);
+          }
         } else {
-          const len = targetEl.value.length;
-          targetEl.setSelectionRange(len, len);
+          const sel = window.getSelection();
+          if (sel) {
+            const range = document.createRange();
+            range.selectNodeContents(targetEl);
+            range.collapse(caretPosition === 'start');
+            sel.removeAllRanges();
+            sel.addRange(range);
+          }
         }
-      } else {
-        const sel = window.getSelection();
-        if (sel) {
-          const range = document.createRange();
-          range.selectNodeContents(targetEl);
-          range.collapse(caretPosition === 'start');
-          sel.removeAllRanges();
-          sel.addRange(range);
-        }
+        return true;
       }
+      return false;
+    };
+
+    if (!tryFocus() && attempt < 4) {
+      requestAnimationFrame(() => focusScriptItem(itemId, targetField, caretPosition, attempt + 1));
+    }
+  };
+
+  // Jump from Scene Header downwards to the first item of that scene
+  const handleSceneHeaderNavDown = (sceneId: string) => {
+    const scene = screenplayData.scenes.find((s) => s.id === sceneId);
+    if (scene && scene.items && scene.items.length > 0) {
+      const firstItemId = scene.items[0].id;
+      focusScriptItem(firstItemId, 'auto', 'start');
     }
   };
 
@@ -3336,8 +3361,15 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
           setLastSelectedId(nextId);
           scrollToItem(nextId, 'smooth');
 
-          const cardEl = document.getElementById(`script-row-card-${nextId}`);
-          if (cardEl) cardEl.focus({ preventScroll: true });
+          const focusCard = (targetId: string, attempt = 0) => {
+            const cardEl = document.getElementById(`script-row-card-${targetId}`);
+            if (cardEl) {
+              cardEl.focus({ preventScroll: true });
+            } else if (attempt < 4) {
+              requestAnimationFrame(() => focusCard(targetId, attempt + 1));
+            }
+          };
+          focusCard(nextId);
           return;
         }
 
@@ -3367,8 +3399,15 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
           setLastSelectedId(prevId);
           scrollToItem(prevId, 'smooth');
 
-          const cardEl = document.getElementById(`script-row-card-${prevId}`);
-          if (cardEl) cardEl.focus({ preventScroll: true });
+          const focusCard = (targetId: string, attempt = 0) => {
+            const cardEl = document.getElementById(`script-row-card-${targetId}`);
+            if (cardEl) {
+              cardEl.focus({ preventScroll: true });
+            } else if (attempt < 4) {
+              requestAnimationFrame(() => focusCard(targetId, attempt + 1));
+            }
+          };
+          focusCard(prevId);
           return;
         }
 
@@ -4968,9 +5007,10 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
                                         suppressContentEditableWarning
                                         onBlur={(e) => handleUpdateScene(elem.sceneId, { timeOfDay: e.currentTarget.innerText.trim() })}
                                         onKeyDown={(e) => {
-                                          if (e.key === 'Enter') {
+                                          if (e.key === 'Enter' || e.key === 'ArrowDown') {
                                             e.preventDefault();
                                             e.currentTarget.blur();
+                                            handleSceneHeaderNavDown(elem.sceneId);
                                           }
                                         }}
                                         className="outline-none hover:bg-emerald-500/10 focus:bg-emerald-500/15 focus:ring-1 focus:ring-emerald-400 px-1 py-0.5 rounded font-bold text-left inline-block transition-all cursor-text"
@@ -4990,6 +5030,13 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
                                         contentEditable
                                         suppressContentEditableWarning
                                         onBlur={(e) => handleUpdateScene(elem.sceneId, { location: e.currentTarget.innerText.trim() })}
+                                        onKeyDown={(e) => {
+                                          if (e.key === 'Enter' || e.key === 'ArrowDown') {
+                                            e.preventDefault();
+                                            e.currentTarget.blur();
+                                            handleSceneHeaderNavDown(elem.sceneId);
+                                          }
+                                        }}
                                         className="outline-none hover:bg-emerald-500/10 px-0.5 rounded font-medium break-words inline"
                                         title="Click to edit script location"
                                       >
