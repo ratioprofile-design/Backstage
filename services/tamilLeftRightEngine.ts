@@ -51,6 +51,321 @@ export interface TamilScreenplayData {
 }
 
 /**
+ * Parses Word (.docx) HTML output produced by Mammoth into structured 2-column Kollywood screenplay format.
+ * Adopts standard Kollywood docx formatting conventions:
+ * - Bold headings & metadata -> Scene Headings
+ * - Bold short lines -> Character Cues
+ * - Bold speech text -> Right Column Dialogue
+ * - Parentheticals & regular texts -> Left Column Action / Description
+ * - Centered markers / transitions -> Centered
+ */
+export function parseDocxHtmlToTamilLeftRight(rawHtml: string, defaultTitle = 'திரைக்கதை (Screenplay)'): TamilScreenplayData {
+  const rawPs = rawHtml.split('</p>').map(p => p.replace(/<p>/g, '').trim()).filter(Boolean);
+
+  const corrections: [RegExp, string][] = [
+    [/பகள்/g, 'பகல்'],
+    [/கிலை சிறைச்சாலை/g, 'கிளை சிறைச்சாலை'],
+    [/வலாகம்/g, 'வளாகம்'],
+    [/வளாகத்திற்குள்/g, 'வளாகத்திற்குள்'],
+    [/பெருமால் சாமி/g, 'பெருமாள் சாமி'],
+    [/முத்தணூர்/g, 'முத்தனூர்'],
+    [/கருப்பணூர்/g, 'கருப்பனூர்'],
+    [/முரப்படி/g, 'முறைப்படி'],
+    [/பொருப்புல/g, 'பொறுப்புல'],
+    [/புரோஜனம்/g, 'பிரயோஜனம்'],
+    [/முயர்ச்சி/g, 'முயற்சி'],
+    [/முயர்சி/g, 'முயற்சி'],
+    [/உரவினர்கள்/g, 'உறவினர்கள்'],
+    [/குரள்/g, 'குரல்'],
+    [/பாற்க/g, 'பார்க்க'],
+    [/பாற்கிறார்/g, 'பார்க்கிறார்'],
+    [/பாற்கிறான்/g, 'பார்க்கிறான்'],
+    [/பாற்கிறது/g, 'பார்க்கிறது'],
+    [/பாற்கிறார்கள்/g, 'பார்க்கிறார்கள்'],
+    [/பாற்கவே/g, 'பார்க்கவே'],
+    [/சிறிப்புடன்/g, 'சிரிப்புடன்'],
+    [/சிறித்தாள்/g, 'சிரித்தாள்'],
+    [/சிறித்தான்/g, 'சிரித்தான்'],
+    [/சிறித்துவிட்டு/g, 'சிரித்துவிட்டு'],
+    [/சிறித்தபடி/g, 'சிரித்தபடி'],
+    [/பெறிய/g, 'பெரிய'],
+    [/அர்புதம்/g, 'அற்புதம்'],
+    [/அடையாலம்/g, 'அடையாளம்'],
+    [/அடையாலங்கள்/g, 'அடையாளங்கள்'],
+    [/டைனிங்கு ஹால்/g, 'டைனிங் ஹால்'],
+    [/நாற்காளியை/g, 'நாற்காலியை'],
+    [/நாற்காளியில்/g, 'நாற்காளியில்'],
+    [/நாற்காளியில்லிருந்து/g, 'நாற்காலியிலிருந்து'],
+    [/உரிமையாலர்/g, 'உரிமையாளர்'],
+    [/உறிமையாலர்/g, 'உரிமையாளர்'],
+    [/உரிமையாலரிடம்/g, 'உரிமையாளரிடம்'],
+    [/பயிற்ச்சி/g, 'பயிற்சி'],
+    [/பயிர்ச்சி/g, 'பயிற்சி'],
+    [/அனிந்து/g, 'அணிந்து'],
+    [/அனிந்தபடி/g, 'அணிந்தபடி'],
+    [/அனிந்தபடியே/g, 'அணிந்தபடியே'],
+    [/அனிவிக்கப்பட்டு/g, 'அணிவிக்கப்பட்டு'],
+    [/கானோம்/g, 'காணோம்'],
+    [/கானும்படி/g, 'காணும்படி'],
+    [/கானவில்லை/g, 'காணவில்லை'],
+    [/கான்கிறான்/g, 'காண்கிறான்'],
+    [/கிலம்பி/g, 'கிளம்பி'],
+    [/கிலம்பு/g, 'கிளம்பு'],
+    [/கிலம்பினார்/g, 'கிளம்பினார்'],
+    [/கிலம்பினான்/g, 'கிளம்பினான்'],
+    [/கிலம்பினார்கள்/g, 'கிளம்பினார்கள்'],
+    [/கிலம்ப முற்படும்/g, 'கிளம்ப முற்படும்'],
+    [/கிலிர்ப்பில்/g, 'கிளிர்ப்பில்'],
+    [/கிலப்புது/g, 'கிளப்புது'],
+    [/குரஞ்சிப்போயிடுச்சி/g, 'குறைஞ்சிப்போயிடுச்சு'],
+    [/சம்பர்தாயங்களை/g, 'சம்பிரதாயங்களை'],
+    [/சம்பர்தாயம்/g, 'சம்பிரதாயம்'],
+    [/கிருஸ்துவ/g, 'கிறிஸ்தவ'],
+    [/கிருஸ்துவத்துக்கு/g, 'கிறிஸ்தவத்துக்கு'],
+    [/கிருஸ்துவத்துக்குள்ள/g, 'கிறிஸ்தவத்துக்குள்ள'],
+    [/கிருஸ்துவ அமைப்புகள/g, 'கிறிஸ்தவ அமைப்புகளை'],
+    [/கிருஸ்துவ திருமணத்தை/g, 'கிறிஸ்தவ திருமணத்தை'],
+    [/கிருஸ்துவச்சியா/g, 'கிறிஸ்தவச்சியா'],
+    [/கிருஸ்த்துவ/g, 'கிறிஸ்தவ'],
+    [/கிருஸ்துஏசுவே/g, 'கிறிஸ்து இயேசுவே'],
+    [/ஏசப்பா/g, 'இயேசப்பா'],
+    [/ஏசப்பாகிட்ட/g, 'இயேசப்பாகிட்ட'],
+    [/ஏசுவின்/g, 'இயேசுவின்'],
+    [/ஏசுவை/g, 'இயேசுவை'],
+    [/கர்தர்/g, 'கர்த்தர்'],
+    [/கர்தருக்கு/g, 'கர்த்தருக்கு'],
+    [/கர்தரோட/g, 'கர்த்தரோட'],
+    [/கர்தரை/g, 'கர்த்தரை'],
+    [/பறலோக/g, 'பரலோக'],
+    [/சோஸ்திரம்/g, 'ஸ்தோத்திரம்'],
+    [/சோஸ்திறம்/g, 'ஸ்தோத்திரம்'],
+    [/சோத்திரம்/g, 'ஸ்தோத்திரம்'],
+    [/விடிவிக்க/g, 'விடுவிக்க'],
+    [/அலித்தவனை/g, 'அளித்தவனை'],
+    [/மண்ணிக்கனும்/g, 'மன்னிக்கணும்'],
+    [/மன்னிச்சிடுங்க/g, 'மன்னிச்சிடுங்க'],
+    [/பதரிப்போன/g, 'பதறிப்போன'],
+    [/பதராத/g, 'பதறாத'],
+    [/பதட்டத்தோடு/g, 'பதற்றத்தோடு'],
+    [/பதட்டம்/g, 'பதற்றம்'],
+    [/DOCTER/g, 'DOCTOR'],
+    [/PRESONER/g, 'PRISONER'],
+    [/PRESONERS/g, 'PRISONERS'],
+    [/DANGER PRESONER/g, 'DANGEROUS PRISONER'],
+    [/TWO VILLAGE PEOPLES/g, 'VILLAGERS'],
+    [/ATMOSPHERE/g, 'ATMOSPHERE CROWD']
+  ];
+
+  function cleanText(s: string): string {
+    let t = s.replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').replace(/\t+/g, ' | ').replace(/\s+/g, ' ').trim();
+    for (const [re, val] of corrections) {
+      t = t.replace(re, val);
+    }
+    return t;
+  }
+
+  const sceneHeaderRegex = /^(?:காட்சி(?:\s*எண்)?|Scene(?:\s*no\.?)?|sc\s*no\.?)\s*[:.\s\-]*(\d+(?:[A-Za-z]|[\/-][A-Za-z0-9]+)?)(.*)/i;
+  const transitionRegex = /^(?:Fade\s*in:?|Fade\s*out:?|Cut\s*to:?|Dissolve\s*to:?|Montage:?|மாண்டேஜ்:?|காட்சி\s*மாற்றம்:?|இடைவேளை:?|முற்றும்:?|Animation\s*Ends[-:]?|ANIMATION\s*STORY|TITLE|SONG|\(\s*BIT\s*SCENE\s*\)|>\s*.*\s*<|[A-Z\s]+TO:?)$/i;
+  const knownActors = new Set(['சசிகுமார்', 'பக்ஸ்', 'லைலா', 'ஜார்ஜ் மரியன்', 'குரு சோமசுந்தரம்', 'மா கா பா']);
+
+  const scenes: TamilScene[] = [];
+  let currentScene: TamilScene | null = null;
+  let docTitle = defaultTitle;
+
+  let activeChar = '';
+  let activeDia: string[] = [];
+
+  function flushActiveSpeech() {
+    if (activeChar && activeDia.length > 0 && currentScene) {
+      const diaJoined = activeDia.join(' ').trim();
+      currentScene.items.push({
+        id: `item-${Date.now()}-${currentScene.items.length}`,
+        type: 'dialogue',
+        column: 'right',
+        rightCharacter: activeChar,
+        rightDialogue: diaJoined,
+        rawText: `${activeChar} : ${diaJoined}`
+      });
+      if (currentScene.characters && !currentScene.characters.includes(activeChar)) {
+        currentScene.characters.push(activeChar);
+      }
+      activeDia = [];
+    }
+  }
+
+  function createScene(scNum: string, headerLine: string) {
+    flushActiveSpeech();
+    activeChar = '';
+
+    let location = '';
+    let realLocation = '';
+    let timeOfDay = 'Day / INT';
+    let effects = 'None';
+    let explicitChars: string[] | undefined;
+
+    const locMatch = headerLine.match(/(?:Script\s*Location|Location|இடம்|Loc(?:ation)?)\s*[:\-]?\s*(.*?)(?=\s*(?:Real\s*Location|Time|நேரம்|பகல்|இரவு|EXT|INT|வகை|Type|Effects?|Characters?|கதாபாத்திரங்கள்|நடிகர்கள்|Actors?|Cast|[-|]|$))/i);
+    const realLocMatch = headerLine.match(/(?:Real\s*Location|Real\s*Loc)\s*[:\-]?\s*(.*?)(?=\s*(?:Time|நேரம்|Effects?|Characters?|கதாபாத்திரங்கள்|நடிகர்கள்|Actors?|Cast|[-|]|$))/i);
+    const timeMatch = headerLine.match(/(?:Time|நேரம்)\s*[:\-]?\s*(.*?)(?=\s*(?:Effects?|Real|Characters?|கதாபாத்திரங்கள்|நடிகர்கள்|Actors?|Cast|[-|]|$))/i);
+    const effMatch = headerLine.match(/(?:Effects?|Effect)\s*[:\-]?\s*(.*?)(?=\s*(?:Characters?|கதாபாத்திரங்கள்|நடிகர்கள்|Actors?|Cast|[-|]|$))/i);
+    const inlineCharMatch = headerLine.match(/(?:Characters?(?:\s*\([^)]*\))?|கதாபாத்திரங்கள்(?:\s*\([^)]*\))?|நடிகர்கள்(?:\s*\([^)]*\))?|Actors?|Cast)\s*[:\-]?\s*(.*?)(?=\s*(?:Script\s*Location|Location|Real\s*Location|Time|நேரம்|Effects?|[-|]|$))/i);
+
+    if (locMatch && locMatch[1].trim()) location = locMatch[1].trim();
+    if (realLocMatch && realLocMatch[1].trim()) realLocation = realLocMatch[1].trim();
+    if (timeMatch && timeMatch[1].trim()) timeOfDay = timeMatch[1].trim();
+    if (effMatch && effMatch[1].trim()) effects = effMatch[1].trim();
+    if (inlineCharMatch && inlineCharMatch[1].trim()) {
+      explicitChars = inlineCharMatch[1].split(/[,;]|\s+and\s+/i).map(c => c.trim().replace(/^[–—\-\s,:]+/, '')).filter(Boolean);
+    }
+
+    if (timeOfDay === 'Day / INT') {
+      const tMatch = headerLine.match(/(?:பகல்|இரவு|மாலை|காலை|Day|Night|Evening|Morning)/i);
+      const ieMatch = headerLine.match(/(?:EXT\/INT|INT\/EXT|EXT|INT)/i);
+      if (tMatch || ieMatch) {
+        const tStr = tMatch ? tMatch[0] : 'Day';
+        const ieStr = ieMatch ? ieMatch[0] : 'INT';
+        timeOfDay = `${tStr} / ${ieStr}`;
+      }
+    }
+
+    const sluglineText = `sc no: ${scNum}${location ? `     Script Location: ${location}` : ''}${timeOfDay ? `     Time: ${timeOfDay}` : ''}`;
+    const newScene: TamilScene = {
+      id: `scene-${Date.now()}-${scenes.length + 1}`,
+      sceneNumber: scNum,
+      location: location.replace(/^[|:\-\s]+/, '').trim(),
+      realLocation: (realLocation || location).replace(/^[|:\-\s]+/, '').trim(),
+      timeOfDay,
+      effects,
+      sluglineText,
+      characters: explicitChars || [],
+      items: []
+    };
+    scenes.push(newScene);
+    currentScene = newScene;
+  }
+
+  // Default Scene 1
+  createScene('1', 'காட்சி: 1 | இடம்: முத்தனூர், கருப்பனூர்.. (split screen) | பகல்');
+
+  for (let i = 0; i < rawPs.length; i++) {
+    const raw = rawPs[i];
+    const text = cleanText(raw);
+    if (!text) continue;
+
+    if (i === 0 && text.toUpperCase() === 'SANGILI') {
+      docTitle = text;
+      continue;
+    }
+    if (i === 1 && text.toLowerCase().includes('screenplay')) continue;
+
+    const scMatch = text.match(sceneHeaderRegex);
+    if (scMatch && (raw.includes('<strong>') || text.includes('|') || text.includes('இடம்'))) {
+      createScene(scMatch[1], text);
+      continue;
+    }
+
+    if (transitionRegex.test(text) || text === 'CUT TO' || text === 'CUT TO:' || text === 'ANIMATION STORY' || text === 'Animation Ends-' || text === '( BIT SCENE )' || text.startsWith('வருடம்:') || text.startsWith('காலம்:')) {
+      flushActiveSpeech();
+      activeChar = '';
+      if (currentScene) {
+        currentScene.items.push({
+          id: `item-${Date.now()}-${currentScene.items.length}`,
+          type: 'transition',
+          column: 'center',
+          rawText: text
+        });
+      }
+      continue;
+    }
+
+    // Parentheticals: In Kollywood screenplay docx format, parentheticals are strictly action/description (Left column)
+    // When placing inside description, remove enclosing brackets
+    if (text.startsWith('(')) {
+      flushActiveSpeech();
+      const cleanedAction = text.replace(/^[(\s]+|[)\s]+$/g, '').trim();
+      if (currentScene && cleanedAction) {
+        currentScene.items.push({
+          id: `item-${Date.now()}-${currentScene.items.length}`,
+          type: 'action',
+          column: 'left',
+          leftAction: cleanedAction,
+          rawText: cleanedAction
+        });
+      }
+      continue;
+    }
+
+    // Regular unbolded text: Strictly action/description (Left column)
+    if (!raw.includes('<strong>')) {
+      flushActiveSpeech();
+      activeChar = '';
+      const cleanedAction = text.replace(/^[(\s]+|[)\s]+$/g, '').trim();
+      if (currentScene && cleanedAction) {
+        currentScene.items.push({
+          id: `item-${Date.now()}-${currentScene.items.length}`,
+          type: 'action',
+          column: 'left',
+          leftAction: cleanedAction,
+          rawText: cleanedAction
+        });
+      }
+      continue;
+    }
+
+    // Bold text:
+    const wordCount = text.split(' ').length;
+    const isPunct = /[.?!]$/.test(text) || text.includes('..') || text.includes('?') || text.includes('!');
+
+    if (knownActors.has(text)) continue;
+
+    const isChar = wordCount <= 4 && text.length <= 35 && !isPunct &&
+      !text.includes('கொண்டு') && !text.includes('பார்த்து') && !text.includes('சொல்ல') &&
+      !text.includes('அப்பொழுது') && !text.includes('நடந்து') && !text.includes('நின்று') &&
+      !text.includes('வந்து') && !text.includes('போய்') && !text.includes('ஆரம்பித்த') &&
+      !text.includes('சென்று') && !text.includes('கேட்க');
+
+    if (isChar) {
+      flushActiveSpeech();
+      activeChar = text.replace(/:$/, '').trim();
+      continue;
+    }
+
+    if (activeChar) {
+      activeDia.push(text);
+      continue;
+    }
+
+    if (currentScene) {
+      const cleanedAction = text.replace(/^[(\s]+|[)\s]+$/g, '').trim();
+      currentScene.items.push({
+        id: `item-${Date.now()}-${currentScene.items.length}`,
+        type: 'action',
+        column: 'left',
+        leftAction: cleanedAction || text,
+        rawText: cleanedAction || text
+      });
+    }
+  }
+  flushActiveSpeech();
+
+  // If a scene has no explicit metadata characters, fallback to dialogue speaking characters
+  for (const sc of scenes) {
+    if (!sc.characters || sc.characters.length === 0) {
+      const speakingChars = getSceneCharacters(sc);
+      if (speakingChars.length > 0) {
+        sc.characters = [...speakingChars];
+      }
+    }
+  }
+
+  return {
+    title: docTitle,
+    scenes,
+    rawText: rawHtml,
+    hasDialogue: scenes.some(s => s.items.some(it => it.column === 'right'))
+  };
+}
+
+/**
  * Universal Screenplay & Document Parser
  * Parses single-column Word files, Final Draft / Fountain / Highland, and raw Tamil scripts:
  * - Automatically classifies into Left (Action), Right (Dialogue), or Center (Transition/Title)
@@ -71,6 +386,11 @@ export function parseScreenplayToTamilLeftRight(text: string, defaultTitle = '�
     };
   }
 
+  // If text is HTML exported from docx (contains <p> or <strong> tags), route to specialized docx parser
+  if (clean.includes('<p>') || clean.includes('<strong>') || clean.includes('</p>')) {
+    return parseDocxHtmlToTamilLeftRight(clean, defaultTitle);
+  }
+
   const lines = clean.split('\n').map(l => l.trim());
 
   let docTitle = defaultTitle;
@@ -81,11 +401,17 @@ export function parseScreenplayToTamilLeftRight(text: string, defaultTitle = '�
   // Regex patterns for Tamil & standard cinema conventions
   const tamilSceneHeaderRegex = /^(?:காட்சி(?:\s*எண்)?|Scene(?:\s*no\.?)?|SCENE(?:\s*NO\.?)?|sc\s*no\.?|sc\.?\s*no\.?)\s*[:.\s\-]*(\d+(?:[A-Za-z]|[\/-][A-Za-z0-9]+)?)(.*)/i;
   const intExtHeaderRegex = /^(?:INT\.|EXT\.|INT\/EXT\.|I\/E\.)\s+(.+?)(?:[-–—]\s*(NIGHT|DAY|EVENING|MORNING|DAWN|DUSK|LATER|CONTINUOUS|NIG|EXT))?$/i;
-  const transitionRegex = /^(?:Fade\s*in|Fade\s*out|Cut\s*to:?|Dissolve\s*to:?|Fade\s*out\s*[-–—]\s*Fade\s*in|Montage|மாண்டேஜ்:?|காட்சி\s*மாற்றம்|இடைவேளை:?|முற்றும்|>.*<|.*TO:?)$/i;
+  const transitionRegex = /^(?:Fade\s*in:?|Fade\s*out:?|Cut\s*to:?|Dissolve\s*to:?|Fade\s*out\s*[-–—]\s*Fade\s*in|Montage:?|மாண்டேஜ்:?|காட்சி\s*மாற்றம்:?|இடைவேளை:?|முற்றும்:?|>.*<|[A-Z\s]+TO:?)$/i;
+  const titleCardRegex = /^(?:TITLE\s*CARD:?|TITLE:?|டைட்டல்\s*கார்டு:?|டைட்டல்:?)$/i;
   
   // Dialogue matching: "சுரேஷ் :" or "சுரேஷ்:" or "கதாபாத்திரம்: வசனம்" or "பாஸ்டர் சேவியர் (சசிகுமார்):"
   const dialogueLineRegex = /^([\u0B80-\u0BFFa-zA-Z0-9\s.()'\-]{2,50})\s*:\s*(.*)$/;
-  const sfxRegex = /^(\(.*\)|SFX\s*:|BGM\s*:|ஒலி\s*:)/i;
+  const sfxRegex = /^(?:SFX\s*:|BGM\s*:|ஒலி\s*:|\[SFX\b|\[BGM\b)/i;
+
+  const knownCharacters = new Set<string>([
+    'ஜெயிலர்', 'பாஸ்டர்', 'பாஸ்டர் சேவியர்', 'டாக்டர்', 'சிறை அதிகாரி', 'எஸ்.ஐ', 'காவலர்',
+    'அம்மா', 'அப்பா', 'மகன்', 'மகள்', 'மனைவி', 'கணவன்', 'நீதிபதி', 'வக்கீல்'
+  ]);
 
   let lineIdx = 0;
   while (lineIdx < lines.length) {
@@ -259,8 +585,8 @@ export function parseScreenplayToTamilLeftRight(text: string, defaultTitle = '�
       continue;
     }
 
-    // Check for prominent title card indicators
-    if (line.includes('டைட்டல்') || line.includes('Title') || (line.length < 28 && /^[A-Z\u0B80-\u0BFF\s]+$/.test(line))) {
+    // Explicit title card indicators only (never classify arbitrary Tamil words as titles)
+    if (titleCardRegex.test(line) || (/^[>].*[<]$/.test(line))) {
       currentScene.items.push({
         id: `item-${Date.now()}-${lineIdx}`,
         type: 'title',
@@ -271,31 +597,134 @@ export function parseScreenplayToTamilLeftRight(text: string, defaultTitle = '�
       continue;
     }
 
-    // 4. Dialogue check (கதாபாத்திரம்: வசனம்)
+    // 4. Character / Dialogue check
     const diaMatch = line.match(dialogueLineRegex);
-    const isHeaderKeyword = /^(?:காட்சி|இடம்|நேரம்|வகை|கதாபாத்திரங்கள்|நடிகர்கள்|வருடம்|காலம்|டைட்டல்|பாடல்|sc\s*no|scene|location|time|effects?|characters?|cast)/i.test(line);
-    if (diaMatch && !isHeaderKeyword) {
-      const charName = diaMatch[1].trim();
-      let diaText = diaMatch[2].trim();
+    const isHeaderKeyword = /^(?:காட்சி|இடம்|நேரம்|வகை|கதாபாத்திரங்கள்|நடிகர்கள்|வருடம்|காலம்|டைட்டல்|பாடல்|sc\s*no|scene|location|time|effects?|characters?|cast|shot|angle)/i.test(line);
 
-      // Check subsequent lines for dialogue continuation
-      let nextIdx = lineIdx + 1;
-      while (nextIdx < lines.length && lines[nextIdx] && !lines[nextIdx].match(dialogueLineRegex) && !lines[nextIdx].match(tamilSceneHeaderRegex) && !lines[nextIdx].match(intExtHeaderRegex) && !transitionRegex.test(lines[nextIdx])) {
-        if (lines[nextIdx].length < 120 && !lines[nextIdx].includes('போவது') && !lines[nextIdx].includes('நிற்பது') && !lines[nextIdx].includes('சுடுகிறார்')) {
-          diaText += (diaText ? ' ' : '') + lines[nextIdx];
-          nextIdx++;
-        } else {
-          break;
+    let charName = '';
+    let diaText = '';
+    let isDialogue = false;
+
+    if (diaMatch && !isHeaderKeyword) {
+      charName = diaMatch[1].trim();
+      diaText = diaMatch[2].trim();
+      isDialogue = true;
+    } else {
+      // Check for character name on its own line without colon (e.g. "ஜெயிலர்", "பாஸ்டர்", "JOHN")
+      const trimmed = line.replace(/:$/, '').trim();
+      const wordCount = trimmed.split(/\s+/).length;
+      const isActionVerb = /(?:வருவது|போவது|நடப்பது|நிற்பது|பார்ப்பது|செய்வது|இருப்பது|செய்கிறார்|பார்த்து|சொல்கிறார்|நிற்கிறான்|சுடுகிறார்|கத்துகிறார்|ஓடுகிறான்|பிடித்துக்கொண்டு)/.test(trimmed);
+      const isActionStarter = /^(?:செல்லிற்குள்|அப்பொழுது|உடனே|அந்த|அவர்கள்|மக்கள்|இருவரும்|என்று|மீண்டும்|அங்கு|இங்கு|கம்பிகளுக்கிடையே)/.test(trimmed);
+
+      if (
+        trimmed.length >= 2 &&
+        trimmed.length <= 40 &&
+        wordCount <= 4 &&
+        !/[.,!?;]$/.test(trimmed) &&
+        !isHeaderKeyword &&
+        !isActionVerb &&
+        !isActionStarter &&
+        !transitionRegex.test(line) &&
+        !titleCardRegex.test(line)
+      ) {
+        // Look ahead to the next non-empty line
+        let nextNonEmpty = lineIdx + 1;
+        while (nextNonEmpty < lines.length && !lines[nextNonEmpty]) nextNonEmpty++;
+        if (nextNonEmpty < lines.length) {
+          const nextL = lines[nextNonEmpty];
+          const isNextParenthetical = nextL.startsWith('(');
+          const isNextSpeech = /[?\"\'!]|(\.\.)/.test(nextL);
+          const isKnown = knownCharacters.has(trimmed);
+          const isAllUpperEnglish = trimmed.toUpperCase() === trimmed && /[A-Z]/.test(trimmed);
+
+          if (isNextParenthetical || isNextSpeech || isKnown || isAllUpperEnglish || (!tamilSceneHeaderRegex.test(nextL) && !intExtHeaderRegex.test(nextL) && !transitionRegex.test(nextL) && nextL.length < 250)) {
+            charName = trimmed;
+            isDialogue = true;
+          }
         }
       }
+    }
 
-      currentScene.items.push({
-        id: `item-${Date.now()}-${lineIdx}`,
-        type: 'dialogue',
-        column: 'right',
-        rightCharacter: charName,
-        rightDialogue: diaText
-      });
+    if (isDialogue) {
+      knownCharacters.add(charName);
+      if (currentScene.characters && !currentScene.characters.includes(charName)) {
+        currentScene.characters.push(charName);
+      }
+
+      let nextIdx = lineIdx + 1;
+      // Skip empty lines immediately following the character cue
+      while (nextIdx < lines.length && !lines[nextIdx]) nextIdx++;
+
+      // If the very next line is a parenthetical action before dialogue (e.g. character cue then (crying)), emit as Action (Left column)
+      // When placing inside description, remove enclosing brackets
+      while (nextIdx < lines.length && lines[nextIdx] && lines[nextIdx].startsWith('(') && lines[nextIdx].endsWith(')')) {
+        const parenAction = lines[nextIdx];
+        const cleanedAction = parenAction.replace(/^[(\s]+|[)\s]+$/g, '').trim();
+        if (cleanedAction) {
+          currentScene.items.push({
+            id: `item-${Date.now()}-${nextIdx}`,
+            type: 'action',
+            column: 'left',
+            leftAction: cleanedAction,
+            rawText: cleanedAction,
+          });
+        }
+        nextIdx++;
+        while (nextIdx < lines.length && !lines[nextIdx]) nextIdx++;
+      }
+
+      while (nextIdx < lines.length) {
+        const curL = lines[nextIdx];
+        if (!curL) {
+          // If empty line, check if the next non-empty line continues this speech or starts something new
+          let peek = nextIdx + 1;
+          while (peek < lines.length && !lines[peek]) peek++;
+          if (
+            peek >= lines.length ||
+            tamilSceneHeaderRegex.test(lines[peek]) ||
+            intExtHeaderRegex.test(lines[peek]) ||
+            transitionRegex.test(lines[peek]) ||
+            dialogueLineRegex.test(lines[peek]) ||
+            lines[peek].startsWith('(') ||
+            knownCharacters.has(lines[peek].replace(/:$/, '').trim())
+          ) {
+            break;
+          }
+          nextIdx = peek;
+          continue;
+        }
+
+        // Stop if we hit scene headers, transitions, or a new dialogue cue
+        if (tamilSceneHeaderRegex.test(curL) || intExtHeaderRegex.test(curL) || transitionRegex.test(curL)) break;
+        const curDiaMatch = curL.match(dialogueLineRegex);
+        if (curDiaMatch && !/^(?:காட்சி|இடம்|நேரம்|வகை)/i.test(curL)) break;
+        const cand = curL.replace(/:$/, '').trim();
+        if (knownCharacters.has(cand)) break;
+
+        // If line is a parenthetical (starts with '('), it is strictly Action/Description (Left column) and must not be swallowed into dialogue
+        if (curL.startsWith('(')) {
+          break;
+        }
+
+        // If line is clearly narrative action (e.g. long line with narrative action verbs, not in parens)
+        if (curL.length > 90 && /(?:வருவது|போவது|நடப்பது|நிற்பது|செய்கிறார்|சுடுகிறார்|பார்த்து)/.test(curL)) {
+          break;
+        }
+
+        diaText += (diaText ? '\n' : '') + curL;
+        nextIdx++;
+      }
+
+      if (diaText || !currentScene.items.some(it => it.rightCharacter === charName)) {
+        currentScene.items.push({
+          id: `item-${Date.now()}-${lineIdx}`,
+          type: 'dialogue',
+          column: 'right',
+          rightCharacter: charName,
+          rightDialogue: diaText || undefined,
+          rawText: diaText ? `${charName} : ${diaText}` : charName,
+        });
+      }
       lineIdx = nextIdx;
       continue;
     }
@@ -313,7 +742,8 @@ export function parseScreenplayToTamilLeftRight(text: string, defaultTitle = '�
     }
 
     // 6. Action / Scene narrative (Left column)
-    let actionText = line;
+    // If inside bracket, it is description; remove enclosing brackets
+    let actionText = line.replace(/^[(\s]+|[)\s]+$/g, '').trim();
     let extractedAudio = '';
 
     if (actionText.includes('துப்பாக்கி வெடிக்கும் சத்தம்') || actionText.includes('அலறும் சத்தம்')) {
@@ -324,14 +754,26 @@ export function parseScreenplayToTamilLeftRight(text: string, defaultTitle = '�
       }
     }
 
-    currentScene.items.push({
-      id: `item-${Date.now()}-${lineIdx}`,
-      type: 'action',
-      column: 'left',
-      leftAction: actionText,
-      rightAudioSfx: extractedAudio || undefined
-    });
+    if (actionText) {
+      currentScene.items.push({
+        id: `item-${Date.now()}-${lineIdx}`,
+        type: 'action',
+        column: 'left',
+        leftAction: actionText,
+        rightAudioSfx: extractedAudio || undefined
+      });
+    }
     lineIdx++;
+  }
+
+  // If a scene has no explicit metadata characters, fallback to dialogue speaking characters
+  for (const sc of scenes) {
+    if (!sc.characters || sc.characters.length === 0) {
+      const speakingChars = getSceneCharacters(sc);
+      if (speakingChars.length > 0) {
+        sc.characters = [...speakingChars];
+      }
+    }
   }
 
   // Count dialogues

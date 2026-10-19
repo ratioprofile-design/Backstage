@@ -3057,7 +3057,7 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: any) => void }> = ({ onNa
         if (activeBeatId) {
           const beat = beats.find(b => b.id === activeBeatId);
           if (beat) {
-            updateBeat(activeBeatId, { text: (beat.text || '') + '\n' + text });
+            updateBeat(activeBeatId, { content: (beat.content || '') + '\n' + text });
           }
         }
       }} />

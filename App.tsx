@@ -230,8 +230,11 @@ const AppContent: React.FC = () => {
     canGoForward,
     backViewName,
     forwardViewName,
-    pageLoadingMessage
+    pageLoadingMessage,
+    setPageLoadingMessage
   } = useNavigation();
+
+  const pageLoadingTimerRef = useRef<any>(null);
 
   // Global listener for async tasks or heavy views that take time to load
   useEffect(() => {

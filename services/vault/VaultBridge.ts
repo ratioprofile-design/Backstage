@@ -63,15 +63,15 @@ export class VaultBridge {
       }
 
       // Convert document content into searchable text
-      let textContent = doc.content || '';
-      if (doc.extractedText) {
-        textContent += '\n' + doc.extractedText;
+      let textContent = doc.textContent || (doc as any).content || '';
+      if ((doc as any).extractedText) {
+        textContent += '\n' + (doc as any).extractedText;
       }
       if (doc.tags && doc.tags.length > 0) {
         textContent += '\nTags: ' + doc.tags.join(', ');
       }
-      if (doc.notes) {
-        textContent += '\nNotes: ' + doc.notes;
+      if ((doc as any).notes) {
+        textContent += '\nNotes: ' + (doc as any).notes;
       }
 
       const input: VaultDocumentInput = {

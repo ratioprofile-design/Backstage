@@ -91,7 +91,8 @@ const DEFAULT_CALL_SHEET: CallSheet = {
 };
 
 export const CallSheetView: React.FC = () => {
-  const { beats = [], characters = [], appTheme, appAccentColor = '#f5a623' } = useProject();
+  const { beats = [], characterData = {}, appTheme, appAccentColor = '#f5a623' } = useProject();
+  const characters = Object.values(characterData);
   const isLight = appTheme === 'light' || (appTheme === 'system' && typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: light)').matches);
 
   const [isEditing, setIsEditing] = useState(false);
@@ -130,9 +131,10 @@ export const CallSheetView: React.FC = () => {
         const name = typeof c === 'string' ? c : c?.name;
         if (name && !charMap.has(name.toLowerCase())) {
           const matchedChar = characters.find((ch) => ch.name.toLowerCase() === name.toLowerCase());
+          const actor = (matchedChar?.confirmedArtistId ? matchedChar.artists?.find(a => a.id === matchedChar.confirmedArtistId)?.name : matchedChar?.artists?.[0]?.name) || (matchedChar as any)?.actor || 'TBD';
           charMap.set(name.toLowerCase(), {
             character: name,
-            actor: matchedChar?.actor || 'TBD',
+            actor,
           });
         }
       });
@@ -154,7 +156,7 @@ export const CallSheetView: React.FC = () => {
     const updated: CallSheet = {
       ...sheetData,
       scheduledScenes: sceneNumbers,
-      locationName: primaryBeat?.location ? `${primaryBeat.location}` : sheetData.locationName,
+      locationName: (primaryBeat?.slug?.location || (primaryBeat as any)?.location) ? `${primaryBeat?.slug?.location || (primaryBeat as any)?.location}` : sheetData.locationName,
       castCalls: newCastCalls.length > 0 ? newCastCalls : sheetData.castCalls,
     };
 
@@ -367,8 +369,8 @@ export const CallSheetView: React.FC = () => {
                     <tr key={scNum}>
                       <td className="py-2.5 px-3 font-bold text-[#f5a623]">{scNum}</td>
                       <td className="py-2.5 px-3 font-sans font-bold">{matchedBeat?.title || `INT/EXT. LOCATION - DAY`}</td>
-                      <td className="py-2.5 px-3 font-sans text-gray-400">{matchedBeat?.synopsis || matchedBeat?.description || 'Scene action...'}</td>
-                      <td className="py-2.5 px-3 text-center">{matchedBeat?.pageCount || '1/8'}</td>
+                      <td className="py-2.5 px-3 font-sans text-gray-400">{matchedBeat?.summary || (matchedBeat as any)?.synopsis || (matchedBeat as any)?.description || 'Scene action...'}</td>
+                      <td className="py-2.5 px-3 text-center">{matchedBeat?.durationPages ? `${matchedBeat.durationPages} pgs` : ((matchedBeat as any)?.pageCount || '1/8')}</td>
                     </tr>
                   );
                 })}

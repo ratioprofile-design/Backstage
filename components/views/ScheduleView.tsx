@@ -230,7 +230,7 @@ interface ScheduleViewProps {
 }
 
 const ScheduleView: React.FC<ScheduleViewProps> = ({ onNavigateToView }) => {
-    const project = useProject() || {};
+    const project = useProject();
     const generatedShots: Shot[] = project.generatedShots || [];
     const beats: Beat[] = project.beats || [];
     const appTheme = project.appTheme || 'dark';

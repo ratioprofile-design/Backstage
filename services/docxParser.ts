@@ -18,3 +18,12 @@ export async function parseDocxFile(file: File): Promise<string> {
 
   return text;
 }
+
+/**
+ * Parses Word (.docx) documents into rich formatted HTML preserving bold styles for screenplay parsing.
+ */
+export async function parseDocxFileToHtml(file: File): Promise<string> {
+  const arrayBuffer = await file.arrayBuffer();
+  const result = await mammoth.convertToHtml({ arrayBuffer });
+  return result.value || '';
+}

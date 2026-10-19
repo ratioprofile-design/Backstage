@@ -88,7 +88,7 @@ export async function uploadToR2(options: {
       }
     } else if (options.data instanceof Uint8Array) {
       bodyData = options.data;
-    } else if (options.data instanceof Blob || options.data instanceof File) {
+    } else if ((typeof Blob !== 'undefined' && (options.data as any) instanceof Blob) || (typeof File !== 'undefined' && (options.data as any) instanceof File)) {
       const arrayBuffer = await options.data.arrayBuffer();
       bodyData = new Uint8Array(arrayBuffer);
       detectedMime = options.contentType || options.data.type || 'application/octet-stream';

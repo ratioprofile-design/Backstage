@@ -41,7 +41,7 @@ const TRANSITIONS = [
   'SMASH CUT TO:', 'MATCH CUT TO:', 'JUMP CUT TO:', 'TIME CUT:', 'FADE TO BLACK:'
 ];
 
-const TRANSITIONS_REGEX = /^(CUT TO:|FADE IN:|FADE OUT:|DISSOLVE TO:|SMASH CUT TO:|MATCH CUT TO:|JUMP CUT TO:|TIME CUT:|FADE TO BLACK:|[A-Z0-9\s'’-]+ TO:)$/i;
+const TRANSITIONS_REGEX = /^(?:CUT TO:|FADE IN:|FADE OUT:|DISSOLVE TO:|SMASH CUT TO:|MATCH CUT TO:|JUMP CUT TO:|TIME CUT:|FADE TO BLACK:|[A-Z0-9\s'’-]+ TO:|காட்சி\s*மாற்றம்:?|இடைவேளை:?|முற்றும்:?|மாண்டேஜ்:?)$/i;
 
 function escapeHtml(text: string): string {
   return text
@@ -148,18 +148,30 @@ export function isCharacterLine(text: string): boolean {
   const trimmed = text.trim();
   if (!trimmed || trimmed.length > 35) return false;
 
-  // Remove extensions like (V.O.), (O.S.), (CONT'D)
+  // Remove extensions like (V.O.), (O.S.), (CONT'D), (சசிகுமார்)
   const base = trimmed.replace(/\s*\([^)]*\)/g, '').trim();
   if (!base || base.length < 2) return false;
 
+  // Remove trailing colon if present (e.g. "ஜெயிலர்:" or "SARAVANAN:")
+  const cleaned = base.endsWith(':') ? base.slice(0, -1).trim() : base;
+  if (!cleaned || cleaned.length < 2) return false;
+
   // Characters should not end with punctuation marks like period, comma, question mark
-  if (/[.,!?:;]$/.test(base)) return false;
+  if (/[.,!?;]$/.test(cleaned)) return false;
 
-  // Must have at least one alphabetic letter
-  if (!/[a-zA-Z]/.test(base)) return false;
+  // Check for Tamil Unicode characters
+  const tamilRegex = /[\u0B80-\u0BFF]/;
+  if (tamilRegex.test(cleaned)) {
+    // Exclude scene header keywords or transition words
+    if (/^(?:காட்சி|இடம்|நேரம்|வகை|டைட்டல்|பாடல்|மாண்டேஜ்|முற்றும்)/i.test(cleaned)) return false;
+    // Exclude narrative action verbs
+    if (/(?:வருவது|போவது|நடப்பது|நிற்பது|பார்ப்பது|செய்வது|செய்கிறார்|பார்த்து|சொல்கிறார்)/.test(cleaned)) return false;
+    return true;
+  }
 
-  // Must be uppercase (standard screenplay format)
-  return base === base.toUpperCase();
+  // English: Must have at least one alphabetic letter and must be uppercase (standard screenplay format)
+  if (!/[a-zA-Z]/.test(cleaned)) return false;
+  return cleaned === cleaned.toUpperCase();
 }
 
 function detectTypeFromClass(className: string): ScriptElementType | null {

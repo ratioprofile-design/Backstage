@@ -420,6 +420,7 @@ export const CastingView: React.FC<{ onNavigateToView?: (view: 'characterdesign'
       ...prev,
       [charName]: {
         ...(prev[charName] || {
+          id: charName,
           name: charName,
           age: 30,
           gender: 'Unspecified',
@@ -625,9 +626,9 @@ export const CastingView: React.FC<{ onNavigateToView?: (view: 'characterdesign'
     const char = characterData[charName];
     if (!char || !char.artists) return;
     const isAlreadyConfirmed = char.confirmedArtistId === artistId;
-    const updatedArtists = char.artists.map(art => {
+    const updatedArtists: ArtistOption[] = char.artists.map(art => {
       if (art.id === artistId) {
-        return { ...art, status: isAlreadyConfirmed ? 'idea' : 'on_board' as const };
+        return { ...art, status: (isAlreadyConfirmed ? 'idea' : 'on_board') as ArtistOption['status'] };
       }
       return art;
     });

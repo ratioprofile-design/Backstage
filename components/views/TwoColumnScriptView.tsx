@@ -17,6 +17,8 @@ import {
   generateTamilLeftRightHtml,
   downloadBlobAsFile,
   hasEndSceneTransition,
+  getSceneCharacters,
+  getSceneEffects,
 } from '../../services/tamilLeftRightEngine';
 import {
   TwoColumnPaginationOptions,
@@ -379,7 +381,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
     if (activeDoc.twoColumnData && Array.isArray(activeDoc.twoColumnData.scenes)) {
       return activeDoc.twoColumnData;
     }
-    const raw = activeDoc.textContent || '';
+    const raw = (activeDoc.fileName?.endsWith('.docx') && activeDoc.htmlContent) ? activeDoc.htmlContent : (activeDoc.textContent || '');
     if (!raw.trim()) {
       return {
         title: activeDoc.title || 'Untitled Screenplay',
@@ -471,7 +473,9 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
       if (activeDoc.twoColumnData && Array.isArray(activeDoc.twoColumnData.scenes)) {
         setScreenplayData(activeDoc.twoColumnData);
       } else {
-        const raw = activeDoc.textContent || (activeDoc.htmlContent ? activeDoc.htmlContent.replace(/<[^>]+>/g, '\n') : '');
+        const raw = (activeDoc.fileName?.endsWith('.docx') && activeDoc.htmlContent)
+          ? activeDoc.htmlContent
+          : (activeDoc.textContent || (activeDoc.htmlContent ? activeDoc.htmlContent.replace(/<[^>]+>/g, '\n') : ''));
         if (raw.trim()) {
           setScreenplayData(parseScreenplayToTamilLeftRight(raw, activeDoc.title));
         } else {
@@ -4660,9 +4664,15 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
                             ?.filter((c) => Boolean(c) && !c.toLowerCase().startsWith('effect') && !c.toLowerCase().startsWith('time')) || [])
                         : [];
 
+                      // If still no characters in script metadata, fallback to dialogue speaking characters in this scene
+                      const matchingScene = screenplayData.scenes.find(s => s.id === elem.sceneId);
+                      const speakingCharsFallback = (!elem.characters || elem.characters.length === 0) && embeddedMetaChars.length === 0 && matchingScene
+                        ? getSceneCharacters(matchingScene)
+                        : [];
+
                       const effectiveChars = (elem.characters && elem.characters.length > 0)
                         ? elem.characters
-                        : embeddedMetaChars;
+                        : (embeddedMetaChars.length > 0 ? embeddedMetaChars : speakingCharsFallback);
                       const charCount = effectiveChars.length;
                       const charListStr = charCount > 0 ? effectiveChars.join(', ') : 'இல்லை';
 

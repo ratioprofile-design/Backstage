@@ -466,7 +466,7 @@ export interface ProjectContextType extends ProjectState {
   setOsInputMode: (enabled: boolean) => void;
   setOsInputShortcut: (key: string) => void;
   // Script Layout
-  setScriptConfig: (config: ScriptConfig) => void;
+  setScriptConfig: (config: ScriptConfig | ((prev: ScriptConfig) => ScriptConfig)) => void;
   setScriptViewMode: (mode: 'continuous' | 'page') => void;
   
   // Scratchpad Configuration
@@ -620,6 +620,8 @@ export interface Slugline {
   prefix: string;
   location: string;
   time: string;
+  raw?: string;
+  type?: string;
 }
 
 export interface ShotComposition {

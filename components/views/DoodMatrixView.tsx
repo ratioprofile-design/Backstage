@@ -8,7 +8,8 @@ interface DoodMatrixViewProps {
 }
 
 export const DoodMatrixView: React.FC<DoodMatrixViewProps> = ({ onBack }) => {
-  const { beats = [], characters = [], appTheme, appAccentColor = '#f5a623' } = useProject();
+  const { beats = [], characterData = {}, appTheme, appAccentColor = '#f5a623' } = useProject();
+  const characters = useMemo(() => Object.values(characterData), [characterData]);
   const [searchTerm, setSearchTerm] = useState('');
 
   const isLight = appTheme === 'light' || (appTheme === 'system' && typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: light)').matches);
@@ -32,9 +33,10 @@ export const DoodMatrixView: React.FC<DoodMatrixViewProps> = ({ onBack }) => {
     characters.forEach((char) => {
       const name = char.name.trim();
       if (name && !castMap.has(name.toLowerCase())) {
+        const actorName = (char.confirmedArtistId ? char.artists?.find(a => a.id === char.confirmedArtistId)?.name : char.artists?.[0]?.name) || (char as any).actor || '';
         castMap.set(name.toLowerCase(), {
           character: name,
-          actorName: char.actor || '',
+          actorName,
           days: new Set<number>(),
           scenes: [],
         });

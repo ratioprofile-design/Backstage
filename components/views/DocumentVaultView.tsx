@@ -1876,11 +1876,16 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
         let twoColData: TamilScreenplayData | undefined;
         let leftRightHtml = parsed.htmlContent;
 
-        if (isScriptFile && rawScriptText.trim()) {
+        if (isScriptFile) {
           try {
-            twoColData = parseScreenplayToTamilLeftRight(rawScriptText, parsed.title);
-            if (!leftRightHtml || leftRightHtml.length < 50) {
-              leftRightHtml = generateTamilLeftRightHtml(twoColData);
+            const textToParse = (file.name.toLowerCase().endsWith('.docx') || file.name.toLowerCase().endsWith('.doc')) && parsed.htmlContent
+              ? parsed.htmlContent
+              : rawScriptText;
+            if (textToParse && textToParse.trim()) {
+              twoColData = parseScreenplayToTamilLeftRight(textToParse, parsed.title);
+              if (!leftRightHtml || leftRightHtml.length < 50) {
+                leftRightHtml = generateTamilLeftRightHtml(twoColData);
+              }
             }
           } catch (scriptErr) {
             console.warn('Script parsing for 2-column view notice:', scriptErr);

@@ -1082,7 +1082,7 @@ export const CausalityCanvasBoard: React.FC<CausalityCanvasBoardProps> = ({ onEd
         y: laneIdx * LANE_HEIGHT + (LANE_HEIGHT - BEAT_CARD_HEIGHT) / 2,
         title: `Scene ${newId}`,
         content: '',
-        slug: { type: 'INT', location: 'LOCATION', time: 'DAY' },
+        slug: { prefix: 'INT', type: 'INT', location: 'LOCATION', time: 'DAY' },
         trackIndex: laneIdx,
         w: DEFAULT_BEAT_WIDTH,
         h: BEAT_CARD_HEIGHT
@@ -1425,7 +1425,7 @@ export const CausalityCanvasBoard: React.FC<CausalityCanvasBoardProps> = ({ onEd
                         y: laneIdx * LANE_HEIGHT + (LANE_HEIGHT - BEAT_CARD_HEIGHT) / 2,
                         title: `Scene ${newId}`,
                         content: '',
-                        slug: { type: 'INT', location: 'LOCATION', time: 'DAY' },
+                        slug: { prefix: 'INT', type: 'INT', location: 'LOCATION', time: 'DAY' },
                         trackIndex: laneIdx,
                         w: DEFAULT_BEAT_WIDTH,
                         h: BEAT_CARD_HEIGHT

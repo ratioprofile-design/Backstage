@@ -516,7 +516,7 @@ export function getProductionDocuments(projectId?: string): ProductionDocument[]
       filtered.unshift(getSangiliDocument(activeProjId));
     }
 
-    const migrated = filtered.map((doc: ProductionDocument) => {
+    const migrated: ProductionDocument[] = filtered.map((doc: ProductionDocument): ProductionDocument => {
       if (doc.id === MASTER_BREAKDOWN_DOC_ID) {
         if (!doc.textContent || doc.fileType !== 'md' || doc.fileName !== 'Master_Production_Breakdown.md') {
           hasMigrated = true;
@@ -528,12 +528,15 @@ export function getProductionDocuments(projectId?: string): ProductionDocument[]
             textContent: content,
             htmlContent: markdownToHtml(content),
             builtInType: 'breakdown',
-            category: 'BREAKDOWN',
+            category: 'BREAKDOWN' as const,
           };
         }
       }
       if (doc.id === SANGILI_DOCUMENT_ID) {
-        if (!doc.isStagedToScript || !doc.twoColumnData || !doc.twoColumnData.scenes || doc.twoColumnData.scenes.length === 0) {
+        const hasMisclassifiedChars = doc.twoColumnData?.scenes?.some((s: any) =>
+          s.items?.some((it: any) => (it.type === 'title' || it.type === 'transition') && /^(?:ஜெயிலர்|பாஸ்டர்|பாஸ்டர் சேவியர்|டாக்டர்)/.test(it.rawText || ''))
+        );
+        if (!doc.isStagedToScript || !doc.twoColumnData || !doc.twoColumnData.scenes || doc.twoColumnData.scenes.length < 70 || hasMisclassifiedChars) {
           hasMigrated = true;
           const sangiliMaster = getSangiliDocument(activeProjId);
           return {
@@ -544,6 +547,9 @@ export function getProductionDocuments(projectId?: string): ProductionDocument[]
             hasTwoColumnScript: true,
             category: 'SCRIPT' as const,
             twoColumnData: sangiliMaster.twoColumnData,
+            textContent: sangiliMaster.textContent,
+            htmlContent: sangiliMaster.htmlContent,
+            pageCount: sangiliMaster.pageCount,
           };
         }
       }

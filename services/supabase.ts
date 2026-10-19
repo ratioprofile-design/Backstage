@@ -88,7 +88,7 @@ export const supabase = isSupabaseConfigured
  * Executes a promise with an aggressive timeout.
  * Prevents cloud hanging from freezing the UI or sign-in flow.
  */
-export function withTimeout<T>(promise: PromiseLike<T>, ms: number, fallbackOrErrorMsg?: string | T): Promise<T> {
+export function withTimeout<T = any>(promise: PromiseLike<T>, ms: number, fallbackOrErrorMsg?: string | [T][0]): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => {
       if (typeof fallbackOrErrorMsg === 'string') {
@@ -257,7 +257,7 @@ export const fetchUserProjects = async (userId: string) => {
       .eq('user_id', userId)
       .order('updated_at', { ascending: false });
 
-    const { data, error } = await withTimeout(
+    const { data, error } = await withTimeout<any>(
       query as any,
       6000,
       { data: null, error: new Error('fetchUserProjects timed out after 6000ms') }
@@ -293,7 +293,7 @@ export const fetchProjectData = async (id: string) => {
       .eq('id', id)
       .single();
 
-    const { data, error } = await withTimeout(
+    const { data, error } = await withTimeout<any>(
       query as any,
       8000,
       { data: null, error: new Error('fetchProjectData timed out after 8000ms') }

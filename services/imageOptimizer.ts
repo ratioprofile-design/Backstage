@@ -1,3 +1,5 @@
+import { isR2Configured, uploadHeadshotToR2 } from './r2Storage';
+
 // Browser image compressor & thumbnail optimizer
 // Downscales raw multi-megabyte photos to lightweight ~20-30KB web avatars
 // Prevents Out-Of-Memory (OOM) crashes on Supabase Nano (t4g.nano) instances.
@@ -60,9 +62,6 @@ export async function compressHeadshot(src: string, maxDimension = 400, quality 
     img.src = src;
   });
 }
-
-/**
-import { isR2Configured, uploadHeadshotToR2 } from './r2Storage';
 
 /**
  * Optimizes an entire talent pool for cloud sync by offloading photos to

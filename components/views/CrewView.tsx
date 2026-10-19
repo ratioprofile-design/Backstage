@@ -4114,7 +4114,7 @@ export const CrewView: React.FC<CrewViewProps> = ({
                             id: b.id || `scene-${idx + 1}`,
                             sceneNum: b.sceneNumber || String(idx + 1),
                             title: b.title || b.summary || `Scene #${idx + 1}`,
-                            location: b.location || 'Location Unspecified',
+                            location: b.slug?.location || (b as any).location || 'Location Unspecified',
                             status: 'Scheduled'
                           }))
                         : [

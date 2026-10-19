@@ -38,6 +38,7 @@ export interface NavigationContextType {
   historyStack: ViewMode[];
   historyIndex: number;
   pageLoadingMessage: string | null;
+  setPageLoadingMessage: (msg: string | null) => void;
 }
 
 const NavigationContext = createContext<NavigationContextType | null>(null);
@@ -256,6 +257,7 @@ export const NavigationProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         historyStack,
         historyIndex,
         pageLoadingMessage,
+        setPageLoadingMessage,
       }}
     >
       {children}

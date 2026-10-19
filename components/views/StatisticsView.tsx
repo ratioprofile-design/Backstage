@@ -139,12 +139,12 @@ const StatisticsView: React.FC = () => {
         let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
 
         beats.forEach(b => {
-            if (b.status === 'ready') readyBeats++;
-            else if (b.status === 'in-progress') inProgressBeats++;
+            if (b.status === 'locked' || (b.status as any) === 'ready') readyBeats++;
+            else if ((b.status as any) === 'in-progress' || b.status === 'revision') inProgressBeats++;
             else draftBeats++;
 
-            if (b.act && actCounts[b.act] !== undefined) {
-                actCounts[b.act]++;
+            if ((b as any).act && actCounts[(b as any).act] !== undefined) {
+                actCounts[(b as any).act]++;
             } else {
                 actCounts['Unassigned']++;
             }
@@ -163,8 +163,8 @@ const StatisticsView: React.FC = () => {
         const canvasFootprintSqPx = Math.round(widthExtent * heightExtent);
 
         const totalConnections = connections.length;
-        const animatedConnections = connections.filter(c => c.animated).length;
-        const dottedConnections = connections.filter(c => c.lineStyle === 'dotted' || c.lineStyle === 'dashed').length;
+        const animatedConnections = connections.filter(c => (c as any).animated).length;
+        const dottedConnections = connections.filter(c => (c as any).lineStyle === 'dotted' || (c as any).lineStyle === 'dashed').length;
 
         // Graph Density Formula: Density = 2*E / (N*(N-1))
         const maxPossibleEdges = totalBeats > 1 ? (totalBeats * (totalBeats - 1)) / 2 : 1;
@@ -174,10 +174,10 @@ const StatisticsView: React.FC = () => {
         // Connected vs Isolated Nodes
         const connectedNodeIds = new Set<string>();
         connections.forEach(c => {
-            connectedNodeIds.add(c.sourceId);
-            connectedNodeIds.add(c.targetId);
+            connectedNodeIds.add(String(c.from ?? (c as any).sourceId));
+            connectedNodeIds.add(String(c.to ?? (c as any).targetId));
         });
-        const isolatedBeatsCount = beats.filter(b => !connectedNodeIds.has(b.id)).length;
+        const isolatedBeatsCount = beats.filter(b => !connectedNodeIds.has(String(b.id))).length;
 
         const beatStatusData = [
             { name: 'Ready / Locked', value: readyBeats, color: '#10b981' },
@@ -255,7 +255,7 @@ const StatisticsView: React.FC = () => {
             // Estimated Scene Duration
             const sceneShots = generatedShots.filter(s => {
                 if (!s.scene) return false;
-                const cs = s.scene.trim().toLowerCase();
+                const cs = String(s.scene).trim().toLowerCase();
                 return cs === sceneNum.toLowerCase() || cs === sceneNumInt.toString();
             });
 
@@ -406,7 +406,7 @@ const StatisticsView: React.FC = () => {
         let completedBiosCount = 0;
         characterList.forEach(c => {
             const bio = characterData[c.name.toLowerCase()] || characterData[c.name];
-            if (bio && (bio.archetype || bio.summary || bio.personality)) completedBiosCount++;
+            if (bio && (bio.archetype || (bio as any).summary || (bio as any).personality || bio.backstory || bio.psychology)) completedBiosCount++;
         });
 
         const characterCompletionPercent = characterList.length > 0 ? Math.round((completedBiosCount / characterList.length) * 100) : 0;
@@ -458,7 +458,7 @@ const StatisticsView: React.FC = () => {
             const mv = shot.movement || 'Static';
             shotMovementCounts[mv] = (shotMovementCounts[mv] || 0) + 1;
 
-            const lens = shot.cameraLens || '35mm Prime';
+            const lens = (shot as any).cameraLens || (shot as any).lens || '35mm Prime';
             cameraLensCounts[lens] = (cameraLensCounts[lens] || 0) + 1;
 
             if (shot.imageUrl) renderedShotsCount++;
@@ -472,7 +472,7 @@ const StatisticsView: React.FC = () => {
 
         const scenesWithShots = new Set<string>();
         generatedShots.forEach(s => {
-            if (s.scene) scenesWithShots.add(s.scene.trim().toLowerCase());
+            if (s.scene) scenesWithShots.add(String(s.scene).trim().toLowerCase());
         });
 
         const scenesWithShotsCount = sortedBeats.filter((_, idx) => {
