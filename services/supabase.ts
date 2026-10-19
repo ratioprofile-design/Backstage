@@ -284,23 +284,26 @@ export const fetchUserProjects = async (userId: string) => {
 };
 
 export const fetchProjectData = async (id: string) => {
-  if (!isSupabaseConfigured) return null;
+  if (!isSupabaseConfigured || !id || id === 'empty-project') return null;
   
   try {
     const query = supabase
       .from('projects')
       .select('id, name, user_id, data')
       .eq('id', id)
-      .single();
+      .maybeSingle();
 
     const { data, error } = await withTimeout<any>(
       query as any,
       8000,
-      { data: null, error: new Error('fetchProjectData timed out after 8000ms') }
+      { data: null, error: null }
     );
 
     if (error) {
-      throw error;
+      if (error.code !== 'PGRST116') {
+        console.warn('[supabase] fetchProjectData notice:', error.message || error);
+      }
+      return null;
     }
     if (!data) return null;
     return {
@@ -309,8 +312,10 @@ export const fetchProjectData = async (id: string) => {
       _ownerId: data.user_id,
       _projectId: data.id
     };
-  } catch (err) {
-    console.warn('[supabase] fetchProjectData failed or timed out:', err);
+  } catch (err: any) {
+    if (err?.code !== 'PGRST116' && !err?.message?.includes('0 rows')) {
+      console.warn('[supabase] fetchProjectData notice:', err);
+    }
     try {
       const local = localStorage.getItem(`project_data_${id}`);
       if (local) return JSON.parse(local);

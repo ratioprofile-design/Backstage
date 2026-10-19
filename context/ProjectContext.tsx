@@ -1086,6 +1086,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     // Periodic fallback polling to guarantee sync between collaborators (every 8s)
     const pollInterval = setInterval(async () => {
+      if (!currentProjectId || currentProjectId === 'empty-project') return;
       if (hasUnsavedChangesRef.current || isSavingRef.current) return;
       try {
         const remote = await fetchProjectData(currentProjectId);
