@@ -96,6 +96,7 @@ export interface ProjectMetadata {
   created: number;
   isInvited?: boolean;
   invitedBy?: string;
+  isLocalOnly?: boolean;
 }
 
 export type ViewMode = 'board' | 'excalidraw' | 'script' | 'characters' | 'casting' | 'characterdesign' | 'breakdown' | 'crew' | 'shotlist' | 'storyboard' | 'schedule' | 'statistics' | 'backstage' | 'goals' | 'inbox' | 'continuity' | 'locations' | 'dood' | 'documents' | 'callsheet' | 'two-column-script';
@@ -415,6 +416,8 @@ export interface ProjectContextType extends ProjectState {
   renameProject: (id: string, newName: string) => Promise<boolean>;
   closeProject: () => void;
   clearSchemaError: () => void;
+  refreshProjects: () => Promise<void>;
+  publishProjectToCloud: (projectId: string) => Promise<boolean>;
 
   // Change Tracking
   hasUnsavedChanges: boolean;

@@ -16,7 +16,7 @@ import {
   Moon, Sun, Coffee, Download, XCircle, Sparkles, Wifi, ShieldCheck, ShieldAlert,
   Key, Cpu, ListChecks, StickyNote, List, Hash, RotateCw, CheckSquare, Quote, WifiOff,
   Palette, Languages, CheckCircle2, ChevronRight, Folder, Pipette, Layout, X,
-  Users, UserPlus, Mail, Trash2, CheckCheck, Link2, ZoomIn
+  Users, UserPlus, Mail, Trash2, CheckCheck, Link2, ZoomIn, Film, Pencil, Copy, HardDrive
 } from 'lucide-react';
 import PrintPreviewModal from '../PrintPreviewModal';
 import { 
@@ -243,6 +243,8 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard, onClos
     boardLayerOrder = ['annotations', 'text', 'connections', 'groups', 'beats'], setBoardLayerOrder,
     loadProject, closeProject, downloadProject, saveProjectAs, fileHandle, filePath, setFilePath,
     beats, currentUser, isCloudMode, projectList, selectProject, currentProjectId,
+    currentProjectName, isCurrentProjectShared, userRole, renameProject,
+    refreshProjects, publishProjectToCloud, supabaseUser,
     collaborators = [], setCollaborators,
     openrouterKey, setOpenrouterKey,
     grokKey, setGrokKey,
@@ -361,7 +363,59 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard, onClos
   }, [currentProjectId]);
 
   const activeProject = projectList?.find(p => p.id === currentProjectId);
-  const activeProjectName = activeProject?.name || 'Backstage Screenplay';
+  const activeProjectName = currentProjectName || activeProject?.name || 'Backstage Screenplay';
+  const isCurrentShared = Boolean(activeProject?.isInvited || isCurrentProjectShared || (collaborators && collaborators.length > 0));
+  const isCurrentCloud = Boolean(supabaseUser && !activeProject?.isLocalOnly);
+
+  const [isRenamingActiveProject, setIsRenamingActiveProject] = useState(false);
+  const [renameProjectInput, setRenameProjectInput] = useState('');
+  const [isRefreshingProjects, setIsRefreshingProjects] = useState(false);
+  const [isPublishingCurrent, setIsPublishingCurrent] = useState(false);
+  const [copiedId, setCopiedId] = useState(false);
+  const [projectSyncNotice, setProjectSyncNotice] = useState<string | null>(null);
+
+  const handleSaveRename = async () => {
+    setIsRenamingActiveProject(false);
+    const trimmed = renameProjectInput.trim();
+    if (trimmed && trimmed !== activeProjectName && currentProjectId) {
+      await renameProject(currentProjectId, trimmed);
+      setProjectSyncNotice('✓ Project renamed successfully');
+      setTimeout(() => setProjectSyncNotice(null), 3000);
+    }
+  };
+
+  const handleManualRefreshProjects = async () => {
+    setIsRefreshingProjects(true);
+    try {
+      await refreshProjects();
+      setProjectSyncNotice('✓ Synced latest projects from Backstage Cloud');
+      setTimeout(() => setProjectSyncNotice(null), 3500);
+    } finally {
+      setTimeout(() => setIsRefreshingProjects(false), 600);
+    }
+  };
+
+  const handlePublishCurrentToCloud = async () => {
+    if (!currentProjectId) return;
+    setIsPublishingCurrent(true);
+    try {
+      const ok = await publishProjectToCloud(currentProjectId);
+      if (ok) {
+        setProjectSyncNotice('✓ Project published to Cloud! It is now accessible in your Tauri app and browser.');
+        setTimeout(() => setProjectSyncNotice(null), 4000);
+      }
+    } finally {
+      setIsPublishingCurrent(false);
+    }
+  };
+
+  const handlePublishSpecificProject = async (projId: string) => {
+    const ok = await publishProjectToCloud(projId);
+    if (ok) {
+      setProjectSyncNotice('✓ Project draft published to Cloud!');
+      setTimeout(() => setProjectSyncNotice(null), 3500);
+    }
+  };
 
   const handleCopyInviteLink = () => {
     const url = `${window.location.origin}${window.location.pathname}?project=${currentProjectId || 'default'}`;
@@ -1206,9 +1260,416 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard, onClos
 
             {/* TAB 2: PROJECT & FILES */}
             {activeCategory === 'project' && (
-                <ViewContainer title="Project Settings" subtitle="Invite collaborators, manage local data, cloud synchronization, and backups.">
+                <ViewContainer title="Project Settings" subtitle="Manage your active workspace, switch between projects, invite collaborators, and sync across desktop and browser.">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-4xl">
-                        {/* 1. INVITE PEOPLE TO COLLABORATE (SIMPLE & MODERN) */}
+
+                        {/* =========================================================
+                            SECTION 0: CURRENT ACTIVE WORKSPACE HERO CARD
+                            ========================================================= */}
+                        <div className={`md:col-span-2 p-5 sm:p-6 rounded-2xl border transition-all ${
+                          isLight
+                            ? 'bg-gradient-to-br from-slate-50 via-white to-slate-100/90 border-slate-300 shadow-sm text-slate-900'
+                            : 'bg-gradient-to-br from-[#13141a] via-[#0f1015] to-[#161720] border-white/10 shadow-xl text-white'
+                        }`}>
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-white/10">
+                            <div className="flex items-start gap-3.5 min-w-0">
+                              <div 
+                                className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0 border shadow-md relative"
+                                style={{
+                                  backgroundColor: isCurrentShared ? 'rgba(245, 166, 35, 0.15)' : 'rgba(16, 185, 129, 0.15)',
+                                  borderColor: isCurrentShared ? 'rgba(245, 166, 35, 0.4)' : 'rgba(16, 185, 129, 0.4)',
+                                  color: isCurrentShared ? '#f5a623' : '#10b981'
+                                }}
+                              >
+                                {isCurrentShared ? <Users size={22} /> : <Film size={22} />}
+                                <span className="absolute -bottom-1 -right-1 w-3.5 h-3.5 rounded-full bg-emerald-500 border-2 border-[#13141a] animate-pulse" />
+                              </div>
+
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="text-[10px] font-black uppercase tracking-widest text-gray-400 font-mono">
+                                    Currently Working On
+                                  </span>
+                                  {isCurrentShared ? (
+                                    <span className="px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/40 flex items-center gap-1 shadow-xs">
+                                      <Users size={10} /> Collaboration Workspace
+                                    </span>
+                                  ) : isCurrentCloud ? (
+                                    <span className="px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 flex items-center gap-1">
+                                      <Cloud size={10} /> Cloud Synced
+                                    </span>
+                                  ) : (
+                                    <span className="px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-zinc-700/60 text-zinc-300 border border-zinc-600/60 flex items-center gap-1">
+                                      <HardDrive size={10} /> Local Offline Draft
+                                    </span>
+                                  )}
+                                </div>
+
+                                {/* Project Name with Inline Rename */}
+                                {isRenamingActiveProject ? (
+                                  <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                                    <input 
+                                      type="text"
+                                      autoFocus
+                                      value={renameProjectInput}
+                                      onChange={(e) => setRenameProjectInput(e.target.value)}
+                                      onKeyDown={async (e) => {
+                                        if (e.key === 'Enter') handleSaveRename();
+                                        else if (e.key === 'Escape') setIsRenamingActiveProject(false);
+                                      }}
+                                      className="px-3 py-1 text-sm font-black rounded-lg border border-amber-500 bg-black/80 text-white outline-none w-full max-w-sm"
+                                    />
+                                    <button 
+                                      onClick={handleSaveRename}
+                                      className="px-3 py-1 text-xs font-bold bg-[#f5a623] text-black rounded-lg hover:brightness-105 cursor-pointer"
+                                    >
+                                      Save Name
+                                    </button>
+                                    <button 
+                                      onClick={() => setIsRenamingActiveProject(false)}
+                                      className="px-2.5 py-1 text-xs font-bold text-gray-400 hover:text-white cursor-pointer"
+                                    >
+                                      Cancel
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <div className="flex items-center gap-2 mt-1">
+                                    <h3 className="text-lg sm:text-xl font-black text-white tracking-wide truncate">
+                                      {activeProjectName}
+                                    </h3>
+                                    <button
+                                      onClick={() => {
+                                        setRenameProjectInput(activeProjectName);
+                                        setIsRenamingActiveProject(true);
+                                      }}
+                                      className="p-1 rounded-md text-gray-400 hover:text-amber-400 hover:bg-white/5 transition-colors cursor-pointer"
+                                      title="Rename current project"
+                                    >
+                                      <Pencil size={13} />
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Project ID & Quick Actions */}
+                            <div className="flex items-center gap-2 self-start sm:self-center shrink-0 flex-wrap">
+                              <div className="px-2.5 py-1 rounded-lg bg-black/40 border border-white/5 text-[10px] font-mono text-gray-400 flex items-center gap-1.5">
+                                <span>ID:</span>
+                                <span className="text-zinc-200 font-bold truncate max-w-[120px]">{currentProjectId}</span>
+                                <button
+                                  onClick={() => {
+                                    if (currentProjectId) {
+                                      navigator.clipboard.writeText(currentProjectId);
+                                      setCopiedId(true);
+                                      setTimeout(() => setCopiedId(false), 2000);
+                                    }
+                                  }}
+                                  className="text-gray-400 hover:text-white p-0.5 cursor-pointer"
+                                  title="Copy Project ID"
+                                >
+                                  {copiedId ? <Check size={11} className="text-emerald-400" /> : <Copy size={11} />}
+                                </button>
+                              </div>
+
+                              {!isCurrentCloud && !isCurrentShared && (
+                                <button
+                                  onClick={handlePublishCurrentToCloud}
+                                  disabled={isPublishingCurrent}
+                                  className="px-3.5 py-1.5 rounded-lg text-xs font-black uppercase tracking-wider bg-gradient-to-r from-amber-500 to-amber-400 text-black shadow-md hover:brightness-105 transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                                  title="Upload this screenplay to Backstage Cloud so it appears on your Tauri Desktop app & collaborators"
+                                >
+                                  <Upload size={12} />
+                                  <span>{isPublishingCurrent ? 'Syncing to Cloud...' : 'Publish to Cloud'}</span>
+                                </button>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Context details banner */}
+                          <div className="mt-3 text-xs leading-relaxed flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-gray-400">
+                            <div className="flex items-center gap-2">
+                              {isCurrentShared ? (
+                                <span>
+                                  <strong className="text-amber-400">Live Team Collaboration</strong>: {activeProject?.invitedBy ? `Shared with you by ${activeProject.invitedBy}. ` : 'Owned by you and shared with team. '}
+                                  All screenplay edits, character sheets, and documents sync in real time.
+                                </span>
+                              ) : isCurrentCloud ? (
+                                <span>
+                                  <strong className="text-emerald-400">Cloud Synced</strong> ({supabaseUser?.email || currentUser}): 
+                                  Auto-syncs across your browser and Tauri app.
+                                </span>
+                              ) : (
+                                <span>
+                                  <strong className="text-zinc-300">Local Offline Screenplay</strong>: 
+                                  Saved in this machine's storage only. Click <em>Publish to Cloud</em> to make it visible in your Tauri desktop app.
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          {projectSyncNotice && (
+                            <div className="mt-3 px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs font-semibold flex items-center gap-2 animate-in fade-in duration-150">
+                              <CheckCircle2 size={13} className="text-emerald-400 shrink-0" />
+                              <span>{projectSyncNotice}</span>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* =========================================================
+                            SECTION 1: WORKSPACE SWITCHER & DIRECTORY
+                            ========================================================= */}
+                        <div className={`md:col-span-2 p-5 sm:p-6 rounded-2xl border transition-all ${
+                          isLight ? 'bg-white border-slate-200 shadow-sm text-slate-800' : 'bg-[#111114] border-[#222228] shadow-lg text-white'
+                        }`}>
+                          {/* Header */}
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-white/10">
+                            <div className="flex items-center gap-3">
+                              <div 
+                                className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0 border shadow-xs"
+                                style={{
+                                  backgroundColor: `${appAccentColor}18`,
+                                  borderColor: `${appAccentColor}40`,
+                                  color: appAccentColor
+                                }}
+                              >
+                                <Folder size={18} />
+                              </div>
+                              <div>
+                                <h4 className="text-sm font-black uppercase tracking-wider flex items-center gap-2">
+                                  <span>{translateUi('Switch Workspace', appLanguage)}</span>
+                                  <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-white/5 border border-white/10 text-gray-400 font-bold">
+                                    {projectList.length} total
+                                  </span>
+                                </h4>
+                                <p className="text-[11px] text-gray-400 font-mono mt-0.5">
+                                  {supabaseUser 
+                                    ? `Signed in as ${supabaseUser.email} · Projects sync with Tauri app & browser`
+                                    : `Offline Mode (${currentUser || 'Guest'}) · Sign in to access cloud projects`}
+                                </p>
+                              </div>
+                            </div>
+
+                            {/* Top Action Buttons: Refresh & New */}
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={handleManualRefreshProjects}
+                                disabled={isRefreshingProjects}
+                                className={`px-3 py-1.5 rounded-lg border text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
+                                  isLight
+                                    ? 'bg-slate-100 hover:bg-slate-200 border-slate-200 text-slate-700'
+                                    : 'bg-[#18181c] hover:bg-[#222228] border-[#2c2c34] text-gray-300'
+                                }`}
+                                title="Sync and refresh all projects from Backstage Cloud"
+                              >
+                                <RefreshCw size={13} className={isRefreshingProjects ? 'animate-spin text-amber-400' : ''} />
+                                <span>{isRefreshingProjects ? 'Syncing...' : 'Refresh'}</span>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  onClose?.();
+                                  window.dispatchEvent(new CustomEvent('backstage:show-welcome'));
+                                }}
+                                className="px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-wider bg-white/10 hover:bg-white/15 border border-white/10 text-white transition-all flex items-center gap-1.5 cursor-pointer"
+                              >
+                                <Plus size={13} />
+                                <span>New Draft...</span>
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Workspace List Content */}
+                          <div className="space-y-4 pt-4">
+                            {/* SECTION A: TEAM COLLABORATIONS */}
+                            {(projectList.filter(p => p.isInvited)).length > 0 && (
+                              <div className="space-y-2">
+                                <div className="flex items-center justify-between text-[11px] font-black uppercase tracking-wider text-amber-400 font-mono">
+                                  <span className="flex items-center gap-1.5"><Users size={12} /> Team Collaborations</span>
+                                  <span className="text-[10px] text-gray-500">{(projectList.filter(p => p.isInvited)).length} projects</span>
+                                </div>
+                                <div className="grid grid-cols-1 gap-2">
+                                  {(projectList.filter(p => p.isInvited)).map(proj => {
+                                    const isCurrent = proj.id === currentProjectId;
+                                    return (
+                                      <div 
+                                        key={proj.id}
+                                        className={`p-3.5 rounded-xl border transition-all flex items-center justify-between gap-3 ${
+                                          isCurrent 
+                                            ? 'bg-amber-500/10 border-amber-500/40 shadow-sm ring-1 ring-amber-500/20' 
+                                            : isLight ? 'bg-slate-50 border-slate-200 hover:border-slate-300' : 'bg-[#15151b] border-white/5 hover:border-white/15'
+                                        }`}
+                                      >
+                                        <div className="min-w-0 flex items-center gap-3">
+                                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${isCurrent ? 'bg-amber-500/20 text-amber-400' : 'bg-white/5 text-gray-400'}`}>
+                                            <Users size={16} />
+                                          </div>
+                                          <div className="min-w-0">
+                                            <div className="flex items-center gap-2">
+                                              <span className={`text-xs font-bold truncate ${isCurrent ? 'text-amber-300 font-black' : 'text-white'}`}>
+                                                {proj.name}
+                                              </span>
+                                              {isCurrent && (
+                                                <span className="px-1.5 py-0.2 rounded text-[8.5px] font-black uppercase tracking-wider bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center gap-1">
+                                                  <Check size={9} /> ACTIVE
+                                                </span>
+                                              )}
+                                            </div>
+                                            <span className="text-[10px] text-amber-400/90 font-mono block mt-0.5">
+                                              {proj.invitedBy ? `Shared by ${proj.invitedBy}` : 'Shared Production Workspace'}
+                                            </span>
+                                          </div>
+                                        </div>
+
+                                        <div className="flex items-center gap-2 shrink-0">
+                                          <button
+                                            onClick={() => {
+                                              if (!isCurrent) {
+                                                selectProject(proj.id);
+                                                onClose?.();
+                                              }
+                                            }}
+                                            disabled={isCurrent}
+                                            className={`px-3.5 py-1.5 text-[10px] font-black uppercase tracking-wider rounded-lg border transition-all ${
+                                              isCurrent
+                                                ? 'bg-amber-500/15 border-amber-500/30 text-amber-400 cursor-default opacity-80'
+                                                : 'bg-[#222] hover:bg-amber-500 hover:text-black border-white/10 text-white cursor-pointer'
+                                            }`}
+                                          >
+                                            {isCurrent ? 'Currently Open' : 'Open Workspace'}
+                                          </button>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* SECTION B: MY CLOUD WORKSPACES */}
+                            <div className="space-y-2">
+                              <div className="flex items-center justify-between text-[11px] font-black uppercase tracking-wider text-emerald-400 font-mono">
+                                <span className="flex items-center gap-1.5"><Cloud size={12} /> My Cloud Screenplays</span>
+                                <span className="text-[10px] text-gray-500">{(projectList.filter(p => !p.isInvited && !p.isLocalOnly)).length} projects</span>
+                              </div>
+                              <div className="grid grid-cols-1 gap-2 max-h-60 overflow-y-auto pr-1">
+                                {(projectList.filter(p => !p.isInvited && !p.isLocalOnly)).map(proj => {
+                                  const isCurrent = proj.id === currentProjectId;
+                                  return (
+                                    <div 
+                                      key={proj.id}
+                                      className={`p-3.5 rounded-xl border transition-all flex items-center justify-between gap-3 ${
+                                        isCurrent 
+                                          ? 'bg-emerald-500/10 border-emerald-500/40 shadow-sm ring-1 ring-emerald-500/20' 
+                                          : isLight ? 'bg-slate-50 border-slate-200 hover:border-slate-300' : 'bg-[#15151b] border-white/5 hover:border-white/15'
+                                      }`}
+                                    >
+                                      <div className="min-w-0 flex items-center gap-3">
+                                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${isCurrent ? 'bg-emerald-500/20 text-emerald-400' : 'bg-white/5 text-gray-400'}`}>
+                                          <Film size={16} />
+                                        </div>
+                                        <div className="min-w-0">
+                                          <div className="flex items-center gap-2">
+                                            <span className={`text-xs font-bold truncate ${isCurrent ? 'text-emerald-300 font-black' : 'text-white'}`}>
+                                              {proj.name}
+                                            </span>
+                                            {isCurrent && (
+                                              <span className="px-1.5 py-0.2 rounded text-[8.5px] font-black uppercase tracking-wider bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center gap-1">
+                                                <Check size={9} /> ACTIVE
+                                              </span>
+                                            )}
+                                          </div>
+                                          <span className="text-[10px] text-gray-400 font-mono block mt-0.5">
+                                            {proj.lastModified ? `Updated ${new Date(proj.lastModified).toLocaleDateString()}` : 'Cloud Project'}
+                                          </span>
+                                        </div>
+                                      </div>
+
+                                      <div className="flex items-center gap-2 shrink-0">
+                                        <button
+                                          onClick={() => {
+                                            if (!isCurrent) {
+                                              selectProject(proj.id);
+                                              onClose?.();
+                                            }
+                                          }}
+                                          disabled={isCurrent}
+                                          className={`px-3.5 py-1.5 text-[10px] font-black uppercase tracking-wider rounded-lg border transition-all ${
+                                            isCurrent
+                                              ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400 cursor-default opacity-80'
+                                              : 'bg-[#222] hover:bg-white hover:text-black border-white/10 text-white cursor-pointer'
+                                          }`}
+                                        >
+                                          {isCurrent ? 'Currently Open' : 'Open Workspace'}
+                                        </button>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                                {(projectList.filter(p => !p.isInvited && !p.isLocalOnly)).length === 0 && (
+                                  <div className="text-center py-4 text-xs text-gray-500">
+                                    No cloud screenplays found. Create one or sign in to access your projects.
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* SECTION C: LOCAL OFFLINE DRAFTS (if any) */}
+                            {(projectList.filter(p => p.isLocalOnly)).length > 0 && (
+                              <div className="space-y-2 pt-2 border-t border-white/5">
+                                <div className="flex items-center justify-between text-[11px] font-black uppercase tracking-wider text-zinc-400 font-mono">
+                                  <span className="flex items-center gap-1.5"><HardDrive size={12} /> Local Offline Drafts (Not Synced)</span>
+                                  <span className="text-[10px] text-gray-500">{(projectList.filter(p => p.isLocalOnly)).length} drafts</span>
+                                </div>
+                                <div className="grid grid-cols-1 gap-2">
+                                  {(projectList.filter(p => p.isLocalOnly)).map(proj => {
+                                    const isCurrent = proj.id === currentProjectId;
+                                    return (
+                                      <div 
+                                        key={proj.id}
+                                        className="p-3 rounded-xl border border-dashed border-white/15 bg-white/[0.02] flex items-center justify-between gap-3"
+                                      >
+                                        <div className="min-w-0">
+                                          <span className="text-xs font-bold text-white truncate block">{proj.name}</span>
+                                          <span className="text-[10px] text-amber-400/80 font-mono block">Saved locally on this device only</span>
+                                        </div>
+                                        <div className="flex items-center gap-2 shrink-0">
+                                          {supabaseUser && (
+                                            <button
+                                              onClick={() => handlePublishSpecificProject(proj.id)}
+                                              className="px-2.5 py-1 text-[9.5px] font-black uppercase rounded bg-amber-500 text-black hover:brightness-105 cursor-pointer"
+                                              title="Upload to Cloud so it appears on Tauri and other devices"
+                                            >
+                                              Push to Cloud
+                                            </button>
+                                          )}
+                                          <button
+                                            onClick={() => {
+                                              if (!isCurrent) {
+                                                selectProject(proj.id);
+                                                onClose?.();
+                                              }
+                                            }}
+                                            disabled={isCurrent}
+                                            className="px-2.5 py-1 text-[9.5px] font-bold uppercase rounded border border-white/10 text-gray-300 hover:text-white cursor-pointer"
+                                          >
+                                            {isCurrent ? 'Active' : 'Open'}
+                                          </button>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* =========================================================
+                            SECTION 2: INVITE PEOPLE TO COLLABORATE
+                            ========================================================= */}
                         <div className={`md:col-span-2 p-6 rounded-xl border transition-all ${
                           isLight
                             ? 'bg-white border-slate-200 shadow-sm text-slate-800'
@@ -1491,97 +1952,7 @@ const BackstageView: React.FC<BackstageViewProps> = ({ onNavigateToBoard, onClos
                                 </div>
                             </div>
                         </div>
-                        {/* PROJECT SWITCHER & INVITED PROJECTS */}
-                        {projectList && projectList.length > 0 && (
-                            <div className="md:col-span-2 bg-[#111] p-6 rounded-sm border border-[#222] space-y-6">
-                                {/* SECTION 1: MY OWN WORKSPACES */}
-                                <div className="space-y-3">
-                                    <h4 className="text-[10px] font-black text-white uppercase tracking-widest pb-1 border-b border-[#222] flex items-center justify-between">
-                                        <span>My Own Workspaces (Online & Offline)</span>
-                                        <span className="text-[9px] text-gray-500">{(projectList.filter(p => !p.isInvited)).length} Projects</span>
-                                    </h4>
-                                    <div className="space-y-2 max-h-[160px] overflow-y-auto pr-1">
-                                        {(projectList.filter(p => !p.isInvited)).map(proj => {
-                                            const isCurrent = proj.id === currentProjectId;
-                                            return (
-                                                <div 
-                                                    key={proj.id} 
-                                                    className={`flex items-center justify-between p-3 rounded border transition-all ${
-                                                        isCurrent 
-                                                            ? 'bg-amber-500/10 border-amber-500/30' 
-                                                            : 'bg-[#151515] border-[#222] hover:border-[#333]'
-                                                    }`}
-                                                >
-                                                    <div className="min-w-0">
-                                                        <span className="text-xs font-bold text-white truncate block">{proj.name}</span>
-                                                    </div>
-                                                    <button
-                                                        onClick={() => selectProject(proj.id)}
-                                                        disabled={isCurrent}
-                                                        style={isCurrent ? { borderColor: 'rgba(245,166,35,0.4)', color: '#f5a623' } : {}}
-                                                        className={`px-3 py-1 text-[9px] font-black uppercase rounded border transition-all ${
-                                                            isCurrent 
-                                                                ? 'opacity-60 cursor-default font-bold' 
-                                                                : 'bg-[#222] border-[#333] hover:border-gray-500 text-gray-300'
-                                                        }`}
-                                                    >
-                                                        {isCurrent ? 'Active' : 'Open'}
-                                                    </button>
-                                                </div>
-                                            );
-                                        })}
-                                        {(projectList.filter(p => !p.isInvited)).length === 0 && (
-                                            <div className="text-[10px] text-gray-500 py-2">No personal workspaces found.</div>
-                                        )}
-                                    </div>
-                                </div>
 
-                                {/* SECTION 2: COLLABORATIONS */}
-                                <div className="space-y-3">
-                                    <h4 className="text-[10px] font-black text-amber-500 uppercase tracking-widest pb-1 border-b border-amber-500/10 flex items-center justify-between">
-                                        <span>Collaborations</span>
-                                        <span className="text-[9px] text-gray-500">{(projectList.filter(p => p.isInvited)).length} Projects</span>
-                                    </h4>
-                                    <div className="space-y-2 max-h-[160px] overflow-y-auto pr-1">
-                                        {(projectList.filter(p => p.isInvited)).map(proj => {
-                                            const isCurrent = proj.id === currentProjectId;
-                                            return (
-                                                <div 
-                                                    key={proj.id} 
-                                                    className={`flex items-center justify-between p-3 rounded border transition-all ${
-                                                        isCurrent 
-                                                            ? 'bg-amber-500/10 border-amber-500/30' 
-                                                            : 'bg-[#151515] border-[#222] hover:border-[#333]'
-                                                    }`}
-                                                >
-                                                    <div className="min-w-0">
-                                                        <span className="text-xs font-bold text-white truncate block">{proj.name}</span>
-                                                        <span className="text-[9px] text-amber-500 font-bold uppercase tracking-wider mt-0.5 block">
-                                                            Invited Workspace
-                                                        </span>
-                                                    </div>
-                                                    <button
-                                                        onClick={() => selectProject(proj.id)}
-                                                        disabled={isCurrent}
-                                                        style={isCurrent ? { borderColor: 'rgba(245,166,35,0.4)', color: '#f5a623' } : {}}
-                                                        className={`px-3 py-1 text-[9px] font-black uppercase rounded border transition-all ${
-                                                            isCurrent 
-                                                                ? 'opacity-60 cursor-default font-bold' 
-                                                                : 'bg-[#222] border-[#333] hover:border-gray-500 text-gray-300'
-                                                        }`}
-                                                    >
-                                                        {isCurrent ? 'Active' : 'Open'}
-                                                    </button>
-                                                </div>
-                                            );
-                                        })}
-                                        {(projectList.filter(p => p.isInvited)).length === 0 && (
-                                            <div className="text-[10px] text-gray-500 py-2">No invited collaborations.</div>
-                                        )}
-                                    </div>
-                                </div>
-                            </div>
-                        )}
 
                         {/* EXPORT PDF */}
                         <div className="md:col-span-2">

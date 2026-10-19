@@ -659,6 +659,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
             setCurrentUser(foundUser.email);
             localStorage.setItem('currentUser', foundUser.email);
             setCloudOffline(false);
+            refreshProjectList(foundUser.id, foundUser.email).catch(e => console.warn('[ctx] refreshProjectList fallback failed:', e));
           } else {
             const savedUser = localStorage.getItem('currentUser');
             if (savedUser && savedUser !== 'Default User') {
@@ -678,6 +679,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
           setSupabaseUser(foundUser);
           setCurrentUser(foundUser.email);
           localStorage.setItem('currentUser', foundUser.email);
+          refreshProjectList(foundUser.id, foundUser.email).catch(() => {});
         } else {
           const savedUser = localStorage.getItem('currentUser');
           if (savedUser && savedUser !== 'Default User') {
@@ -727,6 +729,63 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       subscription.unsubscribe();
     };
   }, []);
+
+  // Real-time Cross-Device Project Sync:
+  // Auto-sync project list on window focus (e.g. switching between browser and Tauri app)
+  // and listen for global project creation/rename/delete broadcasts across Supabase
+  useEffect(() => {
+    if (!isSupabaseConfigured) return;
+    let globalChannel: any = null;
+
+    try {
+      globalChannel = supabase.channel('global_projects_sync')
+        .on('broadcast', { event: 'project_created' }, (_payload: any) => {
+          if (supabaseUser) {
+            refreshProjectList(supabaseUser.id, supabaseUser.email);
+          } else {
+            const found = getStoredSupabaseUser();
+            if (found?.id) refreshProjectList(found.id, found.email);
+          }
+        })
+        .on('broadcast', { event: 'project_renamed' }, (_payload: any) => {
+          if (supabaseUser) {
+            refreshProjectList(supabaseUser.id, supabaseUser.email);
+          } else {
+            const found = getStoredSupabaseUser();
+            if (found?.id) refreshProjectList(found.id, found.email);
+          }
+        })
+        .on('broadcast', { event: 'project_deleted' }, (_payload: any) => {
+          if (supabaseUser) {
+            refreshProjectList(supabaseUser.id, supabaseUser.email);
+          } else {
+            const found = getStoredSupabaseUser();
+            if (found?.id) refreshProjectList(found.id, found.email);
+          }
+        })
+        .subscribe();
+    } catch (e) {
+      console.warn('[ctx] global_projects_sync channel notice:', e);
+    }
+
+    const handleWindowFocus = () => {
+      if (supabaseUser) {
+        refreshProjectList(supabaseUser.id, supabaseUser.email);
+      } else {
+        const found = getStoredSupabaseUser();
+        if (found?.id) refreshProjectList(found.id, found.email);
+      }
+    };
+
+    window.addEventListener('focus', handleWindowFocus);
+
+    return () => {
+      window.removeEventListener('focus', handleWindowFocus);
+      if (globalChannel) {
+        try { supabase.removeChannel(globalChannel); } catch {}
+      }
+    };
+  }, [supabaseUser]);
 
   const applyProjectState = useCallback((data: any, options?: { projectName?: string; targetProjectId?: string }) => {
     if (!data) return;
@@ -1112,6 +1171,25 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
         }
       });
 
+      // Also include any local-only projects from localStorage that have not yet been synced
+      try {
+        const localRaw = localStorage.getItem('projectList');
+        if (localRaw) {
+          const parsed = JSON.parse(localRaw);
+          if (Array.isArray(parsed)) {
+            parsed.forEach((lp: any) => {
+              if (lp && lp.id && !combined.some(c => c.id === lp.id)) {
+                combined.push({
+                  ...lp,
+                  isLocalOnly: true,
+                  name: lp.name || 'Local Draft'
+                });
+              }
+            });
+          }
+        }
+      } catch {}
+
       setProjectList(combined);
       try {
         localStorage.setItem(`cached_cloud_projects_${userId}`, JSON.stringify(combined));
@@ -1294,7 +1372,15 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (supabaseUser) {
       try {
         await upsertProject(id, supabaseUser.id, name, emptyState);
-        await refreshProjectList(supabaseUser.id);
+        await refreshProjectList(supabaseUser.id, supabaseUser.email);
+        try {
+          const globalChannel = supabase.channel('global_projects_sync');
+          globalChannel.send({
+            type: 'broadcast',
+            event: 'project_created',
+            payload: { id, name, userId: supabaseUser.id, updatedAt: new Date().toISOString() }
+          });
+        } catch {}
       } catch (err: any) {
         if (err.code === '42P01') setSchemaError("TABLE_MISSING");
         else if (err.code === '42703' || err.message?.includes('data')) setSchemaError("COLUMN_MISSING");
@@ -1311,6 +1397,92 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
     selectProject(id);
   };
+
+  const refreshProjects = useCallback(async () => {
+    let target = supabaseUser;
+    if (!target) target = getStoredSupabaseUser();
+    if (target?.id) {
+      await refreshProjectList(target.id, target.email);
+    }
+  }, [supabaseUser]);
+
+  const publishProjectToCloud = useCallback(async (projectId: string): Promise<boolean> => {
+    let targetUser = supabaseUser;
+    if (!targetUser) targetUser = getStoredSupabaseUser();
+    if (!targetUser?.id) {
+      console.warn('[ctx] Cannot publish project to cloud: No authenticated Supabase user');
+      return false;
+    }
+
+    try {
+      let dataToUpload: any = null;
+      let pName = 'Screenplay';
+
+      if (projectId === currentProjectId) {
+        const currentDocs = getProductionDocuments(projectId);
+        dataToUpload = {
+          beats, groups, connections, annotations, characterData, generatedShots, 
+          scratchpad, globalNotes, panX, panY, scale, nextId, nextAnnoId, activeBoardId,
+          isTamilMode, tamilFontScale, tamilFontFamily, userDictionary,
+          isOsInputMode, osInputShortcut, scriptConfig, scriptViewMode,
+          scratchpadConfig, storyboardConfig, isStoryboardFeatureEnabled,
+          breakdownLanguage, breakdownLockedOnly, isPdfDropEnabled, isRedoEnabled, 
+          writingGoal, geminiApiKey: '', openrouterKey, generalAiModel, 
+          dailyStats, sessionStartCount, lastSessionDate, boardLayerOrder,
+          characterDesignLocked, collaborators, talentPool, appTheme, themeAnimationStyle,
+          documents: currentDocs
+        };
+        pName = currentProjectName || localStorage.getItem(`project_name_${projectId}`) || 'Screenplay';
+      } else {
+        const localRaw = localStorage.getItem(`project_data_${projectId}`);
+        dataToUpload = localRaw ? JSON.parse(localRaw) : INITIAL_STATE;
+        pName = localStorage.getItem(`project_name_${projectId}`) 
+          || projectList.find(p => p.id === projectId)?.name 
+          || 'Screenplay';
+      }
+
+      await upsertProject(projectId, targetUser.id, pName, dataToUpload);
+      await refreshProjectList(targetUser.id, targetUser.email);
+
+      // Clean from local storage list
+      try {
+        const raw = localStorage.getItem('projectList');
+        if (raw) {
+          const list = JSON.parse(raw);
+          if (Array.isArray(list)) {
+            const updated = list.filter((p: any) => p.id !== projectId);
+            localStorage.setItem('projectList', JSON.stringify(updated));
+          }
+        }
+      } catch {}
+
+      // Broadcast to other devices/Tauri
+      try {
+        const globalChannel = supabase.channel('global_projects_sync');
+        globalChannel.send({
+          type: 'broadcast',
+          event: 'project_created',
+          payload: { id: projectId, name: pName, userId: targetUser.id, updatedAt: new Date().toISOString() }
+        });
+      } catch {}
+
+      return true;
+    } catch (err) {
+      console.error('[ctx] publishProjectToCloud failed:', err);
+      return false;
+    }
+  }, [
+    supabaseUser, currentProjectId, currentProjectName, projectList,
+    beats, groups, connections, annotations, characterData, generatedShots, 
+    scratchpad, globalNotes, panX, panY, scale, nextId, nextAnnoId, activeBoardId,
+    isTamilMode, tamilFontScale, tamilFontFamily, userDictionary,
+    isOsInputMode, osInputShortcut, scriptConfig, scriptViewMode,
+    scratchpadConfig, storyboardConfig, isStoryboardFeatureEnabled,
+    breakdownLanguage, breakdownLockedOnly, isPdfDropEnabled, isRedoEnabled, 
+    writingGoal, openrouterKey, generalAiModel, 
+    dailyStats, sessionStartCount, lastSessionDate, boardLayerOrder,
+    characterDesignLocked, collaborators, talentPool, appTheme, themeAnimationStyle
+  ]);
 
   const selectProject = async (id: string, opts?: { silent?: boolean }) => {
     setFileHandle(null);
@@ -2240,7 +2412,9 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     appZoomLevel, setAppZoomLevel,
     cloudSyncStatus, triggerCloudSync,
     currentProjectName,
-    isCurrentProjectShared: Boolean(projectList.find(p => p.id === currentProjectId)?.isInvited),
+    isCurrentProjectShared: Boolean(projectList.find(p => p.id === currentProjectId)?.isInvited || (collaborators && collaborators.length > 0)),
+    refreshProjects,
+    publishProjectToCloud,
     setHasUnsavedChanges
   };
 
@@ -2314,6 +2488,8 @@ const fallbackProjectContextValue: ProjectContextType = {
   renameProject: async () => false,
   closeProject: noop,
   clearSchemaError: noop,
+  refreshProjects: async () => {},
+  publishProjectToCloud: async () => false,
   setBeats: noop,
   setGroups: noop,
   setConnections: noop,

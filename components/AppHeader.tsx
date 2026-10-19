@@ -12,7 +12,7 @@ import { isSupabaseConfigured } from '../services/supabase';
 import { useAiKeyStatus } from '../context/AiKeyStatusContext';
 import { AISceneGeneratorModal } from './AISceneGeneratorModal';
 import { InviteManagerModal } from './InviteManagerModal';
-import { Users as UsersIcon } from 'lucide-react';
+import { Users, Users as UsersIcon, HardDrive } from 'lucide-react';
 import { ThemeToggleButton } from './ThemeToggleButton';
 import { translateUi } from '../services/appTranslations';
 
@@ -439,32 +439,40 @@ const AppHeader: React.FC<AppHeaderProps> = ({
                                   setIsRenamingProject(false);
                               }
                           }}
-                          className="bg-black/90 border border-amber-500 text-xs font-bold text-white px-1.5 py-0.5 rounded outline-none w-28 truncate"
+                          className="bg-black/90 border border-amber-500 text-xs font-bold text-white px-2 py-0.5 rounded outline-none w-36 truncate"
                       />
                   ) : (
-                      <span className="text-xs font-bold text-white tracking-wide truncate max-w-[130px]">
+                      <span className="text-xs font-bold text-white tracking-wide truncate max-w-[180px] sm:max-w-[240px]">
                           {fileHandle ? fileHandle.name : activeProjectName}
                       </span>
                   )}
+                  {/* Distinct Workspace Type Pill Badge */}
                   {isShared ? (
-                      <span className="px-1.5 py-0.2 text-[8px] font-black uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/40 rounded shrink-0">
-                          Shared
+                      <span className="px-2 py-0.5 text-[8.5px] font-black uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/40 rounded-full flex items-center gap-1 shrink-0 shadow-xs">
+                          <Users size={9} /> Collab
+                      </span>
+                  ) : supabaseUser ? (
+                      <span className="px-2 py-0.5 text-[8.5px] font-black uppercase tracking-wider bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 rounded-full flex items-center gap-1 shrink-0">
+                          <Cloud size={9} /> Cloud
                       </span>
                   ) : (
-                      !isRenamingProject && (
-                          <button
-                              type="button"
-                              onClick={(e) => {
-                                  e.stopPropagation();
-                                  setNewProjectNameInput(fileHandle ? fileHandle.name : activeProjectName);
-                                  setIsRenamingProject(true);
-                              }}
-                              className="opacity-40 hover:opacity-100 hover:text-amber-400 p-0.5 rounded transition-all cursor-pointer"
-                              title="Rename Project"
-                          >
-                              <Pencil size={11} />
-                          </button>
-                      )
+                      <span className="px-2 py-0.5 text-[8.5px] font-black uppercase tracking-wider bg-zinc-800 text-zinc-300 border border-zinc-700 rounded-full flex items-center gap-1 shrink-0">
+                          <HardDrive size={9} /> Local
+                      </span>
+                  )}
+                  {!isRenamingProject && (
+                      <button
+                          type="button"
+                          onClick={(e) => {
+                              e.stopPropagation();
+                              setNewProjectNameInput(fileHandle ? fileHandle.name : activeProjectName);
+                              setIsRenamingProject(true);
+                          }}
+                          className="opacity-40 hover:opacity-100 hover:text-amber-400 p-0.5 rounded transition-all cursor-pointer"
+                          title="Rename Project"
+                      >
+                          <Pencil size={11} />
+                      </button>
                   )}
                   <ChevronDown size={11} className={`text-gray-400 group-hover:text-amber-400 transition-transform ${showProjectDropdown ? 'rotate-180 text-amber-400' : ''}`} />
               </div>
@@ -472,19 +480,31 @@ const AppHeader: React.FC<AppHeaderProps> = ({
               {/* Projects Dropdown Menu */}
               {showProjectDropdown && (
                   <div 
-                      className="absolute left-0 top-full mt-1.5 w-64 bg-[#14141a] border border-[#333] rounded-xl shadow-2xl py-1.5 z-50 text-left backdrop-blur-md"
+                      className="absolute left-0 top-full mt-1.5 w-72 bg-[#14141a] border border-[#333] rounded-xl shadow-2xl py-1.5 z-50 text-left"
                       onClick={(e) => e.stopPropagation()}
                   >
-                      <div className="px-3 py-1.5 border-b border-[#282834] flex items-center justify-between">
-                          <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Cloud Projects</span>
-                          <span className="text-[10px] text-amber-400 font-semibold">{projectList.length} total</span>
+                      {/* Dropdown Header: Current User & Sync Info */}
+                      <div className="px-3 py-2 border-b border-[#282834] flex items-center justify-between">
+                          <div className="min-w-0">
+                              <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block">
+                                  {supabaseUser ? 'Cloud Screenplays' : 'Local Workspaces'}
+                              </span>
+                              <span className="text-[10px] text-zinc-300 truncate font-mono block max-w-[160px]">
+                                  {currentUser || 'Guest Writer (Offline)'}
+                              </span>
+                          </div>
+                          <span className="text-[10px] text-amber-400 font-bold px-1.5 py-0.5 rounded bg-amber-400/10 border border-amber-400/20">
+                              {projectList.length} total
+                          </span>
                       </div>
-                      <div className="max-h-60 overflow-y-auto py-1">
+
+                      <div className="max-h-64 overflow-y-auto py-1">
                           {projectList.length === 0 ? (
-                              <div className="px-3 py-2 text-xs text-gray-400 text-center">No other projects found</div>
+                              <div className="px-3 py-4 text-xs text-gray-400 text-center">No other projects found</div>
                           ) : (
                               projectList.map((p) => {
                                   const isCurrent = p.id === currentProjectId;
+                                  const isCollab = Boolean(p.isInvited);
                                   return (
                                       <button
                                           key={p.id}
@@ -494,22 +514,39 @@ const AppHeader: React.FC<AppHeaderProps> = ({
                                               if (!isCurrent) selectProject(p.id);
                                           }}
                                           className={`w-full px-3 py-2 text-left flex items-center justify-between gap-2 hover:bg-white/5 transition-colors cursor-pointer ${
-                                              isCurrent ? 'bg-amber-500/10 text-amber-300 font-bold' : 'text-gray-300'
+                                              isCurrent ? 'bg-amber-500/10 text-amber-300 font-bold border-l-2 border-amber-400' : 'text-gray-300'
                                           }`}
                                       >
                                           <div className="truncate flex-1">
-                                              <div className="text-xs truncate">{p.name || 'Untitled Screenplay'}</div>
-                                              <div className="text-[9px] text-gray-400">
-                                                  {p.isInvited ? `Shared by ${p.invitedBy || 'Team'}` : 'Cloud Project'}
+                                              <div className="flex items-center gap-1.5">
+                                                  <span className="text-xs truncate">{p.name || 'Untitled Screenplay'}</span>
+                                                  {isCollab && (
+                                                      <span className="px-1.5 py-0.2 rounded text-[8px] font-black uppercase tracking-wider bg-amber-500/20 text-amber-300 shrink-0">
+                                                          Collab
+                                                      </span>
+                                                  )}
+                                                  {p.isLocalOnly && (
+                                                      <span className="px-1.5 py-0.2 rounded text-[8px] font-black uppercase tracking-wider bg-zinc-800 text-zinc-400 shrink-0">
+                                                          Local
+                                                      </span>
+                                                  )}
+                                              </div>
+                                              <div className="text-[9px] text-gray-400 font-mono mt-0.5">
+                                                  {isCollab ? `Shared by ${p.invitedBy || 'Team'}` : (p.isLocalOnly ? 'Saved on this machine' : 'Cloud Project')}
                                               </div>
                                           </div>
-                                          {isCurrent && <Check size={13} className="text-amber-400 shrink-0" />}
+                                          {isCurrent ? (
+                                              <span className="text-[9px] font-bold text-amber-400 flex items-center gap-1 shrink-0">
+                                                  <Check size={12} /> Active
+                                              </span>
+                                          ) : null}
                                       </button>
                                   );
                               })
                           )}
                       </div>
-                      <div className="px-2 pt-1 border-t border-[#282834]">
+
+                      <div className="px-2 pt-1 border-t border-[#282834] flex flex-col gap-1">
                           <button
                               type="button"
                               onClick={() => {
@@ -517,7 +554,7 @@ const AppHeader: React.FC<AppHeaderProps> = ({
                                   closeProject();
                                   window.dispatchEvent(new CustomEvent('backstage:show-welcome'));
                               }}
-                              className="w-full px-2.5 py-1.5 text-center text-[11px] font-semibold text-gray-400 hover:text-white hover:bg-white/5 rounded-lg transition-colors cursor-pointer"
+                              className="w-full px-2.5 py-1.5 text-center text-[11px] font-semibold text-gray-300 hover:text-white hover:bg-white/5 rounded-lg transition-colors cursor-pointer"
                           >
                               Open Studio Hub / New Project...
                           </button>
