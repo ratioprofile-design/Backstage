@@ -828,18 +828,22 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     } catch (e) {}
 
     // If this is an imported Causality project or an explicit new project import, register in projectList and switch active ID
-    if (isCausality || options?.projectName) {
-      const newProjId = `proj_${Date.now()}`;
-      const projName = options?.projectName || (cleanData as any).projectName || 'Imported Causality Story';
+    if (isCausality || options?.projectName || options?.targetProjectId) {
+      const newProjId = options?.targetProjectId || `proj_${Date.now()}`;
+      const projName = options?.projectName || (cleanData as any).projectName || (cleanData as any).name || (isCausality ? 'Imported Causality Story' : 'Screenplay');
       const newMeta: ProjectMetadata = {
         id: newProjId,
         name: projName,
         created: Date.now(),
-        lastModified: Date.now()
+        lastModified: Date.now(),
+        isLocalOnly: !supabaseUser
       };
 
       setCurrentProjectId(newProjId);
       localStorage.setItem('currentProjectId', newProjId);
+      setCurrentProjectName(projName);
+      localStorage.setItem(`project_name_${newProjId}`, projName);
+      try { localStorage.setItem('backstage_project_closed', 'false'); } catch {}
       
       if (Array.isArray(finalTracks) && finalTracks.length > 0) {
         try {
@@ -874,6 +878,12 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
         localStorage.setItem('projectList', JSON.stringify(updated));
         return updated;
       });
+
+      if (Array.isArray((cleanData as any).documents) && (cleanData as any).documents.length > 0) {
+        saveProductionDocuments((cleanData as any).documents, newProjId, true);
+      } else {
+        saveProductionDocuments([], newProjId, true);
+      }
 
       // Notify BoardView and other views of the imported project, tracks, and lanes
       window.dispatchEvent(new CustomEvent('project_imported', { 
@@ -1325,6 +1335,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const closeProject = useCallback(() => {
     setCurrentProjectId(null);
+    setCurrentProjectName('');
     localStorage.removeItem('currentProjectId');
     try {
       localStorage.setItem('backstage_project_closed', 'true');
@@ -1342,6 +1353,8 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   }, [applyProjectState]);
 
   const createProject = async (name: string) => {
+    setFileHandle(null);
+    setFilePath(null);
     const id = `proj_${Date.now()}`;
     // Zero-template clean state for brand new project
     const emptyState: ProjectState & { documents: any[] } = {
@@ -1487,6 +1500,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const selectProject = async (id: string, opts?: { silent?: boolean }) => {
     setFileHandle(null);
+    setFilePath(null);
     let resolvedName = '';
     let isInvitedProj = false;
 
@@ -1624,7 +1638,10 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   useEffect(() => {
       const handleFocus = () => {
           if (isImportingRef.current) return;
-          if (supabaseUser && currentProjectId && !hasUnsavedChangesRef.current && !isSavingRef.current) {
+          if (filePath) return;
+          const currentProj = projectList.find(p => p.id === currentProjectId);
+          if (currentProj?.isLocalOnly) return;
+          if (supabaseUser && currentProjectId && currentProjectId !== 'empty-project' && !hasUnsavedChangesRef.current && !isSavingRef.current) {
               selectProject(currentProjectId, { silent: true });
           }
       };
@@ -1918,24 +1935,58 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       try {
         const dialog = await getTauriDialog();
         const project = projectList.find(p => p.id === currentProjectId);
-        const fileName = `${(project?.name || 'Untitled').replace(/\s+/g, '_').toLowerCase()}.bst`;
+        const curName = currentProjectName || project?.name || 'Untitled';
+        const defaultFileName = `${curName.replace(/\s+/g, '_').toLowerCase()}.bst`;
         if (dialog) {
           const selected = await dialog.save({
             filters: [{ name: 'Backstage File', extensions: ['bst'] }],
-            defaultPath: fileName
+            defaultPath: defaultFileName
           });
           if (selected) {
+            const newName = selected.split(/[\/\\]/).pop()?.replace(/\.[^/.]+$/, '') || 'Screenplay';
+            const newProjId = `proj_${Date.now()}`;
+            
             setFilePath(selected);
+            setCurrentProjectId(newProjId);
+            localStorage.setItem('currentProjectId', newProjId);
+            setCurrentProjectName(newName);
+            localStorage.setItem(`project_name_${newProjId}`, newName);
+
+            const newMeta: ProjectMetadata = {
+              id: newProjId,
+              name: newName,
+              created: Date.now(),
+              lastModified: Date.now(),
+              isLocalOnly: !supabaseUser
+            };
+            setProjectList(prev => {
+              const updated = [newMeta, ...prev.filter(p => p.id !== newProjId)];
+              try { localStorage.setItem('projectList', JSON.stringify(updated)); } catch {}
+              return updated;
+            });
+
             const fs = await getTauriFs();
             if (fs) {
               await fs.writeTextFile(selected, JSON.stringify(projectData, null, 2));
             }
             setHasUnsavedChanges(false);
-            addRecentFile(selected, fileName.replace(/\.bst$/i, ''));
+            addRecentFile(selected, newName);
+            try {
+              localStorage.setItem(`project_data_${newProjId}`, JSON.stringify(projectData));
+              localStorage.setItem('backstage_last_session', JSON.stringify(projectData));
+              localStorage.setItem('backstage_project_closed', 'false');
+            } catch (e) {}
+
             if (currentProjectId) {
-              localStorage.setItem(`project_data_${currentProjectId}`, JSON.stringify(projectData));
+              const existingDocs = getProductionDocuments(currentProjectId);
+              if (existingDocs.length > 0) {
+                saveProductionDocuments(existingDocs, newProjId, true);
+              }
             }
-            localStorage.setItem('backstage_last_session', JSON.stringify(projectData));
+
+            window.dispatchEvent(new CustomEvent('project_imported', { 
+              detail: { projectId: newProjId } 
+            }));
           }
         }
       } catch (err) {
@@ -1944,19 +1995,53 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     } else {
       try {
         const project = projectList.find(p => p.id === currentProjectId);
-        const fileName = `${(project?.name || 'Untitled').replace(/\s+/g, '_').toLowerCase()}.bst`;
+        const curName = currentProjectName || project?.name || 'Untitled';
+        const defaultFileName = `${curName.replace(/\s+/g, '_').toLowerCase()}.bst`;
         // @ts-ignore
-        const handle = await window.showSaveFilePicker({ suggestedName: fileName, types: [{ description: 'Backstage File', accept: { 'application/json': ['.bst'] } }] });
+        const handle = await window.showSaveFilePicker({ suggestedName: defaultFileName, types: [{ description: 'Backstage File', accept: { 'application/json': ['.bst'] } }] });
+        const newName = handle.name ? handle.name.replace(/\.[^/.]+$/, '') : 'Screenplay';
+        const newProjId = `proj_${Date.now()}`;
+        
         setFileHandle(handle);
+        setCurrentProjectId(newProjId);
+        localStorage.setItem('currentProjectId', newProjId);
+        setCurrentProjectName(newName);
+        localStorage.setItem(`project_name_${newProjId}`, newName);
+
+        const newMeta: ProjectMetadata = {
+          id: newProjId,
+          name: newName,
+          created: Date.now(),
+          lastModified: Date.now(),
+          isLocalOnly: !supabaseUser
+        };
+        setProjectList(prev => {
+          const updated = [newMeta, ...prev.filter(p => p.id !== newProjId)];
+          try { localStorage.setItem('projectList', JSON.stringify(updated)); } catch {}
+          return updated;
+        });
+
         const writable = await handle.createWritable();
         await writable.write(JSON.stringify(projectData, null, 2));
         await writable.close();
         setHasUnsavedChanges(false);
-        addRecentFile(handle.name, fileName.replace(/\.bst$/i, ''));
+        addRecentFile(handle.name, newName);
+        try {
+          localStorage.setItem(`project_data_${newProjId}`, JSON.stringify(projectData));
+          localStorage.setItem('backstage_last_session', JSON.stringify(projectData));
+          localStorage.setItem('backstage_project_closed', 'false');
+        } catch (e) {}
+
         if (currentProjectId) {
-          localStorage.setItem(`project_data_${currentProjectId}`, JSON.stringify(projectData));
+          const existingDocs = getProductionDocuments(currentProjectId);
+          if (existingDocs.length > 0) {
+            saveProductionDocuments(existingDocs, newProjId, true);
+          }
         }
-        localStorage.setItem('backstage_last_session', JSON.stringify(projectData));
+
+        window.dispatchEvent(new CustomEvent('project_imported', { 
+              detail: { projectId: newProjId } 
+        }));
       } catch (err) {
         console.error("Web saveAs error", err);
       }

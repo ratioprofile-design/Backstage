@@ -72,7 +72,7 @@ const AppHeader: React.FC<AppHeaderProps> = ({
       isStoryboardFeatureEnabled, writingGoal, dailyStats, beats,
       projectList, currentProjectId,
       undo, redo, canUndo, canRedo,
-      saveProject, saveProjectAs, hasUnsavedChanges, currentUser, isCloudMode, isSaving, fileHandle,
+      saveProject, saveProjectAs, hasUnsavedChanges, currentUser, isCloudMode, isSaving, fileHandle, filePath,
       autoGenerate5Scenes, appTheme, setAppTheme, logout, cloudOffline, supabaseUser, userRole, appAccentColor,
       appLanguage,
       collaborators = [],
@@ -118,17 +118,31 @@ const AppHeader: React.FC<AppHeaderProps> = ({
     };
   }, []);
 
+  const activeProject = useMemo(() => {
+      return projectList.find(p => p.id === currentProjectId);
+  }, [projectList, currentProjectId]);
+
   const activeProjectName = useMemo(() => {
-      const proj = projectList.find(p => p.id === currentProjectId);
-      if (proj && proj.name && proj.name !== 'SEQUENCER') return proj.name;
+      if (activeProject && activeProject.name && activeProject.name !== 'SEQUENCER') return activeProject.name;
       if (currentProjectName) return currentProjectName;
       return 'Untitled Project';
-  }, [projectList, currentProjectId, currentProjectName]);
+  }, [activeProject, currentProjectName]);
+
+  const displayProjectName = useMemo(() => {
+      if (filePath) {
+          const fileName = filePath.split(/[\\/]/).pop()?.replace(/\.[^/.]+$/, '');
+          if (fileName) return fileName;
+      }
+      if (fileHandle) {
+          const fileName = fileHandle.name?.replace(/\.[^/.]+$/, '');
+          if (fileName) return fileName;
+      }
+      return activeProjectName;
+  }, [filePath, fileHandle, activeProjectName]);
 
   const isShared = useMemo(() => {
-      const proj = projectList.find(p => p.id === currentProjectId);
-      return Boolean(proj?.isInvited || isCurrentProjectShared);
-  }, [projectList, currentProjectId, isCurrentProjectShared]);
+      return Boolean(activeProject?.isInvited || isCurrentProjectShared);
+  }, [activeProject, isCurrentProjectShared]);
 
   const isCloudActive = isCloudMode;
 
@@ -443,7 +457,7 @@ const AppHeader: React.FC<AppHeaderProps> = ({
                       />
                   ) : (
                       <span className="text-xs font-bold text-white tracking-wide truncate max-w-[180px] sm:max-w-[240px]">
-                          {fileHandle ? fileHandle.name : activeProjectName}
+                          {displayProjectName}
                       </span>
                   )}
                   {/* Distinct Workspace Type Pill Badge */}
@@ -451,7 +465,7 @@ const AppHeader: React.FC<AppHeaderProps> = ({
                       <span className="px-2 py-0.5 text-[8.5px] font-black uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/40 rounded-full flex items-center gap-1 shrink-0 shadow-xs">
                           <Users size={9} /> Collab
                       </span>
-                  ) : supabaseUser ? (
+                  ) : (supabaseUser && !activeProject?.isLocalOnly && !filePath) ? (
                       <span className="px-2 py-0.5 text-[8.5px] font-black uppercase tracking-wider bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 rounded-full flex items-center gap-1 shrink-0">
                           <Cloud size={9} /> Cloud
                       </span>
@@ -465,7 +479,7 @@ const AppHeader: React.FC<AppHeaderProps> = ({
                           type="button"
                           onClick={(e) => {
                               e.stopPropagation();
-                              setNewProjectNameInput(fileHandle ? fileHandle.name : activeProjectName);
+                              setNewProjectNameInput(displayProjectName);
                               setIsRenamingProject(true);
                           }}
                           className="opacity-40 hover:opacity-100 hover:text-amber-400 p-0.5 rounded transition-all cursor-pointer"

@@ -411,7 +411,8 @@ const AppContent: React.FC = () => {
       const projName = path.split(/[/\\]/).pop()?.replace(/\.[^/.]+$/, '') || 'Imported Project';
       loadProject(JSON.parse(content), { projectName: projName });
       setFilePath(path);
-      setRecentFiles(addRecentFile(path));
+      setRecentFiles(addRecentFile(path, projName));
+      try { localStorage.setItem("backstage_project_closed", "false"); } catch {}
       return true;
     } catch (err) {
       console.error("Failed to open project file", err);
@@ -484,16 +485,20 @@ const AppContent: React.FC = () => {
         filters: [{ name: 'Backstage File', extensions: ['bst'] }],
         defaultPath: 'Untitled.bst',
       });
-      if (!selected) return;
+      if (!selected || typeof selected !== 'string') return;
+      const safePath: string = selected;
+      const baseName = safePath.split(/[\\/]/).pop() || '';
+      const projName: string = baseName.replace(/\.[^/.]+$/, '') || 'Untitled Screenplay';
       const fresh: ProjectState = { ...INITIAL_STATE };
       const fs = await getTauriFs();
       if (fs) {
-        await fs.writeTextFile(selected, JSON.stringify(fresh, null, 2));
+        await fs.writeTextFile(safePath, JSON.stringify(fresh, null, 2));
       }
-      loadProject(fresh);
-      setFilePath(selected);
-      setRecentFiles(addRecentFile(selected));
+      loadProject(fresh, { projectName: projName });
+      setFilePath(safePath);
+      setRecentFiles(addRecentFile(safePath, projName));
       setShowWelcome(false);
+      try { localStorage.setItem('backstage_project_closed', 'false'); } catch {}
     } catch (err) {
       console.error("Failed to create new project file", err);
     } finally {
