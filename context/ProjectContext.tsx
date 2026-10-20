@@ -11,7 +11,7 @@ import { supabase, upsertProject, fetchProjectData, fetchUserProjects, fetchInvi
 import { createAuto5ScenesDataset, createAutoScenesDataset } from '../services/sampleGenerator';
 import { isTauri, getTauriFs, getTauriDialog, getTauriWindow } from '../utils/desktop';
 import { isCausalityData, parseCausalityProject } from '../services/causalityParser';
-import { getProductionDocuments, saveProductionDocuments, mergeProductionDocuments, syncDocumentsWithCloud } from '../services/documentsStorage';
+import { getProductionDocuments, saveProductionDocuments, mergeProductionDocuments, syncDocumentsWithCloud, loadProductionDocumentsAsync } from '../services/documentsStorage';
 import { saveProjectToRustDisk, loadProjectFromRustDisk, listRustLocalProjects } from '../services/localRustStorage';
 import { saveLargeProject, loadLargeProject, loadLargeDocuments } from '../services/largeStorage';
 import { optimizeTalentForCloud } from '../services/imageOptimizer';
@@ -1734,14 +1734,15 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     let currentDocs = getProductionDocuments(currentProjectId || undefined);
     if (currentProjectId) {
       try {
-        const idbDocs = await loadLargeDocuments(currentProjectId);
-        if (idbDocs && Array.isArray(idbDocs) && idbDocs.length > 0) {
-          currentDocs = mergeProductionDocuments(currentDocs, idbDocs);
+        const fullDocs = await loadProductionDocumentsAsync(currentProjectId);
+        if (fullDocs && Array.isArray(fullDocs) && fullDocs.length > 0) {
+          currentDocs = fullDocs;
         }
       } catch (e) {}
     }
 
     const projectData: ProjectState & { lastInstanceId?: string; documents?: any[] } = {
+      documents: currentDocs,
       beats, groups, connections, annotations, characterData, generatedShots, 
       scratchpad, globalNotes, panX, panY, scale, nextId, nextAnnoId, activeBoardId,
       isTamilMode, tamilFontScale, tamilFontFamily, userDictionary,
@@ -2003,9 +2004,16 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
             } catch (e) {}
 
             if (currentProjectId) {
-              const existingDocs = getProductionDocuments(currentProjectId);
+              let existingDocs = getProductionDocuments(currentProjectId);
+              try {
+                const fullDocs = await loadProductionDocumentsAsync(currentProjectId);
+                if (fullDocs && fullDocs.length > 0) {
+                  existingDocs = fullDocs;
+                }
+              } catch (e) {}
               if (existingDocs.length > 0) {
-                saveProductionDocuments(existingDocs, newProjId, true);
+                const cloned = existingDocs.map(d => ({ ...d, projectId: newProjId }));
+                saveProductionDocuments(cloned, newProjId, true);
               }
             }
 
@@ -2058,9 +2066,16 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
         } catch (e) {}
 
         if (currentProjectId) {
-          const existingDocs = getProductionDocuments(currentProjectId);
+          let existingDocs = getProductionDocuments(currentProjectId);
+          try {
+            const fullDocs = await loadProductionDocumentsAsync(currentProjectId);
+            if (fullDocs && fullDocs.length > 0) {
+              existingDocs = fullDocs;
+            }
+          } catch (e) {}
           if (existingDocs.length > 0) {
-            saveProductionDocuments(existingDocs, newProjId, true);
+            const cloned = existingDocs.map(d => ({ ...d, projectId: newProjId }));
+            saveProductionDocuments(cloned, newProjId, true);
           }
         }
 

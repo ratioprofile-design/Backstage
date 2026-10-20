@@ -7,6 +7,7 @@ import {
   saveProductionDocuments,
   mergeProductionDocuments,
   syncDocumentsWithCloud,
+  loadProductionDocumentsAsync,
 } from '../../services/documentsStorage';
 import {
   TamilScreenplayData,
@@ -398,6 +399,40 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
     }
   }, [projectContext.currentProjectId, projectContext.supabaseUser?.id]);
 
+  // Hydrate full production documents from Rust Disk or IndexedDB asynchronously
+  useEffect(() => {
+    const projId = projectContext.currentProjectId || undefined;
+    let isCancelled = false;
+
+    loadProductionDocumentsAsync(projId).then((fullDocs) => {
+      if (isCancelled || !fullDocs || fullDocs.length === 0) return;
+      setDocuments(fullDocs);
+      const targetDoc = fullDocs.find((d) => d.id === selectedDocId) 
+        || fullDocs.find((d) => d.isStagedToScript)
+        || fullDocs.find((d) => d.isLeftRightFormat || d.hasTwoColumnScript || d.category === 'SCRIPT');
+      
+      if (targetDoc) {
+        if (targetDoc.twoColumnData && Array.isArray(targetDoc.twoColumnData.scenes) && targetDoc.twoColumnData.scenes.length > 0) {
+          if (!screenplayDataRef.current?.scenes || screenplayDataRef.current.scenes.length === 0) {
+            screenplayDataRef.current = targetDoc.twoColumnData;
+            setScreenplayData(targetDoc.twoColumnData);
+          }
+        } else {
+          const raw = (targetDoc.fileName?.endsWith('.docx') && targetDoc.htmlContent)
+            ? targetDoc.htmlContent
+            : (targetDoc.textContent || '');
+          if (raw.trim() && (!screenplayDataRef.current?.scenes || screenplayDataRef.current.scenes.length === 0)) {
+            const parsed = parseScreenplayToTamilLeftRight(raw, targetDoc.title || 'Screenplay');
+            screenplayDataRef.current = parsed;
+            setScreenplayData(parsed);
+          }
+        }
+      }
+    }).catch(() => {});
+
+    return () => { isCancelled = true; };
+  }, [projectContext.currentProjectId, selectedDocId]);
+
   const activeDoc = useMemo(() => {
     return documents.find((d) => d.id === selectedDocId) || documents.find((d) => d.isStagedToScript) || documents.find((d) => d.isLeftRightFormat || d.hasTwoColumnScript || d.category === 'SCRIPT');
   }, [documents, selectedDocId]);
@@ -556,7 +591,42 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
 
   // UI View Modes
   const [pageViewMode, setPageViewMode] = useState<'stacked' | 'single' | 'spread'>('stacked');
-  const [currentSinglePage, setCurrentSinglePage] = useState<number>(1);
+  const [currentSinglePage, setCurrentSinglePage] = useState<number>(() => {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        const docId = initialDocumentId || localStorage.getItem('active_two_column_doc_id') || '';
+        const savedPage = localStorage.getItem(`backstage_twocol_page_${docId}`);
+        if (savedPage) {
+          const p = parseInt(savedPage, 10);
+          if (!isNaN(p) && p > 0) return p;
+        }
+      }
+    } catch {}
+    return 1;
+  });
+
+  // Persist current page number per document
+  useEffect(() => {
+    if (selectedDocId && currentSinglePage > 0) {
+      try {
+        localStorage.setItem(`backstage_twocol_page_${selectedDocId}`, String(currentSinglePage));
+      } catch {}
+    }
+  }, [selectedDocId, currentSinglePage]);
+
+  // Restore current page when active document changes
+  useEffect(() => {
+    if (!selectedDocId) return;
+    try {
+      const savedPage = localStorage.getItem(`backstage_twocol_page_${selectedDocId}`);
+      if (savedPage) {
+        const p = parseInt(savedPage, 10);
+        if (!isNaN(p) && p > 0) {
+          setCurrentSinglePage(p);
+        }
+      }
+    } catch {}
+  }, [selectedDocId]);
   const [zoomLevel, setZoomLevel] = useState<number>(100);
   const [isStyleDrawerOpen, setIsStyleDrawerOpen] = useState<boolean>(false);
   const { aiAvailable } = useAiKeyStatus();
@@ -616,25 +686,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
     initialSelected: Set<string>;
   } | null>(null);
 
-  // Restore scroll position & last viewed scene on mount
-  useEffect(() => {
-    try {
-      const savedScene = localStorage.getItem('backstage_last_twocol_scene_id');
-      const savedScroll = localStorage.getItem('backstage_last_twocol_scroll_top');
-      if (savedScene) {
-        setActiveSceneId(savedScene);
-      }
-      if (savedScroll && canvasScrollerRef.current) {
-        setTimeout(() => {
-          if (canvasScrollerRef.current) {
-            canvasScrollerRef.current.scrollTop = parseInt(savedScroll, 10);
-          }
-        }, 150);
-      }
-    } catch (e) {
-      console.warn('Could not restore twocol scroll position:', e);
-    }
-  }, [selectedDocId]);
+// Scroll restoration moved after pagination result declaration
 
   // Undo & Redo History Management (fast & lightweight, capped at 50 states)
   const undoStackRef = useRef<TamilScreenplayData[]>([]);
@@ -1099,6 +1151,70 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
     }
   }, [renderedPageLimit, pages.length, pageViewMode]);
 
+  // Flag to prevent debounced scroll listener from overwriting saved scroll with 0 before initial render
+  const isInitialScrollRestoredRef = useRef<boolean>(false);
+  useEffect(() => {
+    isInitialScrollRestoredRef.current = false;
+  }, [selectedDocId]);
+
+  // Restore scroll position, last active scene & last active item on mount
+  useEffect(() => {
+    if (!selectedDocId || pages.length === 0) return;
+    try {
+      const savedScene = localStorage.getItem(`backstage_twocol_scene_${selectedDocId}`) 
+        || localStorage.getItem('backstage_last_twocol_scene_id');
+      const savedScroll = localStorage.getItem(`backstage_twocol_scroll_${selectedDocId}`) 
+        || localStorage.getItem('backstage_last_twocol_scroll_top');
+      const savedItem = localStorage.getItem(`backstage_twocol_item_${selectedDocId}`);
+
+      if (savedScene) {
+        setActiveSceneId(savedScene);
+      }
+
+      if (savedScroll && canvasScrollerRef.current) {
+        const targetScroll = parseInt(savedScroll, 10);
+        if (!isNaN(targetScroll) && targetScroll > 0) {
+          if (targetScroll > 800 && renderedPageLimit < pages.length) {
+            setRenderedPageLimit(pages.length);
+          }
+
+          const timer = setTimeout(() => {
+            requestAnimationFrame(() => {
+              if (canvasScrollerRef.current) {
+                canvasScrollerRef.current.scrollTop = targetScroll;
+                setTimeout(() => {
+                  if (canvasScrollerRef.current && Math.abs(canvasScrollerRef.current.scrollTop - targetScroll) > 100) {
+                    canvasScrollerRef.current.scrollTop = targetScroll;
+                  }
+                  isInitialScrollRestoredRef.current = true;
+                }, 80);
+              }
+            });
+          }, 120);
+
+          return () => clearTimeout(timer);
+        } else {
+          isInitialScrollRestoredRef.current = true;
+        }
+      } else {
+        isInitialScrollRestoredRef.current = true;
+      }
+
+      if (savedItem) {
+        setTimeout(() => {
+          const el = document.getElementById(`twocol-item-${savedItem}`);
+          if (el) {
+            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            setLastSelectedId(savedItem);
+          }
+        }, 220);
+      }
+    } catch (e) {
+      console.warn('Could not restore twocol scroll position:', e);
+      isInitialScrollRestoredRef.current = true;
+    }
+  }, [selectedDocId, pages.length]);
+
   // Map sceneId -> starting page number for quick thumbnail jumping
   const scenePageMap = useMemo(() => {
     const map: Record<string, number> = {};
@@ -1134,6 +1250,9 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
   const handleSelectScene = useCallback((sceneId: string, pageNumber?: number) => {
     setActiveSceneId(sceneId);
     try {
+      if (selectedDocId) {
+        localStorage.setItem(`backstage_twocol_scene_${selectedDocId}`, sceneId);
+      }
       localStorage.setItem('backstage_last_twocol_scene_id', sceneId);
     } catch {}
     if (pageNumber && pageNumber > renderedPageLimit) {
@@ -2001,6 +2120,11 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
 
   // Centered viewport scrolling so active row remains centered at eye-level
   const scrollToItem = useCallback((itemId: string, behavior: ScrollBehavior = 'smooth') => {
+    if (selectedDocId) {
+      try {
+        localStorage.setItem(`backstage_twocol_item_${selectedDocId}`, itemId);
+      } catch {}
+    }
     // Ensure the page holding this item is mounted beyond fast-path limit
     for (let pIdx = 0; pIdx < pages.length; pIdx++) {
       if (pages[pIdx].elements.some((el) => (el as any).item?.id === itemId)) {
@@ -3786,8 +3910,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
       
       const activeStorageId = typeof localStorage !== 'undefined' ? localStorage.getItem('active_two_column_doc_id') : null;
       const curId = activeStorageId || selectedDocId;
-      const remoteDoc = incoming.find((d: any) => d.id === curId)
-        || incoming.find((d: any) => d.isLeftRightFormat || d.hasTwoColumnScript || d.category === 'SCRIPT');
+      const remoteDoc = incoming.find((d: any) => d.id === curId);
       if (remoteDoc) {
         if (selectedDocId !== remoteDoc.id) {
           setSelectedDocId(remoteDoc.id);
@@ -3991,13 +4114,23 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
     if (top > 100 && renderedPageLimit < pages.length) {
       setRenderedPageLimit(pages.length);
     }
+    // Prevent zeroing out saved scroll before initial restore completes
+    if (!isInitialScrollRestoredRef.current && top === 0) {
+      return;
+    }
     if (scrollSaveTimerRef.current) clearTimeout(scrollSaveTimerRef.current);
     scrollSaveTimerRef.current = setTimeout(() => {
       try {
+        if (selectedDocId) {
+          localStorage.setItem(`backstage_twocol_scroll_${selectedDocId}`, String(top));
+          const pageHeight = (paper.heightPx || 1123) + 40;
+          const estPage = Math.min(pages.length, Math.max(1, Math.floor(top / pageHeight) + 1));
+          localStorage.setItem(`backstage_twocol_page_${selectedDocId}`, String(estPage));
+        }
         localStorage.setItem('backstage_last_twocol_scroll_top', String(top));
       } catch {}
     }, 250);
-  }, [renderedPageLimit, pages.length]);
+  }, [renderedPageLimit, pages.length, selectedDocId, paper.heightPx]);
 
   const handleToggleSceneSidebar = useCallback(() => {
     setIsSceneSidebarOpen((prev) => !prev);

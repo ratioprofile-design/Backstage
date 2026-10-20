@@ -688,9 +688,19 @@ export async function loadProductionDocumentsAsync(projectId?: string): Promise<
   const activeProjId = projectId || (typeof localStorage !== 'undefined' ? localStorage.getItem('currentProjectId') || 'default' : 'default');
   const currentSyncDocs = getProductionDocuments(activeProjId);
   try {
+    const rustDocs = await loadDocumentsFromRustDisk(activeProjId);
+    if (rustDocs && Array.isArray(rustDocs) && rustDocs.length > 0) {
+      const merged = mergeProductionDocuments(currentSyncDocs, rustDocs, activeProjId);
+      inMemoryDocsCache[activeProjId] = merged;
+      return merged;
+    }
+  } catch (e) {
+    console.warn('[DocVault] Rust disk document load note:', e);
+  }
+  try {
     const idbDocs = await loadLargeDocuments(activeProjId);
     if (idbDocs && Array.isArray(idbDocs) && idbDocs.length > 0) {
-      const merged = mergeProductionDocuments(currentSyncDocs, idbDocs);
+      const merged = mergeProductionDocuments(currentSyncDocs, idbDocs, activeProjId);
       inMemoryDocsCache[activeProjId] = merged;
       return merged;
     }
