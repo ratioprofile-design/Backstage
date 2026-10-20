@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { isR2Configured, uploadDocumentToR2 } from './r2Storage';
+import { writeCloudProject } from './projectSync';
 
 // Safe access to environment variables across Vite, Vercel, Node, and browser runtimes
 const getEnv = (key: string): string => {
@@ -73,13 +74,55 @@ const mockSupabase = {
   },
 };
 
+// Safe Storage Adapter for Supabase: Protects against QuotaExceededError crashes
+const safeSupabaseStorage = {
+  getItem: (key: string): string | null => {
+    try {
+      return typeof localStorage !== 'undefined' ? localStorage.getItem(key) : null;
+    } catch {
+      return null;
+    }
+  },
+  setItem: (key: string, value: string): void => {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(key, value);
+      }
+    } catch (err) {
+      console.warn('[Supabase] LocalStorage quota reached while saving session. Pruning bloated keys...', err);
+      try {
+        if (typeof (window as any)?.__pruneStorageBloat === 'function') {
+          (window as any).__pruneStorageBloat();
+        } else if (typeof localStorage !== 'undefined') {
+          for (let i = 0; i < localStorage.length; i++) {
+            const k = localStorage.key(i);
+            if (k && (k.startsWith('backstage_production_documents_') || k.startsWith('project_data_') || k === 'backstage_last_session')) {
+              try { localStorage.removeItem(k); } catch {}
+            }
+          }
+        }
+        localStorage.setItem(key, value);
+      } catch (retryErr) {
+        console.warn('[Supabase] Session storage fallback:', retryErr);
+      }
+    }
+  },
+  removeItem: (key: string): void => {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.removeItem(key);
+      }
+    } catch {}
+  },
+};
+
 export const supabase = isSupabaseConfigured
   ? createClient(supabaseUrl, supabaseAnonKey, {
       auth: {
         autoRefreshToken: true,
         persistSession: true,
         detectSessionInUrl: true,
-        storage: typeof window !== 'undefined' ? window.localStorage : undefined,
+        storage: typeof window !== 'undefined' ? safeSupabaseStorage : undefined,
       }
     })
   : mockSupabase as any;
@@ -112,58 +155,9 @@ export function withTimeout<T = any>(promise: PromiseLike<T>, ms: number, fallba
   });
 }
 
-export const upsertProject = async (id: string, userId: string, name: string, data: any) => {
-  if (!isSupabaseConfigured) return;
-  
-  try {
-    // Check if project already exists with timeout
-    const checkQuery = supabase
-      .from('projects')
-      .select('id, user_id, name')
-      .eq('id', id)
-      .maybeSingle();
-
-    const { data: existing, error: checkError } = await withTimeout(
-      checkQuery as any,
-      6000,
-      { data: null, error: new Error('Timeout checking project') }
-    );
-
-    if (existing && !checkError) {
-      const isOwner = existing.user_id === userId;
-      // Collaborator saving MUST NOT rename the cloud project!
-      // Only the project owner can update the project name.
-      const updatePayload: any = {
-        data,
-        updated_at: new Date().toISOString()
-      };
-      if (isOwner && name && !name.includes('(Invited by')) {
-        updatePayload.name = name;
-      }
-      const updateQuery = supabase
-        .from('projects')
-        .update(updatePayload)
-        .eq('id', id);
-
-      const { error } = await withTimeout(updateQuery as any, 8000, { error: null });
-      if (error) console.warn('[supabase] update error:', error);
-    } else {
-      // New project: insert with current user as the owner
-      const insertQuery = supabase
-        .from('projects')
-        .insert({
-          id,
-          user_id: userId,
-          name,
-          data,
-          updated_at: new Date().toISOString()
-        });
-      const { error } = await withTimeout(insertQuery as any, 8000, { error: null });
-      if (error) console.warn('[supabase] insert error:', error);
-    }
-  } catch (e) {
-    console.warn('[supabase] upsertProject exception caught:', e);
-  }
+export const upsertProject = async (id: string, userId: string, name: string, data: any, expectedUpdatedAt?: string | null): Promise<string> => {
+  if (!isSupabaseConfigured) throw new Error('Supabase is not configured');
+  return writeCloudProject(supabase, { id, userId, name, data, expectedUpdatedAt });
 };
 
 /**
@@ -184,15 +178,13 @@ export const renameCloudProject = async (id: string, userId: string, newName: st
     }
 
     const trimmed = newName.trim();
-    const updatedData = existing.data ? { ...existing.data, projectName: trimmed } : undefined;
+
 
     const updatePayload: any = {
       name: trimmed,
       updated_at: new Date().toISOString()
     };
-    if (updatedData) {
-      updatePayload.data = updatedData;
-    }
+
 
     const { error } = await supabase
       .from('projects')
@@ -289,7 +281,7 @@ export const fetchProjectData = async (id: string) => {
   try {
     const query = supabase
       .from('projects')
-      .select('id, name, user_id, data')
+      .select('id, name, user_id, data, updated_at')
       .eq('id', id)
       .maybeSingle();
 
@@ -308,6 +300,7 @@ export const fetchProjectData = async (id: string) => {
     if (!data) return null;
     return {
       ...(data.data || {}),
+      _cloudUpdatedAt: data.updated_at,
       _projectName: data.name,
       _ownerId: data.user_id,
       _projectId: data.id
@@ -616,34 +609,10 @@ export const saveProjectDocumentToCloud = async (
       error = retry.error;
     }
 
-    if (error) {
-      console.warn("Failed to upsert document with heavy binaries, retrying without large base64 strings:", error.message);
-      // Strip heavy binary strings (>50KB) so document metadata, script text, sheets, and annotations are safely preserved
-      const safeRow = {
-        ...row,
-        pdf_data_url: (pdfUrl && pdfUrl.startsWith('http')) ? pdfUrl : null,
-        original_file_data_url: (originalFileUrl && originalFileUrl.startsWith('http')) ? originalFileUrl : null,
-        converted_docx_data_url: (docxUrl && docxUrl.startsWith('http')) ? docxUrl : null,
-        image_data_url: (imageUrl && imageUrl.startsWith('http')) ? imageUrl : null,
-      };
-      const retrySafe = await supabase
-        .from('project_documents')
-        .upsert(safeRow, { onConflict: 'id' });
-      if (!retrySafe.error) {
-        return true;
-      }
-      console.warn("Failed to upsert to project_documents table (it may not be created yet):", retrySafe.error.message);
-      // Fallback: save to projects.data.documents so the other laptop gets this document!
-      await saveProjectDocumentsToProjectData(projectId, [doc]);
-      return true;
-    }
+    if (error) throw error;
     return true;
   } catch (err) {
-    console.warn("Error saving document to Supabase:", err);
-    // Attempt fallback to projects table
-    try {
-      await saveProjectDocumentsToProjectData(projectId, [doc]);
-    } catch {}
+    console.warn('Document remains pending cloud sync:', err);
     return false;
   }
 };
@@ -653,131 +622,11 @@ export const saveProjectDocumentToCloud = async (
  * This ensures that even if the public.project_documents table doesn't exist, all documents
  * are seamlessly backed up to Supabase Cloud and sync between laptops without data loss.
  */
-export const saveProjectDocumentsToProjectData = async (
-  projectId: string,
-  docs: any[]
-): Promise<boolean> => {
-  if (!isSupabaseConfigured || !projectId || !docs || docs.length === 0) return false;
-  try {
-    const { data: projectRow, error: fetchErr } = await supabase
-      .from('projects')
-      .select('id, data')
-      .eq('id', projectId)
-      .maybeSingle();
-
-    if (fetchErr || !projectRow) {
-      console.warn('[Supabase] saveProjectDocumentsToProjectData: projectRow not found or fetch error:', fetchErr);
-      return false;
-    }
-
-    // Helper to sanitize each document:
-    // 1. Drop duplicate raw bytes (if pdfDataUrl exists, drop originalFileDataUrl; if image, drop camera raw originalFileDataUrl)
-    // 2. Preserve compact thumbnailDataUrl (always <= 25KB WebP)
-    // 3. Keep inline binaries up to 2.8MB chars (~2.1MB binary) per asset
-    // 4. Strip accidental Google Accounts cookie login HTML dumps
-    const sanitizeDoc = (doc: any) => {
-      if (!doc) return doc;
-      const clean = { ...doc };
-
-      // Deduplicate identical copies
-      if (clean.pdfDataUrl) {
-        clean.originalFileDataUrl = undefined;
-      }
-      if (clean.fileType === 'image') {
-        clean.originalFileDataUrl = undefined;
-      }
-      if (clean.convertedDocxDataUrl && clean.convertedDocxDataUrl === clean.originalFileDataUrl) {
-        clean.originalFileDataUrl = undefined;
-      }
-
-      const MAX_INLINE_BINARY_CHARS = 2800000;
-      if (clean.pdfDataUrl && !clean.pdfDataUrl.startsWith('http') && clean.pdfDataUrl.length > MAX_INLINE_BINARY_CHARS) {
-        clean.pdfDataUrl = undefined;
-      }
-      if (clean.originalFileDataUrl && !clean.originalFileDataUrl.startsWith('http') && clean.originalFileDataUrl.length > MAX_INLINE_BINARY_CHARS) {
-        clean.originalFileDataUrl = undefined;
-      }
-      if (clean.convertedDocxDataUrl && !clean.convertedDocxDataUrl.startsWith('http') && clean.convertedDocxDataUrl.length > MAX_INLINE_BINARY_CHARS) {
-        clean.convertedDocxDataUrl = undefined;
-      }
-      if (clean.imageDataUrl && !clean.imageDataUrl.startsWith('http') && clean.imageDataUrl.length > 800000) {
-        clean.imageDataUrl = clean.thumbnailDataUrl || undefined;
-      }
-
-      // Always ensure thumbnailDataUrl is present if imageDataUrl exists
-      if (!clean.thumbnailDataUrl && clean.imageDataUrl && clean.imageDataUrl.length < 50000) {
-        clean.thumbnailDataUrl = clean.imageDataUrl;
-      }
-
-      // Clean large Google login error pages in Gantt/spreadsheet htmlContent
-      if (clean.htmlContent && clean.htmlContent.length > 30000 && clean.htmlContent.includes('Sign in - Google Accounts')) {
-        clean.htmlContent = '<p>Production Spreadsheet Data</p>';
-      }
-
-      return clean;
-    };
-
-    const sanitizedDocs = docs.map(sanitizeDoc);
-
-    const existingData = projectRow.data || {};
-    const existingDocs: any[] = Array.isArray(existingData.documents) ? existingData.documents : [];
-
-    // Merge incoming docs into existingDocs by ID or fileName
-    const docsMap = new Map<string, any>();
-    existingDocs.forEach((d) => {
-      if (d && d.id) docsMap.set(d.id, sanitizeDoc(d));
-    });
-
-    sanitizedDocs.forEach((inDoc: any) => {
-      if (!inDoc || !inDoc.id) return;
-      const existing = docsMap.get(inDoc.id);
-      if (existing) {
-        docsMap.set(inDoc.id, { ...existing, ...inDoc });
-      } else {
-        docsMap.set(inDoc.id, inDoc);
-      }
-    });
-
-    let mergedDocs = Array.from(docsMap.values());
-
-    // If total documents JSON payload is unusually large (> 4.5MB), prune heavy data URLs from oldest docs
-    let totalPayloadSize = JSON.stringify(mergedDocs).length;
-    if (totalPayloadSize > 4500000) {
-      console.warn(`[Supabase] Documents payload large (${(totalPayloadSize / 1024 / 1024).toFixed(1)} MB). Optimizing oldest binaries...`);
-      mergedDocs = mergedDocs.map((doc, idx) => {
-        // Keep thumbnailDataUrl, title, sheetData, htmlContent always
-        if (idx < mergedDocs.length - 2 && doc.pdfDataUrl && doc.pdfDataUrl.length > 500000) {
-          return { ...doc, pdfDataUrl: undefined };
-        }
-        return doc;
-      });
-    }
-
-    const updatedData = {
-      ...existingData,
-      documents: mergedDocs,
-      lastModified: Date.now()
-    };
-
-    const { error: updateErr } = await supabase
-      .from('projects')
-      .update({
-        data: updatedData,
-        updated_at: new Date().toISOString()
-      })
-      .eq('id', projectId);
-
-    if (updateErr) {
-      console.warn('[Supabase] Failed to update projects.data.documents fallback:', updateErr);
-      return false;
-    }
-
-    console.log(`[Supabase] Successfully synced ${mergedDocs.length} documents to projects.data in cloud.`);
-    return true;
-  } catch (err) {
-    console.warn('[Supabase] saveProjectDocumentsToProjectData exception:', err);
-    return false;
+export const saveProjectDocumentsToProjectData = async (projectId: string, docs: any[]): Promise<boolean> => {
+  for (const doc of docs) {
+    if (!await saveProjectDocumentToCloud(projectId, doc)) return false;
   }
+  return true;
 };
 
 /**
@@ -960,46 +809,8 @@ export const deleteProjectDocumentsFromProjectData = async (
   if (!isSupabaseConfigured || !projectId || !docIds || docIds.length === 0) return false;
   const toDeleteSet = new Set(docIds);
   try {
-    const { data: projectRow, error: fetchErr } = await supabase
-      .from('projects')
-      .select('id, data')
-      .eq('id', projectId)
-      .maybeSingle();
-
-    if (fetchErr || !projectRow) {
-      console.warn('[Supabase] deleteProjectDocumentsFromProjectData fetch error:', fetchErr);
-      return false;
-    }
-
-    const existingData = projectRow.data || {};
-    const existingDocs: any[] = Array.isArray(existingData.documents) ? existingData.documents : [];
-    const remainingDocs = existingDocs.filter((d: any) => d && d.id && !toDeleteSet.has(d.id));
-
-    // Append to cloud tombstone list so all collaborators receive permanent deletion
-    const existingDeletedIds: string[] = Array.isArray(existingData.deletedDocumentIds)
-      ? existingData.deletedDocumentIds
-      : [];
-    const updatedDeletedIds = Array.from(new Set([...existingDeletedIds, ...docIds]));
-
-    const updatedData = {
-      ...existingData,
-      documents: remainingDocs,
-      deletedDocumentIds: updatedDeletedIds,
-      lastModified: Date.now()
-    };
-
-    const { error: updateErr } = await supabase
-      .from('projects')
-      .update({
-        data: updatedData,
-        updated_at: new Date().toISOString()
-      })
-      .eq('id', projectId);
-
-    if (updateErr) {
-      console.warn('[Supabase] Failed to update projects.data for deleted documents:', updateErr);
-      return false;
-    }
+    const { error } = await supabase.rpc('delete_project_documents', { target_project_id: projectId, document_ids: docIds });
+    if (error) throw error;
 
     // Broadcast deletion in real time to all collaborator browsers
     try {
@@ -1030,11 +841,8 @@ export const deleteProjectDocumentFromCloud = async (projectId: string, docId: s
   if (!isSupabaseConfigured || !projectId || !docId) return false;
   try {
     // 1. Delete from PostgreSQL table
-    await supabase
-      .from('project_documents')
-      .delete()
-      .eq('project_id', projectId)
-      .eq('id', docId);
+    const { error } = await supabase.from('project_documents').delete().eq('project_id', projectId).eq('id', docId);
+    if (error) throw error;
 
     // 2. Delete from projects.data.documents & append tombstone in cloud
     await deleteProjectDocumentsFromProjectData(projectId, [docId]);

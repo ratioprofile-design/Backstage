@@ -1,3 +1,4 @@
+import { sanitizeHtml } from '../../utils/sanitizeHtml';
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useProject } from '../../context/ProjectContext';
 import { useAiKeyStatus } from '../../context/AiKeyStatusContext';
@@ -1472,7 +1473,7 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
   const handleModifyDocument = (doc: ProductionDocument) => {
     if (doc.isLeftRightFormat || doc.hasTwoColumnScript || doc.category === 'SCRIPT' || doc.isStagedToScript) {
       if (onNavigateToView) {
-        localStorage.setItem('active_two_column_doc_id', doc.id);
+        try { localStorage.setItem('active_two_column_doc_id', doc.id); } catch {}
         onNavigateToView('two-column-script');
         return;
       }
@@ -1776,7 +1777,7 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
     }
 
     if (activeEl) {
-      activeEl.innerHTML = updatedHtml;
+      activeEl.innerHTML = sanitizeHtml(updatedHtml);
     }
     setEditedHtmlContent(updatedHtml);
     setHasUnsavedChanges(true);
@@ -1810,7 +1811,7 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
     }
 
     if (activeEl) {
-      activeEl.innerHTML = updatedHtml;
+      activeEl.innerHTML = sanitizeHtml(updatedHtml);
     }
     setEditedHtmlContent(updatedHtml);
     setHasUnsavedChanges(true);
@@ -1868,7 +1869,7 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
 
     const updatedHtml = currentHtml ? currentHtml + '\n' + newTableSnippet : newTableSnippet;
     if (activeEl) {
-      activeEl.innerHTML = updatedHtml;
+      activeEl.innerHTML = sanitizeHtml(updatedHtml);
     }
     setEditedHtmlContent(updatedHtml);
     setHasUnsavedChanges(true);
@@ -2295,7 +2296,7 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
     updateDocuments(updated);
     if (willBeStaged) {
       if (typeof localStorage !== 'undefined') {
-        localStorage.setItem('active_two_column_doc_id', targetDoc.id);
+        try { localStorage.setItem('active_two_column_doc_id', targetDoc.id); } catch {}
       }
       window.dispatchEvent(new CustomEvent('backstage_documents_updated', { detail: updated }));
       showToast(`✓ Staged "${targetDoc.title}" to Script Page!`);
@@ -2333,7 +2334,7 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
         }
       }
       if (typeof localStorage !== 'undefined') {
-        localStorage.setItem('active_two_column_doc_id', doc.id);
+        try { localStorage.setItem('active_two_column_doc_id', doc.id); } catch {}
       }
       window.dispatchEvent(new CustomEvent('backstage_documents_updated', { detail: documents }));
       if (onNavigateToView) {
@@ -2362,7 +2363,7 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
         }
       }
       if (typeof localStorage !== 'undefined') {
-        localStorage.setItem('active_two_column_doc_id', existingTwoCol.id);
+        try { localStorage.setItem('active_two_column_doc_id', existingTwoCol.id); } catch {}
       }
       window.dispatchEvent(new CustomEvent('backstage_documents_updated', { detail: documents }));
       if (onNavigateToView) {
@@ -2420,7 +2421,7 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
     setSelectedDocId(twoColDocId);
 
     if (typeof localStorage !== 'undefined') {
-      localStorage.setItem('active_two_column_doc_id', twoColDocId);
+      try { localStorage.setItem('active_two_column_doc_id', twoColDocId); } catch {}
     }
     window.dispatchEvent(new CustomEvent('backstage_documents_updated', { detail: updatedList }));
 
@@ -2503,7 +2504,7 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
       setSelectedDocId(newDoc.id);
 
       if (typeof localStorage !== 'undefined') {
-        localStorage.setItem('active_two_column_doc_id', newDoc.id);
+        try { localStorage.setItem('active_two_column_doc_id', newDoc.id); } catch {}
       }
 
       setIsTamilLeftRightModalOpen(false);
@@ -3634,7 +3635,7 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                 <button
                   onClick={() => {
                     if (uploadState.docId) {
-                      localStorage.setItem('active_two_column_doc_id', uploadState.docId);
+                      try { localStorage.setItem('active_two_column_doc_id', uploadState.docId); } catch {}
                     }
                     if (onNavigateToView) {
                       onNavigateToView('two-column-script');
@@ -5855,9 +5856,9 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                         }}
                         dangerouslySetInnerHTML={{
                           __html:
-                            editedHtmlContent ||
+                            sanitizeHtml(editedHtmlContent ||
                             selectedDoc?.htmlContent ||
-                            (selectedDoc?.textContent ? `<p>${selectedDoc.textContent.replace(/\n/g, '<br/>')}</p>` : '')
+                            (selectedDoc?.textContent ? `<p>${selectedDoc.textContent.replace(/\n/g, '<br/>')}</p>` : ''))
                         }}
                         className="outline-none min-h-[850px] leading-relaxed text-sm focus:ring-1 focus:ring-[#f5a623]/40 rounded p-2"
                       />
@@ -5920,7 +5921,7 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
 
                           {/* Static Page Content Styled as Word Document */}
                           <div
-                            dangerouslySetInnerHTML={{ __html: pg.html }}
+                            dangerouslySetInnerHTML={{ __html: sanitizeHtml(pg.html) }}
                             className="word-doc-content leading-relaxed text-sm min-h-[900px] text-slate-900"
                             style={{
                               fontFamily: FONT_STACK_MAP[docFontFamily] || FONT_STACK_MAP.sans,
@@ -7099,7 +7100,7 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({ onNavigate
                     const doc = contextMenu.targetDoc!;
                     setContextMenu({ isOpen: false, x: 0, y: 0 });
                     if (onNavigateToView) {
-                      localStorage.setItem('active_two_column_doc_id', doc.id);
+                      try { localStorage.setItem('active_two_column_doc_id', doc.id); } catch {}
                       onNavigateToView('two-column-script');
                     } else {
                       handleMakeTwoColumnScriptAndOpen(doc);

@@ -1,39 +1,39 @@
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState, Suspense, lazy } from 'react';
 import { ProjectProvider, useProject } from './context/ProjectContext';
 import { AiKeyStatusProvider } from './context/AiKeyStatusContext';
 import { NavigationProvider, useNavigation } from './context/NavigationContext';
 import AppHeader from './components/AppHeader';
 import { AppSidebar } from './components/AppSidebar';
-import { SettingsModal } from './components/SettingsModal';
-import BoardView from './components/views/BoardView';
-import ExcalidrawView from './components/views/ExcalidrawView';
-import ScriptView from './components/views/ScriptView';
-import CastingView from './components/views/CastingView';
-import CharacterDesignView from './components/views/CharacterDesignView';
-import StoryboardView from './components/views/StoryboardView';
-import ScheduleView from './components/views/ScheduleView';
-import StatisticsView from './components/views/StatisticsView';
-import BackstageView from './components/views/BackstageView';
-import GoalView from './components/views/GoalView';
-import BreakdownView from './components/views/BreakdownView';
-import CrewView from './components/views/CrewView';
-import ShotListView from './components/views/ShotListView';
-import ContinuityView from './components/views/ContinuityView';
-import DoodMatrixView from './components/views/DoodMatrixView';
-import DocumentVaultView from './components/views/DocumentVaultView';
-import { TwoColumnScriptView } from './components/views/TwoColumnScriptView';
-import CallSheetView from './components/views/CallSheetView';
-import EditorModal from './components/EditorModal';
-import PrintPreviewModal from './components/PrintPreviewModal';
+const SettingsModal = lazy(() => import('./components/SettingsModal').then(module => ({ default: module.SettingsModal })));
+const BoardView = lazy(() => import('./components/views/BoardView').then(module => ({ default: module.default })));
+const ExcalidrawView = lazy(() => import('./components/views/ExcalidrawView').then(module => ({ default: module.default })));
+const ScriptView = lazy(() => import('./components/views/ScriptView').then(module => ({ default: module.default })));
+const CastingView = lazy(() => import('./components/views/CastingView').then(module => ({ default: module.default })));
+const CharacterDesignView = lazy(() => import('./components/views/CharacterDesignView').then(module => ({ default: module.default })));
+const StoryboardView = lazy(() => import('./components/views/StoryboardView').then(module => ({ default: module.default })));
+const ScheduleView = lazy(() => import('./components/views/ScheduleView').then(module => ({ default: module.default })));
+const StatisticsView = lazy(() => import('./components/views/StatisticsView').then(module => ({ default: module.default })));
+const BackstageView = lazy(() => import('./components/views/BackstageView').then(module => ({ default: module.default })));
+const GoalView = lazy(() => import('./components/views/GoalView').then(module => ({ default: module.default })));
+const BreakdownView = lazy(() => import('./components/views/BreakdownView').then(module => ({ default: module.default })));
+const CrewView = lazy(() => import('./components/views/CrewView').then(module => ({ default: module.default })));
+const ShotListView = lazy(() => import('./components/views/ShotListView').then(module => ({ default: module.default })));
+const ContinuityView = lazy(() => import('./components/views/ContinuityView').then(module => ({ default: module.default })));
+const DoodMatrixView = lazy(() => import('./components/views/DoodMatrixView').then(module => ({ default: module.default })));
+const DocumentVaultView = lazy(() => import('./components/views/DocumentVaultView').then(module => ({ default: module.default })));
+const TwoColumnScriptView = lazy(() => import('./components/views/TwoColumnScriptView').then(module => ({ default: module.TwoColumnScriptView }))); 
+const CallSheetView = lazy(() => import('./components/views/CallSheetView').then(module => ({ default: module.default })));
+const EditorModal = lazy(() => import('./components/EditorModal').then(module => ({ default: module.default })));
+const PrintPreviewModal = lazy(() => import('./components/PrintPreviewModal').then(module => ({ default: module.default })));
 import NewProjectModal from './components/NewProjectModal';
 import WelcomeScreen from './components/WelcomeScreen';
 import AuthScreen from './components/AuthScreen';
 import InboxModal, { DEFAULT_INBOX_TASKS } from './components/InboxModal';
 import InboxView from './components/views/InboxView';
-import { AIAssistantModal } from './components/AIAssistantModal';
+const AIAssistantModal = lazy(() => import('./components/AIAssistantModal').then(module => ({ default: module.AIAssistantModal })));
 import RoleSelectorModal from './components/RoleSelectorModal';
-import { CausalityImportModal } from './components/CausalityImportModal';
+const CausalityImportModal = lazy(() => import('./components/CausalityImportModal').then(module => ({ default: module.CausalityImportModal })));
 import { FloatingWindowManager } from './components/FloatingWindowManager';
 import { NotificationToastContainer } from './components/NotificationToastContainer';
 import { ViewMode, ScriptConfig, AppTask, ProjectState } from './types';
@@ -44,7 +44,7 @@ import { getRecentFiles, addRecentFile, RecentFile } from './utils/recentFiles';
 import { isSupabaseConfigured } from './services/supabase';
 
 const StyleInjector: React.FC = () => {
-  const { scriptConfig, scratchpadConfig, appTheme, appAccentColor, isTamilMode, tamilFontFamily } = useProject();
+  const { scriptConfig, scratchpadConfig, appTheme, appAccentColor, isTamilMode, tamilFontFamily } = useProject(["scriptConfig","scratchpadConfig","appTheme","appAccentColor","isTamilMode","tamilFontFamily"]);
   const { blockBounds, paperTheme, slugline } = scriptConfig;
 
   useEffect(() => {
@@ -218,7 +218,7 @@ const StyleInjector: React.FC = () => {
 
 const AppContent: React.FC = () => {
   console.log('[probe] AppContent mounted, supabase user =', useProject ? 'n/a' : 'n/a');
-  const { currentUser, currentProjectId, undo, redo, isInitialLoading, isProjectLoading, projectLoadingMessage, saveProject, saveProjectAs, loadProject, closeProject, setAppTheme, filePath, setFilePath, supabaseUser, isCloudMode, logout, selectProject, deleteProject, projectList, userRole, updateUserRole, navLayout = 'horizontal', beats, appTheme } = useProject();
+  const { currentUser, currentProjectId, undo, redo, isInitialLoading, isProjectLoading, projectLoadingMessage, saveProject, saveProjectAs, loadProject, closeProject, setAppTheme, filePath, setFilePath, supabaseUser, isCloudMode, logout, selectProject, deleteProject, projectList, userRole, updateUserRole, navLayout = 'horizontal', beats, appTheme } = useProject(["currentUser","currentProjectId","undo","redo","isInitialLoading","isProjectLoading","projectLoadingMessage","saveProject","saveProjectAs","loadProject","closeProject","setAppTheme","filePath","setFilePath","supabaseUser","isCloudMode","logout","selectProject","deleteProject","projectList","userRole","updateUserRole","navLayout","beats","appTheme"]);
   
   // Navigation & History Stack (Browser & In-App Back/Forward)
   const {
@@ -305,7 +305,7 @@ const AppContent: React.FC = () => {
   const handleToggleSidebar = useCallback(() => {
     setIsSidebarCollapsed(prev => {
       const next = !prev;
-      localStorage.setItem('sidebar_collapsed', String(next));
+      try { localStorage.setItem('sidebar_collapsed', String(next)); } catch {}
       return next;
     });
   }, []);
@@ -588,7 +588,7 @@ const AppContent: React.FC = () => {
   const handleUpdateTask = (updatedTask: AppTask) => {
     setInboxTasks(prev => {
       const next = prev.map(t => t.id === updatedTask.id ? updatedTask : t);
-      localStorage.setItem('app_inbox_tasks', JSON.stringify(next));
+      try { localStorage.setItem('app_inbox_tasks', JSON.stringify(next)); } catch {}
       return next;
     });
   };
@@ -596,7 +596,7 @@ const AppContent: React.FC = () => {
   const handleAddTask = (newTask: AppTask) => {
     setInboxTasks(prev => {
       const next = [newTask, ...prev];
-      localStorage.setItem('app_inbox_tasks', JSON.stringify(next));
+      try { localStorage.setItem('app_inbox_tasks', JSON.stringify(next)); } catch {}
       return next;
     });
   };
@@ -604,7 +604,7 @@ const AppContent: React.FC = () => {
   const handleDeleteTask = (taskId: string) => {
     setInboxTasks(prev => {
       const next = prev.filter(t => t.id !== taskId);
-      localStorage.setItem('app_inbox_tasks', JSON.stringify(next));
+      try { localStorage.setItem('app_inbox_tasks', JSON.stringify(next)); } catch {}
       return next;
     });
   };
@@ -931,6 +931,7 @@ const AppContent: React.FC = () => {
           )}
           
           <main className="flex-1 w-full h-full min-h-0 relative print:hidden print:mt-0 print:h-auto overflow-hidden">
+            <Suspense fallback={<div className="flex h-full items-center justify-center" role="status">Loading view…</div>}>
             {currentView === 'board' && <div className="w-full h-full"><BoardView key={`board-${refreshKey}`} onEditBeat={handleEditBeat} /></div>}
             {currentView === 'excalidraw' && <div className="w-full h-full"><ExcalidrawView key={`excalidraw-${refreshKey}`} onEditBeat={handleEditBeat} onNavigateToView={handleNavigateView} /></div>}
             {currentView === 'script' && <div className="w-full h-full"><ScriptView key={`script-${refreshKey}`} onNavigateToView={handleNavigateView} /></div>}
@@ -973,6 +974,7 @@ const AppContent: React.FC = () => {
             {!['board', 'excalidraw', 'script', 'casting', 'characterdesign', 'characters', 'breakdown', 'continuity', 'crew', 'shotlist', 'storyboard', 'schedule', 'statistics', 'backstage', 'inbox', 'goals', 'dood', 'documents', 'callsheet', 'two-column-script'].includes(currentView) && (
               <div className="w-full h-full"><BoardView key={`fallback-${refreshKey}`} onEditBeat={handleEditBeat} /></div>
             )}
+            </Suspense>
           </main>
         </div>
       </div>
@@ -1070,11 +1072,13 @@ const AppContent: React.FC = () => {
 const App: React.FC = () => {
   return (
     <ProjectProvider>
+      <Suspense fallback={<div role="status">Loading Backstage…</div>}>
       <AiKeyStatusProvider>
         <NavigationProvider>
           <AppContent />
         </NavigationProvider>
       </AiKeyStatusProvider>
+      </Suspense>
     </ProjectProvider>
   );
 };

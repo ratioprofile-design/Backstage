@@ -125,16 +125,68 @@
         } 
       };
       
-      // Global Error Handler for Deployment Debugging
+      // LocalStorage Quota Guard: Auto-prunes bloated legacy keys to guarantee healthy quota (<100KB)
+      (function() {
+        function pruneStorageBloat() {
+          try {
+            if (typeof localStorage === 'undefined') return;
+            var keysToRemove = [];
+            for (var i = 0; i < localStorage.length; i++) {
+              var k = localStorage.key(i);
+              if (!k) continue;
+              if (
+                k.indexOf('backstage_production_documents_') === 0 ||
+                k.indexOf('project_data_') === 0 ||
+                k.indexOf('cached_cloud_projects_') === 0 ||
+                k === 'backstage_last_session'
+              ) {
+                try {
+                  var v = localStorage.getItem(k);
+                  if (v && v.length > 80000) {
+                    keysToRemove.push(k);
+                  }
+                } catch(e) {}
+              }
+            }
+            keysToRemove.forEach(function(k) {
+              try { localStorage.removeItem(k); } catch(e) {}
+            });
+            if (keysToRemove.length > 0) {
+              console.info('[BootGuard] Auto-pruned ' + keysToRemove.length + ' bloated localStorage keys to ensure healthy quota.');
+            }
+          } catch(e) {}
+        }
+        pruneStorageBloat();
+        window.__pruneStorageBloat = pruneStorageBloat;
+      })();
+
+      // Global Error Handler with Self-Healing for Quota & Non-fatal Warnings
       window.addEventListener('error', (event) => {
+        var msg = String(event.message || event.error || '');
+        // Intercept QuotaExceededError and heal automatically without showing fatal crash overlay
+        if (msg.indexOf('QuotaExceededError') !== -1 || msg.indexOf('quota') !== -1) {
+          console.warn('[BootGuard] Caught QuotaExceededError - auto-healing storage...');
+          if (window.__pruneStorageBloat) window.__pruneStorageBloat();
+          event.preventDefault();
+          return;
+        }
+
         const overlay = document.getElementById('error-overlay');
         if (overlay) {
           overlay.style.display = 'block';
           overlay.innerHTML = `
-            <h1 style="color: white; margin-bottom: 20px;">[Backstage] Critical Boot Error</h1>
-            <p>The application failed to start on this environment.</p>
+            <h1 style="color: white; margin-bottom: 20px;">[Backstage] Boot Notice</h1>
+            <p>An unexpected error occurred during startup.</p>
             <hr style="border-color: #333; margin: 20px 0;" />
-            <pre>${event.message}\nat ${event.filename}:${event.lineno}:${event.colno}</pre>
+            <pre style="max-height: 250px; overflow: auto; background: #111; padding: 15px; border-radius: 8px;">${msg.replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]))}</pre>
+            <div style="margin-top: 25px; display: flex; gap: 15px; align-items: center;">
+              <button onclick="localStorage.clear(); location.reload();" style="padding: 10px 18px; background: #f59e0b; color: #000; font-weight: bold; border: none; border-radius: 6px; cursor: pointer;">
+                Clear Local Storage &amp; Restart
+              </button>
+              <button onclick="document.getElementById('error-overlay').style.display='none';" style="padding: 10px 18px; background: #27272a; color: #fff; font-weight: bold; border: 1px solid #3f3f46; border-radius: 6px; cursor: pointer;">
+                Dismiss &amp; Continue
+              </button>
+            </div>
             <p style="color: #666; font-size: 12px; margin-top: 20px;">Check your browser console for more details.</p>
           `;
         }

@@ -546,7 +546,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
   const handleSelectScriptDoc = (docId: string) => {
     setSelectedDocId(docId);
     if (typeof localStorage !== 'undefined') {
-      localStorage.setItem('active_two_column_doc_id', docId);
+      try { localStorage.setItem('active_two_column_doc_id', docId); } catch {}
     }
     const doc = documents.find((d) => d.id === docId);
     if (doc?.twoColumnData && Array.isArray(doc.twoColumnData.scenes) && doc.twoColumnData.scenes.length > 0) {
@@ -5949,7 +5949,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
                     const val = Number(e.target.value);
                     setLayoutOptions((prev) => ({ ...prev, baseFontSizePx: val }));
                     if (typeof localStorage !== 'undefined') {
-                      localStorage.setItem('user_pref_two_col_font_size', String(val));
+                      try { localStorage.setItem('user_pref_two_col_font_size', String(val)); } catch {}
                     }
                     setHasUnsavedChanges(true);
                   }}

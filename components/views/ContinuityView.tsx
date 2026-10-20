@@ -202,7 +202,7 @@ const DEPT_ICONS: Record<string, React.ElementType> = {
 export const INITIAL_LOOKS: ContinuityLook[] = [];
 
 export const ContinuityView: React.FC = () => {
-  const { beats, characterData, appTheme, setAppTheme } = useProject();
+  const { beats, characterData, appTheme, setAppTheme } = useProject(["beats","characterData","appTheme","setAppTheme"]);
 
   // Core Looks Catalog State
   const [looks, setLooks] = useState<ContinuityLook[]>(() => {
@@ -233,7 +233,7 @@ export const ContinuityView: React.FC = () => {
       const jsonStr = JSON.stringify(looks);
       const existingStr = localStorage.getItem('backstage_continuity_looks');
       if (existingStr !== jsonStr) {
-        localStorage.setItem('backstage_continuity_looks', jsonStr);
+        try { localStorage.setItem('backstage_continuity_looks', jsonStr); } catch {}
         isInternalContinuityUpdate.current = true;
         window.dispatchEvent(new Event('backstage_continuity_updated'));
       }

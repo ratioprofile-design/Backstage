@@ -1,3 +1,4 @@
+import { sanitizeHtml } from '../../utils/sanitizeHtml';
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useProject } from '../../context/ProjectContext';
 import { Beat, BreakdownData, ViewMode, AppTask, TaskModificationHistory, TaskSubtask } from '../../types';
@@ -831,7 +832,7 @@ export const CrewView: React.FC<CrewViewProps> = ({
   onAddTask, 
   onDeleteTask 
 }) => {
-  const { beats, appTheme, appAccentColor } = useProject();
+  const { beats, appTheme, appAccentColor } = useProject(["beats","appTheme","appAccentColor"]);
   const isLight = appTheme === 'light' || (appTheme === 'system' && typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: light)').matches);
 
   // 1AD Set Command State
@@ -894,10 +895,10 @@ export const CrewView: React.FC<CrewViewProps> = ({
   // Persist 1AD settings
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      localStorage.setItem('backstage_1ad_stage', liveSetStage);
-      localStorage.setItem('backstage_1ad_shootday', shootDay.toString());
-      localStorage.setItem('backstage_1ad_scene', activeSceneNum);
-      localStorage.setItem('backstage_1ad_setup', currentSetupName);
+      try { localStorage.setItem('backstage_1ad_stage', liveSetStage); } catch {}
+      try { localStorage.setItem('backstage_1ad_shootday', shootDay.toString()); } catch {}
+      try { localStorage.setItem('backstage_1ad_scene', activeSceneNum); } catch {}
+      try { localStorage.setItem('backstage_1ad_setup', currentSetupName); } catch {}
     }
   }, [liveSetStage, shootDay, activeSceneNum, currentSetupName]);
 
@@ -924,7 +925,7 @@ export const CrewView: React.FC<CrewViewProps> = ({
         updatedAt: 'Just now'
       } : d);
       if (typeof window !== 'undefined') {
-        localStorage.setItem('backstage_1ad_readiness', JSON.stringify(updated));
+        try { localStorage.setItem('backstage_1ad_readiness', JSON.stringify(updated)); } catch {}
       }
       return updated;
     });
@@ -948,7 +949,7 @@ export const CrewView: React.FC<CrewViewProps> = ({
     setTalentPipeline(prev => {
       const updated = prev.map(t => t.id === talentId ? { ...t, stage } : t);
       if (typeof window !== 'undefined') {
-        localStorage.setItem('backstage_1ad_talent', JSON.stringify(updated));
+        try { localStorage.setItem('backstage_1ad_talent', JSON.stringify(updated)); } catch {}
       }
       return updated;
     });
@@ -976,7 +977,7 @@ export const CrewView: React.FC<CrewViewProps> = ({
         actualTime: !m.completed ? new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : undefined
       } : m);
       if (typeof window !== 'undefined') {
-        localStorage.setItem('backstage_1ad_milestones', JSON.stringify(updated));
+        try { localStorage.setItem('backstage_1ad_milestones', JSON.stringify(updated)); } catch {}
       }
       return updated;
     });
@@ -1014,7 +1015,7 @@ export const CrewView: React.FC<CrewViewProps> = ({
     const updated = [newLog, ...safetyLogs];
     setSafetyLogs(updated);
     if (typeof window !== 'undefined') {
-      localStorage.setItem('backstage_1ad_safetylogs', JSON.stringify(updated));
+      try { localStorage.setItem('backstage_1ad_safetylogs', JSON.stringify(updated)); } catch {}
     }
     setShowAddSafetyModal(false);
     setNewSafetyHazards('');
@@ -1073,7 +1074,7 @@ export const CrewView: React.FC<CrewViewProps> = ({
       const jsonStr = JSON.stringify(continuityLooks);
       const existingStr = localStorage.getItem('backstage_continuity_looks');
       if (existingStr !== jsonStr) {
-        localStorage.setItem('backstage_continuity_looks', jsonStr);
+        try { localStorage.setItem('backstage_continuity_looks', jsonStr); } catch {}
         isInternalContinuityUpdate.current = true;
         window.dispatchEvent(new Event('backstage_continuity_updated'));
       }
@@ -4803,7 +4804,7 @@ export const CrewView: React.FC<CrewViewProps> = ({
               <span className="text-xs font-bold text-gray-400 uppercase font-mono">Screenplay Body:</span>
               <div 
                 className="bg-[#0a0a0c] p-4 rounded-xl text-xs text-gray-300 font-mono leading-relaxed border border-[#222]"
-                dangerouslySetInnerHTML={{ __html: activeSceneDrawerBeat.content || 'No screenplay content.' }}
+                dangerouslySetInnerHTML={{ __html: sanitizeHtml(activeSceneDrawerBeat.content || 'No screenplay content.') }}
               />
             </div>
           </div>

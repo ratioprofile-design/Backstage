@@ -1,5 +1,5 @@
 
-import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef, useMemo, useLayoutEffect, useSyncExternalStore } from 'react';
 import { 
   ProjectState, ProjectContextType, Beat, Group, Connection, Annotation, 
   CharacterData, Shot, Note, ScriptConfig, ScratchpadConfig, StoryboardConfig, 
@@ -11,15 +11,18 @@ import { supabase, upsertProject, fetchProjectData, fetchUserProjects, fetchInvi
 import { createAuto5ScenesDataset, createAutoScenesDataset } from '../services/sampleGenerator';
 import { isTauri, getTauriFs, getTauriDialog, getTauriWindow } from '../utils/desktop';
 import { isCausalityData, parseCausalityProject } from '../services/causalityParser';
-import { getProductionDocuments, saveProductionDocuments, mergeProductionDocuments, syncDocumentsWithCloud, loadProductionDocumentsAsync } from '../services/documentsStorage';
+import { getProductionDocuments, saveProductionDocuments, mergeProductionDocuments, syncDocumentsWithCloud, loadProductionDocumentsAsync, flushDocumentPersistence, flushCloudSaves } from '../services/documentsStorage';
 import { saveProjectToRustDisk, loadProjectFromRustDisk, listRustLocalProjects } from '../services/localRustStorage';
 import { saveLargeProject, loadLargeProject, loadLargeDocuments } from '../services/largeStorage';
 import { optimizeTalentForCloud } from '../services/imageOptimizer';
 import { addRecentFile } from '../utils/recentFiles';
+import { SaveQueue, projectIsLocal, savedProjectMetadata, newestProjectSnapshot, shallowEqual } from '../utils/projectPersistence';
+import { ProjectConflictError } from '../services/projectSync';
+import { createProjectStore } from './projectStore';
 
 const ProjectContext = (typeof window !== 'undefined' && (window as any).__BACKSTAGE_PROJECT_CONTEXT__)
   ? (window as any).__BACKSTAGE_PROJECT_CONTEXT__
-  : createContext<ProjectContextType | undefined>(undefined);
+  : createContext<ReturnType<typeof createProjectStore> | undefined>(undefined);
 
 if (typeof window !== 'undefined') {
   (window as any).__BACKSTAGE_PROJECT_CONTEXT__ = ProjectContext;
@@ -64,7 +67,22 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     try { localStorage.removeItem('currentUser'); } catch {}
     return null;
   });
-  const [currentProjectId, setCurrentProjectId] = useState<string | null>(() => localStorage.getItem('currentProjectId') || 'empty-project');
+  const [currentProjectId, setCurrentProjectIdState] = useState<string | null>(() => localStorage.getItem('currentProjectId') || 'empty-project');
+  const activeProjectRef = useRef(currentProjectId);
+  const setCurrentProjectId = useCallback((id: string | null) => {
+    activeProjectRef.current = id;
+    setCurrentProjectIdState(id);
+  }, []);
+  const editRevisionRef = useRef(0);
+  const hasUnsavedChangesRef = useRef(false);
+  const saveQueue = useRef(new SaveQueue());
+  const latestSaveRef = useRef<() => Promise<void>>(async () => {});
+  const cloudVersionsRef = useRef(new Map<string, string>());
+  const cloudConflictRef = useRef(new Set<string>());
+  const projectSelectionRef = useRef(0);
+  const historyNeedsResetRef = useRef(true);
+  const [saveRetry, setSaveRetry] = useState(0);
+
   const [currentProjectName, setCurrentProjectName] = useState<string>(() => {
     const curId = typeof localStorage !== 'undefined' ? (localStorage.getItem('currentProjectId') || 'empty-project') : 'empty-project';
     return typeof localStorage !== 'undefined' ? (localStorage.getItem(`project_name_${curId}`) || '') : '';
@@ -110,8 +128,15 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
     return discovered;
   });
-  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
+  const [hasUnsavedChanges, setDirtyState] = useState(false);
+  const setHasUnsavedChanges = useCallback((dirty: boolean) => {
+    if (dirty) editRevisionRef.current++;
+    hasUnsavedChangesRef.current = dirty;
+    setDirtyState(dirty);
+  }, []);
+  const [isSaving, setIsSavingState] = useState(false);
+  const isSavingRef = useRef(false);
+  const setIsSaving = (saving: boolean) => { isSavingRef.current = saving; setIsSavingState(saving); };
   const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [isProjectLoading, setIsProjectLoading] = useState(false);
   const [projectLoadingMessage, setProjectLoadingMessage] = useState<string>('');
@@ -140,14 +165,14 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       if (role) {
         const parsed = Array.isArray(role) ? role : [role];
         setUserRole(parsed);
-        localStorage.setItem('user_role', JSON.stringify(parsed));
+        try { localStorage.setItem('user_role', JSON.stringify(parsed)); } catch {}
       }
     }
   }, [supabaseUser]);
 
   const updateUserRole = useCallback(async (roles: ('writer' | 'director' | 'producer' | 'ad' | 'cinematographer')[]) => {
     setUserRole(roles);
-    localStorage.setItem('user_role', JSON.stringify(roles));
+    try { localStorage.setItem('user_role', JSON.stringify(roles)); } catch {}
     if (isSupabaseConfigured) {
       const { data: { session } } = await supabase.auth.getSession();
       if (session) {
@@ -208,16 +233,12 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   }, []);
 
   // Use refs for sync flags to avoid re-triggering effects
-  const isSavingRef = useRef(false);
-  const hasUnsavedChangesRef = useRef(false);
   const isRemoteUpdateRef = useRef(false); // Flag to prevent remote data from triggering "unsaved changes"
   const isImportingRef = useRef(false); // Flag to prevent window focus from wiping freshly imported projects
   const cloudOfflineRef = useRef(false);
   const realtimeChannelRef = useRef<any>(null);
 
   // Update refs when state changes
-  useEffect(() => { isSavingRef.current = isSaving; }, [isSaving]);
-  useEffect(() => { hasUnsavedChangesRef.current = hasUnsavedChanges; }, [hasUnsavedChanges]);
   useEffect(() => { cloudOfflineRef.current = cloudOffline; }, [cloudOffline]);
 
   // --- PROJECT STATE ---
@@ -302,7 +323,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const setThemeAnimationStyle = useCallback((style: ThemeAnimationStyle) => {
     themeAnimationStyleRef.current = style;
     setThemeAnimationStyleState(style);
-    localStorage.setItem('app_theme_animation', style);
+    try { localStorage.setItem('app_theme_animation', style); } catch {}
   }, []);
 
   const [appZoomLevel, setAppZoomLevelState] = useState<number>(() => {
@@ -319,7 +340,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const clamped = Math.min(Math.max(zoom, 0.5), 1.5);
     setAppZoomLevelState(clamped);
     if (typeof window !== 'undefined') {
-      localStorage.setItem('app_zoom_level', String(clamped));
+      try { localStorage.setItem('app_zoom_level', String(clamped)); } catch {}
       if (clamped === 1.0) {
         document.documentElement.style.fontSize = '';
       } else {
@@ -350,8 +371,8 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const updateThemeState = () => {
       setAppThemeState(theme);
       if (typeof localStorage !== 'undefined') {
-        localStorage.setItem('app_theme', theme);
-        localStorage.setItem('user_pref_paper_theme', targetPaper);
+        try { localStorage.setItem('app_theme', theme); } catch {}
+        try { localStorage.setItem('user_pref_paper_theme', targetPaper); } catch {}
       }
 
       setScriptConfig(prev => ({
@@ -519,13 +540,13 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const setAppAccentColor = useCallback((color: string) => {
     setAppAccentColorState(color);
-    localStorage.setItem('app_accent', color);
+    try { localStorage.setItem('app_accent', color); } catch {}
     setHasUnsavedChanges(true);
   }, []);
 
   const setAppLanguage = useCallback((lang: 'english' | 'tamil' | 'spanish' | 'french' | 'german') => {
     setAppLanguageState(lang);
-    localStorage.setItem('app_language', lang);
+    try { localStorage.setItem('app_language', lang); } catch {}
     setHasUnsavedChanges(true);
   }, []);
 
@@ -536,7 +557,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const setNavLayout = useCallback((layout: 'horizontal' | 'vertical') => {
     setNavLayoutState(layout);
-    localStorage.setItem('app_nav_layout', layout);
+    try { localStorage.setItem('app_nav_layout', layout); } catch {}
     setHasUnsavedChanges(true);
   }, []);
 
@@ -544,7 +565,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   useEffect(() => {
     const handleLocalLogin = (e: Event) => {
       const name = (e as CustomEvent).detail?.name || 'Screenwriter';
-      localStorage.setItem('currentUser', name);
+      try { localStorage.setItem('currentUser', name); } catch {}
       setCurrentUser(name);
     };
     window.addEventListener('backstage:local-login', handleLocalLogin);
@@ -600,7 +621,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
                 setSupabaseUser(data.session.user);
                 const userEmail = data.session.user.email || 'Cloud User';
                 setCurrentUser(userEmail);
-                localStorage.setItem('currentUser', userEmail);
+                try { localStorage.setItem('currentUser', userEmail); } catch {}
                 setCloudOffline(false);
                 refreshProjectList(data.session.user.id, data.session.user.email || undefined).catch(e => console.warn('[ctx] refreshProjectList failed:', e));
               }
@@ -637,7 +658,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
                 setSupabaseUser(data.session.user);
                 const userEmail = data.session.user.email || 'Cloud User';
                 setCurrentUser(userEmail);
-                localStorage.setItem('currentUser', userEmail);
+                try { localStorage.setItem('currentUser', userEmail); } catch {}
                 setCloudOffline(false);
                 refreshProjectList(data.session.user.id, data.session.user.email || undefined).catch(e => console.warn('[ctx] refreshProjectList failed:', e));
               }
@@ -662,7 +683,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
           setSupabaseUser(session.user);
           const userEmail = session.user.email || 'Cloud User';
           setCurrentUser(userEmail);
-          localStorage.setItem('currentUser', userEmail);
+          try { localStorage.setItem('currentUser', userEmail); } catch {}
           setCloudOffline(false);
           refreshProjectList(session.user.id, session.user.email || undefined).catch(e => console.warn('[ctx] refreshProjectList failed:', e));
         } else {
@@ -671,7 +692,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
           if (foundUser?.email) {
             setSupabaseUser(foundUser);
             setCurrentUser(foundUser.email);
-            localStorage.setItem('currentUser', foundUser.email);
+            try { localStorage.setItem('currentUser', foundUser.email); } catch {}
             setCloudOffline(false);
             refreshProjectList(foundUser.id, foundUser.email).catch(e => console.warn('[ctx] refreshProjectList fallback failed:', e));
           } else {
@@ -692,7 +713,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
         if (foundUser?.email) {
           setSupabaseUser(foundUser);
           setCurrentUser(foundUser.email);
-          localStorage.setItem('currentUser', foundUser.email);
+          try { localStorage.setItem('currentUser', foundUser.email); } catch {}
           refreshProjectList(foundUser.id, foundUser.email).catch(() => {});
         } else {
           const savedUser = localStorage.getItem('currentUser');
@@ -717,7 +738,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       if (session) {
         setSupabaseUser(session.user);
         setCurrentUser(session.user.email || 'Cloud User');
-        localStorage.setItem('currentUser', session.user.email || 'Cloud User');
+        try { localStorage.setItem('currentUser', session.user.email || 'Cloud User'); } catch {}
         setCloudOffline(false);
         refreshProjectList(session.user.id, session.user.email || undefined).catch(e => console.warn('[ctx] refreshProjectList failed:', e));
       } else {
@@ -840,7 +861,13 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     const cleanData = hasDemoBeats ? INITIAL_STATE : processedData;
 
-    isRemoteUpdateRef.current = true; // Block auto-save trigger
+    isRemoteUpdateRef.current = true;
+    historyNeedsResetRef.current = true;
+    const incomingId = options?.targetProjectId || cleanData._projectId || currentProjectId;
+    if (incomingId && cleanData._cloudUpdatedAt) {
+      cloudVersionsRef.current.set(incomingId, cleanData._cloudUpdatedAt);
+      cloudConflictRef.current.delete(incomingId);
+    }
     
     const finalTracks = importedTracks || cleanData.tracks;
 
@@ -864,10 +891,11 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       };
 
       setCurrentProjectId(newProjId);
-      localStorage.setItem('currentProjectId', newProjId);
-      setCurrentProjectName(projName);
-      localStorage.setItem(`project_name_${newProjId}`, projName);
-      try { localStorage.setItem('backstage_project_closed', 'false'); } catch {}
+      try {
+        localStorage.setItem('currentProjectId', newProjId);
+        localStorage.setItem(`project_name_${newProjId}`, projName);
+        localStorage.setItem('backstage_project_closed', 'false');
+      } catch {}
       
       if (Array.isArray(finalTracks) && finalTracks.length > 0) {
         try {
@@ -893,13 +921,14 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
         } catch (e) {}
       }
 
+      // Do NOT dump multi-megabyte project bodies into 5MB localStorage; IndexedDB & Rust disk handle persistence safely
       try {
-        localStorage.setItem(`project_data_${newProjId}`, JSON.stringify(cleanData));
+        localStorage.removeItem(`project_data_${newProjId}`);
       } catch (e) {}
 
       setProjectList(prev => {
         const updated = [newMeta, ...prev.filter(p => p.id !== newProjId)];
-        localStorage.setItem('projectList', JSON.stringify(updated));
+        try { localStorage.setItem('projectList', JSON.stringify(updated)); } catch {}
         return updated;
       });
 
@@ -1006,17 +1035,17 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       setAppThemeState(localUserTheme);
     } else if (cleanData.appTheme) {
       setAppThemeState(cleanData.appTheme);
-      if (typeof localStorage !== 'undefined') localStorage.setItem('app_theme', cleanData.appTheme);
+      try { if (typeof localStorage !== 'undefined') localStorage.setItem('app_theme', cleanData.appTheme); } catch {}
     }
     if (cleanData.appAccentColor) setAppAccentColorState(cleanData.appAccentColor);
     if (cleanData.appLanguage) setAppLanguageState(cleanData.appLanguage);
     if (cleanData.themeAnimationStyle) {
       setThemeAnimationStyleState(cleanData.themeAnimationStyle);
-      localStorage.setItem('app_theme_animation', cleanData.themeAnimationStyle);
+      try { localStorage.setItem('app_theme_animation', cleanData.themeAnimationStyle); } catch {}
     }
     if (cleanData.navLayout) {
       setNavLayoutState(cleanData.navLayout);
-      localStorage.setItem('app_nav_layout', cleanData.navLayout);
+      try { localStorage.setItem('app_nav_layout', cleanData.navLayout); } catch {}
     }
     if (cleanData.appZoomLevel) {
       setAppZoomLevel(cleanData.appZoomLevel);
@@ -1028,13 +1057,10 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       saveProductionDocuments(merged, activeTargetProjId, true);
     }
     
-    // Reset the flag after a timeout to allow state to settle
-    setTimeout(() => { 
-      isRemoteUpdateRef.current = false; 
-      isImportingRef.current = false;
-      setHasUnsavedChanges(false); 
-    }, 1000);
-  }, [currentProjectId]);
+    isRemoteUpdateRef.current = false;
+    isImportingRef.current = false;
+    setHasUnsavedChanges(false);
+  }, [currentProjectId, supabaseUser]);
 
   // REALTIME SUBSCRIPTION FOR INSTANT UPDATES
   useEffect(() => {
@@ -1046,80 +1072,26 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       return;
     }
 
-    const channel = supabase
-      .channel(`project_changes_${currentProjectId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'projects',
-          filter: `id=eq.${currentProjectId}`
-        },
-        (payload: any) => {
-          const newData = payload.new?.data;
-          if (!newData) return;
-
-          // 1. Ignore if WE are the ones who sent this update
-          if (newData.lastInstanceId === INSTANCE_ID) return;
-
-          // Always merge documents across collaborators non-destructively
-          if (Array.isArray(newData.documents) && newData.documents.length > 0) {
-            const currentDocs = getProductionDocuments(currentProjectId);
-            const merged = mergeProductionDocuments(currentDocs, newData.documents);
-            saveProductionDocuments(merged, currentProjectId, true);
-          }
-
-          // 2. Only pull remote changes if we don't have local unsaved work
-          // or if we are idle. This prevents "writing over" current progress.
-          if (!hasUnsavedChangesRef.current && !isSavingRef.current) {
-            console.log("Remote sync: Updating local state with latest from database.");
-            applyProjectState(newData);
-          }
+    const acceptRemote = (data: any) => {
+      if (!data || activeProjectRef.current !== currentProjectId || hasUnsavedChangesRef.current || isSavingRef.current) return;
+      const version = data._cloudUpdatedAt;
+      if (!version || version === cloudVersionsRef.current.get(currentProjectId)) return;
+      applyProjectState(data);
+    };
+    const channel = supabase.channel(`project_changes_${currentProjectId}`)
+      .on('postgres_changes', {
+        event: 'UPDATE', schema: 'public', table: 'projects', filter: `id=eq.${currentProjectId}`
+      }, (payload: any) => {
+        if (payload.new?.data) acceptRemote({ ...payload.new.data, _cloudUpdatedAt: payload.new.updated_at });
+      })
+      .on('broadcast', { event: 'project_updated' }, (payload: any) => acceptRemote(payload.payload?.data || payload.data))
+      .on('broadcast', { event: 'project_renamed' }, (payload: any) => {
+        const data = payload.payload || payload.data;
+        if (data?.id === currentProjectId && data.newName) {
+          setCurrentProjectName(data.newName);
+          setProjectList(prev => prev.map(p => p.id === data.id ? { ...p, name: data.newName } : p));
         }
-      )
-      .on(
-        'broadcast',
-        { event: 'project_updated' },
-        (payload: any) => {
-          const broadcastData = payload.payload?.data || payload.data;
-          const remoteInstance = payload.payload?.lastInstanceId || payload.lastInstanceId;
-          if (!broadcastData || remoteInstance === INSTANCE_ID) return;
-
-          // Always merge documents across collaborators non-destructively
-          if (Array.isArray(broadcastData.documents) && broadcastData.documents.length > 0) {
-            const currentDocs = getProductionDocuments(currentProjectId);
-            const merged = mergeProductionDocuments(currentDocs, broadcastData.documents);
-            saveProductionDocuments(merged, currentProjectId, true);
-          }
-
-          if (!hasUnsavedChangesRef.current && !isSavingRef.current) {
-            console.log("Realtime broadcast: Updating local state from collaborator.");
-            applyProjectState(broadcastData);
-          }
-        }
-      )
-      .on(
-        'broadcast',
-        { event: 'project_renamed' },
-        (payload: any) => {
-          const data = payload.payload || payload.data || payload;
-          if (data?.id && data?.newName) {
-            if (currentProjectId === data.id) {
-              setCurrentProjectName(data.newName);
-              try {
-                localStorage.setItem(`project_name_${data.id}`, data.newName);
-              } catch (e) {}
-            }
-            setProjectList(prev => {
-              const updated = prev.map(p => p.id === data.id ? { ...p, name: data.newName, lastModified: Date.now() } : p);
-              try { localStorage.setItem('projectList', JSON.stringify(updated)); } catch (e) {}
-              return updated;
-            });
-          }
-        }
-      )
-      .subscribe();
+      }).subscribe();
 
     realtimeChannelRef.current = channel;
 
@@ -1132,9 +1104,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       if (hasUnsavedChangesRef.current || isSavingRef.current) return;
       try {
         const remote = await fetchProjectData(currentProjectId);
-        if (remote && remote.lastInstanceId && remote.lastInstanceId !== INSTANCE_ID) {
-          applyProjectState(remote);
-        }
+        acceptRemote(remote);
       } catch (e) {}
     }, 8000);
 
@@ -1161,29 +1131,6 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
         }
       } catch {}
 
-      // 2. Background non-blocking migration of any unsaved local offline projects to Supabase.
-      // We NEVER block the UI, sign-in, or project loading on this bulk upload!
-      const localListRaw = localStorage.getItem('projectList');
-      if (localListRaw) {
-        queueMicrotask(async () => {
-          try {
-            const localList = JSON.parse(localListRaw) as ProjectMetadata[];
-            if (localList.length > 0) {
-              for (const localProj of localList) {
-                const localDataRaw = localStorage.getItem(`project_data_${localProj.id}`);
-                const localData = localDataRaw ? JSON.parse(localDataRaw) : INITIAL_STATE;
-                await upsertProject(localProj.id, userId, localProj.name, localData);
-                localStorage.removeItem(`project_data_${localProj.id}`);
-              }
-              localStorage.removeItem('projectList');
-            }
-          } catch (syncErr) {
-            console.warn("[sync] Background unsynced projects migration failed:", syncErr);
-          }
-        });
-      }
-
-      // 3. Concurrently fetch owned projects and invited projects in parallel!
       const email = targetEmail || supabaseUser?.email || (typeof localStorage !== 'undefined' ? localStorage.getItem('currentUser') : '') || '';
       const [dbProjects, invited] = await Promise.all([
         fetchUserProjects(userId).catch(() => []),
@@ -1275,7 +1222,8 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   // --- UNDO / REDO ENGINE ---
-  const historyRef = useRef<string[]>([]);
+  const historyRef = useRef<Record<string, any>[]>([]);
+  const historyProjectRef = useRef(currentProjectId);
   const historyIndexRef = useRef<number>(-1);
   const isTimeTraveling = useRef(false);
 
@@ -1300,16 +1248,22 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       boardLayerOrder, nextId, nextAnnoId,
       dailyStats, sessionStartCount, lastSessionDate
     };
-    const snapshot = JSON.stringify(currentProjectState);
-    if (historyIndexRef.current >= 0 && historyRef.current[historyIndexRef.current] === snapshot) return;
+    const snapshot = currentProjectState;
+    if (historyProjectRef.current !== currentProjectId || historyNeedsResetRef.current) {
+      historyProjectRef.current = currentProjectId;
+      historyNeedsResetRef.current = false;
+      historyRef.current = [snapshot];
+      historyIndexRef.current = 0;
+      return;
+    }
+    if (historyIndexRef.current >= 0 && shallowEqual(historyRef.current[historyIndexRef.current], snapshot)) return;
     const newHistory = historyRef.current.slice(0, historyIndexRef.current + 1);
     newHistory.push(snapshot);
     if (newHistory.length > 50) newHistory.shift();
     historyRef.current = newHistory;
     historyIndexRef.current = newHistory.length - 1;
-    setHasUnsavedChanges(true);
   }, [
-    beats, groups, connections, annotations, characterData, generatedShots, 
+    currentProjectId, beats, groups, connections, annotations, characterData, generatedShots, 
     scratchpad, globalNotes, activeBoardId,
     isTamilMode, scriptConfig, scriptViewMode, scratchpadConfig,
     storyboardConfig, isStoryboardFeatureEnabled, breakdownLanguage,
@@ -1318,26 +1272,44 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     dailyStats, sessionStartCount, lastSessionDate
   ]);
 
-  const undo = useCallback(() => {
-    if (historyIndexRef.current > 0) {
-      isTimeTraveling.current = true;
-      historyIndexRef.current--;
-      applyProjectState(JSON.parse(historyRef.current[historyIndexRef.current]));
-      setTimeout(() => { isTimeTraveling.current = false; }, 100);
-    }
-  }, [applyProjectState]);
+  // Record committed state, including changes made by setters whose callers
+  // only capture a checkpoint before editing. A restore skips this effect once.
+  useEffect(() => {
+    if (isTimeTraveling.current) { isTimeTraveling.current = false; return; }
+    const wasReset = historyNeedsResetRef.current || historyProjectRef.current !== currentProjectId;
+    captureSnapshot();
+    if (!wasReset) setHasUnsavedChanges(true);
+  }, [captureSnapshot]);
 
+  const restoreHistory = useCallback((snapshot: Record<string, any>) => {
+    isTimeTraveling.current = true;
+    setBeats(snapshot.beats); setGroups(snapshot.groups);
+    setConnections(snapshot.connections); setAnnotations(snapshot.annotations);
+    setCharacterData(snapshot.characterData); setGeneratedShots(snapshot.generatedShots);
+    setScratchpad(snapshot.scratchpad); setGlobalNotes(snapshot.globalNotes);
+    setActiveBoardId(snapshot.activeBoardId); setTamilMode(snapshot.isTamilMode);
+    setScriptConfig(snapshot.scriptConfig); setScriptViewMode(snapshot.scriptViewMode);
+    setScratchpadConfig(snapshot.scratchpadConfig); setStoryboardConfig(snapshot.storyboardConfig);
+    setStoryboardFeatureEnabled(snapshot.isStoryboardFeatureEnabled);
+    setBreakdownLanguage(snapshot.breakdownLanguage); setBreakdownLockedOnly(snapshot.breakdownLockedOnly);
+    setPdfDropEnabled(snapshot.isPdfDropEnabled); setRedoEnabled(snapshot.isRedoEnabled);
+    setWritingGoal(snapshot.writingGoal); setBoardLayerOrder(snapshot.boardLayerOrder);
+    setNextId(snapshot.nextId); setNextAnnoId(snapshot.nextAnnoId);
+    setDailyStats(snapshot.dailyStats); setSessionStartCount(snapshot.sessionStartCount);
+    setLastSessionDate(snapshot.lastSessionDate);
+    setHasUnsavedChanges(true);
+  }, []);
+  const undo = useCallback(() => {
+    if (historyProjectRef.current !== activeProjectRef.current) return;
+    if (historyIndexRef.current > 0) restoreHistory(historyRef.current[--historyIndexRef.current]);
+  }, [restoreHistory]);
   const redo = useCallback(() => {
-    if (historyIndexRef.current < historyRef.current.length - 1) {
-      isTimeTraveling.current = true;
-      historyIndexRef.current++;
-      applyProjectState(JSON.parse(historyRef.current[historyIndexRef.current]));
-      setTimeout(() => { isTimeTraveling.current = false; }, 100);
-    }
-  }, [applyProjectState]);
+    if (historyProjectRef.current !== activeProjectRef.current) return;
+    if (historyIndexRef.current < historyRef.current.length - 1) restoreHistory(historyRef.current[++historyIndexRef.current]);
+  }, [restoreHistory]);
 
   const login = (username: string) => {
-    localStorage.setItem('currentUser', username);
+    try { localStorage.setItem('currentUser', username); } catch {}
     setCurrentUser(username);
   };
 
@@ -1432,11 +1404,11 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     } catch (e) {}
     saveProductionDocuments([], id, true);
     setCurrentProjectName(name);
-    localStorage.setItem(`project_name_${id}`, name);
+    try { localStorage.setItem(`project_name_${id}`, name); } catch {}
 
     if (supabaseUser) {
       try {
-        await upsertProject(id, supabaseUser.id, name, emptyState);
+        cloudVersionsRef.current.set(id, await upsertProject(id, supabaseUser.id, name, emptyState));
         await refreshProjectList(supabaseUser.id, supabaseUser.email);
         try {
           const globalChannel = supabase.channel('global_projects_sync');
@@ -1455,10 +1427,10 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const newProject: ProjectMetadata = { id, name, created: Date.now(), lastModified: Date.now() };
       setProjectList(prev => {
         const updated = [newProject, ...prev];
-        localStorage.setItem('projectList', JSON.stringify(updated));
+        try { localStorage.setItem('projectList', JSON.stringify(updated)); } catch {}
         return updated;
       });
-      localStorage.setItem(`project_data_${id}`, JSON.stringify(emptyState));
+      try { localStorage.removeItem(`project_data_${id}`); } catch {}
     }
     selectProject(id);
   };
@@ -1492,7 +1464,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
           isOsInputMode, osInputShortcut, scriptConfig, scriptViewMode,
           scratchpadConfig, storyboardConfig, isStoryboardFeatureEnabled,
           breakdownLanguage, breakdownLockedOnly, isPdfDropEnabled, isRedoEnabled, 
-          writingGoal, geminiApiKey: '', openrouterKey, generalAiModel, 
+          writingGoal, geminiApiKey: '', openrouterKey: '', generalAiModel, 
           dailyStats, sessionStartCount, lastSessionDate, boardLayerOrder,
           characterDesignLocked, collaborators, talentPool, appTheme, themeAnimationStyle,
           documents: currentDocs
@@ -1506,7 +1478,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
           || 'Screenplay';
       }
 
-      await upsertProject(projectId, targetUser.id, pName, dataToUpload);
+      cloudVersionsRef.current.set(projectId, await upsertProject(projectId, targetUser.id, pName, dataToUpload, cloudVersionsRef.current.get(projectId))); 
       await refreshProjectList(targetUser.id, targetUser.email);
 
       // Clean from local storage list
@@ -1554,16 +1526,17 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     let isInvitedProj = false;
 
     const existingInList = projectList.find(p => p.id === id);
-    const isLocalProject = Boolean(filePathRef.current || existingInList?.isLocalOnly || existingInList?.filePath || !supabaseUser);
-
-    if (!isLocalProject) {
-      setFileHandle(null);
-      fileHandleRef.current = null;
-      setFilePath(null);
-      filePathRef.current = null;
-    } else if (existingInList?.filePath && !filePathRef.current) {
-      setFilePathWrapped(existingInList.filePath);
+    const selection = ++projectSelectionRef.current;
+    while (hasUnsavedChangesRef.current) {
+      const revision = editRevisionRef.current;
+      await latestSaveRef.current();
+      if (revision === editRevisionRef.current) break;
     }
+    if (selection !== projectSelectionRef.current) return;
+    const isLocalProject = projectIsLocal(existingInList, Boolean(supabaseUser));
+
+    setFileHandleWrapped(null);
+    setFilePathWrapped(existingInList?.filePath || null);
 
     if (!opts?.silent) {
       setIsProjectLoading(true);
@@ -1575,7 +1548,9 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       if (supabaseUser && !isLocalProject) {
         try {
           const data = await fetchProjectData(id);
-          const cleanData = data || INITIAL_STATE;
+          if (selection !== projectSelectionRef.current) return;
+          if (!data) throw new Error('Cloud project unavailable. Local changes have been preserved.');
+          const cleanData = data;
           
           resolvedName = data?._projectName || data?.projectName || data?.name || '';
           isInvitedProj = Boolean(data?._ownerId && data._ownerId !== supabaseUser.id);
@@ -1601,32 +1576,14 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
         } catch (err: any) {
           if (err.code === '42P01') setSchemaError("TABLE_MISSING");
           else if (err.code === '42703' || err.message?.includes('data')) setSchemaError("COLUMN_MISSING");
-          else if (!opts?.silent) applyProjectState(INITIAL_STATE);
+          throw err;
         }
       } else {
-        let localState = null;
-        try {
-          const rustState = await loadProjectFromRustDisk(id);
-          if (rustState) {
-            localState = rustState;
-            console.log(`[ProjectContext] Loaded project "${id}" from native Rust disk storage`);
-          }
-        } catch (e) {}
-
-        if (!localState) {
-          try {
-            const dataStr = localStorage.getItem(`project_data_${id}`);
-            if (dataStr) localState = JSON.parse(dataStr);
-          } catch (e) {}
-        }
-
-        if (!localState) {
-          try {
-            const idbState = await loadLargeProject(id);
-            if (idbState) localState = idbState;
-          } catch (e) {}
-        }
-
+        const [rustState, idbState] = await Promise.all([loadProjectFromRustDisk(id), loadLargeProject(id)]);
+        let legacyState = null;
+        try { legacyState = JSON.parse(localStorage.getItem(`project_data_${id}`) || 'null'); } catch {}
+        const localState = newestProjectSnapshot(idbState, rustState, legacyState);
+        if (selection !== projectSelectionRef.current) return;
         applyProjectState(localState || INITIAL_STATE, { targetProjectId: id });
       }
 
@@ -1702,7 +1659,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     } else {
       setProjectList(prev => {
         const updated = prev.filter(p => p.id !== id);
-        localStorage.setItem('projectList', JSON.stringify(updated));
+        try { localStorage.setItem('projectList', JSON.stringify(updated)); } catch {}
         return updated;
       });
       localStorage.removeItem(`project_data_${id}`);
@@ -1729,22 +1686,27 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     } else {
       setProjectList(prev => {
         const updated = prev.map(p => p.id === id ? { ...p, name: trimmed, lastModified: Date.now() } : p);
-        localStorage.setItem('projectList', JSON.stringify(updated));
+        try { localStorage.setItem('projectList', JSON.stringify(updated)); } catch {}
         return updated;
       });
-      localStorage.setItem(`project_name_${id}`, trimmed);
+      try { localStorage.setItem(`project_name_${id}`, trimmed); } catch {}
     }
 
     if (currentProjectId === id) {
       setCurrentProjectName(trimmed);
-      localStorage.setItem(`project_name_${id}`, trimmed);
+      try { localStorage.setItem(`project_name_${id}`, trimmed); } catch {}
     }
     return true;
   };
 
   const saveProject = useCallback(async () => {
-    if (isRemoteUpdateRef.current) return;
+    if (isRemoteUpdateRef.current || !currentProjectId) return;
+    const savedRevision = editRevisionRef.current;
+    const targetFilePath = filePathRef.current;
+    const targetFileHandle = fileHandleRef.current;
+    return saveQueue.current.run(async () => {
     setIsSaving(true);
+    try {
     setCloudSyncStatus(prev => ({
       isUploading: true,
       progress: 30,
@@ -1765,15 +1727,15 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       } catch (e) {}
     }
 
-    const projectData: ProjectState & { lastInstanceId?: string; documents?: any[] } = {
-      documents: currentDocs,
+    const projectData: ProjectState & { lastInstanceId?: string; documents?: any[]; _savedAt?: number; _cloudUpdatedAt?: string } = {
+      _savedAt: Date.now(),
       beats, groups, connections, annotations, characterData, generatedShots, 
       scratchpad, globalNotes, panX, panY, scale, nextId, nextAnnoId, activeBoardId,
       isTamilMode, tamilFontScale, tamilFontFamily, userDictionary,
       isOsInputMode, osInputShortcut, scriptConfig, scriptViewMode,
       scratchpadConfig, storyboardConfig, isStoryboardFeatureEnabled,
       breakdownLanguage, breakdownLockedOnly, isPdfDropEnabled, isRedoEnabled, 
-      writingGoal, geminiApiKey: '', openrouterKey, generalAiModel, 
+      writingGoal, geminiApiKey: '', openrouterKey: '', generalAiModel,
       dailyStats, sessionStartCount, lastSessionDate, boardLayerOrder,
       characterDesignLocked,
       collaborators,
@@ -1784,9 +1746,11 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     };
     let saved = false;
     let cloudFailed = false;
+    let cloudSucceeded = false;
+    await flushDocumentPersistence(currentProjectId);
 
     // 1. Rust-First Native Disk Storage & Unlimited Local Database
-    // Write lightweight project state (<5KB) directly to ~/Documents/Backstage/Projects in <1ms
+    // Documents are stored separately from the project snapshot.
     try {
       const rustResult = await saveProjectToRustDisk(currentProjectId || 'empty-project', projectData);
       if (rustResult.success) {
@@ -1801,7 +1765,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     // 2. Cloud (when signed in to Supabase and NOT a local-only file)
     let cloudErrorDetail: string | null = null;
     const currentProjMetaForSave = projectList.find(p => p.id === currentProjectId);
-    const isLocalFileOnly = Boolean(filePathRef.current || fileHandleRef.current || currentProjMetaForSave?.isLocalOnly);
+    const isLocalFileOnly = Boolean(targetFilePath || targetFileHandle || currentProjMetaForSave?.isLocalOnly);
 
     if (supabaseUser && !isLocalFileOnly) {
       try {
@@ -1810,82 +1774,51 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
           progress: 55,
           message: 'Optimizing headshots for Supabase...'
         }));
-        // Deduplicate and sanitize cloud documents so cloud payload is under 3.5MB:
-        // 1. If pdfDataUrl exists, drop duplicate originalFileDataUrl
-        // 2. If image, drop raw camera originalFileDataUrl and keep thumbnailDataUrl + optimized imageDataUrl
-        // 3. Keep thumbnailDataUrl always intact for instant visual rendering across laptops
-        const MAX_INLINE_BINARY_CHARS = 2800000;
-        const sanitizedCloudDocs = (currentDocs || []).map((doc: any) => {
-          if (!doc) return doc;
-          const clean = { ...doc };
-          if (clean.pdfDataUrl) clean.originalFileDataUrl = undefined;
-          if (clean.fileType === 'image') clean.originalFileDataUrl = undefined;
-          if (clean.convertedDocxDataUrl && clean.convertedDocxDataUrl === clean.originalFileDataUrl) clean.originalFileDataUrl = undefined;
-          if (clean.pdfDataUrl && !clean.pdfDataUrl.startsWith('http') && clean.pdfDataUrl.length > MAX_INLINE_BINARY_CHARS) clean.pdfDataUrl = undefined;
-          if (clean.originalFileDataUrl && !clean.originalFileDataUrl.startsWith('http') && clean.originalFileDataUrl.length > MAX_INLINE_BINARY_CHARS) clean.originalFileDataUrl = undefined;
-          if (clean.convertedDocxDataUrl && !clean.convertedDocxDataUrl.startsWith('http') && clean.convertedDocxDataUrl.length > MAX_INLINE_BINARY_CHARS) clean.convertedDocxDataUrl = undefined;
-          if (clean.imageDataUrl && !clean.imageDataUrl.startsWith('http') && clean.imageDataUrl.length > 800000) clean.imageDataUrl = clean.thumbnailDataUrl || undefined;
-          if (!clean.thumbnailDataUrl && clean.imageDataUrl && clean.imageDataUrl.length < 50000) clean.thumbnailDataUrl = clean.imageDataUrl;
-          if (clean.htmlContent && clean.htmlContent.length > 30000 && clean.htmlContent.includes('Sign in - Google Accounts')) clean.htmlContent = '<p>Production Spreadsheet Data</p>';
-          return clean;
-        });
-
-        const cloudPayload = {
-          ...projectData,
-          talentPool: projectData.talentPool || talentPool,
-          documents: sanitizedCloudDocs
-        };
-
-        // Broadcast IMMEDIATELY to active collaborators on the project channel
-        if (realtimeChannelRef.current) {
-          try {
-            realtimeChannelRef.current.send({
-              type: 'broadcast',
-              event: 'project_updated',
-              payload: {
-                lastInstanceId: INSTANCE_ID,
-                data: cloudPayload
-              }
-            });
-          } catch (e) {}
-        }
-
-        setCloudSyncStatus(prev => ({
-          ...prev,
-          progress: 80,
-          message: 'Uploading to Supabase Cloud...'
-        }));
+        // Documents are saved independently; project autosaves carry no binary collection.
+        await flushCloudSaves(currentProjectId);
+        const cloudPayload = { ...projectData };
         const project = projectList.find(p => p.id === currentProjectId);
-        await upsertProject(currentProjectId, supabaseUser.id, project?.name || 'Untitled', cloudPayload);
+        const version = await upsertProject(currentProjectId, supabaseUser.id, project?.name || 'Untitled', cloudPayload,
+          cloudVersionsRef.current.get(currentProjectId) || null);
+        cloudVersionsRef.current.set(currentProjectId, version);
+        cloudConflictRef.current.delete(currentProjectId);
+        cloudSucceeded = true;
+        // Announce only acknowledged writes, with the server's version.
+        void realtimeChannelRef.current?.send({ type: 'broadcast', event: 'project_updated',
+          payload: { data: { ...cloudPayload, _cloudUpdatedAt: version } } });
         saved = true;
       } catch (err: any) {
         cloudFailed = true;
+        if (err instanceof ProjectConflictError) cloudConflictRef.current.add(currentProjectId);
         cloudErrorDetail = err?.message || 'Gateway Timeout / Restarting';
         console.error("Cloud save failed (Supabase may be restarting or unreachable):", err);
       }
     }
 
     // 3. Fallback for Desktop/File handles or small localStorage mirrors
-    if (isTauri() && filePath) {
+    if (isTauri() && targetFilePath) {
       try {
         const fs = await getTauriFs();
         if (fs) {
-          await fs.writeTextFile(filePath, JSON.stringify(projectData, null, 2));
+          await fs.writeTextFile(targetFilePath, JSON.stringify({ ...projectData, documents: currentDocs }, null, 2));
           saved = true;
         }
       } catch (err) {}
     }
-    if (fileHandle) {
+    if (targetFileHandle) {
       try {
-        const writable = await fileHandle.createWritable();
-        await writable.write(JSON.stringify(projectData, null, 2));
+        const writable = await targetFileHandle.createWritable();
+        await writable.write(JSON.stringify({ ...projectData, documents: currentDocs }, null, 2));
         await writable.close();
         saved = true;
       } catch (err) {}
     }
     if (currentProjectId) {
       try {
-        localStorage.setItem(`project_data_${currentProjectId}`, JSON.stringify(projectData));
+        if (!idbSaved) {
+          localStorage.setItem(`project_data_${currentProjectId}`, JSON.stringify(projectData));
+          saved = true;
+        } else localStorage.removeItem(`project_data_${currentProjectId}`);
       } catch (err) {
         // Expected to throw if over 5MB; IndexedDB above has already safely stored it
       }
@@ -1893,17 +1826,14 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     setCloudOffline(cloudFailed);
     if (saved) {
-      setHasUnsavedChanges(false);
+      if (activeProjectRef.current === currentProjectId && editRevisionRef.current === savedRevision && !cloudFailed) {
+        setHasUnsavedChanges(false);
+      }
       if (currentProjectId) {
         const curName = currentProjectName || localStorage.getItem(`project_name_${currentProjectId}`) || 'Current Screenplay';
         setProjectList(prev => {
           const existing = prev.find(p => p.id === currentProjectId);
-          const updatedMeta: ProjectMetadata = {
-            id: currentProjectId,
-            name: curName,
-            lastModified: Date.now(),
-            created: existing?.created || Date.now()
-          };
+          const updatedMeta = savedProjectMetadata(existing, currentProjectId, curName);
           const nextList = [updatedMeta, ...prev.filter(p => p.id !== currentProjectId)];
           try {
             localStorage.setItem('projectList', JSON.stringify(nextList));
@@ -1916,15 +1846,15 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
           isUploading: false,
           progress: 100,
           status: 'error',
-          message: '⚠️ All actors saved locally to disk. Supabase project is paused (521) — restore at supabase.com',
+          message: cloudErrorDetail || 'Cloud save failed; local changes are pending sync',
           lastSyncedAt: new Date()
         });
       } else {
         setCloudSyncStatus({
           isUploading: false,
           progress: 100,
-          status: supabaseUser ? 'synced' : 'local_only',
-          message: supabaseUser 
+          status: cloudSucceeded ? 'synced' : 'local_only',
+          message: cloudSucceeded 
             ? `Reached Supabase Cloud (${(talentPool || []).length} actors live)` 
             : 'Saved locally on this device (Sign in to sync with Cloud)',
           lastSyncedAt: new Date()
@@ -1939,7 +1869,14 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
         lastSyncedAt: prev.lastSyncedAt
       }));
     }
-    setTimeout(() => setIsSaving(false), 200);
+    if (!saved) throw new Error('Project could not be saved. Changes remain pending.');
+    } catch (err: any) {
+      setCloudSyncStatus(prev => ({ ...prev, isUploading: false, status: 'error', message: err.message || 'Save failed' }));
+      throw err;
+    } finally {
+      setIsSaving(false);
+    }
+    });
   }, [
     currentProjectId, projectList, beats, groups, connections, annotations, characterData, 
     generatedShots, scratchpad, globalNotes, panX, panY, scale, nextId, nextAnnoId, activeBoardId,
@@ -1947,8 +1884,9 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     scriptConfig, scriptViewMode, scratchpadConfig, storyboardConfig, isStoryboardFeatureEnabled,
     breakdownLanguage, breakdownLockedOnly, isPdfDropEnabled, isRedoEnabled, writingGoal, openrouterKey, generalAiModel,
     dailyStats, sessionStartCount, lastSessionDate, boardLayerOrder, characterDesignLocked, supabaseUser, fileHandle, filePath,
-    talentPool, collaborators
+    talentPool, collaborators, appTheme, themeAnimationStyle, currentProjectName
   ]);
+  latestSaveRef.current = saveProject;
 
   const triggerCloudSync = useCallback(async () => {
     await saveProject();
@@ -1975,7 +1913,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       isOsInputMode, osInputShortcut, scriptConfig, scriptViewMode,
       scratchpadConfig, storyboardConfig, isStoryboardFeatureEnabled,
       breakdownLanguage, breakdownLockedOnly, isPdfDropEnabled, isRedoEnabled, 
-      writingGoal, geminiApiKey: '', openrouterKey, generalAiModel, 
+      writingGoal, geminiApiKey: '', openrouterKey: '', generalAiModel,
       dailyStats, sessionStartCount, lastSessionDate, boardLayerOrder,
       characterDesignLocked,
       themeAnimationStyle,
@@ -1998,9 +1936,9 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
             
             setFilePath(selected);
             setCurrentProjectId(newProjId);
-            localStorage.setItem('currentProjectId', newProjId);
+            try { localStorage.setItem('currentProjectId', newProjId); } catch {}
             setCurrentProjectName(newName);
-            localStorage.setItem(`project_name_${newProjId}`, newName);
+            try { localStorage.setItem(`project_name_${newProjId}`, newName); } catch {}
 
             const newMeta: ProjectMetadata = {
               id: newProjId,
@@ -2023,9 +1961,9 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
             setHasUnsavedChanges(false);
             addRecentFile(selected, newName);
             try {
-              localStorage.setItem(`project_data_${newProjId}`, JSON.stringify(projectData));
-              localStorage.setItem('backstage_last_session', JSON.stringify(projectData));
               localStorage.setItem('backstage_project_closed', 'false');
+              localStorage.removeItem(`project_data_${newProjId}`);
+              localStorage.removeItem('backstage_last_session');
             } catch (e) {}
 
             if (currentProjectId) {
@@ -2062,9 +2000,9 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
         
         setFileHandle(handle);
         setCurrentProjectId(newProjId);
-        localStorage.setItem('currentProjectId', newProjId);
+        try { localStorage.setItem('currentProjectId', newProjId); } catch {}
         setCurrentProjectName(newName);
-        localStorage.setItem(`project_name_${newProjId}`, newName);
+        try { localStorage.setItem(`project_name_${newProjId}`, newName); } catch {}
 
         const newMeta: ProjectMetadata = {
           id: newProjId,
@@ -2086,9 +2024,9 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
         setHasUnsavedChanges(false);
         addRecentFile(handle.name, newName);
         try {
-          localStorage.setItem(`project_data_${newProjId}`, JSON.stringify(projectData));
-          localStorage.setItem('backstage_last_session', JSON.stringify(projectData));
           localStorage.setItem('backstage_project_closed', 'false');
+          localStorage.removeItem(`project_data_${newProjId}`);
+          localStorage.removeItem('backstage_last_session');
         } catch (e) {}
 
         if (currentProjectId) {
@@ -2123,16 +2061,20 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   // Debounced Auto-Save (Faster Sync: 1000ms)
   useEffect(() => {
-    if (hasUnsavedChanges && !isRemoteUpdateRef.current) {
-      const timer = setTimeout(() => { saveProject(); }, 1000);
+    if (hasUnsavedChanges && !isRemoteUpdateRef.current && !cloudConflictRef.current.has(currentProjectId || '')) {
+      const timer = setTimeout(() => {
+        saveProject().catch(err => console.error('Save failed:', err)).finally(() => {
+          if (hasUnsavedChangesRef.current) setSaveRetry(n => n + 1);
+        });
+      }, cloudOffline ? Math.min(30000, 2000 * 2 ** Math.min(saveRetry, 4)) : 1000);
       return () => clearTimeout(timer);
     }
-  }, [hasUnsavedChanges, saveProject]);
+  }, [hasUnsavedChanges, saveProject, saveRetry, cloudOffline, currentProjectId]);
 
   const downloadProject = useCallback(() => {
     if (!currentProjectId) return;
     const currentDocs = getProductionDocuments(currentProjectId || undefined);
-    const projectData = { beats, groups, connections, annotations, characterData, generatedShots, scratchpad, globalNotes, panX, panY, scale, nextId, nextAnnoId, activeBoardId, isTamilMode, tamilFontScale, tamilFontFamily, userDictionary, isOsInputMode, osInputShortcut, scriptConfig, scriptViewMode, scratchpadConfig, storyboardConfig, isStoryboardFeatureEnabled, breakdownLanguage, breakdownLockedOnly, isPdfDropEnabled, isRedoEnabled, writingGoal, geminiApiKey: '', openrouterKey, generalAiModel, dailyStats, sessionStartCount, lastSessionDate, boardLayerOrder, characterDesignLocked, documents: currentDocs };
+    const projectData = { beats, groups, connections, annotations, characterData, generatedShots, scratchpad, globalNotes, panX, panY, scale, nextId, nextAnnoId, activeBoardId, isTamilMode, tamilFontScale, tamilFontFamily, userDictionary, isOsInputMode, osInputShortcut, scriptConfig, scriptViewMode, scratchpadConfig, storyboardConfig, isStoryboardFeatureEnabled, breakdownLanguage, breakdownLockedOnly, isPdfDropEnabled, isRedoEnabled, writingGoal, geminiApiKey: '', openrouterKey: '', generalAiModel, dailyStats, sessionStartCount, lastSessionDate, boardLayerOrder, characterDesignLocked, documents: currentDocs };
     const blob = new Blob([JSON.stringify(projectData, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -2577,7 +2519,13 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     (window as any).__BACKSTAGE_PROJECT_CONTEXT_VALUE__ = value;
   }
 
-  return <ProjectContext.Provider value={value}>{children}</ProjectContext.Provider>;
+  const storeRef = useRef<ReturnType<typeof createProjectStore> | null>(null);
+  if (!storeRef.current) {
+    storeRef.current = createProjectStore(value);
+    storeRef.current.update(value, false);
+  }
+  useLayoutEffect(() => { storeRef.current!.update(value); });
+  return <ProjectContext.Provider value={storeRef.current}>{children}</ProjectContext.Provider>;
 };
 
 const noop = () => {};
@@ -2702,14 +2650,18 @@ const fallbackProjectContextValue: ProjectContextType = {
   setFilePath: noop,
 };
 
-export const useProject = (): ProjectContextType => {
-  const context = useContext(ProjectContext);
-  if (context === undefined) {
-    if (typeof window !== 'undefined' && (window as any).__BACKSTAGE_PROJECT_CONTEXT_VALUE__) {
-      return (window as any).__BACKSTAGE_PROJECT_CONTEXT_VALUE__;
-    }
-    console.warn('[ProjectContext] useProject called outside of ProjectProvider or during HMR transition. Using fallback state.');
-    return fallbackProjectContextValue;
-  }
-  return context;
+export const useProject = (keys?: readonly (keyof ProjectContextType)[]): ProjectContextType => {
+  const store = useContext(ProjectContext) as ReturnType<typeof createProjectStore> | undefined;
+  const previous = useRef<ProjectContextType | null>(null);
+  const keysRef = useRef(keys);
+  keysRef.current = keys;
+  const getSnapshot = useCallback(() => {
+    const next = store?.getSnapshot() || fallbackProjectContextValue;
+    const old = previous.current;
+    if (old && keysRef.current && keysRef.current.every(key => Object.is(old[key], next[key]))) return old;
+    previous.current = next;
+    return next;
+  }, [store]);
+  const subscribe = useCallback((listener: () => void) => store ? store.subscribe(listener) : () => {}, [store]);
+  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 };

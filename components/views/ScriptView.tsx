@@ -1,3 +1,4 @@
+import { sanitizeHtml } from '../../utils/sanitizeHtml';
 
 import React, { useEffect, useRef, useState, useMemo, useLayoutEffect, useCallback } from 'react';
 import { useProject } from '../../context/ProjectContext';
@@ -203,7 +204,7 @@ const SummaryCardsPanel = ({
     onSummaryDoubleClick?: (beatId: number) => void,
     beatPageMap?: Record<number, number>
 }) => {
-    const { appAccentColor = '#f5a623' } = useProject();
+    const { appAccentColor = '#f5a623' } = useProject(["appAccentColor"]);
     const [searchTerm, setSearchTerm] = useState('');
     const [editingId, setEditingId] = useState<number | null>(null);
     const [dragOverId, setDragOverId] = useState<number | null>(null);
@@ -266,7 +267,7 @@ const SummaryCardsPanel = ({
     // Extract characters from beat content
     const extractCharacters = (content: string): string[] => {
         const div = document.createElement('div');
-        div.innerHTML = content;
+        div.innerHTML = sanitizeHtml(content);
         const chars = new Set<string>();
         div.querySelectorAll('.sc-character').forEach(el => {
             const name = el.textContent?.trim().replace(/\s*\(.*\)$/, '').toUpperCase();
@@ -627,7 +628,7 @@ const LocationNavPanel = ({
     beats: Beat[], activeBeatId: number | null, 
     onBeatClick: (id: number) => void, isLight?: boolean
 }) => {
-    const { appAccentColor = '#f5a623' } = useProject();
+    const { appAccentColor = '#f5a623' } = useProject(["appAccentColor"]);
     const [searchTerm, setSearchTerm] = useState('');
     const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
@@ -757,7 +758,7 @@ const LanguageSettingsPopover = ({
   onClose: () => void,
   isLight?: boolean
 }) => {
-  const { appAccentColor = '#f5a623' } = useProject();
+  const { appAccentColor = '#f5a623' } = useProject(["appAccentColor"]);
   const elements = [
     { id: 'slugline', label: 'Slugline' },
     { id: 'action', label: 'Action' },
@@ -850,7 +851,7 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: any) => void }> = ({ onNa
       } catch {}
     }, 250);
   }, []);
-  const { beats, groups, connections, updateBeat, addBeat, setBeats, setConnections, scriptViewMode, setScriptViewMode, scriptConfig, setScriptConfig, scratchpadConfig, characterData, breakdownLanguage, setBreakdownLanguage, scratchpad, setScratchpad, globalNotes, setGlobalNotes, captureSnapshot, reorderBeats, setActiveBoardId, appTheme, appAccentColor = '#f5a623', generalAiModel, openrouterKey, userRole, isTamilMode, tamilFontScale, tamilFontFamily } = useProject();
+  const { beats, groups, connections, updateBeat, addBeat, setBeats, setConnections, scriptViewMode, setScriptViewMode, scriptConfig, setScriptConfig, scratchpadConfig, characterData, breakdownLanguage, setBreakdownLanguage, scratchpad, setScratchpad, globalNotes, setGlobalNotes, captureSnapshot, reorderBeats, setActiveBoardId, appTheme, appAccentColor = '#f5a623', generalAiModel, openrouterKey, userRole, isTamilMode, tamilFontScale, tamilFontFamily } = useProject(["beats","groups","connections","updateBeat","addBeat","setBeats","setConnections","scriptViewMode","setScriptViewMode","scriptConfig","setScriptConfig","scratchpadConfig","characterData","breakdownLanguage","setBreakdownLanguage","scratchpad","setScratchpad","globalNotes","setGlobalNotes","captureSnapshot","reorderBeats","setActiveBoardId","appTheme","appAccentColor","generalAiModel","openrouterKey","userRole","isTamilMode","tamilFontScale","tamilFontFamily"]);
   const { aiAvailable } = useAiKeyStatus();
   const isScriptReadOnly = false;
 
@@ -942,7 +943,7 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: any) => void }> = ({ onNa
 
   const handleSetGlobalScriptFont = (font: string) => {
     if (typeof localStorage !== 'undefined') {
-      localStorage.setItem('user_pref_script_font', font);
+      try { localStorage.setItem('user_pref_script_font', font); } catch {}
     }
     const elements = ['action', 'character', 'dialogue', 'parenthetical', 'transition', 'shot', 'lyrics'] as const;
     setScriptConfig(prev => {
@@ -1458,7 +1459,7 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: any) => void }> = ({ onNa
     setIsAnalyzing(true);
     try {
       const div = document.createElement('div');
-      div.innerHTML = activeBeat.content || '';
+      div.innerHTML = sanitizeHtml(activeBeat.content || '');
       const bodyText = (div.textContent || div.innerText || '').trim();
       const slugParts = [
         activeBeat.slug?.prefix || 'INT.',
@@ -2813,7 +2814,7 @@ const ScriptView: React.FC<{ onNavigateToView?: (view: any) => void }> = ({ onNa
                                             <div className="text-[9px] uppercase tracking-wider font-black mb-2 flex items-center gap-1.5" style={{ color: appAccentColor }}>
                                               <Volume2 size={10} /> Voice Idea Memo
                                             </div>
-                                            <div dangerouslySetInnerHTML={{ __html: noteContent }} />
+                                            <div dangerouslySetInnerHTML={{ __html: sanitizeHtml(noteContent) }} />
                                           </div>
                                         ) : (
                                           <BlockEditor 

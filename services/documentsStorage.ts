@@ -13,6 +13,7 @@ import {
   isSupabaseConfigured
 } from './supabase';
 import { saveLargeDocuments, loadLargeDocuments } from './largeStorage';
+import { SaveQueue } from '../utils/projectPersistence';
 import { markdownToHtml } from './markdownEngine';
 import { SANGILI_DOCUMENT_ID, getSangiliDocument } from './sangiliScriptData';
 
@@ -632,46 +633,6 @@ export function getProductionDocuments(projectId?: string): ProductionDocument[]
       result = mergeProductionDocuments(migrated, inMemoryDocsCache[activeProjId]);
     }
 
-    // Safety fallback: Check other localStorage keys (STORAGE_KEY, default, empty-project)
-    // so documents uploaded or harvested under base or default accounts are seamlessly preserved
-    const fallbackKeys = [
-      STORAGE_KEY,
-      'backstage_production_documents_default',
-      'backstage_production_documents_empty-project'
-    ];
-    let fallbackDocs: ProductionDocument[] = [];
-    fallbackKeys.forEach((fbKey) => {
-      if (fbKey !== key) {
-        try {
-          const fbRaw = localStorage.getItem(fbKey);
-          if (fbRaw) {
-            const fbParsed = JSON.parse(fbRaw);
-            if (Array.isArray(fbParsed)) {
-              fallbackDocs.push(...fbParsed);
-            }
-          }
-        } catch {}
-      }
-    });
-
-    if (fallbackDocs.length > 0) {
-      const filteredFallback = fallbackDocs.filter(
-        (doc: ProductionDocument) =>
-          doc &&
-          doc.id &&
-          !tombstones.has(doc.id) &&
-          doc.id !== 'doc-ranga-1' &&
-          doc.fileName !== 'Pilot_Ranga_Screenplay.docx' &&
-          !(doc.title && doc.title.includes('பைலட் ரங்கா')) &&
-          !isBreakdownTrash(doc)
-      );
-      const prevCount = result.length;
-      result = mergeProductionDocuments(result, filteredFallback);
-      if (result.length !== prevCount) {
-        hasMigrated = true;
-      }
-    }
-
     inMemoryDocsCache[activeProjId] = result;
 
     if (hasMigrated && result.length > 0) {
@@ -837,28 +798,14 @@ const _pendingCloudDocs: Map<string, { projectId: string; doc: ProductionDocumen
 let _cloudSaveTimer: ReturnType<typeof setTimeout> | null = null;
 const CLOUD_SAVE_DEBOUNCE_MS = 2000;
 
-function flushCloudSaves(): void {
-  if (_pendingCloudDocs.size === 0) return;
-  const batch = Array.from(_pendingCloudDocs.values());
-  _pendingCloudDocs.clear();
-
-  // Group by projectId and push
-  const byProject = new Map<string, ProductionDocument[]>();
-  batch.forEach(({ projectId, doc }) => {
-    const list = byProject.get(projectId) || [];
-    list.push(doc);
-    byProject.set(projectId, list);
-  });
-
-  byProject.forEach((docs, projId) => {
-    docs.forEach((doc) => {
-      saveProjectDocumentToCloud(projId, doc).catch((cloudErr) => {
-        console.warn('[DocVault] Cloud document save warning:', cloudErr);
-      });
-    });
-
-    // Push individual dirty documents first; full list is only synced on explicit project save
-    // to avoid freezing the main thread with 3MB JSON serialization every 2 seconds
+const cloudQueue = new SaveQueue();
+export function flushCloudSaves(projectId?: string): Promise<void> {
+  return cloudQueue.run(async () => {
+    const batch = Array.from(_pendingCloudDocs.entries()).filter(([, value]) => !projectId || value.projectId === projectId);
+    for (const [key, item] of batch) {
+      if (!await saveProjectDocumentToCloud(item.projectId, item.doc)) throw new Error('A document could not be synced. Changes remain pending.');
+      if (_pendingCloudDocs.get(key) === item) _pendingCloudDocs.delete(key);
+    }
   });
 }
 
@@ -871,11 +818,11 @@ export function scheduleCloudSave(projectId: string, docs: ProductionDocument[],
     : docs;
 
   toSave.forEach((doc) => {
-    _pendingCloudDocs.set(`${projectId}:${doc.id}`, { projectId, doc });
+    if (!getDeletedDocumentIds(projectId).has(doc.id)) _pendingCloudDocs.set(`${projectId}:${doc.id}`, { projectId, doc });
   });
 
   if (_cloudSaveTimer) clearTimeout(_cloudSaveTimer);
-  _cloudSaveTimer = setTimeout(flushCloudSaves, CLOUD_SAVE_DEBOUNCE_MS);
+  _cloudSaveTimer = setTimeout(() => { flushCloudSaves().catch(err => console.warn('Documents pending cloud sync:', err)); }, CLOUD_SAVE_DEBOUNCE_MS);
 }
 
 /**
@@ -940,6 +887,68 @@ export function broadcastDocumentsUpdated(
   }
 }
 
+const localDocumentQueue = new SaveQueue();
+const pendingLocalDocuments = new Map<string, { docs: ProductionDocument[]; changed?: Set<string>; timer?: ReturnType<typeof setTimeout> }>();
+function scheduleDocumentPersistence(projectId: string, docs: ProductionDocument[], changed?: Set<string>): void {
+  const previous = pendingLocalDocuments.get(projectId);
+  if (previous?.timer) clearTimeout(previous.timer);
+  const item = { docs, changed: previous && (!previous.changed || !changed) ? undefined : new Set([...(previous?.changed || []), ...(changed || [])]), timer: undefined as ReturnType<typeof setTimeout> | undefined };
+  if (!changed) item.changed = undefined;
+  item.timer = setTimeout(() => { flushDocumentPersistence(projectId).catch(err => console.error('Documents could not be saved:', err)); }, 200);
+  pendingLocalDocuments.set(projectId, item);
+}
+
+export async function flushDocumentPersistence(projectId: string): Promise<void> {
+  return localDocumentQueue.run(async () => {
+    let item;
+    while ((item = pendingLocalDocuments.get(projectId))) {
+      if (item.timer) clearTimeout(item.timer);
+      const [disk, idb] = await Promise.all([
+        saveDocumentsToRustDisk(projectId, item.docs),
+        saveLargeDocuments(projectId, item.docs, item.changed),
+      ]);
+      if (!disk && !idb) throw new Error('Document storage failed. Changes are still pending.');
+      persistDocumentMetadata(projectId, item.docs);
+      if (pendingLocalDocuments.get(projectId) === item) pendingLocalDocuments.delete(projectId);
+    }
+  });
+}
+
+function persistDocumentMetadata(activeProjId: string, fullDocs: ProductionDocument[]): void {
+  // Persist ONLY lightweight UI metadata to localStorage
+  // Full script content (twoColumnData & textContent) and binaries are safely stored on native Rust disk & IndexedDB
+  try {
+    const key = getDocumentStorageKey(activeProjId);
+    const slimDocs = fullDocs.map((doc) => ({
+      id: doc.id,
+      projectId: doc.projectId,
+      title: doc.title,
+      titleTa: doc.titleTa,
+      category: doc.category,
+      fileName: doc.fileName,
+      fileSize: doc.fileSize,
+      fileType: doc.fileType,
+      pageCount: doc.pageCount,
+      uploadedAt: doc.uploadedAt,
+      updatedAt: doc.updatedAt,
+      isStagedToScript: doc.isStagedToScript,
+      isLeftRightFormat: doc.isLeftRightFormat,
+      hasTwoColumnScript: doc.hasTwoColumnScript,
+      builtInType: doc.builtInType,
+      author: doc.author,
+      status: doc.status,
+      tags: doc.tags,
+      annotations: doc.annotations || [],
+    }));
+    const json = JSON.stringify(slimDocs);
+    if (json.length < 150000) {
+      localStorage.setItem(key, json);
+    }
+  } catch (quotaErr) {
+    console.warn('[DocVault] localStorage quota notice:', quotaErr);
+  }
+}
+
 export function saveProductionDocuments(
   docs: ProductionDocument[],
   projectId?: string,
@@ -960,56 +969,7 @@ export function saveProductionDocuments(
   // 1. Immediately cache in-memory so synchronous access never loses documents
   inMemoryDocsCache[activeProjId] = fullDocs;
 
-  // 1b. Rust-First Native Disk Storage (zero quota errors, saves 100MB+ safely to disk)
-  if (fullDocs.length > 0) {
-    saveDocumentsToRustDisk(activeProjId, fullDocs).catch(() => {});
-  }
-
-  // 2. Persist to unlimited IndexedDB storage (handles 50MB+ PDFs/DOCX with 0 quota errors)
-  if (typeof indexedDB !== 'undefined' && fullDocs.length > 0) {
-    saveLargeDocuments(activeProjId, fullDocs).catch((idbErr) => {
-      console.warn('[DocVault] IndexedDB save notice:', idbErr);
-    });
-  }
-
-  // 3. Persist to localStorage with QuotaExceededError protection
-  // Keep clean twoColumnData & textContent, strip only heavy dataUrls (PDF, image, audio, docx binary)
-  try {
-    const key = getDocumentStorageKey(projectId);
-    const lsDocs = fullDocs.map((doc) => ({
-      id: doc.id,
-      projectId: doc.projectId,
-      title: doc.title,
-      titleTa: doc.titleTa,
-      category: doc.category,
-      fileName: doc.fileName,
-      fileSize: doc.fileSize,
-      fileType: doc.fileType,
-      pageCount: doc.pageCount,
-      uploadedAt: doc.uploadedAt,
-      updatedAt: doc.updatedAt,
-      isStagedToScript: doc.isStagedToScript,
-      isLeftRightFormat: doc.isLeftRightFormat,
-      hasTwoColumnScript: doc.hasTwoColumnScript,
-      builtInType: doc.builtInType,
-      author: doc.author,
-      status: doc.status,
-      tags: doc.tags,
-      annotations: doc.annotations || [],
-      twoColumnData: doc.twoColumnData,
-      textContent: doc.textContent,
-      thumbnailDataUrl: doc.thumbnailDataUrl && doc.thumbnailDataUrl.length < 20000 ? doc.thumbnailDataUrl : undefined,
-    }));
-    const json = JSON.stringify(lsDocs);
-    if (json.length < 2500000) {
-      localStorage.setItem(key, json);
-    } else {
-      const slimDocs = lsDocs.map(d => ({ ...d, twoColumnData: undefined, textContent: undefined }));
-      localStorage.setItem(key, JSON.stringify(slimDocs));
-    }
-  } catch (quotaErr) {
-    console.warn('[DocVault] localStorage quota notice:', quotaErr);
-  }
+  scheduleDocumentPersistence(activeProjId, fullDocs, changedDocIds);
 
   // 4. Dispatch custom window event
   try {
@@ -1102,26 +1062,6 @@ export async function syncDocumentsWithCloud(
   let localDocs = await loadProductionDocumentsAsync(projectId);
   if (!isSupabaseConfigured || !projectId) {
     return localDocs;
-  }
-
-  // Merge any documents that may have been created under 'empty-project', 'default', or base STORAGE_KEY before project was selected
-  if (projectId !== 'empty-project' && projectId !== 'default') {
-    const fallbackEmpty = getProductionDocuments('empty-project');
-    const fallbackDefault = getProductionDocuments('default');
-    const fallbackBase = (() => {
-      try {
-        const raw = localStorage.getItem(STORAGE_KEY);
-        return raw ? JSON.parse(raw) : [];
-      } catch { return []; }
-    })();
-    const orphaned = [...fallbackEmpty, ...fallbackDefault, ...fallbackBase].filter(
-      (d: ProductionDocument) => d && d.id && !localDocs.some((ld) => ld.id === d.id || (ld.fileName && ld.fileName === d.fileName))
-    );
-    if (orphaned.length > 0) {
-      const remapped = orphaned.map((d: ProductionDocument) => ({ ...d, projectId }));
-      localDocs = mergeProductionDocuments(localDocs, remapped);
-      saveProductionDocuments(localDocs, projectId, true);
-    }
   }
 
   // Resolve user id if not explicitly passed
@@ -1325,6 +1265,7 @@ export function deleteProductionDocuments(
 
   // 1. Permanently record tombstones
   recordDocumentDeletion(idList, activeProjId);
+  idList.forEach(id => _pendingCloudDocs.delete(`${activeProjId}:${id}`));
 
   // 2. Remove from in-memory caches across all project slots
   Object.keys(inMemoryDocsCache).forEach((k) => {

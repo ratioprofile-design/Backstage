@@ -26,7 +26,7 @@ interface ScriptArchiveModalProps {
 const STORAGE_KEY = 'backstage_script_versions';
 
 export const ScriptArchiveModal: React.FC<ScriptArchiveModalProps> = ({ isOpen, onClose }) => {
-  const { beats = [], setBeats, appTheme } = useProject();
+  const { beats = [], setBeats, appTheme } = useProject(["beats","setBeats","appTheme"]);
   const isLight = appTheme === 'light' || (appTheme === 'system' && typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: light)').matches);
 
   const [versions, setVersions] = useState<ScriptVersion[]>(() => {
@@ -76,7 +76,7 @@ export const ScriptArchiveModal: React.FC<ScriptArchiveModalProps> = ({ isOpen, 
   const [compareDraftB, setCompareDraftB] = useState<ScriptVersion | null>(null);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(versions));
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(versions)); } catch {}
   }, [versions]);
 
   if (!isOpen) return null;

@@ -91,7 +91,7 @@ const DEFAULT_CALL_SHEET: CallSheet = {
 };
 
 export const CallSheetView: React.FC = () => {
-  const { beats = [], characterData = {}, appTheme, appAccentColor = '#f5a623' } = useProject();
+  const { beats = [], characterData = {}, appTheme, appAccentColor = '#f5a623' } = useProject(["beats","characterData","appTheme","appAccentColor"]);
   const characters = Object.values(characterData);
   const isLight = appTheme === 'light' || (appTheme === 'system' && typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: light)').matches);
 
@@ -109,7 +109,7 @@ export const CallSheetView: React.FC = () => {
 
   const handleSave = () => {
     setIsEditing(false);
-    localStorage.setItem('backstage_active_callsheet', JSON.stringify(sheetData));
+    try { localStorage.setItem('backstage_active_callsheet', JSON.stringify(sheetData)); } catch {}
   };
 
   const handleSaveToVault = () => {
@@ -161,7 +161,7 @@ export const CallSheetView: React.FC = () => {
     };
 
     setSheetData(updated);
-    localStorage.setItem('backstage_active_callsheet', JSON.stringify(updated));
+    try { localStorage.setItem('backstage_active_callsheet', JSON.stringify(updated)); } catch {}
   };
 
   // Add Cast Row

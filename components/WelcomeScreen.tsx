@@ -48,7 +48,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
     autoGenerate5Scenes, setActiveBoardId, appAccentColor = '#f5a623',
     renameProject,
     appTheme,
-  } = useProject();
+  } = useProject(["currentProjectId","currentProjectName","deleteProject","userRole","logout","schemaError","projectList","selectProject","autoGenerate5Scenes","setActiveBoardId","appAccentColor","renameProject","appTheme"]);
 
   const isLight = appTheme === 'light';
 
@@ -324,7 +324,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
 
   const handleOpenProject = (proj: any) => {
     if (proj.rawDoc) {
-      localStorage.setItem('active_two_column_doc_id', proj.rawDoc.id);
+      try { localStorage.setItem('active_two_column_doc_id', proj.rawDoc.id); } catch {}
       onDismiss();
       if (onNavigateToView) {
         onNavigateToView('two-column-script');
