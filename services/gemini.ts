@@ -8,6 +8,7 @@ import { enrichBreakdownData } from "../utils/breakdownSync";
 export const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
 export const TOKENROUTER_BASE_URL = 'https://api.tokenrouter.com/v1';
 export const GEMINI_FALLBACK_MODEL = 'gemini-flash-latest';
+const ROUTER_FALLBACK_MODEL = 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free';
 
 export function normalizeGeminiModel(model?: string): string {
   if (
@@ -203,6 +204,13 @@ export async function callTextModel(prompt: string, model: string, jsonMode: boo
       }
       throw err;
     }
+  }
+  // Gemini is the default model, but users may only have a TokenRouter or
+  // OpenRouter key configured. In that case route to the app's supported free
+  // text model instead of failing immediately for a missing Gemini key.
+  const routerKey = openRouterApiKey || import.meta.env.VITE_TOKENROUTER_API_KEY || import.meta.env.VITE_OPENROUTER_API_KEY;
+  if (!getGeminiApiKey() && routerKey) {
+    return openAICompletion(resolveBaseUrl(routerKey), prompt, ROUTER_FALLBACK_MODEL, routerKey, jsonMode);
   }
   return callGeminiText(prompt, model, jsonMode);
 }
@@ -527,7 +535,11 @@ export async function analyzeScriptBatch(
     }
 }
 
-export async function generateShotList(scriptSegment: string, model: string = 'gemini-3.6-flash'): Promise<any[]> {
+export async function generateShotList(
+  scriptSegment: string,
+  model: string = 'gemini-flash-latest',
+  openRouterApiKey?: string
+): Promise<any[]> {
   const prompt = `You are an expert cinematographer. Analyze the following screenplay segment and break it down into a list of shot cards.
 Return ONLY a raw JSON Array of shot objects. Do not wrap in markdown or object keys.
 Each object should contain:
@@ -541,24 +553,17 @@ Screenplay Segment:
 """${scriptSegment}"""`;
 
   try {
-      const ai = new GoogleGenAI({ apiKey: getGeminiApiKey() });
-      const response = await ai.models.generateContent({
-          model: normalizeGeminiModel(model),
-          contents: prompt,
-          config: { responseMimeType: 'application/json' }
-      });
-      const text = response.text || '[]';
-      const parsed = safeJSONParse(text);
-      if (Array.isArray(parsed)) return parsed;
-      if (parsed && typeof parsed === 'object') {
-          if (Array.isArray(parsed.shots)) return parsed.shots;
-          if (Array.isArray(parsed.shotList)) return parsed.shotList;
-          if (Array.isArray(parsed.scenes)) return parsed.scenes;
-          if (Array.isArray(parsed.data)) return parsed.data;
-          const foundArray = Object.values(parsed).find((v: any) => Array.isArray(v));
-          if (foundArray && Array.isArray(foundArray)) return foundArray;
-      }
-      return [];
+    const parsed = await callAiJson(prompt, model || 'gemini-flash-latest', openRouterApiKey);
+    if (Array.isArray(parsed)) return parsed;
+    if (parsed && typeof parsed === 'object') {
+      if (Array.isArray(parsed.shots)) return parsed.shots;
+      if (Array.isArray(parsed.shotList)) return parsed.shotList;
+      if (Array.isArray(parsed.scenes)) return parsed.scenes;
+      if (Array.isArray(parsed.data)) return parsed.data;
+      const foundArray = Object.values(parsed).find((v: any) => Array.isArray(v));
+      if (foundArray && Array.isArray(foundArray)) return foundArray;
+    }
+    return [];
   } catch (e) {
     console.error("Shot List Gen Error", e);
     return [];
@@ -569,7 +574,8 @@ export async function generateShotDivisionPreview(
   sceneHeading: string,
   scriptSegment: string,
   styleMode: string = 'Cinematic Pace',
-  model: string = 'gemini-3.6-flash'
+  model: string = 'gemini-flash-latest',
+  openRouterApiKey?: string
 ): Promise<any[]> {
   const prompt = `You are an A-list Director of Photography and Director. Analyze this scene and create a professional, highly detailed Shot Division breakdown in "${styleMode}" style.
 Scene Heading: ${sceneHeading}
@@ -591,14 +597,7 @@ Return ONLY a raw JSON Array of shot objects. Each object MUST contain:
 Ensure shots cover the complete scene logically from start to finish.`;
 
   try {
-    const ai = new GoogleGenAI({ apiKey: getGeminiApiKey() });
-    const response = await ai.models.generateContent({
-      model: model,
-      contents: prompt,
-      config: { responseMimeType: 'application/json' }
-    });
-    const text = response.text || '[]';
-    const parsed = safeJSONParse(text);
+    const parsed = await callAiJson(prompt, model || 'gemini-flash-latest', openRouterApiKey);
     if (Array.isArray(parsed)) return parsed;
     if (parsed && typeof parsed === 'object') {
       const foundArray = Object.values(parsed).find((v: any) => Array.isArray(v));
@@ -616,7 +615,8 @@ export async function predictNextShotSummary(
   scriptText: string,
   existingShots: any[],
   partialInput: { shotSize?: string; angle?: string; subject?: string; description?: string },
-  model: string = 'gemini-3.6-flash'
+  model: string = 'gemini-flash-latest',
+  openRouterApiKey?: string
 ): Promise<{ description: string; subject: string; lens: string; movement: string; scriptReference: string } | null> {
   const existingSummary = existingShots.map((s, idx) => `Shot #${idx + 1}: ${s.shotSize} ${s.angle} on ${s.subject || 'scene'} - ${s.description}`).join('\n');
   
@@ -644,14 +644,7 @@ Return ONLY a raw JSON Object with:
 `;
 
   try {
-    const ai = new GoogleGenAI({ apiKey: getGeminiApiKey() });
-    const response = await ai.models.generateContent({
-      model: model,
-      contents: prompt,
-      config: { responseMimeType: 'application/json' }
-    });
-    const text = response.text || '{}';
-    const parsed = safeJSONParse(text);
+    const parsed = await callAiJson(prompt, model || 'gemini-flash-latest', openRouterApiKey);
     if (parsed && typeof parsed === 'object') {
       return {
         description: parsed.description || '',
@@ -738,6 +731,7 @@ Example JSON:
   try {
       const text = await callTextModel(prompt, model, true, openRouterApiKey);
       const data = safeJSONParse(text) || {};
+      const payload = data.breakdown || data.categories || data.sceneBreakdown || data;
 
       const normalize = (arr: any[], categoryKey: any) => {
           if (!Array.isArray(arr)) {
@@ -783,21 +777,21 @@ Example JSON:
           });
       };
 
-      const castList = normalize(data.CAST || data.cast || [], 'CAST');
-      const extrasList = normalize(data.EXTRAS || data.extras || [], 'EXTRAS');
-      const stuntsList = normalize(data.STUNTS || data.stunts || [], 'STUNTS');
-      const vehiclesList = normalize(data.VEHICLES || data.vehicles || [], 'VEHICLES');
-      const propsList = normalize(data.PROPS || data.props || [], 'PROPS');
-      const sfxList = normalize(data.SFX || data.sfx || data.practical || [], 'SFX');
-      const wardrobeList = normalize(data.WARDROBE || data.wardrobe || data.costume || [], 'WARDROBE');
-      const makeupList = normalize(data.MAKEUP || data.makeup || [], 'MAKEUP');
-      const animalsList = normalize(data.ANIMALS || data.animals || [], 'ANIMALS');
-      const soundList = normalize(data.SOUND || data.sound || [], 'SOUND');
-      const setDressingList = normalize(data.SET_DRESSING || data.set_dressing || data.setDressing || [], 'SET_DRESSING');
-      const greeneryList = normalize(data.GREENERY || data.greenery || [], 'GREENERY');
-      const specialEquipList = normalize(data.SPECIAL_EQUIPMENT || data.special_equipment || data.specialEquipment || [], 'SPECIAL_EQUIPMENT');
-      const lightingList = normalize(data.LIGHTING_GRIP || data.lighting_grip || data.lightingGrip || [], 'LIGHTING_GRIP');
-      const safetyList = normalize(data.SAFETY || data.safety || [], 'SAFETY');
+      const castList = normalize(payload.CAST || payload.cast || [], 'CAST');
+      const extrasList = normalize(payload.EXTRAS || payload.extras || [], 'EXTRAS');
+      const stuntsList = normalize(payload.STUNTS || payload.stunts || [], 'STUNTS');
+      const vehiclesList = normalize(payload.VEHICLES || payload.vehicles || [], 'VEHICLES');
+      const propsList = normalize(payload.PROPS || payload.props || [], 'PROPS');
+      const sfxList = normalize(payload.SFX || payload.sfx || payload.practical || [], 'SFX');
+      const wardrobeList = normalize(payload.WARDROBE || payload.wardrobe || payload.costume || [], 'WARDROBE');
+      const makeupList = normalize(payload.MAKEUP || payload.makeup || [], 'MAKEUP');
+      const animalsList = normalize(payload.ANIMALS || payload.animals || [], 'ANIMALS');
+      const soundList = normalize(payload.SOUND || payload.sound || [], 'SOUND');
+      const setDressingList = normalize(payload.SET_DRESSING || payload.set_dressing || payload.setDressing || [], 'SET_DRESSING');
+      const greeneryList = normalize(payload.GREENERY || payload.greenery || [], 'GREENERY');
+      const specialEquipList = normalize(payload.SPECIAL_EQUIPMENT || payload.special_equipment || payload.specialEquipment || [], 'SPECIAL_EQUIPMENT');
+      const lightingList = normalize(payload.LIGHTING_GRIP || payload.lighting_grip || payload.lightingGrip || [], 'LIGHTING_GRIP');
+      const safetyList = normalize(payload.SAFETY || payload.safety || [], 'SAFETY');
 
       const allItems = [
         ...castList,
@@ -838,10 +832,10 @@ Example JSON:
           props: propsList,
           sound: soundList,
           costume: wardrobeList,
-          vfx: normalize(data.vfx || data.VFX || [], 'SFX'),
+          vfx: normalize(payload.vfx || payload.VFX || [], 'SFX'),
           practical: sfxList,
           cast: [...castList, ...extrasList],
-          location: normalize(data.location || data.LOCATION || [], 'SET_DRESSING'),
+          location: normalize(payload.location || payload.LOCATION || [], 'SET_DRESSING'),
           // Unified items list
           items: allItems,
       };

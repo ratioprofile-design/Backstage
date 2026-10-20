@@ -1,8 +1,10 @@
+import { sanitizeHtml } from '../../utils/sanitizeHtml';
 
 import React, { useState, useEffect, useRef, memo, useMemo } from 'react';
 import { useProject } from '../../context/ProjectContext';
 import { useAiKeyStatus } from '../../context/AiKeyStatusContext';
 import { generateShotList, generateImage, generateProceduralSketch } from '../../services/gemini';
+import { getProductionDocuments } from '../../services/documentsStorage';
 import { 
     Wand2, Image as ImageIcon, Film, Loader2, Download, Camera,
     Plus, Trash2, RefreshCw, Play, Pause, Clock, 
@@ -641,8 +643,8 @@ const StoryboardView: React.FC = () => {
       beats, generatedShots, setGeneratedShots, updateGeneratedShot, 
       addGeneratedShot, removeGeneratedShot, moveGeneratedShot, storyboardConfig, setStoryboardConfig,
       characterData, setAnnotations, panX, panY, scale,
-      projectList = [], currentProjectId = null, appTheme
-  } = useProject();
+      projectList = [], currentProjectId = null, appTheme, openrouterKey
+  } = useProject(["beats","generatedShots","setGeneratedShots","updateGeneratedShot","addGeneratedShot","removeGeneratedShot","moveGeneratedShot","storyboardConfig","setStoryboardConfig","characterData","setAnnotations","panX","panY","scale","projectList","currentProjectId","appTheme","openrouterKey"]);
   const { aiAvailable } = useAiKeyStatus();
   
   const isLight = appTheme === 'light' || (appTheme === 'system' && typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: light)').matches);
@@ -971,15 +973,42 @@ const StoryboardView: React.FC = () => {
   // Ref for cancellation
   const cancelQueueRef = useRef(false);
 
-  // Helper: Get Script Text
+  // Helper: Get Script Text (safe from undefined slug/content and handles Script document fallback)
   const getScriptSegment = () => {
-    const sorted = [...beats].sort((a, b) => a.x - b.x);
-    const validStart = Math.max(1, Math.min(startScene, sorted.length));
-    const validEnd = Math.min(sorted.length, Math.max(validStart, endScene));
-    
-    return sorted.slice(validStart - 1, validEnd)
-      .map((b, i) => `SCENE ${validStart + i}: ${b.slug.prefix} ${b.slug.location} - ${b.slug.time}\n${b.content.replace(/<[^>]+>/g, '')}`)
-      .join('\n\n');
+    const sorted = [...beats].filter(b => !b.isDisabled).sort((a, b) => (a.y - b.y) || (a.x - b.x));
+    if (sorted.length > 0) {
+      const validStart = Math.max(1, Math.min(startScene, sorted.length));
+      const validEnd = Math.min(sorted.length, Math.max(validStart, endScene));
+      
+      return sorted.slice(validStart - 1, validEnd)
+        .map((b, i) => {
+          const prefix = b.slug?.prefix || 'INT';
+          const loc = b.slug?.location || b.title || 'SCENE';
+          const time = b.slug?.time || 'DAY';
+          const heading = b.slug?.raw || `${prefix} ${loc} - ${time}`.trim();
+          const cleanText = (b.content || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+          return `SCENE ${b.sceneNumber || validStart + i}: ${heading}\n${cleanText}`;
+        })
+        .join('\n\n');
+    }
+
+    // Fallback: Check if there are script documents from Script page (Tamil Left-Right / 2-column)
+    try {
+      const docs = getProductionDocuments(currentProjectId || undefined);
+      const activeDoc = docs.find(d => d.isStagedToScript) || docs.find(d => d.twoColumnData?.scenes?.length) || docs[0];
+      if (activeDoc?.twoColumnData?.scenes?.length) {
+        const scenes = activeDoc.twoColumnData.scenes;
+        const validStart = Math.max(1, Math.min(startScene, scenes.length));
+        const validEnd = Math.min(scenes.length, Math.max(validStart, endScene));
+        return scenes.slice(validStart - 1, validEnd).map((sc: any, i: number) => {
+          const slug = sc.sluglineText || `${sc.location || ''} - ${sc.timeOfDay || ''}`.trim() || 'SCENE';
+          const body = (sc.items || []).map((it: any) => [it.leftAction, it.rightCharacter ? `${it.rightCharacter}:` : '', it.rightDialogue].filter(Boolean).join(' ')).join('\n');
+          return `SCENE ${sc.sceneNumber || validStart + i}: ${slug}\n${body}`;
+        }).join('\n\n');
+      }
+    } catch {}
+
+    return '';
   };
 
   // --- 1. ANALYSIS (TEXT -> SHOTS) ---
@@ -987,9 +1016,9 @@ const StoryboardView: React.FC = () => {
     setAnalyzing(true);
     try {
       const text = getScriptSegment();
-      if (!text.trim()) { alert("No scenes found in that range."); return; }
+      if (!text.trim()) { alert("No scenes found in that range. Please verify scenes exist on Screenplay or Script page."); return; }
       
-      const rawShots = await generateShotList(text, storyboardConfig.textModel || 'gemini-3.6-flash');
+      const rawShots = await generateShotList(text, storyboardConfig.textModel || 'gemini-flash-latest', openrouterKey);
       const shotsArray = Array.isArray(rawShots) 
         ? rawShots 
         : (rawShots && typeof rawShots === 'object' 
@@ -1209,8 +1238,8 @@ const StoryboardView: React.FC = () => {
       if (isValidImage(shot.imageUrl)) { const img = document.createElement('img'); img.src = shot.imageUrl!; img.style.width = '100%'; img.style.height = '100%'; img.style.objectFit = 'cover'; imgContainer.appendChild(img); } else { const placeholder = document.createElement('div'); placeholder.innerText = 'NO VISUAL'; placeholder.style.color = '#333'; placeholder.style.fontSize = '40px'; placeholder.style.fontWeight = 'bold'; imgContainer.appendChild(placeholder); }
       const info = document.createElement('div'); info.style.padding = '40px'; info.style.backgroundColor = '#1a1a1a'; info.style.borderTop = '2px solid #333';
       const header = document.createElement('div'); header.style.display = 'flex'; header.style.justifyContent = 'space-between'; header.style.marginBottom = '20px'; header.style.borderBottom = '1px solid #333'; header.style.paddingBottom = '20px';
-      const sceneInfo = document.createElement('div'); sceneInfo.innerHTML = `<span style="color:#666; font-size: 18px; font-weight: 800; letter-spacing: 2px;">SCENE ${shot.scene || '?'}</span>`;
-      const shotInfo = document.createElement('div'); shotInfo.innerHTML = `<span style="color:#f5a623; font-size: 24px; font-weight: 900; text-transform: uppercase;">${shot.shotSize} / ${shot.angle}</span>`;
+      const sceneInfo = document.createElement('div'); sceneInfo.innerHTML = sanitizeHtml(`<span style="color:#666; font-size: 18px; font-weight: 800; letter-spacing: 2px;">SCENE ${shot.scene || '?'}</span>`);
+      const shotInfo = document.createElement('div'); shotInfo.innerHTML = sanitizeHtml(`<span style="color:#f5a623; font-size: 24px; font-weight: 900; text-transform: uppercase;">${shot.shotSize} / ${shot.angle}</span>`);
       header.appendChild(sceneInfo); header.appendChild(shotInfo);
       const desc = document.createElement('div'); desc.innerText = shot.description || ''; desc.style.fontSize = '28px'; desc.style.lineHeight = '1.5'; desc.style.color = '#ddd'; desc.style.fontWeight = '500';
       info.appendChild(header); info.appendChild(desc);
@@ -1253,7 +1282,7 @@ const StoryboardView: React.FC = () => {
           img.style.width = '600px'; img.style.height = 'auto'; img.style.border = '1px solid #333';
           const info = document.createElement('div');
           info.style.flex = '1'; info.style.color = '#ccc'; info.style.fontFamily = 'monospace';
-          info.innerHTML = `<div style="color:#f5a623; font-weight:900; font-size:20px; margin-bottom:10px;">${shot.shotSize}</div><div style="font-size:16px; line-height:1.4;">${shot.description}</div>`;
+          info.innerHTML = sanitizeHtml(`<div style="color:#f5a623; font-weight:900; font-size:20px; margin-bottom:10px;">${shot.shotSize}</div><div style="font-size:16px; line-height:1.4;">${shot.description}</div>`);
           wrapper.appendChild(img); wrapper.appendChild(info);
           container.appendChild(wrapper);
       });
