@@ -1,4 +1,5 @@
 import { TamilScene, TamilScriptItem, TamilScreenplayData } from './tamilLeftRightEngine';
+import { BreakdownData, BreakdownItem, BreakdownCategory } from '../types';
 import { callAiJson } from './gemini';
 
 export interface AlignmentStats {
@@ -9,6 +10,7 @@ export interface AlignmentStats {
   shotNumbersMerged: number;
   typosCorrected: number;
   headingsStandardized: number;
+  breakdownItemsGenerated: number;
 }
 
 export interface ScriptCastRegistry {
@@ -42,6 +44,8 @@ export interface AlignmentOptions {
   correctTamilTypos?: boolean;
   extractDialogueFromAction?: boolean;
   resolveCharacterMismatches?: boolean;
+  generateTamilBreakdown?: boolean;
+  breakdownLanguage?: 'tamil' | 'english';
   startSceneIndex?: number;
   endSceneIndex?: number;
   castRegistry?: ScriptCastRegistry;
@@ -157,6 +161,120 @@ export function getLevenshteinDistance(a: string, b: string): number {
     }
   }
   return matrix[b.length][a.length];
+}
+
+/**
+ * Normalizes raw AI breakdown output into the standard 15-category BreakdownData structure.
+ */
+export function normalizeBreakdownData(data: any): { breakdown: BreakdownData; count: number } {
+  if (!data || typeof data !== 'object') {
+    return { breakdown: {}, count: 0 };
+  }
+
+  const normalizeCategory = (arr: any[], categoryKey: BreakdownCategory): BreakdownItem[] => {
+    if (!Array.isArray(arr)) {
+      if (arr && typeof arr === 'object') {
+        const possibleArray = Object.values(arr).find((v) => Array.isArray(v));
+        if (possibleArray && Array.isArray(possibleArray)) arr = possibleArray;
+        else return [];
+      } else {
+        return [];
+      }
+    }
+
+    return arr.map((item, idx) => {
+      if (typeof item === 'string') {
+        return {
+          id: `item-${categoryKey}-${Date.now()}-${idx}`,
+          category: categoryKey,
+          name: item,
+          nameTa: item,
+          source: item,
+          count: 1,
+        };
+      }
+      if (item && typeof item === 'object') {
+        const name = item.name || item.item || item.title || item.element || 'Unknown';
+        const nameTa = item.nameTa || item.name || undefined;
+        const nameEn = item.nameEn || undefined;
+        const description = item.description || item.descriptionTa || undefined;
+        const source = item.source || item.line || item.reference || name;
+        return {
+          id: item.id || `item-${categoryKey}-${Date.now()}-${idx}`,
+          category: categoryKey,
+          name: String(name),
+          nameTa: nameTa ? String(nameTa) : undefined,
+          nameEn: nameEn ? String(nameEn) : undefined,
+          description: description ? String(description) : undefined,
+          descriptionTa: description ? String(description) : undefined,
+          count: typeof item.count === 'number' ? item.count : 1,
+          source: String(source),
+        };
+      }
+      return {
+        id: `item-${categoryKey}-${Date.now()}-${idx}`,
+        category: categoryKey,
+        name: String(item),
+        source: String(item),
+        count: 1,
+      };
+    });
+  };
+
+  const castList = normalizeCategory(data.CAST || data.cast || [], 'CAST');
+  const extrasList = normalizeCategory(data.EXTRAS || data.extras || [], 'EXTRAS');
+  const stuntsList = normalizeCategory(data.STUNTS || data.stunts || [], 'STUNTS');
+  const vehiclesList = normalizeCategory(data.VEHICLES || data.vehicles || [], 'VEHICLES');
+  const propsList = normalizeCategory(data.PROPS || data.props || [], 'PROPS');
+  const sfxList = normalizeCategory(data.SFX || data.sfx || data.practical || [], 'SFX');
+  const wardrobeList = normalizeCategory(data.WARDROBE || data.wardrobe || data.costume || [], 'WARDROBE');
+  const makeupList = normalizeCategory(data.MAKEUP || data.makeup || [], 'MAKEUP');
+  const animalsList = normalizeCategory(data.ANIMALS || data.animals || [], 'ANIMALS');
+  const soundList = normalizeCategory(data.SOUND || data.sound || [], 'SOUND');
+  const setDressingList = normalizeCategory(data.SET_DRESSING || data.set_dressing || data.setDressing || [], 'SET_DRESSING');
+  const greeneryList = normalizeCategory(data.GREENERY || data.greenery || [], 'GREENERY');
+  const specialEquipList = normalizeCategory(data.SPECIAL_EQUIPMENT || data.special_equipment || data.specialEquipment || [], 'SPECIAL_EQUIPMENT');
+  const lightingList = normalizeCategory(data.LIGHTING_GRIP || data.lighting_grip || data.lightingGrip || [], 'LIGHTING_GRIP');
+  const safetyList = normalizeCategory(data.SAFETY || data.safety || [], 'SAFETY');
+
+  const allItems: BreakdownItem[] = [
+    ...castList,
+    ...extrasList,
+    ...stuntsList,
+    ...vehiclesList,
+    ...propsList,
+    ...sfxList,
+    ...wardrobeList,
+    ...makeupList,
+    ...animalsList,
+    ...soundList,
+    ...setDressingList,
+    ...greeneryList,
+    ...specialEquipList,
+    ...lightingList,
+    ...safetyList,
+  ];
+
+  const breakdown: BreakdownData = {
+    CAST: castList,
+    EXTRAS: extrasList,
+    STUNTS: stuntsList,
+    VEHICLES: vehiclesList,
+    PROPS: propsList,
+    SFX: sfxList,
+    WARDROBE: wardrobeList,
+    MAKEUP: makeupList,
+    ANIMALS: animalsList,
+    SOUND: soundList,
+    SET_DRESSING: setDressingList,
+    GREENERY: greeneryList,
+    SPECIAL_EQUIPMENT: specialEquipList,
+    LIGHTING_GRIP: lightingList,
+    SAFETY: safetyList,
+    items: allItems,
+  };
+
+  return { breakdown, count: allItems.length };
 }
 
 /**
@@ -343,7 +461,6 @@ export function disentangleItemsLineByLine(
 
   const aliasMap = castRegistry?.aliasMap || {};
   const canonicalChars = castRegistry?.canonicalCharacters || [];
-  const knownCastSet = new Set(canonicalChars.map((c) => c.toLowerCase()));
 
   const resolveCharacter = (rawChar: string): string => {
     let cleaned = rawChar.replace(/^[–—\-\s,:\(\)\[\]"“'‘n]+|[–—\-\s,:\(\)\[\]"”'’]+$/g, '').trim();
@@ -409,7 +526,6 @@ export function disentangleItemsLineByLine(
         const quotedSpeech = quoteMatch[2].trim();
         const actionAfter = quoteMatch[3].trim();
 
-        // Attempt to identify speaker from preceding action or known cast
         let identifiedSpeaker = '';
         for (const castMember of canonicalChars) {
           if (actionBefore.includes(castMember)) {
@@ -452,7 +568,6 @@ export function disentangleItemsLineByLine(
       let charName = (item.rightCharacter || '').trim();
       let dialogueText = (item.rightDialogue || item.rawText || '').trim();
 
-      // Resolve character name mismatch
       if (charName) {
         const resolved = resolveCharacter(charName);
         if (resolved !== charName) {
@@ -467,7 +582,6 @@ export function disentangleItemsLineByLine(
         const parenContent = parenMatch[1].trim();
         const pureSpeech = parenMatch[2].trim();
 
-        // If it's a physical action (longer than 12 chars or contains action verbs)
         const isPhysicalAction =
           parenContent.length > 12 ||
           /(?:சென்று|வந்து|எடுத்து|போட்டு|மாட்டுவது|ஓடி|குதித்து|நடந்து|அடிக்கிறான்|பார்க்கிறான்)/.test(parenContent);
@@ -501,8 +615,10 @@ export function disentangleItemsLineByLine(
 }
 
 /**
- * Formats and aligns a single scene using AI (Gemini / OpenRouter) with line-by-line
- * dialogue-action disentanglement and character mismatch resolution.
+ * Formats and aligns a single scene using AI (Gemini / OpenRouter):
+ * 1. Divides scene description from dialogue line-by-line.
+ * 2. Disentangles embedded dialogue and resolves character name mismatches.
+ * 3. Studies the entire scene and extracts all 15 production categories in Tamil Language!
  */
 export async function alignSingleScene(
   scene: TamilScene,
@@ -514,6 +630,7 @@ export async function alignSingleScene(
   let shotMergedCount = 0;
   let extractedDialogueCount = 0;
   let characterMismatchCount = 0;
+  let breakdownCount = 0;
 
   const castRegistry = options.castRegistry || studyScriptCastAndStructure([scene]);
 
@@ -566,9 +683,12 @@ export async function alignSingleScene(
     };
   });
 
-  const prompt = `You are an elite Kollywood Screenplay Script Supervisor & 2-Column Formatting AI Engine.
-You must study this scene LINE-BY-LINE to disentangle mixed action descriptions, extract embedded dialogues,
-and resolve character name mismatches so every element is positioned into its respective column.
+  const prompt = `You are an elite Kollywood 1st Assistant Director (AD) & Screenplay 2-Column Formatting AI Engine.
+You must study this scene LINE-BY-LINE to:
+1. DIVIDE SCENE DESCRIPTIONS FROM DIALOGUE (Left vs Right columns).
+2. DISENTANGLE EMBEDDED DIALOGUE from action descriptions.
+3. RESOLVE CHARACTER NAME MISMATCHES using the Canonical Cast Registry.
+4. STUDY THE ENTIRE SCENE AND EXTRACT ALL 15 PRODUCTION BREAKDOWN CATEGORIES IN TAMIL LANGUAGE.
 
 SCRIPT-WIDE CANONICAL CAST REGISTRY (Use these exact standard character names):
 ${JSON.stringify(castRegistry.canonicalCharacters)}
@@ -587,7 +707,7 @@ INPUT SCENE DETAILS:
 RAW SCENE ITEMS TO STUDY LINE-BY-LINE:
 ${JSON.stringify(simplifiedItems, null, 2)}
 
-STRICT LINE-BY-LINE STUDY & POSITIONING RULES:
+STRICT LINE-BY-LINE FORMATTING RULES:
 1. EMBEDDED DIALOGUE IN ACTION DESCRIPTIONS:
    - Study every sentence of action description line-by-line.
    - If an action description contains spoken dialogue (e.g. quotes "...", colons 'Character: Dialogue', or reporting verbs like 'என்று சொல்ல', 'என்று கேட்க', 'என்கிறான்', 'கத்துகிறான்'), you MUST EXTRACT the dialogue out of the action description!
@@ -611,6 +731,32 @@ STRICT LINE-BY-LINE STUDY & POSITIONING RULES:
 7. FIDELITY & NO DATA LOSS:
    - CRITICAL: DO NOT omit, truncate, summarize, or hallucinate content. Every single spoken word and action beat must be preserved verbatim.
 
+CRITICAL 15-CATEGORY PRODUCTION BREAKDOWN IN TAMIL LANGUAGE:
+Study the entire scene (both visuals and dialogue) and extract all production breakdown items into the 15 standard film categories in TAMIL LANGUAGE:
+1. "CAST": முக்கிய மற்றும் துணை பேசும் கதாபாத்திரங்கள் (Speaking Cast)
+2. "EXTRAS": பின்னணி நடிகர்கள், பக்தர்கள், கிராம மக்கள், கைதிகள், போலீஸ் கூட்டம் (Background Crowd/Atmosphere)
+3. "STUNTS": சண்டைக் காட்சிகள், பாய்வது, சண்டை, வீழ்ச்சி, தற்காப்புக் கலை (Action/Combat/Falls)
+4. "VEHICLES": கார்கள், பைக்குகள், போலீஸ் வேன், ஜீப், லாரி, படகு (Picture Vehicles)
+5. "PROPS": பாத்திரங்கள் கையாளும் பொருட்கள் - துப்பாக்கி, கத்தி, அரிவாள், கைவிலங்கு, பரிவட்டம், கடிதம், போன், கிடா (Physical Props)
+6. "SFX": நடைமுறை சிறப்பு விளைவுகள் - கனமழை, தீ, வெடி விபத்து, ரத்தக் கறை, புகை (Physical Effects)
+7. "WARDROBE": உடைகள், அங்கி, போலீஸ் யூனிபார்ம், வேட்டி, கிழிந்த சட்டை, மஞ்சள் பாவாடை (Costumes/Wardrobe)
+8. "MAKEUP": நெற்றிக் காயம், இரத்தம், தழும்பு, வியர்வை, மேக்கப் மாற்றங்கள் (Special Makeup/Wounds)
+9. "ANIMALS": பலி கிடா, நாய், மாடு, குதிரை, பறவைகள் (Animals)
+10. "SOUND": பிரத்யேக ஒலி விளைவுகள் - இடி முழக்கம், துப்பாக்கிச் சத்தம், சங்கு, கோயில் மணி (Sound Effects)
+11. "SET_DRESSING": அரங்கு தளவாடங்கள் - பலிபீடம், பழைய மேசை, நாற்காலி, விளக்கு, தூண்கள் (Furniture/Set Dressing)
+12. "GREENERY": மரங்கள், செடிகள், காடு, புல்வெளி, தோட்டம் (Plants/Trees/Greenery)
+13. "SPECIAL_EQUIPMENT": கேமரா கிரேன், டிராக்கிங் ஜிம்பல், ட்ரோன், ஸ்டெடிகாம் (Special Camera Rigs)
+14. "LIGHTING_GRIP": சோடியம் விளக்கு, மஞ்சள் வெளிச்சம், தீப்பந்தம், ஜெனரேட்டர் (Practical Lights/Torches)
+15. "SAFETY": பாதுகாப்பு உபகரணங்கள், வழுக்காத விரிப்பு, முதலுதவி ஏற்பாடு (Safety Measures)
+
+Every item in the breakdown array MUST have:
+- "name": string (Name in Tamil, e.g. "கருப்பு ஸ்கார்பியோ கார்", "கோயில் பரிவட்டம்", "கைவிலங்கு")
+- "nameTa": string (Tamil name)
+- "nameEn": string (English name, e.g. "Black Scorpio SUV", "Temple Parivattam", "Handcuffs")
+- "description": string (Tamil description of context or usage in this scene)
+- "count": number (e.g. 1, 2, 25)
+- "source": string (the exact sentence or phrase from the scene)
+
 OUTPUT FORMAT: Return ONLY a raw JSON object with this exact structure:
 {
   "sceneNumber": string,
@@ -630,7 +776,24 @@ OUTPUT FORMAT: Return ONLY a raw JSON object with this exact structure:
       "isContinuous": boolean,
       "rawText": string
     }
-  ]
+  ],
+  "breakdown": {
+    "CAST": [ ... ],
+    "EXTRAS": [ ... ],
+    "STUNTS": [ ... ],
+    "VEHICLES": [ ... ],
+    "PROPS": [ ... ],
+    "SFX": [ ... ],
+    "WARDROBE": [ ... ],
+    "MAKEUP": [ ... ],
+    "ANIMALS": [ ... ],
+    "SOUND": [ ... ],
+    "SET_DRESSING": [ ... ],
+    "GREENERY": [ ... ],
+    "SPECIAL_EQUIPMENT": [ ... ],
+    "LIGHTING_GRIP": [ ... ],
+    "SAFETY": [ ... ]
+  }
 }`;
 
   let parsedResponse: any = null;
@@ -647,6 +810,7 @@ OUTPUT FORMAT: Return ONLY a raw JSON object with this exact structure:
   let finalCharacters = scene.characters || [];
   let finalEffects = scene.effects || 'None';
   let finalItems: TamilScriptItem[] = [];
+  let finalBreakdown: BreakdownData | undefined = scene.breakdown;
 
   let actionsAligned = 0;
   let dialoguesAligned = 0;
@@ -751,6 +915,13 @@ OUTPUT FORMAT: Return ONLY a raw JSON object with this exact structure:
         updatedAt: Date.now(),
       };
     });
+
+    // Normalize and attach the 15-category Tamil Production Breakdown
+    if (parsedResponse.breakdown && typeof parsedResponse.breakdown === 'object') {
+      const bdRes = normalizeBreakdownData(parsedResponse.breakdown);
+      finalBreakdown = bdRes.breakdown;
+      breakdownCount = bdRes.count;
+    }
   } else {
     // Fallback: apply deterministic alignment directly to prepared items
     finalItems = preparedItems.map((item) => {
@@ -827,6 +998,7 @@ OUTPUT FORMAT: Return ONLY a raw JSON object with this exact structure:
     characters: finalCharacters,
     effects: finalEffects,
     items: finalItems,
+    breakdown: finalBreakdown,
   };
 
   const stats: AlignmentStats = {
@@ -837,6 +1009,7 @@ OUTPUT FORMAT: Return ONLY a raw JSON object with this exact structure:
     shotNumbersMerged: shotMergedCount,
     typosCorrected: typosCount,
     headingsStandardized,
+    breakdownItemsGenerated: breakdownCount,
   };
 
   return { scene: updatedScene, stats };
@@ -845,7 +1018,7 @@ OUTPUT FORMAT: Return ONLY a raw JSON object with this exact structure:
 /**
  * Background manager for batch alignment of the entire 200-page screenplay.
  * First studies the entire script across all 200 pages to build the Canonical Cast Registry,
- * then processes scene-by-scene line-by-line with full disentanglement.
+ * then processes scene-by-scene line-by-line with full disentanglement and 15-category Tamil breakdown.
  */
 export class AiScriptAlignmentManager {
   private state: AlignmentProgressState = {
@@ -869,6 +1042,7 @@ export class AiScriptAlignmentManager {
       shotNumbersMerged: 0,
       typosCorrected: 0,
       headingsStandardized: 0,
+      breakdownItemsGenerated: 0,
     },
   };
 
@@ -943,6 +1117,7 @@ export class AiScriptAlignmentManager {
         shotNumbersMerged: 0,
         typosCorrected: 0,
         headingsStandardized: 0,
+        breakdownItemsGenerated: 0,
       },
     };
 
@@ -1005,6 +1180,7 @@ export class AiScriptAlignmentManager {
         shotNumbersMerged: 0,
         typosCorrected: 0,
         headingsStandardized: 0,
+        breakdownItemsGenerated: 0,
       };
 
       while (retryCount <= 2 && !success) {
@@ -1034,6 +1210,7 @@ export class AiScriptAlignmentManager {
         this.state.stats.shotNumbersMerged += sceneStats.shotNumbersMerged;
         this.state.stats.typosCorrected += sceneStats.typosCorrected;
         this.state.stats.headingsStandardized += sceneStats.headingsStandardized;
+        this.state.stats.breakdownItemsGenerated += sceneStats.breakdownItemsGenerated;
 
         if (this.onSceneCompletedCb) {
           try {

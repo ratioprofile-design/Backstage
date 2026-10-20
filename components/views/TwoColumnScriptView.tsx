@@ -942,6 +942,25 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
           return nextData;
         });
         setHasUnsavedChanges(true);
+
+        // Synchronize 15-category Tamil breakdown to Screenplay Beat & Production Departments
+        if (updatedScene.breakdown) {
+          const mb = findMatchingBeat(updatedScene);
+          if (mb) {
+            projectContext.updateBeat(mb.id, {
+              breakdown: updatedScene.breakdown,
+              breakdownData: updatedScene.breakdown,
+            });
+            try {
+              const nextBeats = projectContext.beats.map((b) =>
+                b.id === mb.id ? { ...b, breakdown: updatedScene.breakdown, breakdownData: updatedScene.breakdown } : b
+              );
+              syncBreakdownToDepartmentsAndContinuity(nextBeats, []);
+            } catch (syncErr) {
+              console.warn('Sync departments error:', syncErr);
+            }
+          }
+        }
       }
     );
   }, [pushToUndoHistory, showToast]);
@@ -972,9 +991,29 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
       });
       setHasUnsavedChanges(true);
 
+      // Synchronize 15-category Tamil breakdown to Screenplay Beat & Production Departments
+      if (updatedScene.breakdown) {
+        const mb = findMatchingBeat(updatedScene);
+        if (mb) {
+          projectContext.updateBeat(mb.id, {
+            breakdown: updatedScene.breakdown,
+            breakdownData: updatedScene.breakdown,
+          });
+          try {
+            const nextBeats = projectContext.beats.map((b) =>
+              b.id === mb.id ? { ...b, breakdown: updatedScene.breakdown, breakdownData: updatedScene.breakdown } : b
+            );
+            syncBreakdownToDepartmentsAndContinuity(nextBeats, []);
+          } catch (syncErr) {
+            console.warn('Sync departments error:', syncErr);
+          }
+        }
+      }
+
       let extraDetail = '';
-      if (stats.dialoguesExtractedFromAction > 0) extraDetail += `, ${stats.dialoguesExtractedFromAction} dialogues extracted from action`;
-      if (stats.characterMismatchesResolved > 0) extraDetail += `, ${stats.characterMismatchesResolved} cast names standardized`;
+      if (stats.dialoguesExtractedFromAction > 0) extraDetail += `, ${stats.dialoguesExtractedFromAction} dialogues extracted`;
+      if (stats.characterMismatchesResolved > 0) extraDetail += `, ${stats.characterMismatchesResolved} cast names fixed`;
+      if (stats.breakdownItemsGenerated > 0) extraDetail += `, ${stats.breakdownItemsGenerated} 15-category Tamil breakdown items extracted`;
       showToast(`✨ Aligned Scene ${updatedScene.sceneNumber}: ${stats.actionsAligned} actions, ${stats.dialoguesAligned} dialogues${extraDetail}!`);
     } catch (err) {
       console.error('Error aligning scene:', err);

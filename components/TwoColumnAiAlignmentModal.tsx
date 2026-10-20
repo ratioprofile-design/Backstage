@@ -6,6 +6,7 @@ import {
   AlignmentOptions,
 } from '../services/aiScriptAlignmentEngine';
 import {
+  ListChecks,
   Sparkles,
   X,
   Play,
@@ -60,6 +61,7 @@ export const TwoColumnAiAlignmentModal: React.FC<TwoColumnAiAlignmentModalProps>
   const [correctTamilTypos, setCorrectTamilTypos] = useState<boolean>(true);
   const [extractDialogueFromAction, setExtractDialogueFromAction] = useState<boolean>(true);
   const [resolveCharacterMismatches, setResolveCharacterMismatches] = useState<boolean>(true);
+  const [generateTamilBreakdown, setGenerateTamilBreakdown] = useState<boolean>(true);
   const [sceneRangeMode, setSceneRangeMode] = useState<'all' | 'custom'>('all');
   const [startSceneIdx, setStartSceneIdx] = useState<number>(1);
   const [endSceneIdx, setEndSceneIdx] = useState<number>(() => screenplayData.scenes.length || 1);
@@ -101,6 +103,8 @@ export const TwoColumnAiAlignmentModal: React.FC<TwoColumnAiAlignmentModalProps>
       correctTamilTypos,
       extractDialogueFromAction,
       resolveCharacterMismatches,
+      generateTamilBreakdown,
+      breakdownLanguage: 'tamil',
       startSceneIndex: sceneRangeMode === 'custom' ? Math.max(0, startSceneIdx - 1) : 0,
       endSceneIndex: sceneRangeMode === 'custom' ? Math.min(screenplayData.scenes.length, endSceneIdx) : screenplayData.scenes.length,
     };
@@ -240,7 +244,7 @@ export const TwoColumnAiAlignmentModal: React.FC<TwoColumnAiAlignmentModalProps>
               </div>
 
               {/* Live Statistics Grid */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-2 pt-2">
+              <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-8 gap-2 pt-2">
                 <div
                   className={`p-2 rounded-lg border text-center ${
                     isLight ? 'bg-white border-slate-200' : 'bg-zinc-900 border-zinc-800'
@@ -317,6 +321,17 @@ export const TwoColumnAiAlignmentModal: React.FC<TwoColumnAiAlignmentModalProps>
                     {progressState.stats.headingsStandardized}
                   </div>
                 </div>
+
+                <div
+                  className={`p-2 rounded-lg border text-center ${
+                    isLight ? 'bg-white border-slate-200' : 'bg-zinc-900 border-zinc-800'
+                  }`}
+                >
+                  <div className="text-[9.5px] text-slate-500 dark:text-zinc-400 font-bold uppercase">15-Cat Tamil</div>
+                  <div className="text-sm font-black text-emerald-600 dark:text-emerald-400 mt-0.5" title="Production breakdown items extracted in Tamil across 15 categories">
+                    {progressState.stats.breakdownItemsGenerated || 0}
+                  </div>
+                </div>
               </div>
 
               {/* Real-time controls */}
@@ -372,12 +387,45 @@ export const TwoColumnAiAlignmentModal: React.FC<TwoColumnAiAlignmentModalProps>
                   <span>Alignment Plan & Formatting Rules</span>
                 </h3>
                 <span className="text-xs text-emerald-600 dark:text-emerald-400 font-medium">
-                  7 Operations Enabled (Line-by-Line Study)
+                  8 Operations Enabled (Line-by-Line Study & 15-Category Tamil Breakdown)
                 </span>
               </div>
 
               {/* Rules Checklist */}
               <div className="space-y-2.5">
+                {/* 15-Category Production Breakdown in Tamil Language */}
+                <div
+                  onClick={() => setGenerateTamilBreakdown(!generateTamilBreakdown)}
+                  className={`p-3.5 rounded-xl border flex items-start gap-3 cursor-pointer transition-all ${
+                    generateTamilBreakdown
+                      ? isLight
+                        ? 'bg-emerald-50/70 border-emerald-300 shadow-xs ring-1 ring-emerald-400/20'
+                        : 'bg-emerald-950/30 border-emerald-700/60 shadow-xs ring-1 ring-emerald-500/20'
+                      : 'opacity-60 bg-transparent border-dashed'
+                  }`}
+                >
+                  <div className="mt-0.5 p-1.5 rounded-lg bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 shrink-0">
+                    <ListChecks size={16} />
+                  </div>
+                  <div className="flex-1 text-xs">
+                    <div className="font-bold text-sm flex items-center gap-2">
+                      <span>15-Category Production Breakdown in Tamil (15 தயாரிப்பு பிரிவுகள்)</span>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-600 dark:text-emerald-400">
+                        Tamil Breakdown
+                      </span>
+                    </div>
+                    <p className="text-slate-600 dark:text-zinc-300 mt-1 leading-relaxed">
+                      While reading line-by-line, the AI studies the entire scene and extracts all items into the 15 standard film production categories in Tamil:
+                      <strong> CAST, EXTRAS (கூட்டம்), STUNTS (ஸ்டண்ட்), VEHICLES (வாகனம்), PROPS (பொருட்கள்), SFX (விளைவுகள்), WARDROBE (உடை), MAKEUP (மேக்கப்), ANIMALS (விலங்கு), SOUND (ஒலி), SET DRESSING (அரங்கு), GREENERY (தாவரம்), EQUIPMENT (உபகரணங்கள்), LIGHTING (ஒளி), SAFETY (பாதுகாப்பு)</strong>.
+                    </p>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={generateTamilBreakdown}
+                    onChange={(e) => setGenerateTamilBreakdown(e.target.checked)}
+                    className="accent-emerald-500 mt-1 h-4 w-4 cursor-pointer"
+                  />
+                </div>
                 {/* 1. Action vs Dialogue Columns */}
                 <div
                   className={`p-3 rounded-xl border flex items-start gap-3 transition-colors ${
