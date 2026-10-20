@@ -97,6 +97,7 @@ export interface ProjectMetadata {
   isInvited?: boolean;
   invitedBy?: string;
   isLocalOnly?: boolean;
+  filePath?: string;
 }
 
 export type ViewMode = 'board' | 'excalidraw' | 'script' | 'characters' | 'casting' | 'characterdesign' | 'breakdown' | 'crew' | 'shotlist' | 'storyboard' | 'schedule' | 'statistics' | 'backstage' | 'goals' | 'inbox' | 'continuity' | 'locations' | 'dood' | 'documents' | 'callsheet' | 'two-column-script';

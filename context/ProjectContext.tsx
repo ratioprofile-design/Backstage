@@ -164,6 +164,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [filePath, setFilePath] = useState<string | null>(null);
   const filePathRef = useRef<string | null>(null);
   const initialHydrationDoneRef = useRef(false);
+  const isExplicitLogoutRef = useRef(false);
 
   const setFilePathWrapped = useCallback((path: string | null) => {
     filePathRef.current = path;
@@ -722,9 +723,14 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       } else {
         setSupabaseUser(null);
         if (_event === 'SIGNED_OUT') {
-          setCurrentUser(null);
-          localStorage.removeItem('currentUser');
-          setProjectList([]);
+          if (isExplicitLogoutRef.current) {
+            setCurrentUser(null);
+            localStorage.removeItem('currentUser');
+            setProjectList([]);
+          } else {
+            console.warn('[ctx] Background transient SIGNED_OUT detected; preserving local session and workspace');
+            setCloudOffline(true);
+          }
         } else {
           const savedUser = localStorage.getItem('currentUser');
           if (savedUser && savedUser !== 'Default User') {
@@ -784,7 +790,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const handleWindowFocus = () => {
       if (filePathRef.current || fileHandleRef.current) return;
       const curProj = projectList.find(p => p.id === currentProjectId);
-      if (curProj?.isLocalOnly) return;
+      if (curProj?.isLocalOnly || curProj?.filePath) return;
       if (supabaseUser) {
         refreshProjectList(supabaseUser.id, supabaseUser.email);
       } else {
@@ -853,7 +859,8 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
         name: projName,
         created: Date.now(),
         lastModified: Date.now(),
-        isLocalOnly: isLocal
+        isLocalOnly: isLocal,
+        filePath: filePathRef.current || undefined
       };
 
       setCurrentProjectId(newProjId);
@@ -1121,7 +1128,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
       if (!currentProjectId || currentProjectId === 'empty-project') return;
       if (filePathRef.current || fileHandleRef.current) return;
       const curProj = projectList.find(p => p.id === currentProjectId);
-      if (curProj?.isLocalOnly) return;
+      if (curProj?.isLocalOnly || curProj?.filePath) return;
       if (hasUnsavedChangesRef.current || isSavingRef.current) return;
       try {
         const remote = await fetchProjectData(currentProjectId);
@@ -1214,12 +1221,23 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
           const parsed = JSON.parse(localRaw);
           if (Array.isArray(parsed)) {
             parsed.forEach((lp: any) => {
-              if (lp && lp.id && !combined.some(c => c.id === lp.id)) {
-                combined.push({
-                  ...lp,
-                  isLocalOnly: true,
-                  name: lp.name || 'Local Draft'
-                });
+              if (lp && lp.id) {
+                const existingIdx = combined.findIndex(c => c.id === lp.id);
+                if (existingIdx >= 0) {
+                  if (lp.isLocalOnly || lp.filePath) {
+                    combined[existingIdx] = {
+                      ...combined[existingIdx],
+                      isLocalOnly: true,
+                      filePath: lp.filePath || combined[existingIdx].filePath
+                    };
+                  }
+                } else {
+                  combined.push({
+                    ...lp,
+                    isLocalOnly: true,
+                    name: lp.name || 'Local Draft'
+                  });
+                }
               }
             });
           }
@@ -1241,10 +1259,10 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
         const curId = currentProjectId || (typeof localStorage !== 'undefined' ? localStorage.getItem('currentProjectId') : null);
         const curProj = combined.find(p => p.id === curId);
 
-        if (curId && curId !== 'empty-project' && curProj && !curProj.isLocalOnly) {
+        if (curId && curId !== 'empty-project' && curProj && !curProj.isLocalOnly && !curProj.filePath) {
           await selectProjectRef.current(curId, { silent: true });
         } else if ((!curId || curId === 'empty-project') && !filePathRef.current) {
-          const cloudProjects = combined.filter(p => !p.isLocalOnly);
+          const cloudProjects = combined.filter(p => !p.isLocalOnly && !p.filePath);
           if (cloudProjects.length > 0) {
             await selectProjectRef.current(cloudProjects[0].id, { silent: true });
           }
@@ -1344,6 +1362,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   const logout = async () => {
+    isExplicitLogoutRef.current = true;
     if (isSupabaseConfigured) {
       try {
         await supabase.auth.signOut();
@@ -1531,15 +1550,20 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   ]);
 
   const selectProject = async (id: string, opts?: { silent?: boolean }) => {
-    setFileHandle(null);
-    fileHandleRef.current = null;
-    setFilePath(null);
-    filePathRef.current = null;
     let resolvedName = '';
     let isInvitedProj = false;
 
     const existingInList = projectList.find(p => p.id === id);
-    const isLocalProject = existingInList?.isLocalOnly || !supabaseUser;
+    const isLocalProject = Boolean(filePathRef.current || existingInList?.isLocalOnly || existingInList?.filePath || !supabaseUser);
+
+    if (!isLocalProject) {
+      setFileHandle(null);
+      fileHandleRef.current = null;
+      setFilePath(null);
+      filePathRef.current = null;
+    } else if (existingInList?.filePath && !filePathRef.current) {
+      setFilePathWrapped(existingInList.filePath);
+    }
 
     if (!opts?.silent) {
       setIsProjectLoading(true);
@@ -1983,7 +2007,8 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
               name: newName,
               created: Date.now(),
               lastModified: Date.now(),
-              isLocalOnly: !supabaseUser
+              isLocalOnly: true,
+              filePath: selected
             };
             setProjectList(prev => {
               const updated = [newMeta, ...prev.filter(p => p.id !== newProjId)];
@@ -2046,7 +2071,8 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
           name: newName,
           created: Date.now(),
           lastModified: Date.now(),
-          isLocalOnly: !supabaseUser
+          isLocalOnly: true,
+          filePath: handle.name
         };
         setProjectList(prev => {
           const updated = [newMeta, ...prev.filter(p => p.id !== newProjId)];

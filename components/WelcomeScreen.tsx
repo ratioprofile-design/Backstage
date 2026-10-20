@@ -143,16 +143,19 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
     }>();
 
     // 1. Projects from context (both cloud and local)
+    const storedRecentsForMap = getRecentFiles();
     const combinedContextList = [...(cloudProjects || []), ...(projectList || [])];
     combinedContextList.forEach(p => {
       if (!p || !p.id) return;
       const isCollab = !!p.isInvited;
-      const isCloud = !isCollab && Boolean(isCloudMode || currentUser);
+      const isLocal = Boolean(p.isLocalOnly || p.filePath || storedRecentsForMap.some(r => r.name === p.name && !isCollab));
+      const isCloud = !isCollab && !isLocal && Boolean(isCloudMode || currentUser);
       const modTime = p.lastModified || p.created || ((p as any).updatedAt ? new Date((p as any).updatedAt).getTime() : 0);
       map.set(p.id, {
         id: p.id,
         name: p.name || 'Untitled Screenplay',
         type: isCollab ? 'collab' : (isCloud ? 'cloud' : 'local'),
+        path: p.filePath,
         lastModified: modTime || Date.now(),
         invitedBy: p.invitedBy,
         isCurrent: p.id === currentProjectId,
@@ -330,15 +333,16 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
       }
       return;
     }
-    if (proj.type === 'file' && proj.path) {
+    if ((proj.type === 'file' || proj.path) && proj.path) {
+      onDismiss();
       onOpenRecent(proj.path);
+      return;
+    }
+    if (proj.type === 'cloud' && !proj.raw?.isLocalOnly && !proj.path && onOpenCloudProject) {
+      onOpenCloudProject(proj.id);
     } else {
-      if (proj.type === 'cloud' && onOpenCloudProject) {
-        onOpenCloudProject(proj.id);
-      } else {
-        selectProject(proj.id);
-        onDismiss();
-      }
+      selectProject(proj.id);
+      onDismiss();
     }
   };
 

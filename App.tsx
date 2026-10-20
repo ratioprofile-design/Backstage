@@ -330,13 +330,14 @@ const AppContent: React.FC = () => {
   const [showAuthModal, setShowAuthModal] = useState(false);
 
   // When user signs out or exits a project, redirect to welcome screen to pick another project
+  // NOTE: Never kick the user to welcome screen if they have an active project or local file open!
   const prevUserRef = useRef(currentUser);
   useEffect(() => {
-    if (prevUserRef.current && !currentUser) {
+    if (prevUserRef.current && !currentUser && (!currentProjectId || currentProjectId === 'empty-project') && !filePath) {
       setShowWelcome(true);
     }
     prevUserRef.current = currentUser;
-  }, [currentUser]);
+  }, [currentUser, currentProjectId, filePath]);
 
   useEffect(() => {
     const handleShowWelcome = () => {
@@ -413,6 +414,7 @@ const AppContent: React.FC = () => {
       loadProject(JSON.parse(content), { projectName: projName, isLocalOnly: true });
       setRecentFiles(addRecentFile(path, projName));
       try { localStorage.setItem("backstage_project_closed", "false"); } catch {}
+      setShowWelcome(false);
       return true;
     } catch (err) {
       console.error("Failed to open project file", err);
