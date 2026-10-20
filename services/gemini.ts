@@ -158,7 +158,7 @@ async function openAICompletion(baseUrl: string, prompt: string, model: string, 
 // Routes a text prompt to OpenRouter/TokenRouter or Google Gemini based on the model slug.
 // Falls back to Gemini automatically when the external provider is out of credit
 // and a Gemini key is configured.
-async function callTextModel(prompt: string, model: string, jsonMode: boolean, openRouterApiKey?: string): Promise<string> {
+export async function callTextModel(prompt: string, model: string, jsonMode: boolean, openRouterApiKey?: string): Promise<string> {
   const isGrokModel = typeof model === 'string' && model.startsWith('grok-');
   const isGroqModel = typeof model === 'string' && model.startsWith('groq-');
   
@@ -212,6 +212,16 @@ export async function generateText(prompt: string, model: string = 'gemini-3.6-f
     return await callTextModel(prompt, model, false, openRouterApiKey);
   } catch (error) {
     console.error("AI Text Gen Error:", error);
+    throw error;
+  }
+}
+
+export async function callAiJson(prompt: string, model: string = 'gemini-flash-latest', openRouterApiKey?: string): Promise<any> {
+  try {
+    const text = await callTextModel(prompt, model, true, openRouterApiKey);
+    return safeJSONParse(text);
+  } catch (error) {
+    console.error("AI JSON Gen Error:", error);
     throw error;
   }
 }
@@ -412,7 +422,7 @@ async function chatGemini(messages: ChatMessage[], model: string, systemPrompt?:
 }
 
 // Helper to sanitize JSON strings with bad escapes
-function safeJSONParse(jsonStr: string): any {
+export function safeJSONParse(jsonStr: string): any {
     let clean = jsonStr.replace(/```json/gi, '').replace(/```/g, '').trim();
     try {
         return JSON.parse(clean);

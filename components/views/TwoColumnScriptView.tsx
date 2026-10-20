@@ -42,10 +42,14 @@ import { TwoColumnExportModal } from '../TwoColumnExportModal';
 import { CharacterSuggestionManagerModal } from '../CharacterSuggestionManagerModal';
 import { TwoColumnItemRow } from '../TwoColumnItemRow';
 import { TwoColumnShortcutsModal } from '../TwoColumnShortcutsModal';
-import { printTwoColumnVector } from '../../services/twoColumnExportEngine';
+import { TwoColumnAiAlignmentModal } from '../TwoColumnAiAlignmentModal';
+import {
+  aiScriptAlignmentManager,
+  alignSingleScene,
+  AlignmentOptions,
+  AlignmentProgressState,
+} from '../../services/aiScriptAlignmentEngine';
 import confetti from 'canvas-confetti';
-import html2canvas from 'html2canvas';
-import { jsPDF } from 'jspdf';
 import { supabase, isSupabaseConfigured } from '../../services/supabase';
 import {
   Columns,
@@ -323,7 +327,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
   initialDocumentId,
   onNavigateToView,
 }) => {
-  const projectContext = useProject();
+  const projectContext = useProject(["appTheme","appAccentColor","beats","breakdownLanguage","currentProjectId","currentUser","generalAiModel","isCloudMode","openrouterKey","saveProject","setHasUnsavedChanges","supabaseUser","updateBeat"]);
   const { appTheme, appAccentColor = '#f5a623' } = projectContext;
   const isLight =
     appTheme === 'light' ||
@@ -702,6 +706,18 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
   const [isFindReplaceOpen, setIsFindReplaceOpen] = useState<boolean>(false);
   const [showReplaceByDefault, setShowReplaceByDefault] = useState<boolean>(false);
   const [isShortcutsModalOpen, setIsShortcutsModalOpen] = useState<boolean>(false);
+  const [isAiAlignmentModalOpen, setIsAiAlignmentModalOpen] = useState<boolean>(false);
+  const [aiAlignmentProgress, setAiAlignmentProgress] = useState<AlignmentProgressState>(() =>
+    aiScriptAlignmentManager.getState()
+  );
+  const [aligningSingleSceneId, setAligningSingleSceneId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const unsub = aiScriptAlignmentManager.subscribe((state) => {
+      setAiAlignmentProgress(state);
+    });
+    return unsub;
+  }, []);
   const canvasScrollerRef = useRef<HTMLDivElement | null>(null);
 
   // Mouse Drag / Marquee Block Selection State
@@ -901,6 +917,66 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
   const showToast = useCallback((msg: string) => {
     notify(msg);
   }, []);
+
+  // AI Screenplay Alignment Handlers
+  const handleRunAiAutoAlign = useCallback((options: AlignmentOptions) => {
+    // Capture pre-alignment snapshot for 1-click Undo safety
+    pushToUndoHistory(screenplayDataRef.current);
+
+    const allScenes = screenplayDataRef.current.scenes;
+    const startIdx = options.startSceneIndex ?? 0;
+    const endIdx = options.endSceneIndex ?? allScenes.length;
+    const targetScenes = allScenes.slice(startIdx, endIdx);
+
+    showToast(`🚀 Starting AI alignment on ${targetScenes.length} scenes...`);
+
+    aiScriptAlignmentManager.startBatch(
+      targetScenes,
+      options,
+      (updatedScene, stats) => {
+        setScreenplayData((prev) => {
+          const nextScenes = prev.scenes.map((s) => (s.id === updatedScene.id ? updatedScene : s));
+          const nextData = { ...prev, scenes: nextScenes };
+          screenplayDataRef.current = nextData;
+          return nextData;
+        });
+        setHasUnsavedChanges(true);
+      }
+    );
+  }, [pushToUndoHistory, showToast]);
+
+  const handleCancelAiAutoAlign = useCallback(() => {
+    aiScriptAlignmentManager.cancel();
+    showToast('AI Auto-Alignment cancelled');
+  }, [showToast]);
+
+  const handleAlignSingleScene = useCallback(async (sceneId: string) => {
+    const sceneObj = screenplayDataRef.current.scenes.find((s) => s.id === sceneId);
+    if (!sceneObj) return;
+
+    setAligningSingleSceneId(sceneId);
+    pushToUndoHistory(screenplayDataRef.current);
+
+    try {
+      const res = await alignSingleScene(sceneObj, { model: 'gemini-flash-latest' });
+      const updatedScene = res.scene;
+      const stats = res.stats;
+
+      setScreenplayData((prev) => {
+        const nextScenes = prev.scenes.map((s) => (s.id === sceneId ? updatedScene : s));
+        const nextData = { ...prev, scenes: nextScenes };
+        screenplayDataRef.current = nextData;
+        return nextData;
+      });
+      setHasUnsavedChanges(true);
+      showToast(`✨ Aligned Scene ${updatedScene.sceneNumber}: ${stats.actionsAligned} actions, ${stats.dialoguesAligned} dialogues!`);
+    } catch (err) {
+      console.error('Error aligning scene:', err);
+      showToast(`Failed to align Scene: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setAligningSingleSceneId(null);
+    }
+  }, [pushToUndoHistory, showToast]);
 
   // 15-Category Production Breakdown Helpers & Handlers
   const findMatchingBeat = useCallback((scene?: TamilScene): Beat | undefined => {
@@ -3466,6 +3542,13 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
         return;
       }
 
+      // AI AUTO-ALIGN ENGINE: Cmd/Ctrl + Shift + A
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'a') {
+        e.preventDefault();
+        setIsAiAlignmentModalOpen(true);
+        return;
+      }
+
       // 6. SHORTCUTS MODAL: ? or F1
       if (!isInputFocused && (e.key === '?' || e.key === 'F1')) {
         e.preventDefault();
@@ -3874,6 +3957,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
       // Immediately persist current screenplay to the Vault
       saveToVault(false);
       showToast('Opening Instant Vector PDF...');
+      const { printTwoColumnVector } = await import('../../services/twoColumnExportEngine');
       await printTwoColumnVector(screenplayData, layoutOptions);
       confetti({ particleCount: 30, spread: 60, origin: { y: 0.7 } });
       showToast('✓ PDF ready! Select "Save as PDF"');
@@ -4654,6 +4738,29 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
 
         {/* Right: Breakdown, Style, Export Dropdown, Unified Cloud Status, Shortcuts */}
         <div className="flex items-center gap-2">
+          {/* AI Auto-Align (200 Pages) Engine Button */}
+          <button
+            onClick={() => setIsAiAlignmentModalOpen(true)}
+            className={`px-2.5 py-1.5 text-xs font-semibold rounded-lg border flex items-center gap-1.5 transition-all cursor-pointer ${
+              aiAlignmentProgress.isRunning
+                ? 'bg-emerald-500 text-black border-emerald-400 shadow-md animate-pulse font-bold'
+                : isLight
+                ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-300'
+                : 'bg-emerald-950/40 hover:bg-emerald-900/60 text-emerald-300 border-emerald-700/60'
+            }`}
+            title="Open AI 200-Page Screenplay Alignment Engine (Cmd+Shift+A)"
+          >
+            <Sparkles size={13} className={aiAlignmentProgress.isRunning ? 'animate-spin' : 'text-emerald-500'} />
+            <span className="font-bold">AI Auto-Align</span>
+            {aiAlignmentProgress.isRunning ? (
+              <span className="text-[10px] font-mono px-1 rounded bg-black/20 text-black">
+                {aiAlignmentProgress.percent}%
+              </span>
+            ) : (
+              <span className="hidden xl:inline text-[10px] opacity-75 font-normal">(200 Pgs)</span>
+            )}
+          </button>
+
           {/* Breakdown Drawer Toggle */}
           <button
             onClick={() => {
@@ -4775,7 +4882,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
                 <button
                   onClick={() => {
                     setIsExportMenuOpen(false);
-                    printTwoColumnVector(screenplayData, layoutOptions);
+                    void import('../../services/twoColumnExportEngine').then(({ printTwoColumnVector }) => printTwoColumnVector(screenplayData, layoutOptions));
                   }}
                   className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-left text-xs font-medium transition-colors cursor-pointer ${
                     isLight ? 'hover:bg-slate-100 text-slate-800' : 'hover:bg-zinc-800 text-zinc-100'
@@ -5339,6 +5446,20 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
                                   >
                                     <Plus size={11} className="stroke-[3]" />
                                     <span>After</span>
+                                  </button>
+                                  <div className="w-[1px] h-3 bg-slate-300 dark:bg-zinc-700" />
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleAlignSingleScene(elem.sceneId);
+                                    }}
+                                    disabled={aligningSingleSceneId === elem.sceneId}
+                                    className="p-1 rounded text-[11px] font-bold flex items-center gap-1 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 cursor-pointer disabled:opacity-50"
+                                    title="AI Align this scene (actions, dialogues, shot numbers, and headings)"
+                                  >
+                                    <Sparkles size={11} className={aligningSingleSceneId === elem.sceneId ? 'animate-spin' : ''} />
+                                    <span>{aligningSingleSceneId === elem.sceneId ? 'Aligning...' : 'AI Align'}</span>
                                   </button>
                                   {screenplayData.scenes.length > 1 && (
                                     <>
@@ -6892,6 +7013,58 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
         scenes={screenplayData.scenes}
         onJumpToOccurrence={handleJumpToOccurrence}
         isLight={isLight}
+      />
+
+      {/* Floating AI Alignment HUD Status Pill (when modal is closed but alignment runs in background) */}
+      {aiAlignmentProgress.isRunning && !isAiAlignmentModalOpen && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 flex items-center gap-3 px-4 py-2.5 rounded-full bg-zinc-900/95 text-white border border-emerald-500/50 shadow-2xl backdrop-blur-md animate-in slide-in-from-bottom-3 duration-200">
+          <div className="flex items-center gap-2">
+            <span className="relative flex h-2.5 w-2.5">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+            </span>
+            <span className="text-xs font-bold text-emerald-400">
+              AI Aligning: Sc {aiAlignmentProgress.currentSceneNumber} ({aiAlignmentProgress.percent}%)
+            </span>
+          </div>
+          <div className="w-[1px] h-3 bg-zinc-700" />
+          <span className="text-[11px] text-zinc-400 font-mono">
+            ETA: {Math.ceil(aiAlignmentProgress.estimatedSecondsRemaining)}s
+          </span>
+          <div className="w-[1px] h-3 bg-zinc-700" />
+          <button
+            onClick={() => aiAlignmentProgress.isPaused ? aiScriptAlignmentManager.resume() : aiScriptAlignmentManager.pause()}
+            className="text-xs hover:text-emerald-400 font-semibold cursor-pointer"
+          >
+            {aiAlignmentProgress.isPaused ? '▶ Resume' : '⏸ Pause'}
+          </button>
+          <div className="w-[1px] h-3 bg-zinc-700" />
+          <button
+            onClick={() => setIsAiAlignmentModalOpen(true)}
+            className="text-xs text-emerald-400 hover:underline font-semibold cursor-pointer"
+          >
+            View Plan
+          </button>
+          <button
+            onClick={() => aiScriptAlignmentManager.cancel()}
+            className="text-xs text-rose-400 hover:text-rose-300 font-semibold cursor-pointer ml-1"
+            title="Cancel AI Alignment"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
+      {/* AI Screenplay Alignment Engine Modal */}
+      <TwoColumnAiAlignmentModal
+        isOpen={isAiAlignmentModalOpen}
+        onClose={() => setIsAiAlignmentModalOpen(false)}
+        screenplayData={screenplayData}
+        isLight={isLight}
+        onStartAlignment={handleRunAiAutoAlign}
+        onCancelAlignment={handleCancelAiAutoAlign}
+        onUndoAlignment={handleUndo}
+        canUndo={canUndo}
       />
 
       {/* Kollywood 2-Column Keyboard Shortcuts Cheatsheet Modal */}

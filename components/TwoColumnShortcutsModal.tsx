@@ -100,6 +100,16 @@ export const TwoColumnShortcutsModal: React.FC<TwoColumnShortcutsModalProps> = (
       ],
     },
     {
+      title: 'AI Alignment & Autonomous Formatting',
+      icon: <Sparkles size={16} className="text-emerald-500" />,
+      items: [
+        { keys: ['Ctrl / ⌘', 'Shift', 'A'], description: 'Open AI 200-Page Screenplay Alignment Engine', badge: 'Auto-Align' },
+        { keys: ['Scene Header', '✨ AI Align'], description: 'AI Align single scene (actions, dialogue, shots, typos)', badge: '1-Click' },
+        { keys: ['Background Run'], description: 'Align entire 200 pages in the background while you write/read', badge: 'Non-Blocking' },
+        { keys: ['Undo AI'], description: 'Revert AI alignment instantly with 1-click snapshot restore', badge: 'Non-Destructive' },
+      ],
+    },
+    {
       title: 'Formatting & Montage',
       icon: <Sparkles size={16} className="text-amber-500" />,
       items: [
