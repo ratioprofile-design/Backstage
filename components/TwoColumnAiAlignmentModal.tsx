@@ -58,6 +58,8 @@ export const TwoColumnAiAlignmentModal: React.FC<TwoColumnAiAlignmentModalProps>
   const [standardizeHeadings, setStandardizeHeadings] = useState<boolean>(true);
   const [detectContinuousDialogue, setDetectContinuousDialogue] = useState<boolean>(true);
   const [correctTamilTypos, setCorrectTamilTypos] = useState<boolean>(true);
+  const [extractDialogueFromAction, setExtractDialogueFromAction] = useState<boolean>(true);
+  const [resolveCharacterMismatches, setResolveCharacterMismatches] = useState<boolean>(true);
   const [sceneRangeMode, setSceneRangeMode] = useState<'all' | 'custom'>('all');
   const [startSceneIdx, setStartSceneIdx] = useState<number>(1);
   const [endSceneIdx, setEndSceneIdx] = useState<number>(() => screenplayData.scenes.length || 1);
@@ -97,6 +99,8 @@ export const TwoColumnAiAlignmentModal: React.FC<TwoColumnAiAlignmentModalProps>
       standardizeHeadings,
       detectContinuousDialogue,
       correctTamilTypos,
+      extractDialogueFromAction,
+      resolveCharacterMismatches,
       startSceneIndex: sceneRangeMode === 'custom' ? Math.max(0, startSceneIdx - 1) : 0,
       endSceneIndex: sceneRangeMode === 'custom' ? Math.min(screenplayData.scenes.length, endSceneIdx) : screenplayData.scenes.length,
     };
@@ -236,58 +240,80 @@ export const TwoColumnAiAlignmentModal: React.FC<TwoColumnAiAlignmentModalProps>
               </div>
 
               {/* Live Statistics Grid */}
-              <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 pt-2">
+              <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-2 pt-2">
                 <div
-                  className={`p-2.5 rounded-lg border text-center ${
+                  className={`p-2 rounded-lg border text-center ${
                     isLight ? 'bg-white border-slate-200' : 'bg-zinc-900 border-zinc-800'
                   }`}
                 >
-                  <div className="text-[10px] text-slate-500 dark:text-zinc-400 font-bold uppercase">Actions</div>
-                  <div className="text-base font-black text-emerald-600 dark:text-emerald-400 mt-0.5">
+                  <div className="text-[9.5px] text-slate-500 dark:text-zinc-400 font-bold uppercase">Actions</div>
+                  <div className="text-sm font-black text-emerald-600 dark:text-emerald-400 mt-0.5">
                     {progressState.stats.actionsAligned}
                   </div>
                 </div>
 
                 <div
-                  className={`p-2.5 rounded-lg border text-center ${
+                  className={`p-2 rounded-lg border text-center ${
                     isLight ? 'bg-white border-slate-200' : 'bg-zinc-900 border-zinc-800'
                   }`}
                 >
-                  <div className="text-[10px] text-slate-500 dark:text-zinc-400 font-bold uppercase">Dialogues</div>
-                  <div className="text-base font-black text-teal-600 dark:text-teal-400 mt-0.5">
+                  <div className="text-[9.5px] text-slate-500 dark:text-zinc-400 font-bold uppercase">Dialogues</div>
+                  <div className="text-sm font-black text-teal-600 dark:text-teal-400 mt-0.5">
                     {progressState.stats.dialoguesAligned}
                   </div>
                 </div>
 
                 <div
-                  className={`p-2.5 rounded-lg border text-center ${
+                  className={`p-2 rounded-lg border text-center ${
                     isLight ? 'bg-white border-slate-200' : 'bg-zinc-900 border-zinc-800'
                   }`}
                 >
-                  <div className="text-[10px] text-slate-500 dark:text-zinc-400 font-bold uppercase">Shots Merged</div>
-                  <div className="text-base font-black text-indigo-600 dark:text-indigo-400 mt-0.5">
+                  <div className="text-[9.5px] text-slate-500 dark:text-zinc-400 font-bold uppercase">Extracted Dia</div>
+                  <div className="text-sm font-black text-cyan-600 dark:text-cyan-400 mt-0.5" title="Dialogues extracted out of action descriptions">
+                    {progressState.stats.dialoguesExtractedFromAction}
+                  </div>
+                </div>
+
+                <div
+                  className={`p-2 rounded-lg border text-center ${
+                    isLight ? 'bg-white border-slate-200' : 'bg-zinc-900 border-zinc-800'
+                  }`}
+                >
+                  <div className="text-[9.5px] text-slate-500 dark:text-zinc-400 font-bold uppercase">Cast Fixed</div>
+                  <div className="text-sm font-black text-rose-600 dark:text-rose-400 mt-0.5" title="Character name mismatches resolved to canonical cast">
+                    {progressState.stats.characterMismatchesResolved}
+                  </div>
+                </div>
+
+                <div
+                  className={`p-2 rounded-lg border text-center ${
+                    isLight ? 'bg-white border-slate-200' : 'bg-zinc-900 border-zinc-800'
+                  }`}
+                >
+                  <div className="text-[9.5px] text-slate-500 dark:text-zinc-400 font-bold uppercase">Shots Merged</div>
+                  <div className="text-sm font-black text-indigo-600 dark:text-indigo-400 mt-0.5">
                     {progressState.stats.shotNumbersMerged}
                   </div>
                 </div>
 
                 <div
-                  className={`p-2.5 rounded-lg border text-center ${
+                  className={`p-2 rounded-lg border text-center ${
                     isLight ? 'bg-white border-slate-200' : 'bg-zinc-900 border-zinc-800'
                   }`}
                 >
-                  <div className="text-[10px] text-slate-500 dark:text-zinc-400 font-bold uppercase">Typos Fixed</div>
-                  <div className="text-base font-black text-amber-600 dark:text-amber-400 mt-0.5">
+                  <div className="text-[9.5px] text-slate-500 dark:text-zinc-400 font-bold uppercase">Typos Fixed</div>
+                  <div className="text-sm font-black text-amber-600 dark:text-amber-400 mt-0.5">
                     {progressState.stats.typosCorrected}
                   </div>
                 </div>
 
                 <div
-                  className={`p-2.5 rounded-lg border text-center ${
+                  className={`p-2 rounded-lg border text-center ${
                     isLight ? 'bg-white border-slate-200' : 'bg-zinc-900 border-zinc-800'
                   }`}
                 >
-                  <div className="text-[10px] text-slate-500 dark:text-zinc-400 font-bold uppercase">Headings</div>
-                  <div className="text-base font-black text-purple-600 dark:text-purple-400 mt-0.5">
+                  <div className="text-[9.5px] text-slate-500 dark:text-zinc-400 font-bold uppercase">Headings</div>
+                  <div className="text-sm font-black text-purple-600 dark:text-purple-400 mt-0.5">
                     {progressState.stats.headingsStandardized}
                   </div>
                 </div>
@@ -346,7 +372,7 @@ export const TwoColumnAiAlignmentModal: React.FC<TwoColumnAiAlignmentModalProps>
                   <span>Alignment Plan & Formatting Rules</span>
                 </h3>
                 <span className="text-xs text-emerald-600 dark:text-emerald-400 font-medium">
-                  5 Operations Enabled
+                  7 Operations Enabled (Line-by-Line Study)
                 </span>
               </div>
 
@@ -369,6 +395,62 @@ export const TwoColumnAiAlignmentModal: React.FC<TwoColumnAiAlignmentModalProps>
                     </p>
                   </div>
                   <span className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 shrink-0">Active</span>
+                </div>
+
+                {/* Disentangle Dialogue in Action Descriptions */}
+                <div
+                  onClick={() => setExtractDialogueFromAction(!extractDialogueFromAction)}
+                  className={`p-3 rounded-xl border flex items-start gap-3 cursor-pointer transition-colors ${
+                    extractDialogueFromAction
+                      ? isLight
+                        ? 'bg-slate-50/60 border-slate-200'
+                        : 'bg-zinc-900/40 border-zinc-800/80'
+                      : 'opacity-60 bg-transparent border-dashed'
+                  }`}
+                >
+                  <div className="mt-0.5 p-1 rounded-md bg-cyan-500/10 text-cyan-500 shrink-0">
+                    <Split size={14} />
+                  </div>
+                  <div className="flex-1 text-xs">
+                    <div className="font-bold text-sm">Disentangle Dialogue in Action Descriptions</div>
+                    <p className="text-slate-500 dark:text-zinc-400 mt-0.5 leading-relaxed">
+                      Studies sentences line-by-line. If an action description contains spoken dialogue (quotes, colons, speech verbs like 'என்று சொல்ல'), it separates visual action to the Left column and character dialogue to the Right column.
+                    </p>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={extractDialogueFromAction}
+                    onChange={(e) => setExtractDialogueFromAction(e.target.checked)}
+                    className="accent-emerald-500 mt-1 cursor-pointer"
+                  />
+                </div>
+
+                {/* Resolve Character Name Mismatches */}
+                <div
+                  onClick={() => setResolveCharacterMismatches(!resolveCharacterMismatches)}
+                  className={`p-3 rounded-xl border flex items-start gap-3 cursor-pointer transition-colors ${
+                    resolveCharacterMismatches
+                      ? isLight
+                        ? 'bg-slate-50/60 border-slate-200'
+                        : 'bg-zinc-900/40 border-zinc-800/80'
+                      : 'opacity-60 bg-transparent border-dashed'
+                  }`}
+                >
+                  <div className="mt-0.5 p-1 rounded-md bg-rose-500/10 text-rose-500 shrink-0">
+                    <ShieldCheck size={14} />
+                  </div>
+                  <div className="flex-1 text-xs">
+                    <div className="font-bold text-sm">Resolve Character Name Mismatches & Typo Clusters</div>
+                    <p className="text-slate-500 dark:text-zinc-400 mt-0.5 leading-relaxed">
+                      Pre-studies all 200 pages to create a Canonical Cast Registry. Automatically unifies name variations (e.g. 'பெருமால்சாமி' → 'பெருமாள்சாமி', 'ஆனந்து ராஜ்' → 'ஆனந்துராஜ்', 'paster' → 'பாஸ்டர்') across the entire screenplay.
+                    </p>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={resolveCharacterMismatches}
+                    onChange={(e) => setResolveCharacterMismatches(e.target.checked)}
+                    className="accent-emerald-500 mt-1 cursor-pointer"
+                  />
                 </div>
 
                 {/* 2. Numbered Shots Merging */}

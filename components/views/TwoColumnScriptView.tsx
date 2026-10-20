@@ -46,6 +46,7 @@ import { TwoColumnAiAlignmentModal } from '../TwoColumnAiAlignmentModal';
 import {
   aiScriptAlignmentManager,
   alignSingleScene,
+  studyScriptCastAndStructure,
   AlignmentOptions,
   AlignmentProgressState,
 } from '../../services/aiScriptAlignmentEngine';
@@ -958,7 +959,8 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
     pushToUndoHistory(screenplayDataRef.current);
 
     try {
-      const res = await alignSingleScene(sceneObj, { model: 'gemini-flash-latest' });
+      const castRegistry = aiScriptAlignmentManager.getCastRegistry() || studyScriptCastAndStructure(screenplayDataRef.current.scenes);
+      const res = await alignSingleScene(sceneObj, { model: 'gemini-flash-latest', castRegistry });
       const updatedScene = res.scene;
       const stats = res.stats;
 
@@ -969,7 +971,11 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
         return nextData;
       });
       setHasUnsavedChanges(true);
-      showToast(`✨ Aligned Scene ${updatedScene.sceneNumber}: ${stats.actionsAligned} actions, ${stats.dialoguesAligned} dialogues!`);
+
+      let extraDetail = '';
+      if (stats.dialoguesExtractedFromAction > 0) extraDetail += `, ${stats.dialoguesExtractedFromAction} dialogues extracted from action`;
+      if (stats.characterMismatchesResolved > 0) extraDetail += `, ${stats.characterMismatchesResolved} cast names standardized`;
+      showToast(`✨ Aligned Scene ${updatedScene.sceneNumber}: ${stats.actionsAligned} actions, ${stats.dialoguesAligned} dialogues${extraDetail}!`);
     } catch (err) {
       console.error('Error aligning scene:', err);
       showToast(`Failed to align Scene: ${err instanceof Error ? err.message : String(err)}`);
