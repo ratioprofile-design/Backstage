@@ -560,11 +560,12 @@ export function getProductionDocuments(projectId?: string): ProductionDocument[]
 
     // Do NOT auto-create Master Production Breakdown sheet (respect collaborator & user preferences)
 
-    // Ensure SANGILI Master Screenplay exists in the vault and is staged to script IF not explicitly deleted
+    // Only inject default demo script if project has no other script documents and not explicitly deleted
+    const hasAnyScript = filtered.some((d: ProductionDocument) => d.category === 'SCRIPT' || d.isLeftRightFormat || d.hasTwoColumnScript);
     const hasSangili = filtered.some((d: ProductionDocument) => d.id === SANGILI_DOCUMENT_ID);
-    if (!hasSangili && !tombstones.has(SANGILI_DOCUMENT_ID)) {
+    if (!hasSangili && !hasAnyScript && !tombstones.has(SANGILI_DOCUMENT_ID)) {
       hasMigrated = true;
-      filtered.unshift(getSangiliDocument(activeProjId));
+      filtered.push(getSangiliDocument(activeProjId));
     }
 
     const migrated: ProductionDocument[] = filtered.map((doc: ProductionDocument): ProductionDocument => {
@@ -610,7 +611,10 @@ export function getProductionDocuments(projectId?: string): ProductionDocument[]
     if (typeof localStorage !== 'undefined') {
       try {
         if (!localStorage.getItem('active_two_column_doc_id')) {
-          localStorage.setItem('active_two_column_doc_id', SANGILI_DOCUMENT_ID);
+          const firstScript = filtered.find(d => d.isStagedToScript) || filtered.find(d => d.category === 'SCRIPT' || d.isLeftRightFormat || d.hasTwoColumnScript);
+          if (firstScript) {
+            localStorage.setItem('active_two_column_doc_id', firstScript.id);
+          }
         }
       } catch {}
     }
@@ -670,7 +674,7 @@ export function getProductionDocuments(projectId?: string): ProductionDocument[]
 
     inMemoryDocsCache[activeProjId] = result;
 
-    if (hasMigrated) {
+    if (hasMigrated && result.length > 0) {
       saveProductionDocuments(result, projectId, true);
     }
 
@@ -947,25 +951,32 @@ export function saveProductionDocuments(
 ): void {
   const activeProjId = projectId || (typeof localStorage !== 'undefined' ? localStorage.getItem('currentProjectId') || 'default' : 'default');
 
+  // Non-destructively merge with existing cache so screenplay content is NEVER dropped by slim updates
+  const existingCache = inMemoryDocsCache[activeProjId] || [];
+  const fullDocs = (docs.length === 0 && existingCache.length > 0)
+    ? existingCache
+    : mergeProductionDocuments(existingCache, docs, activeProjId);
+
   // 1. Immediately cache in-memory so synchronous access never loses documents
-  inMemoryDocsCache[activeProjId] = docs;
+  inMemoryDocsCache[activeProjId] = fullDocs;
 
   // 1b. Rust-First Native Disk Storage (zero quota errors, saves 100MB+ safely to disk)
-  saveDocumentsToRustDisk(activeProjId, docs).catch(() => {});
+  if (fullDocs.length > 0) {
+    saveDocumentsToRustDisk(activeProjId, fullDocs).catch(() => {});
+  }
 
   // 2. Persist to unlimited IndexedDB storage (handles 50MB+ PDFs/DOCX with 0 quota errors)
-  if (typeof indexedDB !== 'undefined') {
-    saveLargeDocuments(activeProjId, docs).catch((idbErr) => {
+  if (typeof indexedDB !== 'undefined' && fullDocs.length > 0) {
+    saveLargeDocuments(activeProjId, fullDocs).catch((idbErr) => {
       console.warn('[DocVault] IndexedDB save notice:', idbErr);
     });
   }
 
   // 3. Persist to localStorage with QuotaExceededError protection
-  // Always strip heavy binaries from localStorage — IndexedDB holds the full versions
+  // Keep clean twoColumnData & textContent, strip only heavy dataUrls (PDF, image, audio, docx binary)
   try {
     const key = getDocumentStorageKey(projectId);
-    // Slim metadata only for localStorage (under 5KB total) — full twoColumnData and binaries are in RAM and on Rust disk
-    const lsDocs = docs.map((doc) => ({
+    const lsDocs = fullDocs.map((doc) => ({
       id: doc.id,
       projectId: doc.projectId,
       title: doc.title,
@@ -985,11 +996,19 @@ export function saveProductionDocuments(
       status: doc.status,
       tags: doc.tags,
       annotations: doc.annotations || [],
+      twoColumnData: doc.twoColumnData,
+      textContent: doc.textContent,
       thumbnailDataUrl: doc.thumbnailDataUrl && doc.thumbnailDataUrl.length < 20000 ? doc.thumbnailDataUrl : undefined,
     }));
-    localStorage.setItem(key, JSON.stringify(lsDocs));
+    const json = JSON.stringify(lsDocs);
+    if (json.length < 2500000) {
+      localStorage.setItem(key, json);
+    } else {
+      const slimDocs = lsDocs.map(d => ({ ...d, twoColumnData: undefined, textContent: undefined }));
+      localStorage.setItem(key, JSON.stringify(slimDocs));
+    }
   } catch (quotaErr) {
-    console.warn('[DocVault] localStorage quota exceeded:', quotaErr);
+    console.warn('[DocVault] localStorage quota notice:', quotaErr);
   }
 
   // 4. Dispatch custom window event

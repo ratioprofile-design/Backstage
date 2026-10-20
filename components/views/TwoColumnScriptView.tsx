@@ -337,15 +337,21 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
   const [selectedDocId, setSelectedDocId] = useState<string>(() => {
     if (initialDocumentId) return initialDocumentId;
     if (typeof localStorage !== 'undefined') {
-      const activeTwoCol = localStorage.getItem('active_two_column_doc_id') || localStorage.getItem('backstage_last_vault_doc_id');
-      if (activeTwoCol && documents.some((d) => d.id === activeTwoCol)) {
-        return activeTwoCol;
+      const activeTwoCol = localStorage.getItem('active_two_column_doc_id');
+      if (activeTwoCol) {
+        if (documents.length === 0 || documents.some((d) => d.id === activeTwoCol)) {
+          return activeTwoCol;
+        }
+      }
+      const lastVaultDoc = localStorage.getItem('backstage_last_vault_doc_id');
+      if (lastVaultDoc && documents.some((d) => d.id === lastVaultDoc)) {
+        return lastVaultDoc;
       }
     }
     const stagedDoc = documents.find((d) => d.isStagedToScript);
     if (stagedDoc) return stagedDoc.id;
     const scriptDoc = documents.find((d) => d.isLeftRightFormat || d.hasTwoColumnScript || d.category === 'SCRIPT');
-    return scriptDoc?.id || '';
+    return scriptDoc?.id || documents[0]?.id || '';
   });
 
   // Keep selectedDocId synchronized with active_two_column_doc_id or initialDocumentId
@@ -409,19 +415,19 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
       setDocuments(fullDocs);
       const targetDoc = fullDocs.find((d) => d.id === selectedDocId) 
         || fullDocs.find((d) => d.isStagedToScript)
-        || fullDocs.find((d) => d.isLeftRightFormat || d.hasTwoColumnScript || d.category === 'SCRIPT');
+        || fullDocs.find((d) => d.isLeftRightFormat || d.hasTwoColumnScript || d.category === 'SCRIPT')
+        || fullDocs[0];
       
       if (targetDoc) {
+        if (!selectedDocId || selectedDocId !== targetDoc.id) {
+          setSelectedDocId(targetDoc.id);
+        }
         if (targetDoc.twoColumnData && Array.isArray(targetDoc.twoColumnData.scenes) && targetDoc.twoColumnData.scenes.length > 0) {
-          if (!screenplayDataRef.current?.scenes || screenplayDataRef.current.scenes.length === 0) {
-            screenplayDataRef.current = targetDoc.twoColumnData;
-            setScreenplayData(targetDoc.twoColumnData);
-          }
+          screenplayDataRef.current = targetDoc.twoColumnData;
+          setScreenplayData(targetDoc.twoColumnData);
         } else {
-          const raw = (targetDoc.fileName?.endsWith('.docx') && targetDoc.htmlContent)
-            ? targetDoc.htmlContent
-            : (targetDoc.textContent || '');
-          if (raw.trim() && (!screenplayDataRef.current?.scenes || screenplayDataRef.current.scenes.length === 0)) {
+          const raw = targetDoc.textContent || (targetDoc.htmlContent ? targetDoc.htmlContent.replace(/<[^>]+>/g, '\n') : '');
+          if (raw.trim()) {
             const parsed = parseScreenplayToTamilLeftRight(raw, targetDoc.title || 'Screenplay');
             screenplayDataRef.current = parsed;
             setScreenplayData(parsed);
@@ -434,7 +440,14 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
   }, [projectContext.currentProjectId, selectedDocId]);
 
   const activeDoc = useMemo(() => {
-    return documents.find((d) => d.id === selectedDocId) || documents.find((d) => d.isStagedToScript) || documents.find((d) => d.isLeftRightFormat || d.hasTwoColumnScript || d.category === 'SCRIPT');
+    return (
+      documents.find((d) => d.id === selectedDocId) ||
+      (selectedDocId ? undefined : documents.find((d) => d.isStagedToScript)) ||
+      (selectedDocId ? undefined : documents.find((d) => d.isLeftRightFormat || d.hasTwoColumnScript || d.category === 'SCRIPT')) ||
+      documents.find((d) => d.isStagedToScript) ||
+      documents.find((d) => d.isLeftRightFormat || d.hasTwoColumnScript || d.category === 'SCRIPT') ||
+      documents[0]
+    );
   }, [documents, selectedDocId]);
 
   // Screenplay Data
@@ -533,8 +546,20 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
     if (typeof localStorage !== 'undefined') {
       localStorage.setItem('active_two_column_doc_id', docId);
     }
+    const doc = documents.find((d) => d.id === docId);
+    if (doc?.twoColumnData && Array.isArray(doc.twoColumnData.scenes) && doc.twoColumnData.scenes.length > 0) {
+      screenplayDataRef.current = doc.twoColumnData;
+      setScreenplayData(doc.twoColumnData);
+    } else if (doc) {
+      const raw = doc.textContent || (doc.htmlContent ? doc.htmlContent.replace(/<[^>]+>/g, '\n') : '');
+      if (raw.trim()) {
+        const parsed = parseScreenplayToTamilLeftRight(raw, doc.title);
+        screenplayDataRef.current = parsed;
+        setScreenplayData(parsed);
+      }
+    }
     setIsDocSwitcherOpen(false);
-    showToast('✓ Switched script document');
+    showToast(`✓ Opened "${doc?.title || 'Script'}"`);
   };
 
   // Switch or reload active document (skip redundant mount reload if already initialized)
@@ -542,17 +567,22 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
   useEffect(() => {
     if (activeDoc) {
       if (lastActiveDocIdRef.current === activeDoc.id && screenplayDataRef.current?.scenes?.length > 0) {
+        if (activeDoc.twoColumnData && Array.isArray(activeDoc.twoColumnData.scenes) && activeDoc.twoColumnData.scenes.length > screenplayDataRef.current.scenes.length) {
+          screenplayDataRef.current = activeDoc.twoColumnData;
+          setScreenplayData(activeDoc.twoColumnData);
+        }
         return;
       }
       lastActiveDocIdRef.current = activeDoc.id;
-      if (activeDoc.twoColumnData && Array.isArray(activeDoc.twoColumnData.scenes)) {
+      if (activeDoc.twoColumnData && Array.isArray(activeDoc.twoColumnData.scenes) && activeDoc.twoColumnData.scenes.length > 0) {
+        screenplayDataRef.current = activeDoc.twoColumnData;
         setScreenplayData(activeDoc.twoColumnData);
       } else {
-        const raw = (activeDoc.fileName?.endsWith('.docx') && activeDoc.htmlContent)
-          ? activeDoc.htmlContent
-          : (activeDoc.textContent || (activeDoc.htmlContent ? activeDoc.htmlContent.replace(/<[^>]+>/g, '\n') : ''));
+        const raw = activeDoc.textContent || (activeDoc.htmlContent ? activeDoc.htmlContent.replace(/<[^>]+>/g, '\n') : '');
         if (raw.trim()) {
-          setScreenplayData(parseScreenplayToTamilLeftRight(raw, activeDoc.title));
+          const parsed = parseScreenplayToTamilLeftRight(raw, activeDoc.title);
+          screenplayDataRef.current = parsed;
+          setScreenplayData(parsed);
         } else {
           setScreenplayData({
             title: activeDoc.title || 'Untitled Screenplay',
@@ -566,7 +596,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
       setSelectedItemIds(new Set());
       setHasUnsavedChanges(false);
     }
-  }, [activeDoc?.id]);
+  }, [activeDoc?.id, activeDoc?.twoColumnData, activeDoc?.textContent]);
 
   // Live Mutable Ref to prevent stale React closures when inserting scenes or syncing
   const screenplayDataRef = useRef<TamilScreenplayData>(screenplayData);
