@@ -27,6 +27,7 @@ export interface TwoColumnSceneSidebarProps {
   onToggleOpen: () => void;
   activeSceneId?: string | null;
   onSelectScene: (sceneId: string, pageNumber?: number) => void;
+  onFocusScriptScene?: (sceneId: string) => void;
   onAddScene?: (targetSceneId?: string, position?: 'before' | 'after' | 'end') => void;
   onDeleteScene?: (sceneId: string) => void;
   onRenumberScenes?: () => void;
@@ -157,6 +158,7 @@ export const TwoColumnSceneSidebar: React.FC<TwoColumnSceneSidebarProps> = React
   onToggleOpen,
   activeSceneId,
   onSelectScene,
+  onFocusScriptScene,
   onAddScene,
   onDeleteScene,
   onRenumberScenes,
@@ -203,6 +205,100 @@ export const TwoColumnSceneSidebar: React.FC<TwoColumnSceneSidebarProps> = React
   }, [screenplayData.scenes, sceneMetadataMap]);
 
   // Filter scenes based on search query, setting filter, and time filter
+    // Auto-scroll active scene into view in sidebar
+  React.useEffect(() => {
+    if (activeSceneId && isOpen) {
+      const cardEl = document.getElementById(`sidebar-scene-card-${activeSceneId}`);
+      if (cardEl && document.activeElement !== cardEl) {
+        cardEl.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      }
+    }
+  }, [activeSceneId, isOpen]);
+
+  // Keyboard navigation for scene cards (ArrowUp / ArrowDown / Home / End / Enter)
+  const handleCardKeyDown = (e: React.KeyboardEvent, scene: TamilScene, index: number) => {
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      const nextIndex = Math.min(filteredScenes.length - 1, index + 1);
+      const nextScene = filteredScenes[nextIndex];
+      if (nextScene) {
+        onSelectScene(nextScene.id, scenePageMap[nextScene.id]);
+        const cardEl = document.getElementById(`sidebar-scene-card-${nextScene.id}`);
+        if (cardEl) {
+          cardEl.focus({ preventScroll: true });
+          cardEl.scrollIntoView({ block: "nearest", behavior: "smooth" });
+        }
+      }
+      return;
+    }
+    if (e.key === "ArrowUp") {
+      e.preventDefault();
+      const prevIndex = Math.max(0, index - 1);
+      const prevScene = filteredScenes[prevIndex];
+      if (prevScene) {
+        onSelectScene(prevScene.id, scenePageMap[prevScene.id]);
+        const cardEl = document.getElementById(`sidebar-scene-card-${prevScene.id}`);
+        if (cardEl) {
+          cardEl.focus({ preventScroll: true });
+          cardEl.scrollIntoView({ block: "nearest", behavior: "smooth" });
+        }
+      }
+      return;
+    }
+    if (e.key === "Home") {
+      e.preventDefault();
+      const firstScene = filteredScenes[0];
+      if (firstScene) {
+        onSelectScene(firstScene.id, scenePageMap[firstScene.id]);
+        const cardEl = document.getElementById(`sidebar-scene-card-${firstScene.id}`);
+        if (cardEl) {
+          cardEl.focus({ preventScroll: true });
+          cardEl.scrollIntoView({ block: "nearest", behavior: "smooth" });
+        }
+      }
+      return;
+    }
+    if (e.key === "End") {
+      e.preventDefault();
+      const lastScene = filteredScenes[filteredScenes.length - 1];
+      if (lastScene) {
+        onSelectScene(lastScene.id, scenePageMap[lastScene.id]);
+        const cardEl = document.getElementById(`sidebar-scene-card-${lastScene.id}`);
+        if (cardEl) {
+          cardEl.focus({ preventScroll: true });
+          cardEl.scrollIntoView({ block: "nearest", behavior: "smooth" });
+        }
+      }
+      return;
+    }
+    if (e.key === "Enter" || e.key === "ArrowRight") {
+      e.preventDefault();
+      onSelectScene(scene.id, scenePageMap[scene.id]);
+      onFocusScriptScene?.(scene.id);
+      return;
+    }
+  };
+
+  const handleContainerKeyDown = (e: React.KeyboardEvent) => {
+    if (e.target !== e.currentTarget) return;
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      const currentIdx = filteredScenes.findIndex((s) => s.id === activeSceneId);
+      const targetIdx = e.key === "ArrowDown"
+        ? (currentIdx === -1 ? 0 : Math.min(filteredScenes.length - 1, currentIdx + 1))
+        : (currentIdx === -1 ? 0 : Math.max(0, currentIdx - 1));
+      const targetScene = filteredScenes[targetIdx];
+      if (targetScene) {
+        onSelectScene(targetScene.id, scenePageMap[targetScene.id]);
+        const cardEl = document.getElementById(`sidebar-scene-card-${targetScene.id}`);
+        if (cardEl) {
+          cardEl.focus({ preventScroll: true });
+          cardEl.scrollIntoView({ block: "nearest", behavior: "smooth" });
+        }
+      }
+    }
+  };
+
   const filteredScenes = useMemo(() => {
     return screenplayData.scenes.filter((scene) => {
       const meta = sceneMetadataMap.get(scene.id) || parseSceneMetadata(scene);
@@ -515,7 +611,13 @@ export const TwoColumnSceneSidebar: React.FC<TwoColumnSceneSidebarProps> = React
       </div>
 
       {/* 3. Scene Cards List */}
-      <div className="flex-1 overflow-y-auto p-2 space-y-2">
+      <div
+        tabIndex={0}
+        role="region"
+        aria-label="Scene Navigator List"
+        onKeyDown={handleContainerKeyDown}
+        className="flex-1 overflow-y-auto p-2 space-y-2 focus:outline-none"
+      >
         {filteredScenes.length === 0 ? (
           <div className="p-6 text-center text-xs text-zinc-500 flex flex-col items-center gap-2">
             <Search size={22} className="opacity-30" />
@@ -548,8 +650,13 @@ export const TwoColumnSceneSidebar: React.FC<TwoColumnSceneSidebarProps> = React
             return (
               <div
                 key={scene.id}
+                id={`sidebar-scene-card-${scene.id}`}
+                tabIndex={0}
+                role="button"
+                aria-label={`Scene ${scene.sceneNumber || index + 1}`}
                 onClick={() => onSelectScene(scene.id, pageNum)}
-                className={`group relative rounded-xl p-2.5 transition-all cursor-pointer border ${
+                onKeyDown={(e) => handleCardKeyDown(e, scene, index)}
+                className={`group relative rounded-xl p-2.5 transition-all cursor-pointer border focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 ${
                   isActive
                     ? isLight
                       ? 'bg-emerald-50 border-emerald-500 shadow-md ring-1 ring-emerald-500/30'

@@ -73,7 +73,10 @@ export const TwoColumnShortcutsModal: React.FC<TwoColumnShortcutsModalProps> = (
       items: [
         { keys: ['↓'], description: 'Navigate down across cards or at end of text while typing', badge: 'Next Card' },
         { keys: ['↑'], description: 'Navigate up across cards or at top of text while typing', badge: 'Prev Card' },
-        { keys: ['Alt', '↓ / ↑'], description: 'Quick-jump immediately to next / previous row while editing' },
+        { keys: ['Alt', '↓ / ↑'], description: 'Jump directly to Next / Previous Scene (Scene 1 ➔ 2 ➔ ... ➔ 100)', badge: 'PageDown / PageUp' },
+        { keys: ['Ctrl / ⌘', 'J'], description: 'Quick Scene Jumper modal (Type 100 & Enter to jump)', badge: 'Scene 1-100' },
+        { keys: ['Sidebar', '↓ / ↑'], description: 'In Scene Sidebar: Step through Scene 1 to 100 with Up/Down arrow', badge: 'Enter to Edit' },
+        { keys: ['Scene Header', '↓ / ↑'], description: 'On Scene Header: Step directly across Scene Headers with Up/Down arrow', badge: 'Scene Jump' },
         { keys: ['→ / ←'], description: 'Glide between Left (Action) ➔ Right (Dialogue / Character)' },
         { keys: ['Home / End'], description: 'Jump directly to first / last paragraph in screenplay' },
         { keys: ['Shift', '↑ / ↓'], description: 'Multi-select continuous range of paragraph cards' },

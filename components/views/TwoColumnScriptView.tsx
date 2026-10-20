@@ -105,6 +105,8 @@ import {
   ListChecks,
   RefreshCw,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import {
   BreakdownCategory,
@@ -1157,6 +1159,11 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
 
   const { pages, totalPages, totalItems, totalScenes } = paginationResult;
 
+  // Scene Jumper Modal State
+  const [isSceneJumperOpen, setIsSceneJumperOpen] = useState(false);
+  const [sceneJumpQuery, setSceneJumpQuery] = useState("");
+  const [selectedJumperIndex, setSelectedJumperIndex] = useState(0);
+
   // Full Page Mounting: All pages mounted so arrow key navigation reaches all scenes seamlessly to the bottom
   const [renderedPageLimit, setRenderedPageLimit] = useState<number>(() => Math.max(pages.length, 500));
 
@@ -1261,7 +1268,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
     return map;
   }, [screenplayData.scenes]);
 
-  // Handle scene selection from sidebar (smooth scrolls canvas directly to scene)
+  // Handle scene selection (instantly centers canvas directly to scene without animation lag)
   const handleSelectScene = useCallback((sceneId: string, pageNumber?: number) => {
     setActiveSceneId(sceneId);
     try {
@@ -1276,13 +1283,123 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
     if (pageViewMode === 'single' && pageNumber) {
       setCurrentSinglePage(pageNumber);
     }
-    setTimeout(() => {
-      const el = document.getElementById(`scene-header-${sceneId}`);
-      if (el) {
-        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    const scrollToSceneHeader = () => {
+      const el = document.getElementById(`scene-header-${sceneId}`) || document.getElementById(`scene-header-box-${sceneId}`);
+      const scroller = canvasScrollerRef.current;
+      if (el && scroller) {
+        const scrollerRect = scroller.getBoundingClientRect();
+        const elRect = el.getBoundingClientRect();
+        const targetScrollTop = scroller.scrollTop + (elRect.top - scrollerRect.top) - 20;
+        scroller.scrollTop = Math.max(0, targetScrollTop);
+      } else if (el) {
+        el.scrollIntoView({ behavior: 'auto', block: 'start' });
       }
-    }, 60);
-  }, [pageViewMode, renderedPageLimit, pages.length]);
+    };
+    scrollToSceneHeader();
+    requestAnimationFrame(scrollToSceneHeader);
+  }, [pageViewMode, renderedPageLimit, pages.length, selectedDocId]);
+
+  // Current Scene Index (0-based)
+  const currentSceneIndex = useMemo(() => {
+    if (!activeSceneId) return 0;
+    const idx = screenplayData.scenes.findIndex((s) => s.id === activeSceneId);
+    return idx === -1 ? 0 : idx;
+  }, [screenplayData.scenes, activeSceneId]);
+
+  // Filtered Scenes for Quick Jumper modal
+  const filteredJumperScenes = useMemo(() => {
+    const q = sceneJumpQuery.trim().toLowerCase();
+    if (!q) return screenplayData.scenes;
+    return screenplayData.scenes.filter((sc, idx) => {
+      const scNum = (sc.sceneNumber || String(idx + 1)).toLowerCase();
+      if (scNum === q || scNum.startsWith(q)) return true;
+      if (sc.location && sc.location.toLowerCase().includes(q)) return true;
+      if (sc.timeOfDay && sc.timeOfDay.toLowerCase().includes(q)) return true;
+      return false;
+    });
+  }, [screenplayData.scenes, sceneJumpQuery]);
+
+  // Jump to Next Scene Header directly
+  const handleJumpToNextScene = useCallback((fromSceneId?: string) => {
+    const scenes = screenplayData.scenes;
+    if (scenes.length === 0) return;
+    const curId = fromSceneId || activeSceneId;
+    const curIdx = curId ? scenes.findIndex((s) => s.id === curId) : -1;
+    const nextIdx = curIdx === -1 ? 0 : Math.min(scenes.length - 1, curIdx + 1);
+    const nextScene = scenes[nextIdx];
+    if (nextScene) {
+      handleSelectScene(nextScene.id, scenePageMap[nextScene.id]);
+      const focusHeader = () => {
+        const headerEl = document.getElementById(`scene-header-box-${nextScene.id}`) || document.getElementById(`scene-header-${nextScene.id}`);
+        if (headerEl) {
+          headerEl.focus({ preventScroll: true });
+        }
+      };
+      focusHeader();
+      requestAnimationFrame(focusHeader);
+      showToast(`🎬 Scene ${nextScene.sceneNumber || nextIdx + 1} of ${scenes.length}`);
+    }
+  }, [screenplayData.scenes, activeSceneId, scenePageMap, handleSelectScene, showToast]);
+
+  // Jump to Previous Scene Header directly
+  const handleJumpToPrevScene = useCallback((fromSceneId?: string) => {
+    const scenes = screenplayData.scenes;
+    if (scenes.length === 0) return;
+    const curId = fromSceneId || activeSceneId;
+    const curIdx = curId ? scenes.findIndex((s) => s.id === curId) : -1;
+    const prevIdx = curIdx === -1 ? 0 : Math.max(0, curIdx - 1);
+    const prevScene = scenes[prevIdx];
+    if (prevScene) {
+      handleSelectScene(prevScene.id, scenePageMap[prevScene.id]);
+      const focusHeader = () => {
+        const headerEl = document.getElementById(`scene-header-box-${prevScene.id}`) || document.getElementById(`scene-header-${prevScene.id}`);
+        if (headerEl) {
+          headerEl.focus({ preventScroll: true });
+        }
+      };
+      focusHeader();
+      requestAnimationFrame(focusHeader);
+      showToast(`🎬 Scene ${prevScene.sceneNumber || prevIdx + 1} of ${scenes.length}`);
+    }
+  }, [screenplayData.scenes, activeSceneId, scenePageMap, handleSelectScene, showToast]);
+
+  // Jump to Scene by index (0-based)
+  const handleJumpToSceneByIndex = useCallback((targetIdx: number) => {
+    const scenes = screenplayData.scenes;
+    if (scenes.length === 0) return;
+    const clampedIdx = Math.max(0, Math.min(scenes.length - 1, targetIdx));
+    const targetScene = scenes[clampedIdx];
+    if (targetScene) {
+      handleSelectScene(targetScene.id, scenePageMap[targetScene.id]);
+      const focusHeader = () => {
+        const headerEl = document.getElementById(`scene-header-box-${targetScene.id}`) || document.getElementById(`scene-header-${targetScene.id}`);
+        if (headerEl) {
+          headerEl.focus({ preventScroll: true });
+        }
+      };
+      focusHeader();
+      requestAnimationFrame(focusHeader);
+      showToast(`🎬 Scene ${targetScene.sceneNumber || clampedIdx + 1} of ${scenes.length}`);
+    }
+  }, [screenplayData.scenes, scenePageMap, handleSelectScene, showToast]);
+
+  // Focus script item or header for a scene (from sidebar Enter/ArrowRight)
+  const handleFocusScriptScene = useCallback((sceneId: string) => {
+    handleSelectScene(sceneId, scenePageMap[sceneId]);
+    const focusTarget = () => {
+      const headerBox = document.getElementById(`scene-header-box-${sceneId}`);
+      if (headerBox) {
+        headerBox.focus({ preventScroll: true });
+        return;
+      }
+      const sceneObj = screenplayData.scenes.find((s) => s.id === sceneId);
+      if (sceneObj && sceneObj.items && sceneObj.items.length > 0) {
+        focusScriptItem(sceneObj.items[0].id, 'auto', 'start');
+      }
+    };
+    focusTarget();
+    requestAnimationFrame(focusTarget);
+  }, [handleSelectScene, scenePageMap, screenplayData.scenes]);
 
   // Handle jumping to occurrence from Character Auto-Suggestion Manager modal
   const handleJumpToOccurrence = (sceneId: string, itemId?: string) => {
@@ -3334,6 +3451,13 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
         return;
       }
 
+      // 5b. QUICK SCENE JUMPER: Ctrl+J / Cmd+J
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'j') {
+        e.preventDefault();
+        setIsSceneJumperOpen((prev) => !prev);
+        return;
+      }
+
       // 5. REPLACE: Ctrl+H / Cmd+H
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'h') {
         e.preventDefault();
@@ -3433,28 +3557,30 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
         return;
       }
 
-      // 10b. QUICK ROW JUMP WHILE EDITING: Alt + ArrowDown / Alt + ArrowUp
+      // 10b. QUICK SCENE JUMP: Alt + ArrowDown / Alt + ArrowUp OR PageDown / PageUp
       if (e.altKey && !e.shiftKey) {
         if (e.key === 'ArrowDown') {
-          const currentId =
-            lastSelectedId ||
-            (selectedItemIds.size > 0 ? Array.from(selectedItemIds)[0] : null);
-          if (currentId) {
-            e.preventDefault();
-            handleFocusNextRow(currentId, 'auto');
-            return;
-          }
+          e.preventDefault();
+          handleJumpToNextScene();
+          return;
         }
         if (e.key === 'ArrowUp') {
-          const currentId =
-            lastSelectedId ||
-            (selectedItemIds.size > 0 ? Array.from(selectedItemIds)[0] : null);
-          if (currentId) {
-            e.preventDefault();
-            handleFocusPrevRow(currentId, 'auto');
-            return;
-          }
+          e.preventDefault();
+          handleJumpToPrevScene();
+          return;
         }
+      }
+
+      // PageDown / PageUp: Quick Scene Traversal across entire script
+      if (e.key === 'PageDown' && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        handleJumpToNextScene();
+        return;
+      }
+      if (e.key === 'PageUp' && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        handleJumpToPrevScene();
+        return;
       }
 
       // 11. REORDERING BLOCKS UP/DOWN: Alt + Shift + Up / Down
@@ -4383,6 +4509,47 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
             </span>
           </button>
 
+          {/* Direct Scene Navigator & Stepper */}
+          <div className={`flex items-center rounded-lg border overflow-hidden ${
+            isLight ? 'bg-slate-50 border-slate-200' : 'bg-zinc-900 border-zinc-700/60'
+          }`}>
+            <button
+              type="button"
+              onClick={() => handleJumpToPrevScene()}
+              className={`p-1.5 transition-colors cursor-pointer ${
+                isLight ? 'text-slate-600 hover:text-emerald-600 hover:bg-slate-100' : 'text-zinc-400 hover:text-emerald-400 hover:bg-zinc-800'
+              }`}
+              title="Previous Scene (Alt + ArrowUp / PageUp)"
+            >
+              <ChevronLeft size={13} />
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setSceneJumpQuery('');
+                setSelectedJumperIndex(currentSceneIndex);
+                setIsSceneJumperOpen(true);
+              }}
+              className={`px-2 py-1 text-xs font-mono font-bold flex items-center gap-1 transition-colors cursor-pointer ${
+                isLight ? 'text-emerald-700 hover:bg-slate-100' : 'text-emerald-400 hover:bg-zinc-800'
+              }`}
+              title="Quick Jump to Scene (Cmd+J / Ctrl+J). Up/Down arrow to step."
+            >
+              <span>🎬 SC {screenplayData.scenes[currentSceneIndex]?.sceneNumber || currentSceneIndex + 1}/{screenplayData.scenes.length}</span>
+              <ChevronDown size={11} className="opacity-70" />
+            </button>
+            <button
+              type="button"
+              onClick={() => handleJumpToNextScene()}
+              className={`p-1.5 transition-colors cursor-pointer ${
+                isLight ? 'text-slate-600 hover:text-emerald-600 hover:bg-slate-100' : 'text-zinc-400 hover:text-emerald-400 hover:bg-zinc-800'
+              }`}
+              title="Next Scene (Alt + ArrowDown / PageDown)"
+            >
+              <ChevronRight size={13} />
+            </button>
+          </div>
+
           {/* Find & Replace Trigger */}
           <button
             onClick={() => {
@@ -4934,6 +5101,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
           onToggleOpen={handleToggleSceneSidebar}
           activeSceneId={activeSceneId}
           onSelectScene={handleSelectScene}
+          onFocusScriptScene={handleFocusScriptScene}
           onAddScene={handleInsertScene}
           onDeleteScene={handleDeleteScene}
           onRenumberScenes={handleRenumberAllScenes}
@@ -5069,14 +5237,78 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
                           {layoutOptions.sceneHeadingStyle === 'kollywood' ? (
                             elem.isContinued ? (
                               /* Continued Header on Page 2+ (From diagram) */
-                              <div className="pt-1 pb-2 mb-3 border-b-2 border-black dark:border-zinc-200">
+                              <div
+                                id={`scene-header-box-${elem.sceneId}`}
+                                tabIndex={0}
+                                role="region"
+                                aria-label={`Scene ${elem.sceneNumber} Continued Header`}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'ArrowDown') {
+                                    e.preventDefault();
+                                    handleJumpToNextScene(elem.sceneId);
+                                    return;
+                                  }
+                                  if (e.key === 'ArrowUp') {
+                                    e.preventDefault();
+                                    handleJumpToPrevScene(elem.sceneId);
+                                    return;
+                                  }
+                                  if (e.key === 'Home') {
+                                    e.preventDefault();
+                                    handleJumpToSceneByIndex(0);
+                                    return;
+                                  }
+                                  if (e.key === 'End') {
+                                    e.preventDefault();
+                                    handleJumpToSceneByIndex(screenplayData.scenes.length - 1);
+                                    return;
+                                  }
+                                }}
+                                className="pt-1 pb-2 mb-3 border-b-2 border-black dark:border-zinc-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer"
+                              >
                                 <div className="font-bold text-sm tracking-wide text-zinc-900 dark:text-zinc-100">
                                   Sc No: {elem.sceneNumber} - Page {elem.scenePageNumber || 2}/{elem.sceneTotalPages || 2}
                                 </div>
                               </div>
                             ) : (
                               /* Full Scene Header Box on Page 1 (Exact wireframe layout with boxed pages & dynamic character wrapping) */
-                              <div className={`group/hdr relative p-3 rounded-lg border border-black dark:border-zinc-600 transition-colors duration-150 subpixel-antialiased ${
+                              <div
+                                id={`scene-header-box-${elem.sceneId}`}
+                                tabIndex={0}
+                                role="region"
+                                aria-label={`Scene ${elem.sceneNumber} Header`}
+                                onKeyDown={(e) => {
+                                  const target = e.target as HTMLElement;
+                                  if (target?.isContentEditable || target?.tagName === 'INPUT' || target?.tagName === 'BUTTON') {
+                                    return;
+                                  }
+                                  if (e.key === 'ArrowDown') {
+                                    e.preventDefault();
+                                    handleJumpToNextScene(elem.sceneId);
+                                    return;
+                                  }
+                                  if (e.key === 'ArrowUp') {
+                                    e.preventDefault();
+                                    handleJumpToPrevScene(elem.sceneId);
+                                    return;
+                                  }
+                                  if (e.key === 'Home') {
+                                    e.preventDefault();
+                                    handleJumpToSceneByIndex(0);
+                                    return;
+                                  }
+                                  if (e.key === 'End') {
+                                    e.preventDefault();
+                                    handleJumpToSceneByIndex(screenplayData.scenes.length - 1);
+                                    return;
+                                  }
+                                  if (e.key === 'Enter') {
+                                    e.preventDefault();
+                                    handleSceneHeaderNavDown(elem.sceneId);
+                                    return;
+                                  }
+                                }}
+                                className={`group/hdr relative p-3 rounded-lg border focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 border-black dark:border-zinc-600 transition-colors duration-150 subpixel-antialiased cursor-pointer ${
                                 isLight
                                   ? 'bg-white text-zinc-950 shadow-xs'
                                   : 'bg-zinc-900/80 text-zinc-100 shadow-xs'
@@ -6668,6 +6900,149 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
         onClose={() => setIsShortcutsModalOpen(false)}
         isLight={isLight}
       />
+
+      {/* Quick Scene Jumper & Navigator Modal (Cmd+J / Ctrl+J) */}
+      {isSceneJumperOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-start justify-center pt-20 bg-black/60 backdrop-blur-xs"
+          onClick={() => setIsSceneJumperOpen(false)}
+        >
+          <div
+            className={`w-full max-w-lg rounded-2xl border shadow-2xl overflow-hidden flex flex-col max-h-[75vh] ${
+              isLight
+                ? 'bg-white text-zinc-900 border-slate-200'
+                : 'bg-zinc-900 text-zinc-100 border-zinc-700'
+            }`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header / Search Input */}
+            <div className={`p-3.5 border-b flex items-center gap-3 ${isLight ? 'border-slate-200 bg-slate-50' : 'border-zinc-800 bg-zinc-950'}`}>
+              <Search size={18} className="text-emerald-500 shrink-0" />
+              <input
+                type="text"
+                autoFocus
+                placeholder="Type scene number (e.g. 100) or location name..."
+                value={sceneJumpQuery}
+                onChange={(e) => {
+                  setSceneJumpQuery(e.target.value);
+                  setSelectedJumperIndex(0);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') {
+                    e.preventDefault();
+                    setIsSceneJumperOpen(false);
+                    return;
+                  }
+                  if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    setSelectedJumperIndex((prev) => Math.min(filteredJumperScenes.length - 1, prev + 1));
+                    return;
+                  }
+                  if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    setSelectedJumperIndex((prev) => Math.max(0, prev - 1));
+                    return;
+                  }
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    const numMatch = sceneJumpQuery.trim().match(/^\d+/);
+                    if (numMatch) {
+                      const numVal = numMatch[0];
+                      const matchedScene = screenplayData.scenes.find(
+                        (s) => s.sceneNumber === numVal || s.sceneNumber === String(parseInt(numVal, 10))
+                      );
+                      if (matchedScene) {
+                        handleSelectScene(matchedScene.id, scenePageMap[matchedScene.id]);
+                        setIsSceneJumperOpen(false);
+                        return;
+                      }
+                    }
+                    const target = filteredJumperScenes[selectedJumperIndex];
+                    if (target) {
+                      handleSelectScene(target.id, scenePageMap[target.id]);
+                      setIsSceneJumperOpen(false);
+                    }
+                  }
+                }}
+                className="flex-1 bg-transparent border-none outline-none text-sm font-semibold placeholder:text-zinc-400"
+              />
+              <button
+                type="button"
+                onClick={() => setIsSceneJumperOpen(false)}
+                className="p-1 rounded-md text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 cursor-pointer"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* List of Scenes */}
+            <div className="flex-1 overflow-y-auto p-2 divide-y divide-zinc-800/40">
+              {filteredJumperScenes.length === 0 ? (
+                <div className="p-8 text-center text-sm text-zinc-400">
+                  No scene found matching "{sceneJumpQuery}". Press Esc to close.
+                </div>
+              ) : (
+                filteredJumperScenes.map((scene, idx) => {
+                  const isSelected = idx === selectedJumperIndex;
+                  const pg = scenePageMap[scene.id] || 1;
+                  return (
+                    <div
+                      key={scene.id}
+                      onClick={() => {
+                        handleSelectScene(scene.id, pg);
+                        setIsSceneJumperOpen(false);
+                      }}
+                      onMouseEnter={() => setSelectedJumperIndex(idx)}
+                      className={`px-3 py-2.5 rounded-xl cursor-pointer flex items-center justify-between gap-3 text-xs transition-colors ${
+                        isSelected
+                          ? 'bg-emerald-500 text-black font-bold shadow-md'
+                          : isLight
+                          ? 'hover:bg-slate-100 text-zinc-800'
+                          : 'hover:bg-zinc-800/80 text-zinc-200'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <span className={`px-2 py-0.5 rounded font-mono font-black text-[11px] ${
+                          isSelected ? 'bg-black text-emerald-400' : 'bg-zinc-800 text-emerald-400'
+                        }`}>
+                          SC {scene.sceneNumber || idx + 1}
+                        </span>
+                        <span className="truncate font-medium">{scene.location || 'Location'}</span>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded uppercase ${
+                          isSelected ? 'bg-black/20 text-black' : 'bg-zinc-800/60 text-zinc-400'
+                        }`}>
+                          Pg {pg}
+                        </span>
+                        {scene.timeOfDay && (
+                          <span className={`text-[10px] font-mono uppercase ${
+                            isSelected ? 'text-black' : 'text-zinc-400'
+                          }`}>
+                            {scene.timeOfDay}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            {/* Footer with key hints */}
+            <div className={`p-2.5 border-t text-[11px] font-mono flex items-center justify-between text-zinc-400 ${
+              isLight ? 'bg-slate-50 border-slate-200' : 'bg-zinc-950 border-zinc-800'
+            }`}>
+              <div className="flex items-center gap-3">
+                <span>↑/↓: Navigate</span>
+                <span>Enter: Jump</span>
+                <span>Esc: Close</span>
+              </div>
+              <span className="text-emerald-500 font-bold">Total Scenes: {screenplayData.scenes.length}</span>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
