@@ -1157,29 +1157,14 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
 
   const { pages, totalPages, totalItems, totalScenes } = paginationResult;
 
-  // Progressive Page Mounting: Fast-path mount initial 6 pages for split-second (<15ms) first paint
-  const INITIAL_PAGE_MOUNT_COUNT = 6;
-  const [renderedPageLimit, setRenderedPageLimit] = useState<number>(INITIAL_PAGE_MOUNT_COUNT);
-
-  // Incrementally unlock remaining pages in background so scrolling is completely transparent
-  useEffect(() => {
-    if (pageViewMode !== 'stacked') return;
-    if (renderedPageLimit >= pages.length) return;
-    const t1 = setTimeout(() => {
-      setRenderedPageLimit((prev) => (prev < 20 ? 20 : pages.length));
-    }, 50);
-    return () => clearTimeout(t1);
-  }, [renderedPageLimit, pages.length, pageViewMode]);
+  // Full Page Mounting: All pages mounted so arrow key navigation reaches all scenes seamlessly to the bottom
+  const [renderedPageLimit, setRenderedPageLimit] = useState<number>(() => Math.max(pages.length, 500));
 
   useEffect(() => {
-    if (pageViewMode !== 'stacked') return;
-    if (renderedPageLimit === 20 && pages.length > 20) {
-      const t2 = setTimeout(() => {
-        setRenderedPageLimit(pages.length);
-      }, 90);
-      return () => clearTimeout(t2);
+    if (pages.length > renderedPageLimit) {
+      setRenderedPageLimit(pages.length);
     }
-  }, [renderedPageLimit, pages.length, pageViewMode]);
+  }, [pages.length, renderedPageLimit]);
 
   // Flag to prevent debounced scroll listener from overwriting saved scroll with 0 before initial render
   const isInitialScrollRestoredRef = useRef<boolean>(false);
@@ -1351,9 +1336,14 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
         set.add(it.id);
         list.push(it.id);
       });
+      if (layoutOptions.autoEndSceneCutTo && !items.some((i) => i.column === 'center' || i.type === 'transition')) {
+        const cutId = `auto-cut-to-${sc.id}`;
+        set.add(cutId);
+        list.push(cutId);
+      }
     });
     return { allItemIds: set, orderedItemIds: list };
-  }, [screenplayData]);
+  }, [screenplayData, layoutOptions.autoEndSceneCutTo]);
 
   const stableItemIdsRef = useRef(rawItemIds);
   const { allItemIds, orderedItemIds } = useMemo(() => {
@@ -1411,10 +1401,14 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
       }
     }
 
-    // Case 3: Standard single click on card body (select this block)
+    // Case 3: Standard single click on card body (select this block & focus card)
     setSelectedItemIds(new Set([itemId]));
     setLastSelectedId(itemId);
     lastSelectedIdRef.current = itemId;
+    const cardEl = document.getElementById(`script-row-card-${itemId}`);
+    if (cardEl) {
+      cardEl.focus({ preventScroll: true });
+    }
   }, []);
 
   // Select all paragraphs
@@ -2149,22 +2143,21 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
   };
 
   // Centered viewport scrolling so active row remains centered at eye-level
-  const scrollToItem = useCallback((itemId: string, behavior: ScrollBehavior = 'smooth') => {
+  const scrollToItem = useCallback((itemId: string, behavior: ScrollBehavior = 'auto') => {
     if (selectedDocId) {
       try {
         localStorage.setItem(`backstage_twocol_item_${selectedDocId}`, itemId);
       } catch {}
     }
-    // Ensure the page holding this item is mounted beyond fast-path limit
-    for (let pIdx = 0; pIdx < pages.length; pIdx++) {
-      if (pages[pIdx].elements.some((el) => (el as any).item?.id === itemId)) {
-        if (pIdx >= renderedPageLimit) {
-          setRenderedPageLimit(pages.length);
+    // In single page mode, jump to the correct page if needed
+    if (pageViewMode === 'single') {
+      for (let pIdx = 0; pIdx < pages.length; pIdx++) {
+        if (pages[pIdx].elements.some((el) => (el as any).item?.id === itemId)) {
+          if (pIdx + 1 !== currentSinglePage) {
+            setCurrentSinglePage(pIdx + 1);
+          }
+          break;
         }
-        if (pageViewMode === 'single' && pIdx + 1 !== currentSinglePage) {
-          setCurrentSinglePage(pIdx + 1);
-        }
-        break;
       }
     }
 
@@ -2173,19 +2166,40 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
        document.getElementById(`script-row-${itemId}`) ||
        document.querySelector(`[data-item-row-id="${itemId}"]`)) as HTMLElement | null;
 
+    const performCenterScroll = (el: HTMLElement) => {
+      const scroller = canvasScrollerRef.current;
+      if (scroller) {
+        const scrollerRect = scroller.getBoundingClientRect();
+        const elRect = el.getBoundingClientRect();
+        const currentTop = scroller.scrollTop;
+        const targetScrollTop = currentTop + (elRect.top - scrollerRect.top) - (scrollerRect.height / 2) + (elRect.height / 2);
+        if (behavior === 'smooth') {
+          scroller.scrollTo({ top: Math.max(0, targetScrollTop), behavior: 'smooth' });
+        } else {
+          scroller.scrollTop = Math.max(0, targetScrollTop);
+        }
+      } else {
+        el.scrollIntoView({ behavior, block: 'center', inline: 'nearest' });
+      }
+    };
+
     const el = getTargetEl();
     if (el) {
-      el.scrollIntoView({ behavior, block: 'center', inline: 'nearest' });
+      performCenterScroll(el);
     } else {
-      // If element is not yet in DOM (e.g. cross-scene page transition), scroll once mounted
-      requestAnimationFrame(() => {
+      let attempts = 0;
+      const checkDeferred = () => {
+        attempts++;
         const deferredEl = getTargetEl();
         if (deferredEl) {
-          deferredEl.scrollIntoView({ behavior, block: 'center', inline: 'nearest' });
+          performCenterScroll(deferredEl);
+        } else if (attempts < 12) {
+          requestAnimationFrame(checkDeferred);
         }
-      });
+      };
+      requestAnimationFrame(checkDeferred);
     }
-  }, [pageViewMode, pages, currentSinglePage, renderedPageLimit]);
+  }, [pageViewMode, pages, currentSinglePage, selectedDocId]);
 
   // Delete item and smoothly advance selection to the adjacent paragraph
   const handleDeleteItem = useCallback((itemId: string, e?: React.MouseEvent) => {
@@ -3152,7 +3166,8 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
     caretPosition: 'start' | 'end' = 'end',
     attempt = 0
   ) => {
-    scrollToItem(itemId, 'smooth');
+    lastSelectedIdRef.current = itemId;
+    scrollToItem(itemId, 'auto');
 
     const tryFocus = () => {
       let targetEl: HTMLElement | null = null;
@@ -3202,7 +3217,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
       return false;
     };
 
-    if (!tryFocus() && attempt < 4) {
+    if (!tryFocus() && attempt < 12) {
       requestAnimationFrame(() => focusScriptItem(itemId, targetField, caretPosition, attempt + 1));
     }
   };
@@ -3224,13 +3239,14 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
     const idx = orderedItemIds.indexOf(currentItemId);
     if (idx !== -1 && idx < orderedItemIds.length - 1) {
       const nextId = orderedItemIds[idx + 1];
+      lastSelectedIdRef.current = nextId;
       setSelectedItemIds(new Set([nextId]));
       setLastSelectedId(nextId);
       if (targetField === 'card') {
         const cardEl = document.getElementById(`script-row-card-${nextId}`);
         if (cardEl) {
           cardEl.focus({ preventScroll: true });
-          scrollToItem(nextId, 'smooth');
+          scrollToItem(nextId, 'auto');
         }
       } else {
         focusScriptItem(nextId, targetField, 'start');
@@ -3248,13 +3264,14 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
     const idx = orderedItemIds.indexOf(currentItemId);
     if (idx > 0) {
       const prevId = orderedItemIds[idx - 1];
+      lastSelectedIdRef.current = prevId;
       setSelectedItemIds(new Set([prevId]));
       setLastSelectedId(prevId);
       if (targetField === 'card') {
         const cardEl = document.getElementById(`script-row-card-${prevId}`);
         if (cardEl) {
           cardEl.focus({ preventScroll: true });
-          scrollToItem(prevId, 'smooth');
+          scrollToItem(prevId, 'auto');
         }
       } else {
         focusScriptItem(prevId, targetField, 'end');
@@ -3494,6 +3511,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
           e.preventDefault();
           if (orderedItemIds.length === 0) return;
           const currentId =
+            lastSelectedIdRef.current ||
             lastSelectedId ||
             (selectedItemIds.size > 0
               ? Array.from(selectedItemIds)[selectedItemIds.size - 1]
@@ -3501,6 +3519,9 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
           const currentIdx = currentId ? orderedItemIds.indexOf(currentId) : -1;
           const nextIdx = currentIdx === -1 ? 0 : Math.min(orderedItemIds.length - 1, currentIdx + 1);
           const nextId = orderedItemIds[nextIdx];
+
+          lastSelectedIdRef.current = nextId;
+          setLastSelectedId(nextId);
 
           if (e.shiftKey && currentId) {
             const startIdx = orderedItemIds.indexOf(Array.from(selectedItemIds)[0]);
@@ -3512,14 +3533,13 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
           } else {
             setSelectedItemIds(new Set([nextId]));
           }
-          setLastSelectedId(nextId);
-          scrollToItem(nextId, 'smooth');
+          scrollToItem(nextId, 'auto');
 
           const focusCard = (targetId: string, attempt = 0) => {
             const cardEl = document.getElementById(`script-row-card-${targetId}`);
             if (cardEl) {
               cardEl.focus({ preventScroll: true });
-            } else if (attempt < 4) {
+            } else if (attempt < 12) {
               requestAnimationFrame(() => focusCard(targetId, attempt + 1));
             }
           };
@@ -3532,6 +3552,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
           e.preventDefault();
           if (orderedItemIds.length === 0) return;
           const currentId =
+            lastSelectedIdRef.current ||
             lastSelectedId ||
             (selectedItemIds.size > 0 ? Array.from(selectedItemIds)[0] : null);
           const currentIdx = currentId
@@ -3539,6 +3560,9 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
             : -1;
           const prevIdx = currentIdx === -1 ? 0 : Math.max(0, currentIdx - 1);
           const prevId = orderedItemIds[prevIdx];
+
+          lastSelectedIdRef.current = prevId;
+          setLastSelectedId(prevId);
 
           if (e.shiftKey && currentId) {
             const startIdx = orderedItemIds.indexOf(Array.from(selectedItemIds)[0]);
@@ -3550,14 +3574,13 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
           } else {
             setSelectedItemIds(new Set([prevId]));
           }
-          setLastSelectedId(prevId);
-          scrollToItem(prevId, 'smooth');
+          scrollToItem(prevId, 'auto');
 
           const focusCard = (targetId: string, attempt = 0) => {
             const cardEl = document.getElementById(`script-row-card-${targetId}`);
             if (cardEl) {
               cardEl.focus({ preventScroll: true });
-            } else if (attempt < 4) {
+            } else if (attempt < 12) {
               requestAnimationFrame(() => focusCard(targetId, attempt + 1));
             }
           };
@@ -4994,49 +5017,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
               ? [pages[currentSinglePage - 1] || pages[0]]
               : pages
             ).filter(Boolean).map((page, pageIndex) => {
-              // Progressive windowing: off-screen pages beyond fast-path render placeholder shell
-              if (
-                pageViewMode === 'stacked' &&
-                pageIndex >= renderedPageLimit &&
-                !isExportingDocx &&
-                !isExportingPdf &&
-                !isFindReplaceOpen
-              ) {
-                return (
-                  <div
-                    key={page.pageNumber}
-                    id={`script-page-${page.pageNumber}`}
-                    style={{
-                      width: `${page.widthPx}px`,
-                      minHeight: `${page.heightPx}px`,
-                      height: `${page.heightPx}px`,
-                      paddingTop: `${page.paddingTopPx}px`,
-                      paddingBottom: `${page.paddingBottomPx}px`,
-                      paddingLeft: `${page.paddingLeftPx}px`,
-                      paddingRight: `${page.paddingRightPx}px`,
-                    }}
-                    className={`relative shadow-2xl rounded-xs border flex flex-col justify-between transition-colors duration-200 select-none ${
-                      isLight
-                        ? 'bg-white text-zinc-900 border-slate-300'
-                        : 'bg-[#18181c] text-zinc-100 border-zinc-800'
-                    }`}
-                  >
-                    <div className="flex justify-between items-center text-xs opacity-40 font-mono">
-                      <span>{screenplayData.title || 'Screenplay'}</span>
-                      <span>Page {page.pageNumber}</span>
-                    </div>
-                    <div className="flex-1 flex flex-col items-center justify-center gap-2 text-zinc-400 dark:text-zinc-600">
-                      <div className="w-24 h-1.5 rounded-full bg-current opacity-20 animate-pulse" />
-                      <span className="font-mono text-xs opacity-60">Page {page.pageNumber}</span>
-                      <div className="w-16 h-1.5 rounded-full bg-current opacity-20 animate-pulse" />
-                    </div>
-                    <div className="flex justify-between items-center text-[10px] opacity-40 font-mono">
-                      <span>{layoutOptions.scriptEdition || '1st Edition'}</span>
-                      <span>Page {page.pageNumber}</span>
-                    </div>
-                  </div>
-                );
-              }
+              // All pages fully rendered in stacked mode to preserve continuous unbroken arrow key navigation to the bottom
 
               return (
               <div
@@ -5052,8 +5033,7 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
                   fontFamily: layoutOptions.baseFontFamily,
                   fontSize: `${layoutOptions.baseFontSizePx}px`,
                   lineHeight: layoutOptions.baseLineHeight,
-                  contentVisibility: pageViewMode === 'stacked' ? 'auto' : undefined,
-                  containIntrinsicSize: pageViewMode === 'stacked' ? `${page.widthPx}px ${page.heightPx}px` : undefined,
+
                 }}
                 className={`relative shadow-2xl rounded-xs transition-colors duration-200 border flex flex-col justify-between ${
                   isLight
@@ -5096,13 +5076,13 @@ export const TwoColumnScriptView: React.FC<TwoColumnScriptViewProps> = ({
                               </div>
                             ) : (
                               /* Full Scene Header Box on Page 1 (Exact wireframe layout with boxed pages & dynamic character wrapping) */
-                              <div className={`group/hdr relative p-3 rounded-lg border border-black dark:border-zinc-600 transition-all ${
+                              <div className={`group/hdr relative p-3 rounded-lg border border-black dark:border-zinc-600 transition-colors duration-150 subpixel-antialiased ${
                                 isLight
                                   ? 'bg-white text-zinc-950 shadow-xs'
                                   : 'bg-zinc-900/80 text-zinc-100 shadow-xs'
                               }`}>
-                                {/* Scene Header Quick Action Hover Bar */}
-                                <div className="absolute -top-3.5 right-3 opacity-0 group-hover/hdr:opacity-100 transition-opacity z-30 flex items-center gap-1 border rounded-lg px-2 py-0.5 shadow-md backdrop-blur-xs bg-white/95 dark:bg-zinc-900/95 border-slate-300 dark:border-zinc-700 text-xs select-none">
+                                {/* Scene Header Quick Action Hover Bar - Crisp solid background, zero blur, razor sharp */}
+                                <div className="absolute -top-3.5 right-3 opacity-0 group-hover/hdr:opacity-100 transition-opacity duration-150 z-30 flex items-center gap-1 border rounded-lg px-2 py-0.5 shadow-md bg-white dark:bg-zinc-900 border-slate-300 dark:border-zinc-700 text-xs select-none">
                                   <button
                                     type="button"
                                     onClick={(e) => {

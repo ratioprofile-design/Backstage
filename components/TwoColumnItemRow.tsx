@@ -409,7 +409,7 @@ export const TwoColumnItemRow: React.FC<TwoColumnItemRowProps> = React.memo(
                   e.stopPropagation();
                   onAddAbove(item.id, 'left');
                 }}
-                className={`absolute -left-9 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full border shadow-sm flex items-center justify-center opacity-0 group-hover/row:opacity-60 group-hover/inbetween:opacity-100 hover:!opacity-100 transition-all cursor-pointer hover:scale-110 active:scale-95 ${
+                className={`absolute -left-9 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full border shadow-sm flex items-center justify-center opacity-0 group-hover/row:opacity-60 group-hover/inbetween:opacity-100 hover:!opacity-100 transition-colors duration-150 cursor-pointer ${
                   isLight
                     ? 'bg-white hover:bg-emerald-600 hover:text-white text-slate-700 border-slate-300 hover:border-emerald-600 shadow-slate-200'
                     : 'bg-zinc-900 hover:bg-emerald-500 hover:text-black text-zinc-300 border-zinc-700 hover:border-emerald-400'
@@ -436,7 +436,7 @@ export const TwoColumnItemRow: React.FC<TwoColumnItemRowProps> = React.memo(
                   e.stopPropagation();
                   onAddAbove(item.id, 'right');
                 }}
-                className={`absolute -right-9 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full border shadow-sm flex items-center justify-center opacity-0 group-hover/row:opacity-60 group-hover/inbetween:opacity-100 hover:!opacity-100 transition-all cursor-pointer hover:scale-110 active:scale-95 ${
+                className={`absolute -right-9 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full border shadow-sm flex items-center justify-center opacity-0 group-hover/row:opacity-60 group-hover/inbetween:opacity-100 hover:!opacity-100 transition-colors duration-150 cursor-pointer ${
                   isLight
                     ? 'bg-white hover:bg-sky-600 hover:text-white text-slate-700 border-slate-300 hover:border-sky-600 shadow-slate-200'
                     : 'bg-zinc-900 hover:bg-sky-500 hover:text-black text-zinc-300 border-zinc-700 hover:border-sky-400'
@@ -454,7 +454,7 @@ export const TwoColumnItemRow: React.FC<TwoColumnItemRowProps> = React.memo(
           id={`script-row-card-${item.id}`}
           tabIndex={-1}
           onClick={(e) => onParagraphClick(item.id, e)}
-          className={`group relative rounded-lg px-2 py-0.5 transition-colors duration-150 cursor-pointer border ${
+          className={`group relative rounded-lg px-2 py-0.5 transition-colors duration-150 cursor-pointer border subpixel-antialiased ${
             isDragged
               ? 'opacity-35 scale-[0.99] ring-2 ring-emerald-500/50 shadow-xl border-emerald-500/50'
               : isSelected
@@ -471,7 +471,7 @@ export const TwoColumnItemRow: React.FC<TwoColumnItemRowProps> = React.memo(
             draggable={true}
             onDragStart={(e) => onDragStart(item.id, e)}
             onDragEnd={onDragEnd}
-            className={`absolute -left-7 top-1/2 -translate-y-1/2 z-25 w-5 h-7 rounded flex items-center justify-center opacity-0 group-hover/row:opacity-100 transition-all cursor-grab active:cursor-grabbing hover:scale-110 ${
+            className={`absolute -left-7 top-1/2 -translate-y-1/2 z-25 w-5 h-7 rounded flex items-center justify-center opacity-0 group-hover/row:opacity-100 transition-opacity duration-150 cursor-grab active:cursor-grabbing ${
               isLight
                 ? 'text-slate-400 hover:text-slate-800 hover:bg-slate-200/70'
                 : 'text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800'
@@ -481,12 +481,12 @@ export const TwoColumnItemRow: React.FC<TwoColumnItemRowProps> = React.memo(
             <GripVertical size={14} className="stroke-[2.2]" />
           </div>
 
-          {/* Hover Quick Action Toolbar - Anchored at top-right corner to NEVER obscure character name at the center divider */}
+          {/* Hover Quick Action Toolbar - Crisp solid background, zero blur, no subpixel distortion */}
           <div
-            className={`absolute -top-3.5 right-4 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-20 hover:!opacity-100 hover:!pointer-events-auto transition-all z-30 flex items-center gap-1 border rounded-xl px-1.5 py-0.5 shadow-xl backdrop-blur-xs ${
+            className={`absolute -top-3.5 right-4 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-20 hover:!opacity-100 hover:!pointer-events-auto transition-opacity duration-150 z-30 flex items-center gap-1 border rounded-xl px-1.5 py-0.5 shadow-lg ${
               isLight
-                ? 'bg-white/95 text-slate-700 border-slate-200/90 shadow-[0_8px_25px_rgba(0,0,0,0.12)]'
-                : 'bg-zinc-950/95 dark:bg-zinc-900 border-zinc-700/90 text-zinc-100'
+                ? 'bg-white text-slate-700 border-slate-300 shadow-[0_4px_16px_rgba(0,0,0,0.1)]'
+                : 'bg-zinc-900 border-zinc-700 text-zinc-100 shadow-[0_4px_16px_rgba(0,0,0,0.5)]'
             }`}
           >
             {/* 1. Alignment */}
@@ -1433,7 +1433,7 @@ export const TwoColumnItemRow: React.FC<TwoColumnItemRowProps> = React.memo(
                 e.stopPropagation();
                 onAddBelow(item.id, 'left');
               }}
-              className={`absolute -left-9 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full border shadow-sm flex items-center justify-center opacity-0 group-hover/row:opacity-60 group-hover/inbetween:opacity-100 hover:!opacity-100 transition-all cursor-pointer hover:scale-110 active:scale-95 ${
+              className={`absolute -left-9 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full border shadow-sm flex items-center justify-center opacity-0 group-hover/row:opacity-60 group-hover/inbetween:opacity-100 hover:!opacity-100 transition-colors duration-150 cursor-pointer ${
                 isLight
                   ? 'bg-white hover:bg-emerald-600 hover:text-white text-slate-700 border-slate-300 hover:border-emerald-600 shadow-slate-200'
                   : 'bg-zinc-900 hover:bg-emerald-500 hover:text-black text-zinc-300 border-zinc-700 hover:border-emerald-400'
@@ -1460,7 +1460,7 @@ export const TwoColumnItemRow: React.FC<TwoColumnItemRowProps> = React.memo(
                 e.stopPropagation();
                 onAddBelow(item.id, 'right');
               }}
-              className={`absolute -right-9 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full border shadow-sm flex items-center justify-center opacity-0 group-hover/row:opacity-60 group-hover/inbetween:opacity-100 hover:!opacity-100 transition-all cursor-pointer hover:scale-110 active:scale-95 ${
+              className={`absolute -right-9 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full border shadow-sm flex items-center justify-center opacity-0 group-hover/row:opacity-60 group-hover/inbetween:opacity-100 hover:!opacity-100 transition-colors duration-150 cursor-pointer ${
                 isLight
                   ? 'bg-white hover:bg-sky-600 hover:text-white text-slate-700 border-slate-300 hover:border-sky-600 shadow-slate-200'
                   : 'bg-zinc-900 hover:bg-sky-500 hover:text-black text-zinc-300 border-zinc-700 hover:border-sky-400'
